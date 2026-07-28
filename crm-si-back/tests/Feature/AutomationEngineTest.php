@@ -13,6 +13,7 @@ use App\Enums\TemplateCategory;
 use App\Enums\TemplateStatus;
 use App\Enums\UserRole;
 use App\Jobs\EvaluateAutomationEventJob;
+use App\Jobs\ExecuteAutomationRunJob;
 use App\Models\AutomationRule;
 use App\Models\Channel;
 use App\Models\Contact;
@@ -292,6 +293,39 @@ class AutomationEngineTest extends TestCase
 
         $this->assertSame(3, $rule->runs()->where('status', AutomationRunStatus::Scheduled)->count());
         $this->assertSame(3, $rule->runs()->distinct('deduplication_key')->count('deduplication_key'));
+    }
+
+    public function test_due_automation_runs_are_queued_and_dispatched(): void
+    {
+        [$owner, $channel, $template] = $this->context();
+        $contact = Contact::create([
+            'tenant_id' => $owner->tenant_id,
+            'name' => 'Due',
+            'phone' => '5491111111112',
+            'source' => 'manual',
+        ]);
+        $rule = $this->activeRule($owner, $channel, $template);
+        $run = $rule->runs()->create([
+            'tenant_id' => $owner->tenant_id,
+            'rule_version' => $rule->version,
+            'status' => AutomationRunStatus::Scheduled,
+            'scheduled_for' => now()->subMinute(),
+            'subject_type' => 'contact',
+            'subject_id' => $contact->id,
+            'event_id' => Str::uuid(),
+            'deduplication_key' => hash('sha256', Str::uuid()),
+            'context' => ['old' => [], 'new' => []],
+        ]);
+        Queue::fake();
+
+        $this->artisan('automations:dispatch-due')->assertSuccessful();
+
+        $this->assertSame(AutomationRunStatus::Queued, $run->fresh()->status);
+        $this->assertNotNull($run->fresh()->queued_at);
+        Queue::assertPushed(
+            ExecuteAutomationRunJob::class,
+            fn (ExecuteAutomationRunJob $job): bool => $job->runId === $run->id,
+        );
     }
 
     public function test_whatsapp_action_creates_conversation_and_persists_system_sender(): void
