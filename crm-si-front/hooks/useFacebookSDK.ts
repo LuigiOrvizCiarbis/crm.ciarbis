@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { ChannelError, ChannelErrorDetail } from "@/lib/channel-error";
 
 declare global {
   interface Window {
@@ -37,36 +38,49 @@ export const useFacebookSDK = () => {
       const embeddedData = embeddedEvent?.data ?? null;
 
       if (!token) {
-        throw new Error("No authentication token found");
+        throw new ChannelError({ code: "channelErrorSessionExpired" });
       }
-      const backendResponse = await fetch(`/api/whatsapp-auth`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          code: code,
-          full_response: response,
-          data: embeddedData,
-          embedded_signup_event: embeddedEvent?.event ?? null,
-          embedded_signup_version: embeddedEvent?.version ?? null,
-          waba_id: embeddedData?.waba_id ?? null,
-          phone_number_id: embeddedData?.phone_number_id ?? null,
-          business_id: embeddedData?.business_id ?? null,
-        }),
-      });
 
-      const data = await backendResponse.json();
+      let data: any;
+      try {
+        const backendResponse = await fetch(`/api/whatsapp-auth`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            code: code,
+            full_response: response,
+            data: embeddedData,
+            embedded_signup_event: embeddedEvent?.event ?? null,
+            embedded_signup_version: embeddedEvent?.version ?? null,
+            waba_id: embeddedData?.waba_id ?? null,
+            phone_number_id: embeddedData?.phone_number_id ?? null,
+            business_id: embeddedData?.business_id ?? null,
+          }),
+        });
+
+        data = await backendResponse.json();
+      } catch {
+        // Error de red o respuesta no-JSON: el front muestra un mensaje traducido.
+        throw new ChannelError({ code: "channelErrorNetwork" });
+      }
 
       if (data.success) {
         window.dispatchEvent(new CustomEvent("channel-connected"));
       } else {
-        throw new Error(data.message || "Error al conectar");
+        // Los proxies mandan `code` (el front lo traduce); Laravel manda `message`
+        // (texto ya redactado para el usuario).
+        if (data.code) throw new ChannelError({ code: data.code });
+        if (data.message) throw new ChannelError({ message: data.message });
+        throw new ChannelError({ code: "channelErrorWhatsApp" });
       }
     } catch (error) {
       console.error("Error enviando datos al backend:", error);
-      window.dispatchEvent(new CustomEvent("channel-error"));
+      const detail: ChannelErrorDetail =
+        error instanceof ChannelError ? error.detail : { code: "channelErrorWhatsApp" };
+      window.dispatchEvent(new CustomEvent("channel-error", { detail }));
     }
   }, []);
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { ChannelError, ChannelErrorDetail } from "@/lib/channel-error";
 
 export interface InstagramPageOption {
   page_id: string;
@@ -50,21 +51,29 @@ export const useInstagramLogin = () => {
   const postToBackend = useCallback(async (body: Record<string, unknown>) => {
     const token = getAuthToken();
     if (!token) {
-      window.dispatchEvent(new CustomEvent("channel-error"));
+      window.dispatchEvent(new CustomEvent("channel-error", {
+        detail: { code: "channelErrorSessionExpired" } satisfies ChannelErrorDetail,
+      }));
       return;
     }
 
     try {
-      const response = await fetch(`/api/instagram-auth`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-      });
+      let data: any;
+      try {
+        const response = await fetch(`/api/instagram-auth`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
+        });
 
-      const data = await response.json();
+        data = await response.json();
+      } catch {
+        // Error de red o respuesta no-JSON: el front muestra un mensaje traducido.
+        throw new ChannelError({ code: "channelErrorNetwork" });
+      }
 
       if (data.success) {
         setPageOptions(null);
@@ -80,10 +89,16 @@ export const useInstagramLogin = () => {
         return;
       }
 
-      throw new Error(data.message || "Error al conectar Instagram");
+      // Los proxies mandan `code` (el front lo traduce); Laravel manda `message`
+      // (texto ya redactado para el usuario).
+      if (data.code) throw new ChannelError({ code: data.code });
+      if (data.message) throw new ChannelError({ message: data.message });
+      throw new ChannelError({ code: "channelErrorInstagram" });
     } catch (error) {
       console.error("Error conectando Instagram:", error);
-      window.dispatchEvent(new CustomEvent("channel-error"));
+      const detail: ChannelErrorDetail =
+        error instanceof ChannelError ? error.detail : { code: "channelErrorInstagram" };
+      window.dispatchEvent(new CustomEvent("channel-error", { detail }));
     }
   }, []);
 

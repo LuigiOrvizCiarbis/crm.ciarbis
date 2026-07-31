@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
 
   if (!authHeader) {
     return NextResponse.json(
-      { success: false, message: "No authorization token provided" },
+      { success: false, code: "channelErrorSessionExpired" },
       { status: 401 }
     );
   }
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     console.error("Proxy instagram-auth error:", e);
     return NextResponse.json(
-      { success: false, message: e?.message || "Proxy error" },
+      { success: false, code: "channelErrorServer" },
       { status: 503 }
     );
   }
