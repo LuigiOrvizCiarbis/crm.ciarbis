@@ -19,6 +19,7 @@ const ContactInfoPanel = dynamic(
 )
 import { useChatState } from "@/hooks/useChatState"
 import { useToast } from "@/components/Toast"
+import { ChannelErrorDetail } from "@/lib/channel-error"
 import { FilterType, Channel, Conversation, Message, TranslationLanguage } from "@/data/types"
 import { ChannelType, filterTypeToChannelType } from "@/data/enums"
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
@@ -748,9 +749,13 @@ export default function ChatsPage() {
       }
     }
 
-    const onError = () => {
+    const onError = (event: Event) => {
       removeToast(CONNECTING_TOAST_ID)
-      addToast({ type: "error", title: t("chats.channelError"), description: t("chats.channelErrorDesc") })
+      const detail = (event as CustomEvent<ChannelErrorDetail>).detail
+      // `message` es texto redactado por el backend; `code` se traduce al idioma activo.
+      const description = detail?.message
+        || (detail?.code ? t(`chats.${detail.code}`) : t("chats.channelErrorDesc"))
+      addToast({ type: "error", title: t("chats.channelError"), description })
     }
 
     window.addEventListener("channel-connecting", onConnecting)

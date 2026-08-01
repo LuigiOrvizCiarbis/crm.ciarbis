@@ -28,7 +28,11 @@ class DispatchDueAutomations extends Command
         do {
             $ids = DB::transaction(function (): array {
                 $runs = AutomationRun::withoutGlobalScopes()->where('status', AutomationRunStatus::Scheduled)
-                    ->where('scheduled_for', '<=', now())->orderBy('scheduled_for')->limit(100)->lockForUpdate()->skipLocked()->get();
+                    ->where('scheduled_for', '<=', now())
+                    ->orderBy('scheduled_for')
+                    ->limit(100)
+                    ->lock('for update skip locked')
+                    ->get();
                 if ($runs->isEmpty()) {
                     return [];
                 }
