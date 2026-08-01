@@ -29,7 +29,15 @@ RUN apt-get update && apt-get install -y \
 
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install pdo_pgsql pgsql mbstring xml zip bcmath gd pcntl \
-    && pecl install redis-6.1.0 && docker-php-ext-enable redis
+    # pecl.php.net se cae cada tanto y devuelve "does not have REST xml
+    # available", rompiendo el deploy entero. Reintentamos con backoff.
+    && for i in 1 2 3 4 5; do \
+           pecl install redis-6.1.0 && break; \
+           echo "pecl install redis failed (attempt $i/5), retrying in $((i * 10))s..."; \
+           [ "$i" = 5 ] && exit 1; \
+           sleep $((i * 10)); \
+       done \
+    && docker-php-ext-enable redis
 
 COPY --from=deps /usr/bin/composer /usr/bin/composer
 
