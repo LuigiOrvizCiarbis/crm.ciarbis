@@ -139,7 +139,7 @@ function TaskCard({ task, onMarkDone }: TaskCardProps) {
           >
             {isOverdue && <AlertTriangle className="w-3 h-3" />}
             <CalendarIcon className="w-3 h-3" />
-            <span>{format(new Date(task.deadline), "dd/MM/yyyy")}</span>
+            <span>{format(new Date(task.deadline), "dd/MM/yyyy · HH:mm")} hs</span>
           </div>
         )}
 

@@ -192,9 +192,9 @@ export function TasksFilterPanel({
         </div>
       </div>
 
-      {/* Deadline Filter */}
+      {/* Date Filter */}
       <div className="space-y-3">
-        <Label className="text-sm font-semibold">Deadline</Label>
+        <Label className="text-sm font-semibold">Fecha</Label>
         <div className="flex flex-wrap gap-2">
           {DEADLINE_OPTIONS.map((option) => (
             <Badge

@@ -151,8 +151,9 @@ export function TaskCalendarView({ tasks }: { tasks: Task[] }) {
                         <div
                           key={task.id}
                           className={`text-xs p-1 rounded ${priorityColors[task.priority]} text-white truncate`}
-                          title={task.name}
+                          title={`${format(new Date(task.deadline!), "HH:mm")} hs · ${task.name}`}
                         >
+                          <span className="mr-1 font-semibold tabular-nums">{format(new Date(task.deadline!), "HH:mm")}</span>
                           {task.name}
                         </div>
                       ))}
@@ -194,7 +195,10 @@ export function TaskCalendarView({ tasks }: { tasks: Task[] }) {
                           key={task.id}
                           className={`p-2 rounded ${priorityColors[task.priority]} text-white`}
                         >
-                          <div className="text-xs font-medium mb-1">{task.name}</div>
+                          <div className="mb-1 text-xs font-medium">
+                            <span className="mr-1 tabular-nums">{format(new Date(task.deadline!), "HH:mm")} hs</span>
+                            {task.name}
+                          </div>
                           <div className="text-xs opacity-80">{task.assignee}</div>
                         </div>
                       ))}
@@ -214,6 +218,9 @@ export function TaskCalendarView({ tasks }: { tasks: Task[] }) {
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
                       <h4 className="font-semibold mb-1">{task.name}</h4>
+                      <p className="text-sm font-medium tabular-nums opacity-90">
+                        {format(new Date(task.deadline!), "HH:mm")} hs
+                      </p>
                       <p className="text-sm opacity-90">Responsable: {task.assignee}</p>
                       <p className="text-sm opacity-90">Tipo: {task.type}</p>
                       {task.description && <p className="text-sm mt-2 opacity-80">{task.description}</p>}
