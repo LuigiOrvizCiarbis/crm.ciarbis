@@ -33,6 +33,7 @@ import {
   Check,
   X,
   ExternalLink,
+  GripVertical,
 } from "lucide-react"
 import type { Task } from "@/lib/types/task"
 import { format } from "date-fns"
@@ -40,6 +41,23 @@ import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 import { useTaskStore } from "@/store/useTaskStore"
 import { CalendarSyncBadge } from "./CalendarSyncBadge"
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  arrayMove,
+  SortableContext,
+  horizontalListSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 
 const taskTypeIcons = {
   reunion: Video,
@@ -80,7 +98,6 @@ const priorityColors = {
 
 type TaskColumnKey =
   | "selection"
-  | "icon"
   | "name"
   | "status"
   | "deadline"
@@ -91,10 +108,10 @@ type TaskColumnKey =
   | "actions"
 
 const TASK_COLUMN_WIDTHS_KEY = "tasks-table-column-widths"
+const TASK_COLUMN_ORDER_KEY = "tasks-table-column-order"
 
 const defaultColumnWidths: Record<TaskColumnKey, number> = {
   selection: 56,
-  icon: 64,
   name: 320,
   status: 160,
   deadline: 150,
@@ -107,7 +124,6 @@ const defaultColumnWidths: Record<TaskColumnKey, number> = {
 
 const minColumnWidths: Record<TaskColumnKey, number> = {
   selection: 48,
-  icon: 52,
   name: 220,
   status: 145,
   deadline: 130,
@@ -118,18 +134,42 @@ const minColumnWidths: Record<TaskColumnKey, number> = {
   actions: 120,
 }
 
-const taskColumns: { key: TaskColumnKey; label: string }[] = [
-  { key: "selection", label: "" },
-  { key: "icon", label: "Tipo" },
-  { key: "name", label: "Nombre de tarea" },
-  { key: "status", label: "Estado" },
-  { key: "deadline", label: "Deadline" },
-  { key: "priority", label: "Prioridad" },
-  { key: "type", label: "Tipo" },
-  { key: "assignee", label: "Responsable" },
-  { key: "related", label: "Relacionado con" },
-  { key: "actions", label: "Acciones" },
+interface TaskColumn {
+  key: TaskColumnKey
+  label: string
+  draggable: boolean
+}
+
+const defaultTaskColumns: TaskColumn[] = [
+  { key: "selection", label: "", draggable: false },
+  { key: "name", label: "Nombre de tarea", draggable: true },
+  { key: "related", label: "Relacionado con", draggable: true },
+  { key: "assignee", label: "Responsable", draggable: true },
+  { key: "deadline", label: "Fecha y hora", draggable: true },
+  { key: "status", label: "Estado", draggable: true },
+  { key: "priority", label: "Prioridad", draggable: true },
+  { key: "type", label: "Tipo", draggable: true },
+  { key: "actions", label: "Acciones", draggable: true },
 ]
+
+const loadColumnOrder = (): TaskColumn[] => {
+  if (typeof window === "undefined") return defaultTaskColumns
+
+  try {
+    const saved = window.localStorage.getItem(TASK_COLUMN_ORDER_KEY)
+    if (!saved) return defaultTaskColumns
+
+    const keys = JSON.parse(saved) as TaskColumnKey[]
+    const ordered = keys
+      .map((key) => defaultTaskColumns.find((column) => column.key === key))
+      .filter((column): column is TaskColumn => Boolean(column))
+    const missing = defaultTaskColumns.filter((column) => !ordered.some((item) => item.key === column.key))
+
+    return [...ordered, ...missing]
+  } catch {
+    return defaultTaskColumns
+  }
+}
 
 const getInitialColumnWidths = () => {
   if (typeof window === "undefined") return defaultColumnWidths
@@ -147,6 +187,60 @@ const getInitialColumnWidths = () => {
   }
 }
 
+function SortableTaskHeader({
+  column,
+  width,
+  minWidth,
+  onResizeStart,
+  children,
+}: {
+  column: TaskColumn
+  width: number
+  minWidth: number
+  onResizeStart: (columnKey: TaskColumnKey, event: React.MouseEvent<HTMLButtonElement>) => void
+  children?: React.ReactNode
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: column.key,
+    disabled: !column.draggable,
+  })
+
+  return (
+    <TableHead
+      ref={setNodeRef}
+      className="group relative select-none overflow-hidden pr-5"
+      style={{
+        width,
+        minWidth,
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.55 : 1,
+      }}
+    >
+      <div className="flex min-w-0 items-center gap-1.5">
+        {column.draggable && (
+          <button
+            type="button"
+            aria-label={`Mover columna ${column.label}`}
+            className="cursor-grab touch-none text-muted-foreground/60 hover:text-foreground active:cursor-grabbing"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+        )}
+        <div className="truncate">{children ?? column.label}</div>
+      </div>
+      <button
+        type="button"
+        aria-label={`Redimensionar columna ${column.label || "seleccion"}`}
+        className="absolute right-0 top-0 h-full w-2 cursor-col-resize border-r border-transparent transition-colors hover:border-primary/70 group-hover:border-border"
+        onMouseDown={(event) => onResizeStart(column.key, event)}
+      />
+    </TableHead>
+  )
+}
+
 export function TaskListView({ tasks }: { tasks: Task[] }) {
   const updateTask = useTaskStore((state) => state.updateTask)
   const deleteTask = useTaskStore((state) => state.deleteTask)
@@ -159,6 +253,33 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
   const [bulkField, setBulkField] = useState<"status" | "priority">("status")
   const [bulkValue, setBulkValue] = useState("")
   const [columnWidths, setColumnWidths] = useState<Record<TaskColumnKey, number>>(getInitialColumnWidths)
+  const [columns, setColumns] = useState<TaskColumn[]>(defaultTaskColumns)
+
+  useEffect(() => {
+    setColumns(loadColumnOrder())
+  }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem(TASK_COLUMN_ORDER_KEY, JSON.stringify(columns.map((column) => column.key)))
+  }, [columns])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const handleColumnDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return
+
+    setColumns((current) => {
+      const oldIndex = current.findIndex((column) => column.key === active.id)
+      const newIndex = current.findIndex((column) => column.key === over.id)
+      if (oldIndex === -1 || newIndex === -1) return current
+      if (!current[oldIndex].draggable || !current[newIndex].draggable) return current
+
+      return arrayMove(current, oldIndex, newIndex)
+    })
+  }
 
   useEffect(() => {
     window.localStorage.setItem(TASK_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths))
@@ -393,236 +514,203 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
     window.addEventListener("mouseup", handleMouseUp)
   }
 
-  const tableWidth = Object.values(columnWidths).reduce((total, width) => total + width, 0)
+  const tableWidth = columns.reduce((total, column) => total + columnWidths[column.key], 0)
 
-  const renderResizableHeader = (column: { key: TaskColumnKey; label: string }, content?: React.ReactNode) => (
-    <TableHead
+  const renderResizableHeader = (column: TaskColumn, content?: React.ReactNode) => (
+    <SortableTaskHeader
       key={column.key}
-      className="group relative select-none overflow-hidden pr-5"
-      style={{
-        width: columnWidths[column.key],
-        minWidth: minColumnWidths[column.key],
-      }}
+      column={column}
+      width={columnWidths[column.key]}
+      minWidth={minColumnWidths[column.key]}
+      onResizeStart={handleColumnResizeStart}
     >
-      <div className="truncate">{content ?? column.label}</div>
-      <button
-        type="button"
-        aria-label={`Redimensionar columna ${column.label || "seleccion"}`}
-        className="absolute right-0 top-0 h-full w-2 cursor-col-resize border-r border-transparent transition-colors hover:border-primary/70 group-hover:border-border"
-        onMouseDown={(event) => handleColumnResizeStart(column.key, event)}
-      />
-    </TableHead>
+      {content}
+    </SortableTaskHeader>
   )
+
+  const renderTaskCell = (task: Task, columnKey: TaskColumnKey) => {
+    const TypeIcon = taskTypeIcons[task.type]
+    const isEditing = editingCell?.taskId === task.id
+
+    switch (columnKey) {
+      case "selection":
+        return <Checkbox checked={selectedTasks.has(task.id)} onCheckedChange={() => toggleSelection(task.id)} />
+      case "name":
+        return isEditing && editingCell.field === "name" ? (
+          <div className="flex items-center gap-1">
+            <Input
+              value={editValue}
+              onChange={(event) => setEditValue(event.target.value)}
+              onKeyDown={handleKeyDown}
+              className="h-8 text-sm"
+              autoFocus
+            />
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSave}>
+              <Check className="h-4 w-4 text-emerald-500" />
+            </Button>
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleCancel}>
+              <X className="h-4 w-4 text-red-500" />
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <div className="group flex items-center gap-2">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                <TypeIcon className="h-4 w-4" />
+              </span>
+              <span className="font-medium text-foreground">{task.name}</span>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                onClick={() => handleEdit(task.id, "name", task.name)}
+              >
+                <Edit2 className="h-3 w-3" />
+              </Button>
+            </div>
+            {task.type === "reunion" && <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />}
+          </div>
+        )
+      case "related":
+        return task.relatedTo ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 max-w-full gap-1 hover:bg-primary/10"
+                onClick={() => handleRelatedClick(task.relatedTo)}
+              >
+                <span className="truncate">{task.relatedTo.label}</span>
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Ver {task.relatedTo.kind === "contact" ? "contacto" : task.relatedTo.kind === "pipeline" ? "oportunidad" : "chat"}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <span className="text-xs text-muted-foreground">Sin relación</span>
+        )
+      case "assignee":
+        return (
+          <div className="flex items-center gap-2">
+            <Avatar className="h-6 w-6">
+              <AvatarFallback className="bg-primary/20 text-xs text-primary">
+                {task.assignee.split(" ").map((part) => part[0]).join("").slice(0, 2)}
+              </AvatarFallback>
+            </Avatar>
+            <span className="truncate text-sm text-foreground">{task.assignee}</span>
+          </div>
+        )
+      case "deadline":
+        return task.deadline ? (
+          <div className={isOverdue(task.deadline) && task.status !== "hecho" ? "text-sm font-semibold text-red-400" : "text-sm text-muted-foreground"}>
+            <div className="font-medium tabular-nums">{format(new Date(task.deadline), "dd/MM/yyyy")}</div>
+            <div className="text-xs tabular-nums opacity-80">{format(new Date(task.deadline), "HH:mm")} hs</div>
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">Sin fecha</span>
+        )
+      case "status":
+        return (
+          <Select value={task.status} onValueChange={(value) => handleStatusChange(task.id, value as Task["status"])}>
+            <SelectTrigger className={`h-8 min-w-[130px] justify-between text-xs font-semibold ${statusColors[task.status]}`}>
+              <SelectValue>{statusLabels[task.status]}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="nuevo">Nuevo</SelectItem>
+              <SelectItem value="en-curso">En curso</SelectItem>
+              <SelectItem value="en-espera">En espera</SelectItem>
+              <SelectItem value="reprogramado">Reprogramado</SelectItem>
+              <SelectItem value="bloqueado">Bloqueado</SelectItem>
+              <SelectItem value="hecho">Hecho</SelectItem>
+              <SelectItem value="cancelado">Cancelado</SelectItem>
+            </SelectContent>
+          </Select>
+        )
+      case "priority":
+        return (
+          <Badge variant="outline" className={`text-xs ${priorityColors[task.priority]}`}>
+            {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+          </Badge>
+        )
+      case "type":
+        return (
+          <Badge variant="outline" className="bg-muted/50 text-xs">
+            {task.type.charAt(0).toUpperCase() + task.type.slice(1)}
+          </Badge>
+        )
+      case "actions":
+        return (
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleMarkDone(task.id)} disabled={task.status === "hecho"}>
+                  <Check className="h-4 w-4 text-emerald-500" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Marcar como Hecho</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="icon" variant="ghost" className="h-7 w-7">
+                  <Eye className="h-4 w-4 text-blue-400" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Ver detalles</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleDelete(task.id)}>
+                  <Trash2 className="h-4 w-4 text-red-400" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Eliminar</TooltipContent>
+            </Tooltip>
+          </div>
+        )
+    }
+  }
 
   return (
     <TooltipProvider>
       <div className="rounded-lg border border-border bg-card">
-        <Table className="table-fixed" style={{ width: tableWidth }}>
-          <colgroup>
-            {taskColumns.map((column) => (
-              <col key={column.key} style={{ width: columnWidths[column.key] }} />
-            ))}
-          </colgroup>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent border-b border-border">
-              {renderResizableHeader(taskColumns[0], (
-                <Checkbox
-                  checked={selectedTasks.size === localTasks.length && localTasks.length > 0}
-                  onCheckedChange={toggleSelectAll}
-                />
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
+          <Table className="table-fixed" style={{ width: tableWidth }}>
+            <colgroup>
+              {columns.map((column) => (
+                <col key={column.key} style={{ width: columnWidths[column.key] }} />
               ))}
-              {taskColumns.slice(1).map((column) => renderResizableHeader(column))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {localTasks.map((task) => {
-              const TypeIcon = taskTypeIcons[task.type]
-              const isEditing = editingCell?.taskId === task.id
-
-              return (
-                <TableRow key={task.id} className="hover:bg-muted/30 border-b border-border/50">
-                  {/* Checkbox */}
-                  <TableCell>
-                    <Checkbox checked={selectedTasks.has(task.id)} onCheckedChange={() => toggleSelection(task.id)} />
-                  </TableCell>
-
-                  {/* Icon */}
-                  <TableCell>
-                    <TypeIcon className="w-4 h-4 text-muted-foreground" />
-                  </TableCell>
-
-                  {/* Name - Editable */}
-                  <TableCell>
-                    {isEditing && editingCell.field === "name" ? (
-                      <div className="flex items-center gap-1">
-                        <Input
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onKeyDown={handleKeyDown}
-                          className="h-8 text-sm"
-                          autoFocus
+            </colgroup>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent border-b border-border">
+                <SortableContext items={columns.map((column) => column.key)} strategy={horizontalListSortingStrategy}>
+                  {columns.map((column) =>
+                    renderResizableHeader(
+                      column,
+                      column.key === "selection" ? (
+                        <Checkbox
+                          checked={selectedTasks.size === localTasks.length && localTasks.length > 0}
+                          onCheckedChange={toggleSelectAll}
                         />
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSave}>
-                          <Check className="h-4 w-4 text-emerald-500" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleCancel}>
-                          <X className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 group">
-                          <span className="font-medium text-foreground">{task.name}</span>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                            onClick={() => handleEdit(task.id, "name", task.name)}
-                          >
-                            <Edit2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                        {task.type === "reunion" && (
-                          <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />
-                        )}
-                      </div>
-                    )}
-                  </TableCell>
-
-                  {/* Status - Select */}
-                  <TableCell>
-                    <Select
-                      value={task.status}
-                      onValueChange={(val) => handleStatusChange(task.id, val as Task["status"])}
-                    >
-                      <SelectTrigger className={`h-8 min-w-[130px] justify-between text-xs font-semibold ${statusColors[task.status]}`}>
-                        <SelectValue>{statusLabels[task.status]}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="nuevo">Nuevo</SelectItem>
-                        <SelectItem value="en-curso">En curso</SelectItem>
-                        <SelectItem value="en-espera">En espera</SelectItem>
-                        <SelectItem value="reprogramado">Reprogramado</SelectItem>
-                        <SelectItem value="bloqueado">Bloqueado</SelectItem>
-                        <SelectItem value="hecho">Hecho</SelectItem>
-                        <SelectItem value="cancelado">Cancelado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-
-                  {/* Deadline */}
-                  <TableCell>
-                    {task.deadline ? (
-                      <div
-                        className={`text-sm ${isOverdue(task.deadline) && task.status !== "hecho" ? "text-red-400 font-semibold" : "text-muted-foreground"}`}
-                      >
-                        {format(new Date(task.deadline), "dd/MM/yyyy")}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Sin fecha</span>
-                    )}
-                  </TableCell>
-
-                  {/* Priority */}
-                  <TableCell>
-                    <Badge variant="outline" className={`text-xs ${priorityColors[task.priority]}`}>
-                      {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
-                    </Badge>
-                  </TableCell>
-
-                  {/* Type */}
-                  <TableCell>
-                    <Badge variant="outline" className="text-xs bg-muted/50">
-                      {task.type.charAt(0).toUpperCase() + task.type.slice(1)}
-                    </Badge>
-                  </TableCell>
-
-                  {/* Assignee */}
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Avatar className="h-6 w-6">
-                        <AvatarFallback className="text-xs bg-primary/20 text-primary">
-                          {task.assignee
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-sm text-foreground">{task.assignee}</span>
-                    </div>
-                  </TableCell>
-
-                  {/* Related To */}
-                  <TableCell>
-                    {task.relatedTo ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-xs gap-1 hover:bg-primary/10"
-                            onClick={() => handleRelatedClick(task.relatedTo)}
-                          >
-                            <span className="truncate max-w-[150px]">{task.relatedTo.label}</span>
-                            <ExternalLink className="h-3 w-3 flex-shrink-0" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>
-                            Ver{" "}
-                            {task.relatedTo.kind === "contact"
-                              ? "contacto"
-                              : task.relatedTo.kind === "pipeline"
-                                ? "oportunidad"
-                                : "chat"}
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Sin relación</span>
-                    )}
-                  </TableCell>
-
-                  {/* Actions */}
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            onClick={() => handleMarkDone(task.id)}
-                            disabled={task.status === "hecho"}
-                          >
-                            <Check className="h-4 w-4 text-emerald-500" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Marcar como Hecho</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button size="icon" variant="ghost" className="h-7 w-7">
-                            <Eye className="h-4 w-4 text-blue-400" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Ver detalles</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleDelete(task.id)}>
-                            <Trash2 className="h-4 w-4 text-red-400" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Eliminar</TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </TableCell>
+                      ) : undefined,
+                    ),
+                  )}
+                </SortableContext>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {localTasks.map((task) => (
+                <TableRow key={task.id} className="border-b border-border/50 hover:bg-muted/30">
+                  {columns.map((column) => (
+                    <TableCell key={column.key}>{renderTaskCell(task, column.key)}</TableCell>
+                  ))}
                 </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
+              ))}
+            </TableBody>
+          </Table>
+        </DndContext>
 
         {selectedTasks.size > 0 && (
           <div className="border-t border-border p-3 bg-muted/30 flex items-center justify-between">

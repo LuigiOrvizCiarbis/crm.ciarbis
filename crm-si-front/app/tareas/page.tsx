@@ -17,6 +17,7 @@ import { useTaskStore } from "@/store/useTaskStore"
 import type { Task, TaskStatus, TaskType } from "@/lib/types/task"
 import { useIsMobile } from "@/hooks/use-mobile"
 import type { TaskFilters } from "@/lib/types/task-filters"
+import { isSameDay } from "date-fns"
 
 const STATUS_FILTER_OPTIONS: TaskStatus[] = ["nuevo", "en-curso", "bloqueado", "hecho", "cancelado"]
 const TYPE_FILTER_OPTIONS: TaskType[] = ["llamado", "reunion", "seguimiento", "soporte", "demo"]
@@ -76,7 +77,6 @@ export default function TareasPage() {
     // Apply deadline filter
     if (filters.deadline) {
       const now = new Date()
-      const today = now.toISOString().split("T")[0]
       const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
 
       filtered = filtered.filter((task) => {
@@ -86,7 +86,7 @@ export default function TareasPage() {
           )
         }
         if (filters.deadline === "today") {
-          return task.deadline?.startsWith(today) && task.status !== "hecho"
+          return Boolean(task.deadline && isSameDay(new Date(task.deadline), now) && task.status !== "hecho")
         }
         if (filters.deadline === "this-week") {
           if (!task.deadline || task.status === "hecho" || task.status === "cancelado") return false
@@ -170,8 +170,7 @@ export default function TareasPage() {
   })
 
   const todayTasks = tasks.filter((task) => {
-    const today = new Date().toISOString().split("T")[0]
-    return task.deadline?.startsWith(today) && task.status !== "hecho"
+    return Boolean(task.deadline && isSameDay(new Date(task.deadline), new Date()) && task.status !== "hecho")
   })
 
   const weekTasks = tasks.filter((task) => {
@@ -249,7 +248,7 @@ export default function TareasPage() {
         <SheetContent side="right" className="w-[400px] sm:w-[540px]">
           <SheetHeader>
             <SheetTitle>Filtros</SheetTitle>
-            <SheetDescription>Filtra tus tareas por estado, responsable, tipo y deadline</SheetDescription>
+            <SheetDescription>Filtra tus tareas por estado, responsable, tipo y fecha</SheetDescription>
           </SheetHeader>
 
           <div className="py-6 space-y-6">
@@ -328,9 +327,9 @@ export default function TareasPage() {
               </div>
             </div>
 
-            {/* Deadline */}
+            {/* Fecha */}
             <div className="space-y-3">
-              <Label className="text-sm font-medium">Deadline</Label>
+              <Label className="text-sm font-medium">Fecha</Label>
               <div className="space-y-2">
                 {DEADLINE_FILTER_OPTIONS.map((deadline) => (
                   <div key={deadline.value} className="flex items-center space-x-2">
