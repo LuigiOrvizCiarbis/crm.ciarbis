@@ -25,6 +25,7 @@ class TaskController extends Controller
         'assignedUser:id,name,email',
         'contact:id,name,phone,email,source',
         'conversation:id,contact_id,channel_id,last_message_content,last_message_at',
+        'conversation.contact:id,name',
         'conversation.channel:id,name,type',
         'opportunity:id,title,status,value',
         'calendarSync',

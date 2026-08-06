@@ -202,7 +202,7 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
     const isMeeting = type === "reunion"
 
     if (!isMeeting && !deadline) {
-      toast.error("El deadline es requerido")
+      toast.error("La fecha y hora son requeridas")
       return
     }
 
@@ -395,7 +395,7 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
             </div>
           </div>
 
-          {/* Assignee and Deadline */}
+          {/* Assignee and due date */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="assignee">
@@ -419,20 +419,20 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
             {type !== "reunion" && (
               <div className="space-y-2">
                 <Label>
-                  Deadline <span className="text-red-500">*</span>
+                  Fecha y hora <span className="text-red-500">*</span>
                 </Label>
                 <div className="relative">
                   <CalendarIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    type="date"
-                    value={deadline ? format(deadline, "yyyy-MM-dd") : ""}
+                    type="datetime-local"
+                    value={deadline ? format(deadline, "yyyy-MM-dd'T'HH:mm") : ""}
                     onChange={(event) => {
                       if (!event.target.value) {
                         setDeadline(undefined)
                         return
                       }
 
-                      setDeadline(new Date(`${event.target.value}T12:00:00`))
+                      setDeadline(new Date(event.target.value))
                     }}
                     className="h-10 pl-10"
                   />
