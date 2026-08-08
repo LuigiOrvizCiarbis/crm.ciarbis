@@ -342,6 +342,17 @@ class InstagramController extends Controller
             return response()->json(['error' => 'Invalid signature'], 403);
         }
 
+        // Una misma página de Facebook entrega los eventos de Messenger
+        // (object=page) y los de Instagram (object=instagram). Procesar el ajeno
+        // roba el evento al otro canal y, peor, el backfill de webhook_object_id
+        // lo dejaría apuntando al id equivocado de forma permanente.
+        $object = $request->input('object');
+        if ($object !== 'instagram') {
+            Log::info('Instagram webhook: object ajeno ignorado', ['object' => $object]);
+
+            return response()->json(['status' => 'EVENT_RECEIVED'], 200);
+        }
+
         try {
             // No asumimos la forma exacta del payload. Meta puede entregar los
             // mensajes en entry[].messaging[] o en entry[].changes[] (field=messages).
