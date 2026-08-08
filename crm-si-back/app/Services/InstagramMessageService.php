@@ -117,9 +117,14 @@ class InstagramMessageService
     }
 
     /**
-     * Resolución flexible del canal: probamos webhook_object_id, ig_user_id y
-     * page_id, cada uno contra entry.id y el id del negocio. Al primer match, si
-     * webhook_object_id estaba vacío, lo persistimos para acelerar el próximo.
+     * Resuelve el canal por webhook_object_id o ig_user_id, cada uno contra
+     * entry.id y el id del negocio.
+     *
+     * NO buscamos por page_id a propósito: en los eventos de Instagram el
+     * entry.id y el business id son siempre el IG user id, nunca el page_id. Si
+     * lo incluyéramos, un evento de Messenger de la misma página (entry.id =
+     * PAGE_ID) matchearía esta config y el mensaje terminaría en el canal de
+     * Instagram, además de corromper webhook_object_id vía el backfill.
      */
     private function resolveChannel(?string $entryId, ?string $businessId): ?Channel
     {
@@ -130,16 +135,16 @@ class InstagramMessageService
 
         $config = InstagramConfig::where(function ($query) use ($candidates) {
             $query->whereIn('webhook_object_id', $candidates)
-                ->orWhereIn('ig_user_id', $candidates)
-                ->orWhereIn('page_id', $candidates);
+                ->orWhereIn('ig_user_id', $candidates);
         })->with('channels')->first();
 
         if (! $config) {
             return null;
         }
 
-        // Persistir el id con el que llegó el webhook, si aún no lo teníamos.
-        if ($entryId && $config->webhook_object_id !== $entryId) {
+        // Backfill sólo cuando nunca se seteó: sobreescribir un valor existente
+        // degradaría la resolución si el entry.id llegara con otro id.
+        if ($entryId && $config->webhook_object_id === null) {
             $config->update(['webhook_object_id' => $entryId]);
         }
 

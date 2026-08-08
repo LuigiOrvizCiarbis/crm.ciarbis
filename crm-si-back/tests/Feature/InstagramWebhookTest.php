@@ -203,22 +203,62 @@ class InstagramWebhookTest extends TestCase
         $this->assertSame(1, Message::where('external_id', 'mid_dup')->count());
     }
 
-    public function test_channel_resolved_by_page_id_backfills_webhook_object_id(): void
+    /**
+     * El page_id NO resuelve el canal de Instagram. Un evento cuyo entry.id sea
+     * el page_id es de Messenger, no de Instagram: procesarlo acá metería el
+     * mensaje en el canal equivocado.
+     */
+    public function test_entry_id_matching_page_id_does_not_resolve_instagram_channel(): void
     {
         Event::fake();
         Http::fake();
 
         [$channel, $tenant, $config] = $this->createChannel();
-        // Simular que el webhook_object_id no estaba seteado y el entry.id llega
-        // con el page_id.
-        $config->update(['webhook_object_id' => null]);
 
         $payload = $this->messagingPayload($config->page_id, 'IGSID_1', 'hola', 'mid_pg');
         $this->postWebhook($payload)->assertOk();
 
+        $this->assertSame(0, Message::count());
+    }
+
+    /**
+     * El backfill de webhook_object_id sólo aplica cuando nunca se seteó.
+     */
+    public function test_webhook_object_id_is_backfilled_only_when_null(): void
+    {
+        Event::fake();
+        Http::fake();
+
+        [$channel, $tenant, $config] = $this->createChannel();
+        $config->update(['webhook_object_id' => null]);
+
+        $payload = $this->messagingPayload('IG_BIZ_1', 'IGSID_1', 'hola', 'mid_bf');
+        $this->postWebhook($payload)->assertOk();
+
         $this->assertSame(1, Message::count());
-        $config->refresh();
-        $this->assertSame($config->page_id, $config->webhook_object_id);
+        $this->assertSame('IG_BIZ_1', $config->refresh()->webhook_object_id);
+    }
+
+    /**
+     * Aislamiento: un evento de Messenger (object=page) posteado al webhook de
+     * Instagram se descarta sin crear nada y sin tocar webhook_object_id, que es
+     * lo que antes se corrompía vía el match por page_id.
+     */
+    public function test_messenger_event_posted_to_instagram_webhook_is_ignored(): void
+    {
+        Event::fake();
+        Http::fake();
+
+        [$channel, $tenant, $config] = $this->createChannel();
+
+        $payload = $this->messagingPayload($config->page_id, 'PSID_1', 'hola', 'mid_fb');
+        $payload['object'] = 'page';
+
+        $this->postWebhook($payload)->assertOk();
+
+        $this->assertSame(0, Message::count());
+        $this->assertSame(0, Contact::count());
+        $this->assertSame('IG_BIZ_1', $config->refresh()->webhook_object_id);
     }
 
     // ---------------------------------------------------------------------
