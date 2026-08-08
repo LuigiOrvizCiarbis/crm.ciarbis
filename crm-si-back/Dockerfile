@@ -47,6 +47,11 @@ ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf \
     && sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
 
+# Config de PHP para todos los SAPIs. Los php_value de common.conf sólo aplican
+# al SAPI de Apache; sin esto la CLI se queda en el memory_limit default de 128M
+# y `artisan test` muere a mitad de la suite.
+COPY ./docker/php/php.ini /usr/local/etc/php/conf.d/zz-app.ini
+
 COPY ./docker/apache/common.conf /etc/apache2/conf-available/common.conf
 COPY ./docker/apache/servername.conf /etc/apache2/conf-available/servername.conf
 COPY ./docker/apache/000-default.conf /etc/apache2/sites-available/000-default.conf
