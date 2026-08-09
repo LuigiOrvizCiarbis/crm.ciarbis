@@ -18,6 +18,7 @@ use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
 use App\Services\AiReplyService;
 use App\Services\InstagramMessageService;
+use App\Services\MessengerMessageService;
 use App\Services\WhatsAppMessageService;
 use App\Services\WhatsAppTemplateService;
 use App\Support\PermissionCatalog;
@@ -219,6 +220,69 @@ class AiAutoreplyTest extends TestCase
             app(AiReplyService::class),
             app(WhatsAppMessageService::class),
             app(InstagramMessageService::class),
+            app(MessengerMessageService::class),
+        );
+    }
+
+    /**
+     * El transporte se elige por tipo de canal. Antes había un if/else con
+     * default WhatsApp: una conversación de Messenger salía por WhatsApp.
+     */
+    public function test_job_sends_via_messenger_for_facebook_channel(): void
+    {
+        [, $conversation] = $this->createConversationSetup(aiEnabled: true);
+        $conversation->channel->update(['type' => ChannelType::FACEBOOK]);
+
+        $this->mock(AiReplyService::class, function ($mock) {
+            $mock->shouldReceive('respond')->once()->andReturn('Respuesta IA');
+        });
+
+        $this->mock(MessengerMessageService::class, function ($mock) use ($conversation) {
+            $mock->shouldReceive('sendSystemTextMessageFromCRM')
+                ->once()
+                ->withArgs(fn (Conversation $c, string $content) => $c->id === $conversation->id
+                    && $content === 'Respuesta IA');
+        });
+
+        $this->mock(WhatsAppMessageService::class, function ($mock) {
+            $mock->shouldNotReceive('sendSystemTextMessageFromCRM');
+        });
+
+        $this->mock(InstagramMessageService::class, function ($mock) {
+            $mock->shouldNotReceive('sendSystemTextMessageFromCRM');
+        });
+
+        (new GenerateAiReplyJob($conversation->id))->handle(
+            app(AiReplyService::class),
+            app(WhatsAppMessageService::class),
+            app(InstagramMessageService::class),
+            app(MessengerMessageService::class),
+        );
+    }
+
+    /**
+     * Un canal sin transporte de IA no debe caer a WhatsApp: aborta y loguea.
+     */
+    public function test_job_aborts_for_channel_without_transport(): void
+    {
+        [, $conversation] = $this->createConversationSetup(aiEnabled: true);
+        $conversation->channel->update(['type' => ChannelType::TELEGRAM]);
+
+        $this->mock(AiReplyService::class, function ($mock) {
+            $mock->shouldReceive('respond')->once()->andReturn('Respuesta IA');
+        });
+
+        foreach ([WhatsAppMessageService::class, InstagramMessageService::class, MessengerMessageService::class] as $service) {
+            $this->mock($service, function ($mock) {
+                $mock->shouldNotReceive('sendSystemTextMessageFromCRM');
+            });
+        }
+
+        (new GenerateAiReplyJob($conversation->id))->handle(
+            app(AiReplyService::class),
+            app(WhatsAppMessageService::class),
+            app(InstagramMessageService::class),
+            app(MessengerMessageService::class),
         );
     }
 
@@ -238,6 +302,7 @@ class AiAutoreplyTest extends TestCase
             app(AiReplyService::class),
             app(WhatsAppMessageService::class),
             app(InstagramMessageService::class),
+            app(MessengerMessageService::class),
         );
     }
 
@@ -262,6 +327,7 @@ class AiAutoreplyTest extends TestCase
             app(AiReplyService::class),
             app(WhatsAppMessageService::class),
             app(InstagramMessageService::class),
+            app(MessengerMessageService::class),
         );
     }
 
