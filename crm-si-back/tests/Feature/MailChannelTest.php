@@ -40,6 +40,9 @@ class MailChannelTest extends TestCase
 
     private const ENDPOINT = '/api/admin/channels/mail-auth';
 
+    /** Estado del último doble de carpeta IMAP creado (ver fakeInboxWithUids). */
+    private ?object $inboxState = null;
+
     /**
      * @return array<string, mixed>
      */
@@ -720,6 +723,22 @@ class MailChannelTest extends TestCase
         $this->assertSame([58, 59, 60], $uids);
     }
 
+    public function test_sync_with_cursor_uses_an_open_ended_upper_bound(): void
+    {
+        $service = app(MailMessageService::class);
+
+        $inbox = $this->fakeInboxWithUids(range(1, 60));
+
+        $this->invokeFetch($service, $inbox, 58);
+
+        // El "hasta el final" del rango `58:*` se expresa con INF, el valor que
+        // ImapQueryBuilder traduce al UID máximo. Un '*' literal tira TypeError
+        // y deja la casilla sin sincronizar (ningún email entra al CRM).
+        $state = $this->inboxState;
+        $this->assertSame(58, $state->from);
+        $this->assertSame(INF, $state->to);
+    }
+
     /**
      * Invoca el método privado que trae los mensajes nuevos.
      */
@@ -741,7 +760,11 @@ class MailChannelTest extends TestCase
      */
     private function fakeInboxWithUids(array $uids): object
     {
-        $state = (object) ['order' => 'asc', 'limit' => null, 'from' => null];
+        $state = (object) ['order' => 'asc', 'limit' => null, 'from' => null, 'to' => null];
+
+        // Expuesto para poder afirmar sobre los argumentos con que el servicio
+        // arma la query, no sólo sobre los UID que devuelve.
+        $this->inboxState = $state;
 
         $query = Mockery::mock(MessageQueryInterface::class);
 
@@ -767,8 +790,20 @@ class MailChannelTest extends TestCase
             return $query;
         });
 
-        $query->shouldReceive('uid')->andReturnUsing(function ($from) use ($query, $state) {
+        // El doble replica la firma real de ImapQueryBuilder::uid(): $to es
+        // int|float|null. Sin esta validación el mock acepta cualquier cosa
+        // (p. ej. '*') y un TypeError que rompe la sync en producción pasa
+        // desapercibido en los tests.
+        $query->shouldReceive('uid')->andReturnUsing(function ($from, $to = null) use ($query, $state) {
+            if ($to !== null && ! is_int($to) && ! is_float($to)) {
+                throw new \TypeError(sprintf(
+                    'ImapQueryBuilder::uid(): Argument #2 ($to) must be of type int|float|null, %s given',
+                    get_debug_type($to)
+                ));
+            }
+
             $state->from = (int) $from;
+            $state->to = $to;
 
             return $query;
         });

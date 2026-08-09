@@ -268,7 +268,11 @@ class MailMessageService
             // el job puede no llegar a guardar el cursor antes del timeout,
             // repitiendo el mismo trabajo en cada reintento sin avanzar.
             return $query->oldest()
-                ->uid($lastUid, '*')
+                // INF (no la cadena '*') es el "hasta el final" que espera
+                // ImapQueryBuilder::uid(): su firma tipa $to como int|float|null
+                // y traduce INF al UID máximo. Pasar '*' tira TypeError y deja
+                // la casilla sin sincronizar.
+                ->uid($lastUid, INF)
                 ->limit(self::MAX_MESSAGES_PER_RUN)
                 ->get();
         }
