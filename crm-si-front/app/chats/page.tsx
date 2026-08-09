@@ -19,7 +19,7 @@ const ContactInfoPanel = dynamic(
 )
 import { useChatState } from "@/hooks/useChatState"
 import { useToast } from "@/components/Toast"
-import { ChannelErrorDetail } from "@/lib/channel-error"
+import { ChannelError, ChannelErrorDetail } from "@/lib/channel-error"
 import { FilterType, Channel, Conversation, Message, TranslationLanguage } from "@/data/types"
 import { ChannelType, filterTypeToChannelType } from "@/data/enums"
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
@@ -72,7 +72,7 @@ import { MessageInput } from "@/components/chat/MessageInput"
 import { ConversationList } from "@/components/chat/ConversationList"
 import { FilteredConversationsHeader } from "@/components/chat/FilteredConversationsHeader"
 import { ChannelsList } from "@/components/chat/ChannelsList"
-import { getChannels, updateChannelName } from "@/lib/api/channels"
+import { getChannels, updateChannelName, syncMailChannel } from "@/lib/api/channels"
 import { updateContact } from "@/lib/api/contacts"
 import { isExpectedBusinessErrorMessage } from "@/lib/observability/sentry"
 import { ChannelHeader } from "@/components/chat/AccountHeader"
@@ -88,6 +88,7 @@ import { useInstagramLogin } from "@/hooks/useInstagramLogin"
 import { InstagramPageSelectDialog } from "@/components/chat/InstagramPageSelectDialog"
 import { useMessengerLogin } from "@/hooks/useMessengerLogin"
 import { MessengerPageSelectDialog } from "@/components/chat/MessengerPageSelectDialog"
+import { MailConnectDialog } from "@/components/chat/MailConnectDialog"
 import {
   Archive,
   ArchiveRestore,
@@ -119,7 +120,7 @@ type ConversationView = "inbox" | "unread" | "archived"
  * filtros de la bandeja — Messenger se conecta como "messenger" pero sus
  * conversaciones se filtran como "facebook" (que es el ChannelType).
  */
-type ConnectableChannel = "whatsapp" | "instagram" | "messenger"
+type ConnectableChannel = "whatsapp" | "instagram" | "messenger" | "mail"
 
 /**
  * Canales conectables. Está acá y se mapea en los 3 menús (desktop, móvil y
@@ -134,6 +135,7 @@ const CONNECTABLE_CHANNELS: {
   { key: "whatsapp", label: "WhatsApp", Icon: MessageCircle, iconClassName: "text-green-600" },
   { key: "instagram", label: "Instagram", Icon: Instagram, iconClassName: "text-pink-600" },
   { key: "messenger", label: "Messenger", Icon: Facebook, iconClassName: "text-blue-600" },
+  { key: "mail", label: "Email", Icon: Mail, iconClassName: "text-blue-600" },
 ]
 
 interface ChatsCompactHeaderProps {
@@ -151,6 +153,7 @@ function ChatsCompactHeader({
   onConnectChannel,
   onOpenChannels,
 }: ChatsCompactHeaderProps) {
+  const { t } = useTranslation()
   return (
     <div className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-xl supports-[backdrop-filter]:bg-background/90">
       <div className="flex h-18.75 items-center gap-3 px-4 md:px-6">
@@ -277,6 +280,7 @@ export default function ChatsPage() {
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null)
   const [isContactInfoOpen, setIsContactInfoOpen] = useState(false)
   const [isChannelsSheetOpen, setIsChannelsSheetOpen] = useState(false)
+  const [isMailConnectOpen, setMailConnectOpen] = useState(false)
   const [activeFilter, setActiveFilter] = useState<FilterType>("todos")
   const [tagFilterSlugs, setTagFilterSlugs] = useState<string[]>([])
   const [viewType, setViewType] = useState<ConversationView>("inbox")
@@ -866,6 +870,11 @@ export default function ChatsPage() {
       return
     }
 
+    if (channelType === "mail") {
+      setMailConnectOpen(true)
+      return
+    }
+
     const sdkLoaded = channelType === "instagram" ? isInstagramSDKLoaded : isFacebookSDKLoaded
     if (!sdkLoaded) {
       addToast({
@@ -1002,6 +1011,20 @@ export default function ChatsPage() {
       addToast({ type: "success", title: t("chats.renameChannelSuccess") })
     } catch {
       addToast({ type: "error", title: t("chats.renameChannelError") })
+    }
+  }, [addToast, t])
+
+  // Sincronización manual de una casilla de email. El backend sólo encola el
+  // job, así que confirmamos el pedido: los mensajes llegan por websocket.
+  const handleSyncMailChannel = useCallback(async (channelId: number) => {
+    try {
+      await syncMailChannel(channelId)
+      addToast({ type: "success", title: t("chats.mailSyncQueued") })
+    } catch (err) {
+      const title = err instanceof ChannelError
+        ? (err.detail.message || (err.detail.code ? t(`chats.${err.detail.code}`) : t("chats.mailSyncError")))
+        : t("chats.mailSyncError")
+      addToast({ type: "error", title })
     }
   }, [addToast, t])
 
@@ -1619,6 +1642,7 @@ export default function ChatsPage() {
           error={null}
           onChannelSelect={onChannelSelect}
           onRenameChannel={canUpdateChannels ? handleRenameChannel : undefined}
+          onSyncMailChannel={canUpdateChannels ? handleSyncMailChannel : undefined}
         />
       </div>
 
@@ -2007,6 +2031,8 @@ export default function ChatsPage() {
         onSelect={selectMessengerPage}
         onCancel={cancelMessengerPageSelection}
       />
+
+      <MailConnectDialog open={isMailConnectOpen} onOpenChange={setMailConnectOpen} />
 
       <AlertDialog open={bulkDeleteOpen} onOpenChange={(open) => { if (!bulkSubmitting) setBulkDeleteOpen(open) }}>
         <AlertDialogContent>

@@ -19,6 +19,7 @@ use App\Models\WhatsAppTemplate;
 use App\Services\AiReplyService;
 use App\Services\InstagramMessageService;
 use App\Services\MessengerMessageService;
+use App\Services\MailMessageService;
 use App\Services\WhatsAppMessageService;
 use App\Services\WhatsAppTemplateService;
 use App\Support\PermissionCatalog;
@@ -221,6 +222,7 @@ class AiAutoreplyTest extends TestCase
             app(WhatsAppMessageService::class),
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
+            app(MailMessageService::class),
         );
     }
 
@@ -257,6 +259,7 @@ class AiAutoreplyTest extends TestCase
             app(WhatsAppMessageService::class),
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
+            app(MailMessageService::class),
         );
     }
 
@@ -272,7 +275,7 @@ class AiAutoreplyTest extends TestCase
             $mock->shouldReceive('respond')->once()->andReturn('Respuesta IA');
         });
 
-        foreach ([WhatsAppMessageService::class, InstagramMessageService::class, MessengerMessageService::class] as $service) {
+        foreach ([WhatsAppMessageService::class, InstagramMessageService::class, MessengerMessageService::class, MailMessageService::class] as $service) {
             $this->mock($service, function ($mock) {
                 $mock->shouldNotReceive('sendSystemTextMessageFromCRM');
             });
@@ -283,6 +286,7 @@ class AiAutoreplyTest extends TestCase
             app(WhatsAppMessageService::class),
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
+            app(MailMessageService::class),
         );
     }
 
@@ -303,6 +307,7 @@ class AiAutoreplyTest extends TestCase
             app(WhatsAppMessageService::class),
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
+            app(MailMessageService::class),
         );
     }
 
@@ -328,6 +333,7 @@ class AiAutoreplyTest extends TestCase
             app(WhatsAppMessageService::class),
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
+            app(MailMessageService::class),
         );
     }
 
