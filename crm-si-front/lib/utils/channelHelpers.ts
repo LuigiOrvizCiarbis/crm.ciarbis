@@ -29,11 +29,13 @@ export function getChannelIdentifier(channel: Channel): string | undefined {
     case ChannelType.FACEBOOK:
       return channel.facebook_config?.page_id;
 
-    // linkedin/telegram/web/mail: sin config en el backend todavía
+    case ChannelType.MAIL:
+      return channel.mail_config?.email_address;
+
+    // linkedin/telegram/web: sin config en el backend todavía
     case ChannelType.LINKEDIN:
     case ChannelType.TELEGRAM:
     case ChannelType.WEB:
-    case ChannelType.MAIL:
     case ChannelType.MANUAL:
       return undefined;
 

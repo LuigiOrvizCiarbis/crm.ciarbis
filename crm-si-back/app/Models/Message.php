@@ -27,6 +27,7 @@ class Message extends Model
         'media_filename',
         'direction',
         'external_id',
+        'mail_message_id',
         'delivered_at',
         'read_at',
         'failed_at',

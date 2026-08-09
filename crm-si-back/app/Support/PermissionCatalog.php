@@ -92,6 +92,7 @@ class PermissionCatalog
                 'channels.delete',
                 'channels.manage_users',
                 'channels.connect_whatsapp',
+                'channels.connect_mail',
             ],
             'ai_config' => [
                 'ai_config.view',

@@ -8,6 +8,7 @@
     "require": {
         "php": "^8.3",
         "anthropic-ai/sdk": "^0.36.0",
+        "directorytree/imapengine": "^1.25",
         "google/apiclient": "^2.18",
         "laravel/framework": "^13.0",
         "laravel/pulse": "^1.7",

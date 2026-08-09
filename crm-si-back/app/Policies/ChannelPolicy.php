@@ -51,6 +51,11 @@ class ChannelPolicy
         return $user->can('channels.connect_whatsapp');
     }
 
+    public function connectMail(User $user): bool
+    {
+        return $user->can('channels.connect_mail');
+    }
+
     private function canTouch(User $user, Channel $channel): bool
     {
         return $user->can('channels.view_any')

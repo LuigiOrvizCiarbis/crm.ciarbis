@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int|null $whatsapp_config_id
  * @property int|null $instagram_config_id
  * @property int|null $messenger_config_id
+ * @property int|null $mail_config_id
  * @property ChannelType $type
  * @property string $name
  * @property string|null $external_id
@@ -35,6 +36,7 @@ class Channel extends Model
         'whatsapp_config_id',
         'instagram_config_id',
         'messenger_config_id',
+        'mail_config_id',
         'type',
         'name',
         'external_id',
@@ -107,6 +109,14 @@ class Channel extends Model
     public function facebookConfig(): BelongsTo
     {
         return $this->belongsTo(MessengerConfig::class, 'messenger_config_id');
+    }
+
+    /**
+     * Relación con MailConfig (muchos canales pueden compartir una config)
+     */
+    public function mailConfig(): BelongsTo
+    {
+        return $this->belongsTo(MailConfig::class);
     }
 
     /**

@@ -8,6 +8,7 @@ use App\Models\Conversation;
 use App\Services\AiReplyService;
 use App\Services\InstagramMessageService;
 use App\Services\MessengerMessageService;
+use App\Services\MailMessageService;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -51,6 +52,7 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
         WhatsAppMessageService $whatsAppMessageService,
         InstagramMessageService $instagramMessageService,
         MessengerMessageService $messengerMessageService,
+        MailMessageService $mailMessageService,
     ): void {
         $conversation = Conversation::withoutGlobalScopes()->find($this->conversationId);
 
@@ -96,15 +98,16 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
         }
 
         // El transporte depende del canal de la conversación: mismas firmas de
-        // envío en los tres servicios.
+        // envío en los cuatro servicios.
         //
         // match exhaustivo con default que aborta, NO un else que asuma WhatsApp:
-        // un canal sin transporte de IA (Telegram, Web, Mail, Manual) enviaría el
+        // un canal sin transporte de IA (Telegram, Web, Manual) enviaría el
         // mensaje por el canal equivocado, o fallaría con un error opaco.
         $service = match ($conversation->channel?->type) {
             ChannelType::WHATSAPP => $whatsAppMessageService,
             ChannelType::INSTAGRAM => $instagramMessageService,
             ChannelType::FACEBOOK => $messengerMessageService,
+            ChannelType::MAIL => $mailMessageService,
             default => null,
         };
 

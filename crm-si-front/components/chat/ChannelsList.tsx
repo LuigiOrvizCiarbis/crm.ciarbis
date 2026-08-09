@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { PlatformIcon } from '@/components/chat/PlatformIcon'
 import { EmptyState } from '@/components/EmptyState'
-import { MessageSquare, Wifi, WifiOff, Pencil, Check, X } from 'lucide-react'
+import { MessageSquare, Wifi, WifiOff, Pencil, Check, X, RefreshCw } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Channel, FilterType } from '@/data/types'
 import { ChannelType, channelTypeToFilterType, getChannelDisplayName, filterTypeToChannelType } from '@/data/enums'
@@ -26,6 +26,7 @@ interface ChannelsListProps {
   onChannelSelect: (channelId: number) => void
   onRetry?: () => void
   onRenameChannel?: (channelId: number, name: string) => void | Promise<void>
+  onSyncMailChannel?: (channelId: number) => void | Promise<void>
 }
 
 export function ChannelsList({
@@ -37,10 +38,22 @@ export function ChannelsList({
   onChannelSelect,
   onRetry,
   onRenameChannel,
+  onSyncMailChannel,
 }: ChannelsListProps) {
   const { t } = useTranslation()
   const [editingId, setEditingId] = useState<number | null>(null)
   const [draftName, setDraftName] = useState("")
+  const [syncingId, setSyncingId] = useState<number | null>(null)
+
+  const handleSync = async (channelId: number) => {
+    if (!onSyncMailChannel || syncingId !== null) return
+    setSyncingId(channelId)
+    try {
+      await onSyncMailChannel(channelId)
+    } finally {
+      setSyncingId(null)
+    }
+  }
 
   const startEditing = (channel: Channel) => {
     setEditingId(channel.id)
@@ -191,6 +204,20 @@ export function ChannelsList({
                         <Badge variant="secondary" className="text-xs">
                           {t("chats.readOnly")}
                         </Badge>
+                      )}
+                      {/* Los canales de email entran por polling: el botón
+                          permite forzar la sincronización sin esperar el tick. */}
+                      {channel.type === ChannelType.MAIL && onSyncMailChannel && (
+                        <button
+                          type="button"
+                          aria-label={t("chats.mailSyncNow")}
+                          title={t("chats.mailSyncNow")}
+                          disabled={syncingId === channel.id}
+                          className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground disabled:opacity-50 sm:h-8 sm:w-8 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:focus-visible:opacity-100"
+                          onClick={(e) => { e.stopPropagation(); void handleSync(channel.id) }}
+                        >
+                          <RefreshCw className={`h-4 w-4 ${syncingId === channel.id ? 'animate-spin' : ''}`} />
+                        </button>
                       )}
                       {onRenameChannel && (
                         <button
