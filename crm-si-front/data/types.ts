@@ -31,11 +31,18 @@ export interface Channel {
     created_at: string
     updated_at: string
   }
+  /**
+   * Canal Messenger. La relación en Laravel se llama facebookConfig() y apunta
+   * al modelo MessengerConfig (channels.messenger_config_id), así que la clave
+   * del JSON es facebook_config.
+   *
+   * No incluye el page_access_token: está en $hidden del modelo.
+   */
   facebook_config?: {
     id: number
-    channel_id: number
+    tenant_id: number
     page_id: string
-    access_token: string
+    page_name: string | null
     created_at: string
     updated_at: string
   }

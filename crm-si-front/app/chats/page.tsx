@@ -86,11 +86,14 @@ import { useAuthStore } from "@/store/useAuthStore"
 import { useFacebookSDK } from "@/hooks/useFacebookSDK"
 import { useInstagramLogin } from "@/hooks/useInstagramLogin"
 import { InstagramPageSelectDialog } from "@/components/chat/InstagramPageSelectDialog"
+import { useMessengerLogin } from "@/hooks/useMessengerLogin"
+import { MessengerPageSelectDialog } from "@/components/chat/MessengerPageSelectDialog"
 import {
   Archive,
   ArchiveRestore,
   Bot,
   CheckSquare,
+  Facebook,
   Instagram,
   Loader2,
   Mail,
@@ -111,11 +114,33 @@ import {
 
 type ConversationView = "inbox" | "unread" | "archived"
 
+/**
+ * Proveedor OAuth a conectar. Ojo: NO es lo mismo que el FilterType de los
+ * filtros de la bandeja — Messenger se conecta como "messenger" pero sus
+ * conversaciones se filtran como "facebook" (que es el ChannelType).
+ */
+type ConnectableChannel = "whatsapp" | "instagram" | "messenger"
+
+/**
+ * Canales conectables. Está acá y se mapea en los 3 menús (desktop, móvil y
+ * sidebar) para que agregar un canal no sean tres ediciones separadas.
+ */
+const CONNECTABLE_CHANNELS: {
+  key: ConnectableChannel
+  label: string
+  Icon: typeof MessageCircle
+  iconClassName: string
+}[] = [
+  { key: "whatsapp", label: "WhatsApp", Icon: MessageCircle, iconClassName: "text-green-600" },
+  { key: "instagram", label: "Instagram", Icon: Instagram, iconClassName: "text-pink-600" },
+  { key: "messenger", label: "Messenger", Icon: Facebook, iconClassName: "text-blue-600" },
+]
+
 interface ChatsCompactHeaderProps {
   searchQuery: string
   onSearchChange: (query: string) => void
   onNewConversation: () => void
-  onConnectChannel: (channelType?: "whatsapp" | "instagram") => void
+  onConnectChannel: (channelType?: ConnectableChannel) => void
   onOpenChannels: () => void
 }
 
@@ -168,14 +193,12 @@ function ChatsCompactHeader({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onConnectChannel("whatsapp")}>
-                  <MessageCircle className="mr-2 h-4 w-4 text-green-600" />
-                  WhatsApp
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onConnectChannel("instagram")}>
-                  <Instagram className="mr-2 h-4 w-4 text-pink-600" />
-                  Instagram
-                </DropdownMenuItem>
+                {CONNECTABLE_CHANNELS.map(({ key, label, Icon, iconClassName }) => (
+                  <DropdownMenuItem key={key} onClick={() => onConnectChannel(key)}>
+                    <Icon className={`mr-2 h-4 w-4 ${iconClassName}`} />
+                    {label}
+                  </DropdownMenuItem>
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -187,14 +210,12 @@ function ChatsCompactHeader({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => onConnectChannel("whatsapp")}>
-                <MessageCircle className="mr-2 h-4 w-4 text-green-600" />
-                Conectar WhatsApp
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onConnectChannel("instagram")}>
-                <Instagram className="mr-2 h-4 w-4 text-pink-600" />
-                Conectar Instagram
-              </DropdownMenuItem>
+              {CONNECTABLE_CHANNELS.map(({ key, label, Icon, iconClassName }) => (
+                <DropdownMenuItem key={key} onClick={() => onConnectChannel(key)}>
+                  <Icon className={`mr-2 h-4 w-4 ${iconClassName}`} />
+                  Conectar {label}
+                </DropdownMenuItem>
+              ))}
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -235,6 +256,12 @@ export default function ChatsPage() {
     selectPage: selectInstagramPage,
     cancelPageSelection: cancelInstagramPageSelection,
   } = useInstagramLogin()
+  const {
+    launchMessengerLogin,
+    pageOptions: messengerPageOptions,
+    selectPage: selectMessengerPage,
+    cancelPageSelection: cancelMessengerPageSelection,
+  } = useMessengerLogin()
   const currentUserId = user?.id
   const isAdmin = (permissions ?? []).includes("conversations.view_any")
   const canUpdateChannels = (permissions ?? []).includes("channels.update")
@@ -832,7 +859,13 @@ export default function ChatsPage() {
   }, [selectedConversationId]);
 
 
-  const handleConnectChannel = (channelType: "whatsapp" | "instagram" = "whatsapp") => {
+  const handleConnectChannel = (channelType: ConnectableChannel = "whatsapp") => {
+    if (channelType === "messenger") {
+      // El flujo de Messenger es popup + redirect, no depende del SDK JS.
+      launchMessengerLogin()
+      return
+    }
+
     const sdkLoaded = channelType === "instagram" ? isInstagramSDKLoaded : isFacebookSDKLoaded
     if (!sdkLoaded) {
       addToast({
@@ -1515,7 +1548,7 @@ export default function ChatsPage() {
 
   const renderChannelsSidebar = (
     onChannelSelect: (channelId: number) => void,
-    onConnectChannelClick: (channelType?: "whatsapp" | "instagram") => void,
+    onConnectChannelClick: (channelType?: ConnectableChannel) => void,
   ) => (
     <>
       <div className="grid h-[70px] grid-cols-[0.86fr_1.12fr_1.34fr] border-b border-border bg-card/95">
@@ -1565,7 +1598,7 @@ export default function ChatsPage() {
       <ChatFilters
         activeFilter={activeFilter}
         onFilterChange={handleFilterChange}
-        availableChannelTypes={["whatsapp", "instagram"]}
+        availableChannelTypes={["whatsapp", "instagram", "facebook"]}
       />
 
       <div className="border-b border-border bg-card/80 px-4 py-3">
@@ -1598,14 +1631,12 @@ export default function ChatsPage() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-[--radix-dropdown-menu-trigger-width]">
-            <DropdownMenuItem onClick={() => onConnectChannelClick("whatsapp")}>
-              <MessageCircle className="mr-2 h-4 w-4 text-green-600" />
-              WhatsApp
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onConnectChannelClick("instagram")}>
-              <Instagram className="mr-2 h-4 w-4 text-pink-600" />
-              Instagram
-            </DropdownMenuItem>
+            {CONNECTABLE_CHANNELS.map(({ key, label, Icon, iconClassName }) => (
+              <DropdownMenuItem key={key} onClick={() => onConnectChannelClick(key)}>
+                <Icon className={`mr-2 h-4 w-4 ${iconClassName}`} />
+                {label}
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -1617,7 +1648,7 @@ export default function ChatsPage() {
     setIsChannelsSheetOpen(false)
   }
 
-  const handleMobileConnectChannel = (channelType?: "whatsapp" | "instagram") => {
+  const handleMobileConnectChannel = (channelType?: ConnectableChannel) => {
     setIsChannelsSheetOpen(false)
     handleConnectChannel(channelType)
   }
@@ -1969,6 +2000,12 @@ export default function ChatsPage() {
         pages={instagramPageOptions}
         onSelect={selectInstagramPage}
         onCancel={cancelInstagramPageSelection}
+      />
+
+      <MessengerPageSelectDialog
+        pages={messengerPageOptions}
+        onSelect={selectMessengerPage}
+        onCancel={cancelMessengerPageSelection}
       />
 
       <AlertDialog open={bulkDeleteOpen} onOpenChange={(open) => { if (!bulkSubmitting) setBulkDeleteOpen(open) }}>

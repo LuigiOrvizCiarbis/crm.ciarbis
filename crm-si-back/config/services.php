@@ -88,6 +88,15 @@ return [
         'messaging_permission' => env('INSTAGRAM_MESSAGING_PERMISSION', 'instagram_manage_messages'),
     ],
 
+    'messenger' => [
+        // Tag HUMAN_AGENT: extiende la ventana de respuesta de 24h a 7 días, pero
+        // sólo para mensajes tipeados por una persona. Requiere el feature
+        // "Human Agent" aprobado en App Review (separado de las permissions
+        // pages_*), y usarlo en la auto-respuesta de IA sería una violación de
+        // política. Mientras esté en false todo sale con messaging_type=RESPONSE.
+        'human_agent_enabled' => env('MESSENGER_HUMAN_AGENT_ENABLED', false),
+    ],
+
     'google_calendar' => [
         'client_id' => env('GOOGLE_CALENDAR_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CALENDAR_CLIENT_SECRET'),
