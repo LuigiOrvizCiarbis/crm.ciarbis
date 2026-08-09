@@ -60,6 +60,8 @@ jobs:
             # (www-data) después no puede escribir → "Permission denied" al loguear
             docker compose -f docker-compose.prod.yml exec -T -u www-data app php artisan migrate --force
             docker compose -f docker-compose.prod.yml exec -T -u www-data app php artisan db:seed --class=ProductionSeeder --force
+            # provisiona permisos nuevos del PermissionCatalog en tenants existentes
+            docker compose -f docker-compose.prod.yml exec -T -u www-data app php artisan roles:resync-system --apply
             docker compose -f docker-compose.prod.yml exec -T -u www-data app php artisan optimize:clear
             docker compose -f docker-compose.prod.yml exec -T -u www-data app php artisan config:clear
             docker compose -f docker-compose.prod.yml exec -T -u www-data app php artisan cache:clear

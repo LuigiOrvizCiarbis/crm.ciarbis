@@ -7,6 +7,7 @@ use App\Models\AiConfig;
 use App\Models\Conversation;
 use App\Services\AiReplyService;
 use App\Services\InstagramMessageService;
+use App\Services\MailMessageService;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -49,6 +50,7 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
         AiReplyService $aiReplyService,
         WhatsAppMessageService $whatsAppMessageService,
         InstagramMessageService $instagramMessageService,
+        MailMessageService $mailMessageService,
     ): void {
         $conversation = Conversation::withoutGlobalScopes()->find($this->conversationId);
 
@@ -95,10 +97,10 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
 
         // El transporte depende del canal de la conversación: mismas firmas de
         // envío en ambos servicios.
-        if ($conversation->channel?->type === ChannelType::INSTAGRAM) {
-            $instagramMessageService->sendSystemTextMessageFromCRM($conversation, $reply);
-        } else {
-            $whatsAppMessageService->sendSystemTextMessageFromCRM($conversation, $reply);
-        }
+        match ($conversation->channel?->type) {
+            ChannelType::INSTAGRAM => $instagramMessageService->sendSystemTextMessageFromCRM($conversation, $reply),
+            ChannelType::MAIL => $mailMessageService->sendSystemTextMessageFromCRM($conversation, $reply),
+            default => $whatsAppMessageService->sendSystemTextMessageFromCRM($conversation, $reply),
+        };
     }
 }

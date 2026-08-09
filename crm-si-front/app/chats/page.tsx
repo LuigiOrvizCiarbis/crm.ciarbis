@@ -19,7 +19,7 @@ const ContactInfoPanel = dynamic(
 )
 import { useChatState } from "@/hooks/useChatState"
 import { useToast } from "@/components/Toast"
-import { ChannelErrorDetail } from "@/lib/channel-error"
+import { ChannelError, ChannelErrorDetail } from "@/lib/channel-error"
 import { FilterType, Channel, Conversation, Message, TranslationLanguage } from "@/data/types"
 import { ChannelType, filterTypeToChannelType } from "@/data/enums"
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
@@ -72,7 +72,7 @@ import { MessageInput } from "@/components/chat/MessageInput"
 import { ConversationList } from "@/components/chat/ConversationList"
 import { FilteredConversationsHeader } from "@/components/chat/FilteredConversationsHeader"
 import { ChannelsList } from "@/components/chat/ChannelsList"
-import { getChannels, updateChannelName } from "@/lib/api/channels"
+import { getChannels, updateChannelName, syncMailChannel } from "@/lib/api/channels"
 import { updateContact } from "@/lib/api/contacts"
 import { isExpectedBusinessErrorMessage } from "@/lib/observability/sentry"
 import { ChannelHeader } from "@/components/chat/AccountHeader"
@@ -86,6 +86,7 @@ import { useAuthStore } from "@/store/useAuthStore"
 import { useFacebookSDK } from "@/hooks/useFacebookSDK"
 import { useInstagramLogin } from "@/hooks/useInstagramLogin"
 import { InstagramPageSelectDialog } from "@/components/chat/InstagramPageSelectDialog"
+import { MailConnectDialog } from "@/components/chat/MailConnectDialog"
 import {
   Archive,
   ArchiveRestore,
@@ -111,11 +112,13 @@ import {
 
 type ConversationView = "inbox" | "unread" | "archived"
 
+type ConnectableChannelType = "whatsapp" | "instagram" | "mail"
+
 interface ChatsCompactHeaderProps {
   searchQuery: string
   onSearchChange: (query: string) => void
   onNewConversation: () => void
-  onConnectChannel: (channelType?: "whatsapp" | "instagram") => void
+  onConnectChannel: (channelType?: ConnectableChannelType) => void
   onOpenChannels: () => void
 }
 
@@ -126,6 +129,7 @@ function ChatsCompactHeader({
   onConnectChannel,
   onOpenChannels,
 }: ChatsCompactHeaderProps) {
+  const { t } = useTranslation()
   return (
     <div className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-xl supports-[backdrop-filter]:bg-background/90">
       <div className="flex h-18.75 items-center gap-3 px-4 md:px-6">
@@ -176,6 +180,10 @@ function ChatsCompactHeader({
                   <Instagram className="mr-2 h-4 w-4 text-pink-600" />
                   Instagram
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onConnectChannel("mail")}>
+                  <Mail className="mr-2 h-4 w-4 text-blue-600" />
+                  {t("chats.connectMail")}
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -194,6 +202,10 @@ function ChatsCompactHeader({
               <DropdownMenuItem onClick={() => onConnectChannel("instagram")}>
                 <Instagram className="mr-2 h-4 w-4 text-pink-600" />
                 Conectar Instagram
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onConnectChannel("mail")}>
+                <Mail className="mr-2 h-4 w-4 text-blue-600" />
+                {t("chats.connectMail")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -250,6 +262,7 @@ export default function ChatsPage() {
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null)
   const [isContactInfoOpen, setIsContactInfoOpen] = useState(false)
   const [isChannelsSheetOpen, setIsChannelsSheetOpen] = useState(false)
+  const [isMailConnectOpen, setMailConnectOpen] = useState(false)
   const [activeFilter, setActiveFilter] = useState<FilterType>("todos")
   const [tagFilterSlugs, setTagFilterSlugs] = useState<string[]>([])
   const [viewType, setViewType] = useState<ConversationView>("inbox")
@@ -832,7 +845,12 @@ export default function ChatsPage() {
   }, [selectedConversationId]);
 
 
-  const handleConnectChannel = (channelType: "whatsapp" | "instagram" = "whatsapp") => {
+  const handleConnectChannel = (channelType: ConnectableChannelType = "whatsapp") => {
+    if (channelType === "mail") {
+      setMailConnectOpen(true)
+      return
+    }
+
     const sdkLoaded = channelType === "instagram" ? isInstagramSDKLoaded : isFacebookSDKLoaded
     if (!sdkLoaded) {
       addToast({
@@ -969,6 +987,20 @@ export default function ChatsPage() {
       addToast({ type: "success", title: t("chats.renameChannelSuccess") })
     } catch {
       addToast({ type: "error", title: t("chats.renameChannelError") })
+    }
+  }, [addToast, t])
+
+  // Sincronización manual de una casilla de email. El backend sólo encola el
+  // job, así que confirmamos el pedido: los mensajes llegan por websocket.
+  const handleSyncMailChannel = useCallback(async (channelId: number) => {
+    try {
+      await syncMailChannel(channelId)
+      addToast({ type: "success", title: t("chats.mailSyncQueued") })
+    } catch (err) {
+      const title = err instanceof ChannelError
+        ? (err.detail.message || (err.detail.code ? t(`chats.${err.detail.code}`) : t("chats.mailSyncError")))
+        : t("chats.mailSyncError")
+      addToast({ type: "error", title })
     }
   }, [addToast, t])
 
@@ -1515,7 +1547,7 @@ export default function ChatsPage() {
 
   const renderChannelsSidebar = (
     onChannelSelect: (channelId: number) => void,
-    onConnectChannelClick: (channelType?: "whatsapp" | "instagram") => void,
+    onConnectChannelClick: (channelType?: ConnectableChannelType) => void,
   ) => (
     <>
       <div className="grid h-[70px] grid-cols-[0.86fr_1.12fr_1.34fr] border-b border-border bg-card/95">
@@ -1586,6 +1618,7 @@ export default function ChatsPage() {
           error={null}
           onChannelSelect={onChannelSelect}
           onRenameChannel={canUpdateChannels ? handleRenameChannel : undefined}
+          onSyncMailChannel={canUpdateChannels ? handleSyncMailChannel : undefined}
         />
       </div>
 
@@ -1606,6 +1639,10 @@ export default function ChatsPage() {
               <Instagram className="mr-2 h-4 w-4 text-pink-600" />
               Instagram
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onConnectChannelClick("mail")}>
+              <Mail className="mr-2 h-4 w-4 text-blue-600" />
+              {t("chats.connectMail")}
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -1617,7 +1654,7 @@ export default function ChatsPage() {
     setIsChannelsSheetOpen(false)
   }
 
-  const handleMobileConnectChannel = (channelType?: "whatsapp" | "instagram") => {
+  const handleMobileConnectChannel = (channelType?: ConnectableChannelType) => {
     setIsChannelsSheetOpen(false)
     handleConnectChannel(channelType)
   }
@@ -1970,6 +2007,8 @@ export default function ChatsPage() {
         onSelect={selectInstagramPage}
         onCancel={cancelInstagramPageSelection}
       />
+
+      <MailConnectDialog open={isMailConnectOpen} onOpenChange={setMailConnectOpen} />
 
       <AlertDialog open={bulkDeleteOpen} onOpenChange={(open) => { if (!bulkSubmitting) setBulkDeleteOpen(open) }}>
         <AlertDialogContent>

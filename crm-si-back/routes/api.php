@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\WooCommerceConfigController;
 use App\Http\Controllers\FacebookDataDeletionController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstagramController;
+use App\Http\Controllers\MailController;
 use App\Http\Controllers\WhatsAppController;
 use App\Models\Invitation;
 use App\Models\Scopes\TenantScope;
@@ -461,6 +462,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('admin/channels/whatsapp-auth', [WhatsAppController::class, 'handleAuth']);
     Route::post('admin/channels/instagram-auth', [InstagramController::class, 'handleAuth']);
+    Route::post('admin/channels/mail-auth', [MailController::class, 'handleAuth']);
+    Route::post('admin/channels/{id}/mail-sync', [MailController::class, 'sync']);
     Route::get('admin/channels/{id}/business-verification', [WhatsAppController::class, 'businessVerification']);
 
     Route::get('/conversations/{id}/messages', [ConversationController::class, 'fetchMessages']);

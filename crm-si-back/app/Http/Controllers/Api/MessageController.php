@@ -11,6 +11,7 @@ use App\Http\Requests\UpdateMessageRequest;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Services\InstagramMessageService;
+use App\Services\MailMessageService;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -21,6 +22,7 @@ class MessageController extends Controller
     public function __construct(
         private WhatsAppMessageService $messageService,
         private InstagramMessageService $instagramService,
+        private MailMessageService $mailService,
     ) {}
 
     public function index(Request $request, Conversation $conversation): JsonResponse
@@ -54,7 +56,7 @@ class MessageController extends Controller
         ]);
 
         $conversation = Conversation::query()
-            ->with(['channel.whatsappConfig', 'channel.instagramConfig', 'contact'])
+            ->with(['channel.whatsappConfig', 'channel.instagramConfig', 'channel.mailConfig', 'contact'])
             ->whereKey($data['conversation_id'])
             ->where('tenant_id', $request->user()->tenant_id)
             ->firstOrFail();
@@ -67,9 +69,11 @@ class MessageController extends Controller
         // El servicio de transporte se elige por el tipo de canal. Las firmas de
         // los métodos send*FromCRM son idénticas entre ambos servicios.
         $channelType = $conversation->channel?->type;
-        $service = $channelType === ChannelType::INSTAGRAM
-            ? $this->instagramService
-            : $this->messageService;
+        $service = match ($channelType) {
+            ChannelType::INSTAGRAM => $this->instagramService,
+            ChannelType::MAIL => $this->mailService,
+            default => $this->messageService,
+        };
 
         // Instagram sólo acepta ciertos formatos de audio (aac/m4a/wav/mp4).
         // La validación general acepta formatos de WhatsApp (ogg/amr) que IG

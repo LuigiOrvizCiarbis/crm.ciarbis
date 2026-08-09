@@ -1,6 +1,87 @@
 import { Channel } from "@/data/types";
 import { getAuthToken } from "./auth-token";
 import { throwApiError } from "./api-error";
+import { ChannelError } from "@/lib/channel-error";
+
+export type MailEncryption = "ssl" | "tls" | "none";
+
+export interface MailConnectPayload {
+  email_address: string;
+  password: string;
+  from_name?: string;
+  imap_host: string;
+  imap_port: number;
+  imap_encryption: MailEncryption;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_encryption: MailEncryption;
+}
+
+/**
+ * Conecta una casilla de email genérica (IMAP/SMTP) como canal MAIL.
+ * Sigue las convenciones de `channel-error`: los proxies mandan `code` (el
+ * front lo traduce) y Laravel manda `message` (texto ya redactado), salvo el
+ * 409 de casilla duplicada que se traduce con clave propia.
+ */
+export async function connectMailChannel(payload: MailConnectPayload): Promise<Channel> {
+  const token = getAuthToken();
+  if (!token) throw new ChannelError({ code: "channelErrorSessionExpired" });
+
+  let response: Response;
+  try {
+    response = await fetch("/api/mail-auth", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // Error de red: el front muestra un mensaje traducido.
+    throw new ChannelError({ code: "channelErrorNetwork" });
+  }
+
+  const data = await response.json().catch(() => ({}));
+
+  if (response.ok) {
+    return data.data ?? data;
+  }
+
+  if (response.status === 409) throw new ChannelError({ code: "channelErrorMailAlreadyConnected" });
+  if (data.code) throw new ChannelError({ code: data.code });
+  if (data.message) throw new ChannelError({ message: data.message });
+  throw new ChannelError({ code: "channelErrorMail" });
+}
+
+/**
+ * Fuerza una sincronización IMAP del canal de email. El backend encola el job
+ * y responde enseguida: la llegada de los mensajes es asincrónica (websocket).
+ */
+export async function syncMailChannel(channelId: number): Promise<void> {
+  const token = getAuthToken();
+  if (!token) throw new ChannelError({ code: "channelErrorSessionExpired" });
+
+  let response: Response;
+  try {
+    response = await fetch(`/api/mail-sync/${channelId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  } catch {
+    throw new ChannelError({ code: "channelErrorNetwork" });
+  }
+
+  if (response.ok) return;
+
+  const data = await response.json().catch(() => ({}));
+  if (data.code) throw new ChannelError({ code: data.code });
+  if (data.message) throw new ChannelError({ message: data.message });
+  throw new ChannelError({ code: "channelErrorMailSync" });
+}
 
 export async function getChannels(): Promise<Channel[]> {
   const token = getAuthToken();

@@ -17,7 +17,7 @@ class ChannelController extends Controller
         $user = $request->user();
 
         $channels = Channel::query()
-            ->with('whatsappConfig', 'instagramConfig', 'user', 'users')
+            ->with('whatsappConfig', 'instagramConfig', 'mailConfig', 'user', 'users')
             ->withCount(['conversations as conversations_count' => function (Builder $query) use ($user): void {
                 $query->visibleTo($user)
                     ->where(function (Builder $inner): void {

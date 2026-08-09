@@ -39,6 +39,17 @@ export interface Channel {
     created_at: string
     updated_at: string
   }
+  mail_config?: {
+    id: number
+    email_address: string
+    from_name: string | null
+    imap_host: string
+    imap_port: number
+    smtp_host: string
+    smtp_port: number
+    last_synced_at: string | null
+    last_error: string | null
+  }
   user: {
     id: number
     tenant_id: number
