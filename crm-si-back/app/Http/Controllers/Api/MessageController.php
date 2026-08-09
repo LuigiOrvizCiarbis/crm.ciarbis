@@ -11,6 +11,7 @@ use App\Http\Requests\UpdateMessageRequest;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Services\InstagramMessageService;
+use App\Services\MessengerMessageService;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -21,6 +22,7 @@ class MessageController extends Controller
     public function __construct(
         private WhatsAppMessageService $messageService,
         private InstagramMessageService $instagramService,
+        private MessengerMessageService $messengerService,
     ) {}
 
     public function index(Request $request, Conversation $conversation): JsonResponse
@@ -54,7 +56,7 @@ class MessageController extends Controller
         ]);
 
         $conversation = Conversation::query()
-            ->with(['channel.whatsappConfig', 'channel.instagramConfig', 'contact'])
+            ->with(['channel.whatsappConfig', 'channel.instagramConfig', 'channel.facebookConfig', 'contact'])
             ->whereKey($data['conversation_id'])
             ->where('tenant_id', $request->user()->tenant_id)
             ->firstOrFail();
@@ -65,11 +67,24 @@ class MessageController extends Controller
         $tenantId = $request->user()->tenant_id;
 
         // El servicio de transporte se elige por el tipo de canal. Las firmas de
-        // los métodos send*FromCRM son idénticas entre ambos servicios.
+        // los métodos send*FromCRM son idénticas entre los tres servicios.
+        //
+        // match exhaustivo con default explícito: un canal sin transporte de
+        // envío (Telegram, Web, Mail, Manual) debe cortar acá con un 422 claro,
+        // no caer silenciosamente a WhatsApp.
         $channelType = $conversation->channel?->type;
-        $service = $channelType === ChannelType::INSTAGRAM
-            ? $this->instagramService
-            : $this->messageService;
+        $service = match ($channelType) {
+            ChannelType::WHATSAPP => $this->messageService,
+            ChannelType::INSTAGRAM => $this->instagramService,
+            ChannelType::FACEBOOK => $this->messengerService,
+            default => null,
+        };
+
+        if (! $service) {
+            return response()->json([
+                'message' => 'Este canal no admite el envío de mensajes desde el CRM.',
+            ], 422);
+        }
 
         // Instagram sólo acepta ciertos formatos de audio (aac/m4a/wav/mp4).
         // La validación general acepta formatos de WhatsApp (ogg/amr) que IG
@@ -120,7 +135,11 @@ class MessageController extends Controller
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (MetaApiException $e) {
-            $channelName = $e->channelType === ChannelType::INSTAGRAM ? 'Instagram' : 'WhatsApp';
+            $channelName = match ($e->channelType) {
+                ChannelType::INSTAGRAM => 'Instagram',
+                ChannelType::FACEBOOK => 'Facebook',
+                default => 'WhatsApp',
+            };
 
             $errorMessage = match ($e->reason) {
                 MetaApiException::REASON_WINDOW_CLOSED => 'La ventana de 24 horas de '.$channelName.

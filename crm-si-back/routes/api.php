@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\WooCommerceConfigController;
 use App\Http\Controllers\FacebookDataDeletionController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstagramController;
+use App\Http\Controllers\MessengerController;
 use App\Http\Controllers\WhatsAppController;
 use App\Models\Invitation;
 use App\Models\Scopes\TenantScope;
@@ -461,6 +462,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('admin/channels/whatsapp-auth', [WhatsAppController::class, 'handleAuth']);
     Route::post('admin/channels/instagram-auth', [InstagramController::class, 'handleAuth']);
+
+    Route::post('admin/channels/messenger-auth', [MessengerController::class, 'handleAuth']);
     Route::get('admin/channels/{id}/business-verification', [WhatsAppController::class, 'businessVerification']);
 
     Route::get('/conversations/{id}/messages', [ConversationController::class, 'fetchMessages']);
@@ -513,6 +516,8 @@ Route::get('plans', [PlanController::class, 'index']);
 Route::match(['get', 'post'], 'whatsapp-webhook', [WhatsAppController::class, 'webhook']);
 
 Route::match(['get', 'post'], 'instagram-webhook', [InstagramController::class, 'webhook']);
+
+Route::match(['get', 'post'], 'messenger-webhook', [MessengerController::class, 'webhook']);
 
 Route::post('facebook/data-deletion', [FacebookDataDeletionController::class, 'handle']);
 

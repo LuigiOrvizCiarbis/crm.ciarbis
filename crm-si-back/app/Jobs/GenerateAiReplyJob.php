@@ -7,6 +7,7 @@ use App\Models\AiConfig;
 use App\Models\Conversation;
 use App\Services\AiReplyService;
 use App\Services\InstagramMessageService;
+use App\Services\MessengerMessageService;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -49,6 +50,7 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
         AiReplyService $aiReplyService,
         WhatsAppMessageService $whatsAppMessageService,
         InstagramMessageService $instagramMessageService,
+        MessengerMessageService $messengerMessageService,
     ): void {
         $conversation = Conversation::withoutGlobalScopes()->find($this->conversationId);
 
@@ -94,11 +96,27 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
         }
 
         // El transporte depende del canal de la conversación: mismas firmas de
-        // envío en ambos servicios.
-        if ($conversation->channel?->type === ChannelType::INSTAGRAM) {
-            $instagramMessageService->sendSystemTextMessageFromCRM($conversation, $reply);
-        } else {
-            $whatsAppMessageService->sendSystemTextMessageFromCRM($conversation, $reply);
+        // envío en los tres servicios.
+        //
+        // match exhaustivo con default que aborta, NO un else que asuma WhatsApp:
+        // un canal sin transporte de IA (Telegram, Web, Mail, Manual) enviaría el
+        // mensaje por el canal equivocado, o fallaría con un error opaco.
+        $service = match ($conversation->channel?->type) {
+            ChannelType::WHATSAPP => $whatsAppMessageService,
+            ChannelType::INSTAGRAM => $instagramMessageService,
+            ChannelType::FACEBOOK => $messengerMessageService,
+            default => null,
+        };
+
+        if (! $service) {
+            Log::warning('GenerateAiReplyJob: canal sin transporte de IA', [
+                'conversation_id' => $conversation->id,
+                'channel_type' => $conversation->channel?->type?->value,
+            ]);
+
+            return;
         }
+
+        $service->sendSystemTextMessageFromCRM($conversation, $reply);
     }
 }
