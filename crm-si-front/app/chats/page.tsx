@@ -65,10 +65,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
-import { sendMessage, editMessage, deleteMessage, translateMessage } from "@/lib/api/messages"
+import { sendMessage, sendMailMessage, editMessage, deleteMessage, translateMessage, type SendMailMessageInput } from "@/lib/api/messages"
 import { ConversationHeader } from "@/components/chat/ConversationHeader"
 import { MessageList } from "@/components/chat/MessageList"
 import { MessageInput } from "@/components/chat/MessageInput"
+import { MailMessageInput } from "@/components/chat/MailMessageInput"
 import { ConversationList } from "@/components/chat/ConversationList"
 import { FilteredConversationsHeader } from "@/components/chat/FilteredConversationsHeader"
 import { ChannelsList } from "@/components/chat/ChannelsList"
@@ -89,6 +90,8 @@ import { InstagramPageSelectDialog } from "@/components/chat/InstagramPageSelect
 import { useMessengerLogin } from "@/hooks/useMessengerLogin"
 import { MessengerPageSelectDialog } from "@/components/chat/MessengerPageSelectDialog"
 import { MailConnectDialog } from "@/components/chat/MailConnectDialog"
+import { MailReviewInbox } from "@/components/chat/MailReviewInbox"
+import { getMailIntakeCount } from "@/lib/api/mail-intakes"
 import {
   Archive,
   ArchiveRestore,
@@ -113,7 +116,7 @@ import {
   Zap,
 } from "lucide-react"
 
-type ConversationView = "inbox" | "unread" | "archived"
+type ConversationView = "inbox" | "unread" | "archived" | "review"
 
 /**
  * Proveedor OAuth a conectar. Ojo: NO es lo mismo que el FilterType de los
@@ -284,6 +287,7 @@ export default function ChatsPage() {
   const [activeFilter, setActiveFilter] = useState<FilterType>("todos")
   const [tagFilterSlugs, setTagFilterSlugs] = useState<string[]>([])
   const [viewType, setViewType] = useState<ConversationView>("inbox")
+  const [mailReviewCount, setMailReviewCount] = useState(0)
   const [searchQuery, setSearchQuery] = useState("")
   const [messageSearchResults, setMessageSearchResults] = useState<Conversation[]>([])
   const [isSearchingMessages, setIsSearchingMessages] = useState(false)
@@ -647,7 +651,8 @@ export default function ChatsPage() {
     inbox: tagFilteredConversations.filter((conversation) => !conversation.archived).length,
     unread: tagFilteredConversations.filter((conversation) => conversation.unread && !conversation.archived).length,
     archived: tagFilteredConversations.filter((conversation) => conversation.archived).length,
-  }), [tagFilteredConversations])
+    review: mailReviewCount,
+  }), [tagFilteredConversations, mailReviewCount])
 
   const visibleConversations = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase()
@@ -658,7 +663,7 @@ export default function ChatsPage() {
           ? conversation.archived
           : viewType === "unread"
             ? conversation.unread && !conversation.archived
-            : !conversation.archived
+            : viewType === "review" ? false : !conversation.archived
 
       if (!matchesView) return false
       if (!normalizedQuery) return true
@@ -676,6 +681,10 @@ export default function ChatsPage() {
       )
     })
   }, [tagFilteredConversations, searchQuery, viewType])
+
+  useEffect(() => {
+    getMailIntakeCount().then(({ data }) => setMailReviewCount(data.pending)).catch(() => undefined)
+  }, [])
 
   // Búsqueda server-side por contenido de mensajes (debounce; el filtro client-side sigue instantáneo)
   useEffect(() => {
@@ -1361,6 +1370,83 @@ export default function ChatsPage() {
     }
   };
 
+  const handleSendMail = async (input: SendMailMessageInput) => {
+    if (!selectedConversationId) return
+
+    const tempId = `temp-mail-${Date.now()}`
+    const messages = currentConversation?.messages ?? []
+    const latestSubject = [...messages].reverse().find((item) => item.mail_details?.subject)?.mail_details?.subject
+      || t("chats.mailNoSubject")
+    const optimisticMessage = {
+      id: tempId,
+      conversation_id: selectedConversationId,
+      content: input.content,
+      message_type: "text",
+      direction: "outbound",
+      sender_type: "user",
+      sender_id: currentUserId,
+      created_at: new Date().toISOString(),
+      mail_details: {
+        id: -1,
+        message_id: -1,
+        subject: latestSubject.startsWith("Re:") ? latestSubject : `Re: ${latestSubject}`,
+        body_text: input.content,
+        body_html: input.contentHtml,
+        from: activeConversation?.channel?.mail_config
+          ? { email: activeConversation.channel.mail_config.email_address, name: activeConversation.channel.mail_config.from_name }
+          : null,
+        to: [],
+        cc: input.cc?.map((email) => ({ email })) ?? [],
+        bcc: input.bcc?.map((email) => ({ email })) ?? [],
+        has_remote_images: false,
+      },
+      mail_attachments: input.attachments?.map((file, index) => ({
+        id: -(index + 1),
+        conversation_id: selectedConversationId,
+        content: "",
+        message_type: "document" as const,
+        media_filename: file.name,
+        sender_type: "user" as const,
+        direction: "outbound" as const,
+        created_at: new Date().toISOString(),
+      })) ?? [],
+    } as unknown as Message
+
+    setMessage("")
+    setCurrentConversation((previous) => previous
+      ? { ...previous, messages: [...(previous.messages ?? []), optimisticMessage] }
+      : previous)
+
+    try {
+      const savedMessage = await sendMailMessage(selectedConversationId, input)
+      setCurrentConversation((previous) => previous ? {
+        ...previous,
+        aiAutoreplyEnabled: false,
+        messages: (previous.messages ?? []).map((item) => String(item.id) === tempId ? savedMessage : item),
+      } : previous)
+      setConversations((items) => items.map((conversation) => conversation.id === selectedConversationId
+        ? {
+            ...conversation,
+            aiAutoreplyEnabled: false,
+            last_message: `${savedMessage.mail_details?.subject || latestSubject} · ${savedMessage.content}`,
+            updated_at: savedMessage.created_at,
+          }
+        : conversation))
+    } catch (error) {
+      setCurrentConversation((previous) => previous ? {
+        ...previous,
+        messages: (previous.messages ?? []).filter((item) => String(item.id) !== tempId),
+      } : previous)
+      setMessage(input.content)
+      addToast({
+        type: "error",
+        title: t("chats.sendMessageError"),
+        description: error instanceof Error ? error.message : t("chats.sendMessageErrorDesc"),
+      })
+      throw error
+    }
+  }
+
 
 
   const refreshConversations = useCallback(async () => {
@@ -1574,10 +1660,11 @@ export default function ChatsPage() {
     onConnectChannelClick: (channelType?: ConnectableChannel) => void,
   ) => (
     <>
-      <div className="grid h-[70px] grid-cols-[0.86fr_1.12fr_1.34fr] border-b border-border bg-card/95">
+      <div className="grid h-[70px] grid-cols-4 border-b border-border bg-card/95">
         {([
           { key: "inbox", label: "Inbox", count: conversationViewCounts.inbox },
           { key: "unread", label: "No leídos", count: conversationViewCounts.unread },
+          { key: "review", label: "Por revisar", count: conversationViewCounts.review },
           { key: "archived", label: "Archivados", count: conversationViewCounts.archived },
         ] as const).map((item) => {
           const isActive = viewType === item.key
@@ -1718,7 +1805,18 @@ export default function ChatsPage() {
             />
           )}
 
-          {!selectedConversationId && (
+          {!selectedConversationId && viewType === "review" && (
+            <MailReviewInbox
+              onCountChange={setMailReviewCount}
+              canManageRules={canUpdateChannels}
+              onAccepted={(conversationId) => {
+                setViewType("inbox")
+                handleConversationClick(conversationId)
+              }}
+            />
+          )}
+
+          {!selectedConversationId && viewType !== "review" && (
             <>
               <div className="flex items-center justify-between gap-2 border-b border-border bg-card/60 px-4 py-2">
                 <div className="flex items-center gap-2">
@@ -1951,23 +2049,37 @@ export default function ChatsPage() {
                 isAdmin={isAdmin}
                 translationLanguage={language}
                 onTranslateMessage={handleTranslateMessage}
+                channelType={activeConversation?.channel?.type}
               />
-              <MessageInput
-                value={message}
-                onChange={setMessage}
-                onSend={editingMessage ? handleSaveEdit : handleSendMessage}
-                disabled={isLoading}
-                channelId={activeConversation?.channel?.id ?? activeConversation?.channelId}
-                conversationId={selectedConversationId}
-                onSendTemplate={handleSendTemplate}
-                supportsTemplates={activeConversation?.channel?.type === ChannelType.WHATSAPP}
-                editingMessage={editingMessage}
-                onCancelEdit={handleCancelEdit}
-                expansionContext={hotkeyExpansionContext}
-                contactLanguage={(currentConversation ?? activeConversation)?.contactLanguage ?? "es"}
-                onContactLanguageChange={handleTranslationLanguageChange}
-                onTranslateDraft={handleTranslateDraft}
-              />
+              {activeConversation?.channel?.type === ChannelType.MAIL ? (
+                <MailMessageInput
+                  value={message}
+                  onChange={setMessage}
+                  onSend={handleSendMail}
+                  disabled={isLoading}
+                  subject={[...(currentConversation?.messages ?? [])]
+                    .reverse()
+                    .find((item) => item.mail_details?.subject)
+                    ?.mail_details?.subject}
+                />
+              ) : (
+                <MessageInput
+                  value={message}
+                  onChange={setMessage}
+                  onSend={editingMessage ? handleSaveEdit : handleSendMessage}
+                  disabled={isLoading}
+                  channelId={activeConversation?.channel?.id ?? activeConversation?.channelId}
+                  conversationId={selectedConversationId}
+                  onSendTemplate={handleSendTemplate}
+                  supportsTemplates={activeConversation?.channel?.type === ChannelType.WHATSAPP}
+                  editingMessage={editingMessage}
+                  onCancelEdit={handleCancelEdit}
+                  expansionContext={hotkeyExpansionContext}
+                  contactLanguage={(currentConversation ?? activeConversation)?.contactLanguage ?? "es"}
+                  onContactLanguageChange={handleTranslationLanguageChange}
+                  onTranslateDraft={handleTranslateDraft}
+                />
+              )}
             </>
 
 

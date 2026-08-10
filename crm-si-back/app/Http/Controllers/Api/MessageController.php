@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Enums\ChannelType;
+use App\Enums\MessageType;
 use App\Events\MessageDeleted;
 use App\Events\MessageEdited;
 use App\Exceptions\MetaApiException;
@@ -11,11 +12,12 @@ use App\Http\Requests\UpdateMessageRequest;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Services\InstagramMessageService;
-use App\Services\MessengerMessageService;
 use App\Services\MailMessageService;
+use App\Services\MessengerMessageService;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 class MessageController extends Controller
@@ -32,8 +34,10 @@ class MessageController extends Controller
         $this->authorize('view', $conversation);
 
         $messages = Message::query()
+            ->with(['mailDetails', 'mailAttachments'])
             ->withTrashed()
             ->where('conversation_id', $conversation->id)
+            ->whereNull('mail_parent_message_id')
             ->orderBy('delivered_at')
             ->paginate((int) $request->query('per_page', 50));
 
@@ -51,10 +55,17 @@ class MessageController extends Controller
     {
         $data = $request->validate([
             'conversation_id' => 'required|exists:conversations,id',
-            'content' => 'required_unless:type,image,audio|nullable|string',
-            'type' => 'required|string|in:text,image,audio',
+            'content' => 'required_unless:type,image,audio,mail|nullable|string',
+            'content_html' => 'nullable|string|max:200000',
+            'type' => 'required|string|in:text,image,audio,mail',
             'image' => 'required_if:type,image|image|max:10240',
             'audio' => 'required_if:type,audio|file|mimetypes:audio/aac,audio/mpeg,audio/mp3,audio/ogg,audio/mp4,audio/amr,audio/3gpp|max:16384',
+            'cc' => 'nullable|array|max:20',
+            'cc.*' => 'required|email:rfc|max:255',
+            'bcc' => 'nullable|array|max:20',
+            'bcc.*' => 'required|email:rfc|max:255',
+            'attachments' => 'nullable|array|max:10',
+            'attachments.*' => 'file|max:10240',
         ]);
 
         $conversation = Conversation::query()
@@ -75,6 +86,16 @@ class MessageController extends Controller
         // envío (Telegram, Web, Manual) debe cortar acá con un 422 claro,
         // no caer silenciosamente a WhatsApp.
         $channelType = $conversation->channel?->type;
+
+        if ($type === 'mail' && $channelType !== ChannelType::MAIL) {
+            return response()->json(['message' => 'El formato email sólo está disponible en canales de correo.'], 422);
+        }
+
+        if ($type === 'mail'
+            && trim((string) ($data['content'] ?? '')) === ''
+            && ! $request->hasFile('attachments')) {
+            return response()->json(['message' => 'Escribí una respuesta o adjuntá un archivo.'], 422);
+        }
         $service = match ($channelType) {
             ChannelType::WHATSAPP => $this->messageService,
             ChannelType::INSTAGRAM => $this->instagramService,
@@ -105,7 +126,35 @@ class MessageController extends Controller
         }
 
         try {
-            if ($type === 'image' && $request->hasFile('image')) {
+            if ($type === 'mail' && $channelType === ChannelType::MAIL) {
+                $attachments = [];
+                foreach ($request->file('attachments', []) as $file) {
+                    $path = $file->store("messages/{$tenantId}", 'public');
+                    $mime = $file->getMimeType() ?: 'application/octet-stream';
+                    $attachments[] = [
+                        'path' => Storage::disk('public')->path($path),
+                        'url' => '/storage/'.$path,
+                        'name' => $file->getClientOriginalName(),
+                        'mime' => $mime,
+                        'type' => match (true) {
+                            str_starts_with($mime, 'image/') => MessageType::Image,
+                            str_starts_with($mime, 'audio/') => MessageType::Audio,
+                            str_starts_with($mime, 'video/') => MessageType::Video,
+                            default => MessageType::Document,
+                        },
+                    ];
+                }
+
+                $message = $this->mailService->sendRichTextMessageFromCRM(
+                    $conversation,
+                    trim((string) ($data['content'] ?? '')),
+                    $request->user(),
+                    $data['content_html'] ?? null,
+                    array_values(array_unique($data['cc'] ?? [])),
+                    array_values(array_unique($data['bcc'] ?? [])),
+                    $attachments,
+                );
+            } elseif ($type === 'image' && $request->hasFile('image')) {
                 $file = $request->file('image');
                 $path = $file->store("messages/{$tenantId}", 'public');
 

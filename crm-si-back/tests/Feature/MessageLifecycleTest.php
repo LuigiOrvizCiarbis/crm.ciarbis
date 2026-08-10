@@ -300,14 +300,15 @@ class MessageLifecycleTest extends TestCase
      */
     private function createConversationWithMessages(): array
     {
-        $tenant = Tenant::create([
-            'name' => 'Acme',
-        ]);
+        $tenant = $this->createTenantWithRoles();
 
         $user = User::factory()->create([
             'tenant_id' => $tenant->id,
             'role' => UserRole::ADMIN,
         ]);
+        // Las policies de Message autorizan por permisos de Spatie: sin rol
+        // asignado, editar o borrar un mensaje responde 403.
+        $user->assignRole('Owner');
 
         Sanctum::actingAs($user);
 

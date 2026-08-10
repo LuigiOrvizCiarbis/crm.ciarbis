@@ -1,4 +1,5 @@
 import { Message, TranslationLanguage } from "@/data/types"
+import { ChannelType } from "@/data/enums"
 import { Fragment, useEffect, useRef, useLayoutEffect, useState, useMemo, useCallback } from "react"
 import { Loader2, MoreHorizontal, Pencil, Trash2, Music2, Search, X, ChevronUp, ChevronDown, Bot, Languages, EyeOff, RefreshCw, AlertCircle } from "lucide-react"
 import type { MessageTranslationResponse } from "@/lib/api/messages"
@@ -22,6 +23,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { MailMessageBlock } from "./MailMessageBlock"
 
 interface MessageListProps {
   messages: Message[]
@@ -34,6 +36,7 @@ interface MessageListProps {
   isAdmin?: boolean
   translationLanguage: TranslationLanguage
   onTranslateMessage: (message: Message, targetLanguage: TranslationLanguage) => Promise<MessageTranslationResponse>
+  channelType?: ChannelType
 }
 
 interface TranslationState {
@@ -277,6 +280,7 @@ export function MessageList({
   isAdmin,
   translationLanguage,
   onTranslateMessage,
+  channelType,
 }: MessageListProps) {
   const { t, language } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -652,6 +656,21 @@ export function MessageList({
               msgDate && !isNaN(msgDate.getTime()) && (!prevDate || !isSameDay(msgDate, prevDate))
                 ? getDayLabel(msgDate, language, t)
                 : null
+
+            if (channelType === ChannelType.MAIL) {
+              return (
+                <Fragment key={msg.id}>
+                  {dayLabel && (
+                    <div data-day-label={dayLabel} className="flex justify-center">
+                      <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground dark:bg-card">
+                        {dayLabel}
+                      </span>
+                    </div>
+                  )}
+                  <MailMessageBlock message={msg} />
+                </Fragment>
+              )
+            }
 
             const isUser = msg.sender_type === "user"
             const isBot = msg.sender_type === "system" && msg.direction === "outbound"

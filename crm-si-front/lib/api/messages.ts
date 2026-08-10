@@ -64,6 +64,41 @@ export async function sendMessage(conversationId: number, content: string, media
   return data.data;
 }
 
+export interface SendMailMessageInput {
+  content: string;
+  contentHtml?: string;
+  cc?: string[];
+  bcc?: string[];
+  attachments?: File[];
+}
+
+export async function sendMailMessage(conversationId: number, input: SendMailMessageInput): Promise<Message> {
+  const token = getAuthToken();
+  if (!token) throw new Error("Token faltante");
+
+  const formData = new FormData();
+  formData.append("conversation_id", String(conversationId));
+  formData.append("type", "mail");
+  formData.append("content", input.content);
+  if (input.contentHtml) formData.append("content_html", input.contentHtml);
+  input.cc?.forEach((address) => formData.append("cc[]", address));
+  input.bcc?.forEach((address) => formData.append("bcc[]", address));
+  input.attachments?.forEach((file) => formData.append("attachments[]", file));
+
+  const response = await fetch("/api/messages", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    },
+    body: formData,
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throwApiError(response.status, payload, "No se pudo enviar el email");
+  return payload.data;
+}
+
 export async function getMessages(): Promise<Message[]> {
   const token = getAuthToken();
   if (!token) throw new Error("No authentication token found");

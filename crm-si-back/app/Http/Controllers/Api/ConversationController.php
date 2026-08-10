@@ -39,6 +39,7 @@ class ConversationController extends Controller
             ->with(['contact:id,name,phone', 'channel:id,name,type', 'messages:id', 'tags'])
             ->withCount(['messages as unread_count' => function ($query) {
                 $query->where('direction', MessageDirection::INBOUND)
+                    ->whereNull('mail_parent_message_id')
                     ->whereNull('read_at')
                     ->whereNull('deleted_at');
             }])
@@ -98,7 +99,13 @@ class ConversationController extends Controller
             // La relación messages() usa withTrashed(), por eso el whereNull explícito.
             $q->whereHas('messages', function ($mq) use ($escaped, $likeOperator) {
                 $mq->whereNull('messages.deleted_at')
-                    ->whereRaw("content {$likeOperator} ? escape '\\'", ["%{$escaped}%"]);
+                    ->where(function ($contentQuery) use ($escaped, $likeOperator) {
+                        $contentQuery
+                            ->whereRaw("content {$likeOperator} ? escape '\\'", ["%{$escaped}%"])
+                            ->orWhereHas('mailDetails', function ($detailQuery) use ($escaped, $likeOperator) {
+                                $detailQuery->whereRaw("subject {$likeOperator} ? escape '\\'", ["%{$escaped}%"]);
+                            });
+                    });
             });
 
             $q->select('conversations.*')->addSelect([
@@ -115,6 +122,7 @@ class ConversationController extends Controller
                 ->reorder()
                 ->join('messages', 'messages.conversation_id', '=', 'conversations.id')
                 ->where('messages.direction', MessageDirection::INBOUND->value)
+                ->whereNull('messages.mail_parent_message_id')
                 ->whereNull('messages.read_at')
                 ->whereNull('messages.deleted_at')
                 ->count('messages.id');
@@ -124,6 +132,7 @@ class ConversationController extends Controller
                 ->where('conversations.manual_unread', true)
                 ->whereDoesntHave('messages', function ($query) {
                     $query->where('direction', MessageDirection::INBOUND)
+                        ->whereNull('mail_parent_message_id')
                         ->whereNull('read_at')
                         ->whereNull('deleted_at');
                 })
@@ -187,7 +196,10 @@ class ConversationController extends Controller
         $conversation = Conversation::with([
             'messages' => function ($q) {
                 // CAMBIO SUGERIDO: Aumentar de 4 a 20 para llenar la pantalla inicial
-                $q->orderBy('created_at', 'desc')->limit(20);
+                $q->with(['mailDetails', 'mailAttachments'])
+                    ->whereNull('mail_parent_message_id')
+                    ->orderBy('created_at', 'desc')
+                    ->limit(20);
             },
             'contact:id,name,phone',
             'channel:id,name,type',
@@ -217,6 +229,8 @@ class ConversationController extends Controller
         // Obtenemos mensajes ordenados por fecha descendente (del más nuevo al más viejo)
         // Laravel Paginator se encarga de 'page=1', 'page=2', etc.
         $messages = $conversation->messages()
+            ->with(['mailDetails', 'mailAttachments'])
+            ->whereNull('mail_parent_message_id')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
 

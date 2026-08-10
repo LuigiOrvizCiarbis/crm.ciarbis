@@ -10,7 +10,6 @@ use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Message;
-use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -22,17 +21,21 @@ class ConversationChannelFilterTest extends TestCase
 
     public function test_channel_filter_includes_conversations_assigned_to_channel_owner(): void
     {
-        $tenant = Tenant::create(['name' => 'Acme']);
+        $tenant = $this->createTenantWithRoles();
 
         $admin = User::factory()->create([
             'tenant_id' => $tenant->id,
             'role' => UserRole::ADMIN,
         ]);
+        // Listar conversaciones se autoriza por permisos de Spatie; el enum
+        // `role` por sí solo no habilita nada.
+        $admin->assignRole('Admin');
 
         $seller = User::factory()->create([
             'tenant_id' => $tenant->id,
             'role' => UserRole::EMPLOYEE,
         ]);
+        $seller->assignRole('Member');
 
         $selectedChannel = Channel::create([
             'tenant_id' => $tenant->id,
@@ -95,17 +98,19 @@ class ConversationChannelFilterTest extends TestCase
 
     public function test_unread_count_summary_counts_visible_unread_messages_without_returning_conversations(): void
     {
-        $tenant = Tenant::create(['name' => 'Acme']);
+        $tenant = $this->createTenantWithRoles();
 
         $seller = User::factory()->create([
             'tenant_id' => $tenant->id,
             'role' => UserRole::EMPLOYEE,
         ]);
+        $seller->assignRole('Member');
 
         $otherSeller = User::factory()->create([
             'tenant_id' => $tenant->id,
             'role' => UserRole::EMPLOYEE,
         ]);
+        $otherSeller->assignRole('Member');
 
         $channel = Channel::create([
             'tenant_id' => $tenant->id,

@@ -8,7 +8,6 @@ use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Tag;
-use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -78,11 +77,13 @@ class TagApiTest extends TestCase
 
     private function createCrmRecords(): array
     {
-        $tenant = Tenant::create(['name' => 'Acme']);
+        $tenant = $this->createTenantWithRoles();
         $user = User::factory()->create([
             'tenant_id' => $tenant->id,
             'role' => UserRole::ADMIN,
         ]);
+        // Listar contactos/conversaciones se autoriza por permisos de Spatie.
+        $user->assignRole('Owner');
 
         $channel = Channel::create([
             'tenant_id' => $tenant->id,
