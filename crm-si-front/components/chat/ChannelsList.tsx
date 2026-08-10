@@ -213,7 +213,7 @@ export function ChannelsList({
                           aria-label={t("chats.mailSyncNow")}
                           title={t("chats.mailSyncNow")}
                           disabled={syncingId === channel.id}
-                          className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground disabled:opacity-50 sm:h-8 sm:w-8 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:focus-visible:opacity-100"
+                          className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary transition-colors hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:opacity-50 sm:h-8 sm:w-8"
                           onClick={(e) => { e.stopPropagation(); void handleSync(channel.id) }}
                         >
                           <RefreshCw className={`h-4 w-4 ${syncingId === channel.id ? 'animate-spin' : ''}`} />

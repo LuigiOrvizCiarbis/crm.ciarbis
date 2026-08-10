@@ -38,6 +38,7 @@ use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstagramController;
 use App\Http\Controllers\MessengerController;
 use App\Http\Controllers\MailController;
+use App\Http\Controllers\Api\MailIntakeController;
 use App\Http\Controllers\WhatsAppController;
 use App\Models\Invitation;
 use App\Models\Scopes\TenantScope;
@@ -434,6 +435,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('webhook-endpoints/{id}/deliveries/{deliveryId}', [WebhookEndpointController::class, 'deliveryShow']);
 
     Route::get('conversations', [ConversationController::class, 'index']);
+    Route::get('mail-intakes', [MailIntakeController::class, 'index']);
+    Route::get('mail-intakes/count', [MailIntakeController::class, 'count']);
+    Route::get('mail-intakes/{mailIntake}', [MailIntakeController::class, 'show']);
+    Route::post('mail-intakes/{mailIntake}/approve', [MailIntakeController::class, 'approve']);
+    Route::post('mail-intakes/{mailIntake}/reject', [MailIntakeController::class, 'reject']);
+    Route::post('mail-intakes/{mailIntake}/restore', [MailIntakeController::class, 'restore']);
+    Route::post('mail-intakes/{mailIntake}/approve-and-allow', [MailIntakeController::class, 'approveAndAllow']);
+    Route::post('mail-intakes/{mailIntake}/reject-and-block', [MailIntakeController::class, 'rejectAndBlock']);
     Route::post('conversations/bulk-tags', [ConversationController::class, 'bulkTags']);
     Route::post('conversations/bulk-assign', [ConversationController::class, 'bulkAssign']);
     Route::post('conversations/bulk-archive', [ConversationController::class, 'bulkArchive']);
@@ -454,6 +463,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('message-hotkeys', MessageHotkeyController::class)->except(['show']);
 
     Route::get('channels', [ChannelController::class, 'index']);
+    Route::get('channels/{channel}/mail-rules', [MailIntakeController::class, 'rules']);
+    Route::post('channels/{channel}/mail-rules', [MailIntakeController::class, 'storeRule']);
+    Route::delete('channels/{channel}/mail-rules/{mailChannelRule}', [MailIntakeController::class, 'destroyRule']);
     Route::patch('channels/{id}', [ChannelController::class, 'update']);
     Route::get('channels/{id}/users', [ChannelController::class, 'users']);
     Route::post('channels/{id}/users', [ChannelController::class, 'addUser']);

@@ -8,6 +8,7 @@ use App\Enums\SenderType;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -28,6 +29,7 @@ class Message extends Model
         'direction',
         'external_id',
         'mail_message_id',
+        'mail_parent_message_id',
         'delivered_at',
         'read_at',
         'failed_at',
@@ -87,6 +89,21 @@ class Message extends Model
     public function translations(): HasMany
     {
         return $this->hasMany(MessageTranslation::class);
+    }
+
+    public function mailDetails(): HasOne
+    {
+        return $this->hasOne(MailMessageDetail::class);
+    }
+
+    public function mailAttachments(): HasMany
+    {
+        return $this->hasMany(self::class, 'mail_parent_message_id')->orderBy('id');
+    }
+
+    public function mailParent(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'mail_parent_message_id');
     }
 
     /**

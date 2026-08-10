@@ -59,6 +59,8 @@ class MailMessageService
 
     public function __construct(
         private MailTransportFactory $transports,
+        private MailHtmlSanitizer $htmlSanitizer,
+        private MailIntakeService $mailIntakes,
     ) {}
 
     // ---------------------------------------------------------------------
@@ -332,63 +334,32 @@ class MailMessageService
             return false;
         }
 
-        $contact = $this->findOrCreateContact($channel, $fromEmail, $from?->name());
-        $conversation = $this->findOrCreateConversation($contact, $channel, $config);
-
-        $content = $this->extractContent($mail);
+        $subject = trim((string) $mail->subject());
+        $bodyText = $this->extractBodyText($mail);
+        $sanitizedHtml = $this->htmlSanitizer->sanitize($mail->html());
         $attachments = $this->storeAttachments($mail, $channel->tenant_id);
-        $primary = $attachments[0] ?? null;
 
-        try {
-            $message = Message::create([
-                'tenant_id' => $channel->tenant_id,
-                'conversation_id' => $conversation->getKey(),
-                'sender_type' => SenderType::CONTACT,
-                'sender_id' => $contact->getKey(),
-                'content' => $content,
-                'message_type' => $primary ? $primary['type'] : MessageType::Text,
-                'media_url' => $primary['url'] ?? null,
-                'media_mime_type' => $primary['mime_type'] ?? null,
-                'media_filename' => $primary['filename'] ?? null,
-                'direction' => MessageDirection::INBOUND,
-                'external_id' => $externalId,
-                'mail_message_id' => $messageId ?: null,
-                'delivered_at' => $mail->date() ?? now(),
-            ]);
-        } catch (QueryException $e) {
-            // Carrera entre dos corridas del job sobre la misma casilla.
-            if ($this->isUniqueViolation($e)) {
-                return false;
-            }
-
-            throw $e;
-        }
-
-        // Los adjuntos extra van como mensajes propios para que se vean todos
-        // en el hilo (el modelo Message soporta una sola media por fila).
-        foreach (array_slice($attachments, 1) as $index => $attachment) {
-            Message::create([
-                'tenant_id' => $channel->tenant_id,
-                'conversation_id' => $conversation->getKey(),
-                'sender_type' => SenderType::CONTACT,
-                'sender_id' => $contact->getKey(),
-                'content' => '',
-                'message_type' => $attachment['type'],
-                'media_url' => $attachment['url'],
-                'media_mime_type' => $attachment['mime_type'],
-                'media_filename' => $attachment['filename'],
-                'direction' => MessageDirection::INBOUND,
-                'external_id' => $externalId.'-att-'.($index + 1),
-                // Las filas extra son el mismo email: no repetimos su
-                // Message-ID para no duplicarlo en la cadena References.
-                'delivered_at' => $mail->date() ?? now(),
-            ]);
-        }
-
-        Conversation::where('id', $conversation->getKey())->update([
-            'last_message_at' => $message->created_at,
-            'last_message_content' => Str::limit($content, 120),
+        $intake = $this->mailIntakes->capture($channel, $config, [
+            'external_id' => $externalId,
+            'from_email' => strtolower($fromEmail),
+            'from_name' => $from?->name(),
+            'mail_message_id' => $messageId ?: null,
+            'subject' => $subject !== '' ? $subject : null,
+            'body_text' => $bodyText !== '' ? $bodyText : null,
+            'body_html' => $sanitizedHtml['html'],
+            'to' => $this->addressesToArray($mail->to()), 'cc' => $this->addressesToArray($mail->cc()),
+            'bcc' => $this->addressesToArray($mail->bcc()), 'reply_to' => $this->addressToArray($mail->replyTo()),
+            'in_reply_to' => $mail->inReplyTo(), 'references' => $this->referencesFromMail($mail),
+            'attachments' => array_map(fn (array $attachment) => [...$attachment, 'type' => $attachment['type']->value], $attachments),
+            'has_remote_images' => $sanitizedHtml['has_remote_images'], 'received_at' => $mail->date() ?? now(),
+            'headers' => $this->classificationHeaders($mail),
         ]);
+
+        if ($intake->status !== 'accepted') {
+            return false;
+        }
+
+        $message = $this->mailIntakes->approve($intake, $channel->user);
 
         try {
             broadcast(new MessageSent($message));
@@ -402,26 +373,74 @@ class MailMessageService
         return true;
     }
 
-    /**
-     * Contenido del mensaje: el asunto encabeza el cuerpo porque en email es
-     * parte del significado, a diferencia de los canales de chat.
-     */
-    private function extractContent(MessageInterface $mail): string
+    /** @return array<string, string> */
+    private function classificationHeaders(MessageInterface $mail): array
     {
-        $subject = trim((string) $mail->subject());
+        $headers = [];
+        foreach (['Auto-Submitted', 'Precedence', 'List-Id', 'List-Unsubscribe', 'X-Spam-Flag'] as $name) {
+            try {
+                $value = $mail->header($name)?->getValue();
+            } catch (\Throwable) {
+                $value = null;
+            }
+            if ($value !== null && $value !== '') {
+                $headers[$name] = $value;
+            }
+        }
+
+        return $headers;
+    }
+
+    /** @return list<string> */
+    private function referencesFromMail(MessageInterface $mail): array
+    {
+        try {
+            $raw = (string) ($mail->header('References')?->getValue() ?? '');
+        } catch (\Throwable) {
+            $raw = '';
+        }
+        preg_match_all('/<[^>]+>/', $raw, $matches);
+
+        return $matches[0] ?? [];
+    }
+
+    /**
+     * Texto plano del cuerpo para búsquedas, IA y fallback de renderizado.
+     * El asunto se conserva por separado en MailMessageDetail.
+     */
+    private function extractBodyText(MessageInterface $mail): string
+    {
         $body = $mail->text();
 
         if (! $body && $mail->html()) {
             $body = $this->htmlToText($mail->html());
         }
 
-        $body = $this->stripQuotedReply(trim((string) $body));
+        return $this->stripQuotedReply(trim((string) $body));
+    }
 
-        if ($subject && $body) {
-            return $subject."\n\n".$body;
+    /**
+     * @return array{email: string, name: string}|null
+     */
+    private function addressToArray(?\DirectoryTree\ImapEngine\Address $address): ?array
+    {
+        if (! $address) {
+            return null;
         }
 
-        return $subject ?: $body;
+        return ['email' => $address->email(), 'name' => $address->name()];
+    }
+
+    /**
+     * @param  list<\DirectoryTree\ImapEngine\Address>  $addresses
+     * @return list<array{email: string, name: string}>
+     */
+    private function addressesToArray(array $addresses): array
+    {
+        return array_values(array_filter(array_map(
+            fn ($address) => $this->addressToArray($address),
+            $addresses,
+        )));
     }
 
     /**
@@ -686,7 +705,9 @@ class MailMessageService
      */
     private function replySubject(?Message $lastInbound): string
     {
-        $firstLine = trim(Str::before((string) $lastInbound?->content, "\n"));
+        $lastInbound?->loadMissing('mailDetails');
+        $firstLine = trim((string) ($lastInbound?->mailDetails?->subject
+            ?: Str::before((string) $lastInbound?->content, "\n")));
 
         if ($firstLine === '') {
             return 'Mensaje de '.config('app.name');
@@ -775,13 +796,28 @@ class MailMessageService
         string $to,
         array $reply,
         string $body,
-        array $attachments = []
+        array $attachments = [],
+        ?string $html = null,
+        array $cc = [],
+        array $bcc = [],
     ): string {
         $email = (new Email)
             ->from($this->fromAddress($config))
             ->to($to)
             ->subject($reply['subject'])
             ->text($body);
+
+        if ($html !== null && trim($html) !== '') {
+            $email->html($html);
+        }
+
+        foreach ($cc as $address) {
+            $email->addCc($address);
+        }
+
+        foreach ($bcc as $address) {
+            $email->addBcc($address);
+        }
 
         // Threading: sin estos headers el cliente del contacto muestra la
         // respuesta fuera del hilo original.
@@ -831,15 +867,61 @@ class MailMessageService
 
     public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
     {
-        ['config' => $config, 'to' => $to] = $this->resolveOutboundContext($conversation);
+        return $this->sendRichTextMessageFromCRM($conversation, $content, $user);
+    }
 
-        $externalId = $this->sendEmail($config, $to, $this->replyContext($conversation), $content);
+    /**
+     * @param  list<string>  $cc
+     * @param  list<string>  $bcc
+     * @param  list<array{path: string, url: string, name: string, mime: string, type: MessageType}>  $attachments
+     */
+    public function sendRichTextMessageFromCRM(
+        Conversation $conversation,
+        string $content,
+        User $user,
+        ?string $contentHtml = null,
+        array $cc = [],
+        array $bcc = [],
+        array $attachments = [],
+    ): Message {
+        ['config' => $config, 'to' => $to] = $this->resolveOutboundContext($conversation);
+        $reply = $this->replyContext($conversation);
+        $sanitized = $this->htmlSanitizer->sanitize($contentHtml);
+
+        $externalId = $this->sendEmail(
+            $config,
+            $to,
+            $reply,
+            $content,
+            array_map(fn (array $attachment) => [
+                'path' => $attachment['path'],
+                'name' => $attachment['name'],
+                'mime' => $attachment['mime'],
+            ], $attachments),
+            $sanitized['html'],
+            $cc,
+            $bcc,
+        );
 
         return $this->persistOutbound($conversation, $user, [
             'content' => $content,
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
-            'last_content' => $content,
+            'last_content' => trim($reply['subject'].' · '.$content),
+            'mail_details' => [
+                'subject' => $reply['subject'],
+                'body_text' => $content,
+                'body_html' => $sanitized['html'],
+                'from' => ['email' => $config->email_address, 'name' => $config->from_name ?? ''],
+                'to' => [['email' => $to, 'name' => $conversation->contact?->name ?? '']],
+                'cc' => array_map(fn (string $email) => ['email' => $email, 'name' => ''], $cc),
+                'bcc' => array_map(fn (string $email) => ['email' => $email, 'name' => ''], $bcc),
+                'reply_to' => null,
+                'in_reply_to' => $reply['in_reply_to'] ? [$reply['in_reply_to']] : [],
+                'references' => $reply['references'],
+                'has_remote_images' => $sanitized['has_remote_images'],
+            ],
+            'attachments' => $attachments,
         ]);
     }
 
@@ -950,6 +1032,28 @@ class MailMessageService
             'mail_message_id' => $data['external_id'] ?: null,
         ]);
 
+        if (isset($data['mail_details'])) {
+            $message->mailDetails()->create($data['mail_details']);
+        }
+
+        foreach ($data['attachments'] ?? [] as $index => $attachment) {
+            Message::create([
+                'tenant_id' => $conversation->tenant_id,
+                'conversation_id' => $conversation->id,
+                'sender_type' => SenderType::USER,
+                'sender_id' => $user->id,
+                'content' => '',
+                'message_type' => $attachment['type'],
+                'media_url' => $attachment['url'],
+                'media_mime_type' => $attachment['mime'],
+                'media_filename' => $attachment['name'],
+                'direction' => MessageDirection::OUTBOUND,
+                'delivered_at' => now(),
+                'external_id' => $data['external_id'] ? $data['external_id'].'-att-'.($index + 1) : null,
+                'mail_parent_message_id' => $message->id,
+            ]);
+        }
+
         $conversation->update([
             'last_message_at' => $message->created_at,
             'last_message_content' => $data['last_content'],
@@ -964,7 +1068,7 @@ class MailMessageService
             Log::error('Error broadcasting outbound mail message: '.$e->getMessage());
         }
 
-        return $message;
+        return $message->load(['mailDetails', 'mailAttachments']);
     }
 
     /**

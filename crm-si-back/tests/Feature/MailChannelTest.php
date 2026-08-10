@@ -10,6 +10,7 @@ use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\MailConfig;
+use App\Models\MailIntake;
 use App\Models\Message;
 use App\Models\Tenant;
 use App\Models\User;
@@ -373,6 +374,46 @@ class MailChannelTest extends TestCase
         $this->assertNull($email->getHeaders()->get('References'));
     }
 
+    public function test_rich_outbound_email_persists_structured_details_and_sanitizes_html(): void
+    {
+        [$tenant, $user] = $this->createTenantAndUser();
+        [$config, $channel] = $this->createMailChannel($tenant, $user);
+        $contact = Contact::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Cliente',
+            'email' => 'cliente@example.com',
+            'source' => 'mail',
+            'external_id' => 'cliente@example.com',
+        ]);
+        $conversation = Conversation::create([
+            'tenant_id' => $tenant->id,
+            'channel_id' => $channel->id,
+            'contact_id' => $contact->id,
+            'status' => 'open',
+        ]);
+
+        $sent = $this->captureSentEmail($config);
+        $message = app(MailMessageService::class)->sendRichTextMessageFromCRM(
+            $conversation,
+            'Hola equipo',
+            $user,
+            '<p>Hola <strong>equipo</strong></p><script>alert(1)</script>',
+            ['copia@example.com'],
+        );
+
+        $email = $sent();
+        $this->assertNotNull($email);
+        $this->assertStringContainsString('<strong>equipo</strong>', $email->getHtmlBody());
+        $this->assertStringNotContainsString('<script', $email->getHtmlBody());
+        $this->assertSame('copia@example.com', $email->getCc()[0]->getAddress());
+
+        $message->refresh()->load('mailDetails');
+        $this->assertStringStartsWith('Mensaje de ', (string) $message->mailDetails?->subject);
+        $this->assertSame('Hola equipo', $message->mailDetails?->body_text);
+        $this->assertSame('soporte@acme.com', $message->mailDetails?->from['email']);
+        $this->assertSame('copia@example.com', $message->mailDetails?->cc[0]['email']);
+    }
+
     public function test_inbound_without_message_id_produces_no_threading_headers(): void
     {
         [$tenant, $user] = $this->createTenantAndUser();
@@ -498,7 +539,7 @@ class MailChannelTest extends TestCase
         $this->assertSame(0, Message::where('conversation_id', $conversation->id)->count());
     }
 
-    public function test_inbound_email_creates_contact_conversation_and_message(): void
+    public function test_unknown_inbound_email_is_held_for_review_before_creating_crm_records(): void
     {
         $tenant = $this->seedTenantWithRoles();
         $user = User::factory()->create(['tenant_id' => $tenant->id]);
@@ -537,26 +578,10 @@ class MailChannelTest extends TestCase
             text: "Hola, ¿me confirman el envío?\n\nOn 2026-08-01 soporte@acme.com wrote:\n> mensaje anterior",
         );
 
-        $this->invokeStore($service, $channel, $config, $mail);
-
-        $contact = Contact::where('external_id', 'cliente@example.com')->first();
-        $this->assertNotNull($contact);
-        $this->assertSame('Cliente Uno', $contact->name);
-        $this->assertSame('cliente@example.com', $contact->email);
-        $this->assertSame('mail', $contact->source);
-
-        $message = Message::first();
-        $this->assertNotNull($message);
-        $this->assertSame(MessageDirection::INBOUND, $message->direction);
-        $this->assertSame(SenderType::CONTACT, $message->sender_type);
-        // El asunto encabeza el cuerpo y la cita del hilo anterior se recorta.
-        $this->assertStringContainsString('Consulta por el pedido', $message->content);
-        $this->assertStringContainsString('¿me confirman el envío?', $message->content);
-        $this->assertStringNotContainsString('mensaje anterior', $message->content);
-
-        $conversation = Conversation::first();
-        $this->assertNotNull($conversation);
-        $this->assertSame($channel->id, $conversation->channel_id);
+        $this->assertFalse($this->invokeStore($service, $channel, $config, $mail));
+        $this->assertSame(0, Contact::count());
+        $this->assertSame(0, Message::count());
+        $this->assertDatabaseHas('mail_intakes', ['channel_id' => $channel->id, 'from_email' => 'cliente@example.com', 'status' => 'pending', 'classification_reason' => 'unknown_sender']);
     }
 
     public function test_inbound_email_is_deduplicated_by_message_id(): void
@@ -590,11 +615,12 @@ class MailChannelTest extends TestCase
 
         $mail = $this->fakeInboundMail(42, 'cliente@example.com', 'Cliente', 'Hola', 'Cuerpo');
 
-        $this->assertTrue($this->invokeStore($service, $channel, $config, $mail));
+        $this->assertFalse($this->invokeStore($service, $channel, $config, $mail));
         // Segunda pasada con el mismo Message-ID: no debe duplicar.
         $this->assertFalse($this->invokeStore($service, $channel, $config, $mail));
 
-        $this->assertSame(1, Message::count());
+        $this->assertSame(0, Message::count());
+        $this->assertSame(1, MailIntake::count());
     }
 
     public function test_same_message_id_lands_in_two_connected_mailboxes(): void
@@ -614,18 +640,16 @@ class MailChannelTest extends TestCase
         $paraSoporte = $this->fakeInboundMail(10, 'cliente@example.com', 'Cliente', 'Consulta', 'Cuerpo', $messageId);
         $paraVentas = $this->fakeInboundMail(77, 'cliente@example.com', 'Cliente', 'Consulta', 'Cuerpo', $messageId);
 
-        $this->assertTrue($this->invokeStore($service, $soporteChannel, $soporteConfig, $paraSoporte));
+        $this->assertFalse($this->invokeStore($service, $soporteChannel, $soporteConfig, $paraSoporte));
         // La segunda casilla tiene que poder guardar su propia copia.
-        $this->assertTrue($this->invokeStore($service, $ventasChannel, $ventasConfig, $paraVentas));
+        $this->assertFalse($this->invokeStore($service, $ventasChannel, $ventasConfig, $paraVentas));
 
-        $this->assertSame(2, Message::count());
-
-        // El Message-ID crudo se conserva en ambas para el threading.
-        $this->assertSame(2, Message::where('mail_message_id', $messageId)->count());
+        $this->assertSame(0, Message::count());
+        $this->assertSame(2, MailIntake::count());
 
         // Y la deduplicación por casilla se mantiene.
         $this->assertFalse($this->invokeStore($service, $ventasChannel, $ventasConfig, $paraVentas));
-        $this->assertSame(2, Message::count());
+        $this->assertSame(2, MailIntake::count());
     }
 
     public function test_inbound_without_message_id_is_not_lost_when_uidvalidity_changes(): void
@@ -644,10 +668,10 @@ class MailChannelTest extends TestCase
         $primero = $this->fakeInboundMail(42, 'cliente@example.com', 'Cliente', 'Primero', 'Cuerpo', '');
         $segundo = $this->fakeInboundMail(42, 'otro@example.com', 'Otro Cliente', 'Segundo', 'Cuerpo distinto', '');
 
-        $this->assertTrue($this->invokeStore($service, $channel, $config, $primero, '1000'));
-        $this->assertTrue($this->invokeStore($service, $channel, $config, $segundo, '2000'));
+        $this->assertFalse($this->invokeStore($service, $channel, $config, $primero, '1000'));
+        $this->assertFalse($this->invokeStore($service, $channel, $config, $segundo, '2000'));
 
-        $this->assertSame(2, Message::count());
+        $this->assertSame(2, MailIntake::count());
     }
 
     public function test_own_sent_copy_is_ignored(): void
@@ -684,6 +708,42 @@ class MailChannelTest extends TestCase
 
         $this->assertFalse($this->invokeStore($service, $channel, $config, $mail));
         $this->assertSame(0, Message::count());
+    }
+
+    public function test_channel_user_can_approve_reviewed_email_without_creating_an_opportunity(): void
+    {
+        [$tenant, $user] = $this->createTenantAndUser();
+        [$config, $channel] = $this->createMailChannel($tenant, $user);
+        $intake = MailIntake::create([
+            'tenant_id' => $tenant->id, 'channel_id' => $channel->id, 'mail_config_id' => $config->id,
+            'external_id' => 'mail-'.$config->id.'-reviewed@example.com', 'status' => 'pending',
+            'classification_reason' => 'unknown_sender', 'from_email' => 'lead@example.com',
+            'from_name' => 'Lead', 'mail_message_id' => '<reviewed@example.com>', 'subject' => 'Quiero cotizar',
+            'body_text' => 'Necesito una cotización.', 'to' => [], 'cc' => [], 'bcc' => [], 'in_reply_to' => [],
+            'references' => [], 'attachments' => [], 'received_at' => now(),
+        ]);
+
+        Sanctum::actingAs($user);
+        $this->postJson('/api/mail-intakes/'.$intake->id.'/approve')->assertOk()
+            ->assertJsonPath('data.intake.status', 'accepted');
+
+        $this->assertDatabaseHas('contacts', ['tenant_id' => $tenant->id, 'email' => 'lead@example.com']);
+        $this->assertSame(1, Conversation::count());
+        $this->assertSame(1, Message::count());
+        $this->assertDatabaseCount('opportunities', 0);
+    }
+
+    public function test_automatic_email_is_rejected_and_does_not_create_crm_records(): void
+    {
+        [$tenant, $user] = $this->createTenantAndUser();
+        [$config, $channel] = $this->createMailChannel($tenant, $user);
+        $service = app(MailMessageService::class);
+        $mail = $this->fakeInboundMail(22, 'no-reply@example.com', 'Robot', 'Aviso', 'Contenido');
+
+        $this->assertFalse($this->invokeStore($service, $channel, $config, $mail));
+        $this->assertDatabaseHas('mail_intakes', ['status' => 'rejected', 'classification_reason' => 'automatic_email']);
+        $this->assertSame(0, Contact::count());
+        $this->assertSame(0, Conversation::count());
     }
 
     public function test_first_sync_takes_the_newest_messages_in_ascending_order(): void
@@ -933,6 +993,12 @@ class MailChannelTest extends TestCase
         $mail->shouldReceive('html')->andReturn(null);
         $mail->shouldReceive('date')->andReturn(now());
         $mail->shouldReceive('attachments')->andReturn([]);
+        $mail->shouldReceive('to')->andReturn([]);
+        $mail->shouldReceive('cc')->andReturn([]);
+        $mail->shouldReceive('bcc')->andReturn([]);
+        $mail->shouldReceive('replyTo')->andReturn(null);
+        $mail->shouldReceive('inReplyTo')->andReturn([]);
+        $mail->shouldReceive('header')->andReturn(null);
 
         return $mail;
     }

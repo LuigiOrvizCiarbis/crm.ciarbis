@@ -174,6 +174,30 @@ export interface Message {
   edited_at?: string | null
   original_content?: string | null
   deleted_at?: string | null
+  mail_details?: MailMessageDetails | null
+  mail_attachments?: Message[]
+  mail_parent_message_id?: number | null
   created_at: string
   updated_at?: string
+}
+
+export interface MailAddress {
+  email: string
+  name?: string | null
+}
+
+export interface MailMessageDetails {
+  id: number
+  message_id: number
+  subject?: string | null
+  body_text?: string | null
+  body_html?: string | null
+  from?: MailAddress | null
+  to?: MailAddress[] | null
+  cc?: MailAddress[] | null
+  bcc?: MailAddress[] | null
+  reply_to?: MailAddress | null
+  in_reply_to?: string[] | null
+  references?: string[] | null
+  has_remote_images?: boolean
 }

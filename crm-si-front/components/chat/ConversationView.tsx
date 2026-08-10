@@ -3,9 +3,10 @@
 import { ConversationHeader } from './ConversationHeader'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
+import { MailMessageInput } from './MailMessageInput'
 import { AISuggestions } from './AISuggestions'
 import { Conversation, TranslationLanguage } from '@/data/types'
-import { sendMessage, translateMessage } from '@/lib/api/messages'
+import { sendMessage, sendMailMessage, translateMessage, type SendMailMessageInput } from '@/lib/api/messages'
 import { getConversationWithMessages, setConversationTranslationLanguage, translateDraft } from '@/lib/api/conversations'
 import { isExpectedBusinessErrorMessage } from '@/lib/observability/sentry'
 import { useToast } from '@/components/Toast'
@@ -13,6 +14,7 @@ import { aiSuggestions } from '@/data/constants'
 import { useState } from 'react'
 import { useTranslation } from '@/hooks/useTranslation'
 import { useAuthStore } from '@/store/useAuthStore'
+import { ChannelType } from '@/data/enums'
 
 interface ConversationViewProps {
     conversation: Conversation
@@ -82,6 +84,26 @@ export function ConversationView({
         setMessage(suggestion)
     }
 
+    const handleSendMail = async (input: SendMailMessageInput) => {
+        if (isSending) return
+        try {
+            setIsSending(true)
+            await sendMailMessage(conversation.id, input)
+            setMessage("")
+            const updated = await getConversationWithMessages(conversation.id)
+            onConversationUpdate(updated)
+        } catch (error) {
+            addToast({
+                type: "error",
+                title: t("chats.sendMessageError"),
+                description: error instanceof Error ? error.message : t("chats.unknownError"),
+            })
+            throw error
+        } finally {
+            setIsSending(false)
+        }
+    }
+
     return (
         <>
             <ConversationHeader
@@ -98,6 +120,7 @@ export function ConversationView({
                 isLoadingMore={false}
                 translationLanguage={language}
                 onTranslateMessage={(targetMessage, targetLanguage) => translateMessage(targetMessage.id, targetLanguage)}
+                channelType={conversation.channel?.type}
             />
 
             <AISuggestions
@@ -105,7 +128,15 @@ export function ConversationView({
                 onSuggestionClick={handleSuggestionClick}
             />
 
-            <MessageInput
+            {conversation.channel?.type === ChannelType.MAIL ? (
+              <MailMessageInput
+                value={message}
+                onChange={setMessage}
+                onSend={handleSendMail}
+                disabled={isSending}
+                subject={[...(conversation.messages || [])].reverse().find((item) => item.mail_details?.subject)?.mail_details?.subject}
+              />
+            ) : <MessageInput
                 value={message}
                 onChange={setMessage}
                 onSend={handleSend}
@@ -133,7 +164,7 @@ export function ConversationView({
                     const result = await translateDraft(conversation.id, content, targetLanguage)
                     return result.translated_content
                 }}
-            />
+            />}
         </>
     )
 }

@@ -18,4 +18,5 @@ Schedule::command('automations:dispatch-due')->everyMinute()->withoutOverlapping
 // Polling IMAP de los canales de email. Los canales de chat usan webhooks; el
 // correo no, así que la latencia de entrada es el intervalo de este schedule.
 Schedule::command('mail:sync-channels')->everyMinute()->withoutOverlapping();
+Schedule::command('mail:purge-expired-intakes')->daily()->withoutOverlapping();
 Schedule::command('model:prune', ['--model' => [AutomationRun::class]])->dailyAt('02:15');
