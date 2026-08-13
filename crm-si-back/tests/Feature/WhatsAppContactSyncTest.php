@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\ChannelType;
 use App\Enums\UserRole;
 use App\Jobs\VerifyContactSyncJob;
 use App\Models\Channel;
@@ -10,10 +11,14 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Services\WhatsAppContactSyncService;
+use App\Support\PermissionCatalog;
+use App\Support\RoleProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
 /**
@@ -28,7 +33,7 @@ class WhatsAppContactSyncTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const WEBHOOK = '/api/whatsapp/webhook';
+    private const WEBHOOK = '/api/whatsapp-webhook';
 
     protected function setUp(): void
     {
@@ -147,6 +152,10 @@ class WhatsAppContactSyncTest extends TestCase
         $this->assertSame(WhatsAppConfig::SYNC_SYNCING, $fresh->contact_sync_status);
         $this->assertSame(0, $fresh->contact_sync_contacts_count);
         $this->assertNull($fresh->contact_sync_first_webhook_at);
+
+        // El lote igual queda registrado: sirve para saber que Meta sigue
+        // hablándonos aunque no haya traído contactos.
+        $this->assertNotNull($fresh->contact_sync_last_webhook_at);
     }
 
     public function test_un_lote_con_contacto_invalido_o_accion_desconocida_no_completa_la_sync(): void
@@ -215,54 +224,6 @@ class WhatsAppContactSyncTest extends TestCase
         // Se preserva para no perder el historial de conversaciones.
         $this->assertSame(1, Contact::where('tenant_id', $tenant->id)->count());
         $this->assertSame('Ana Gómez', Contact::where('phone', '+5491133334444')->first()->name);
-    }
-
-    /**
-     * Meta emite `smb_app_state_sync` también cuando el cliente toca su agenda a
-     * mano, no sólo durante la importación inicial. Así que un webhook que no
-     * importó ningún contacto no puede dar la sincronización por terminada.
-     *
-     * @dataProvider lotesSinImportaciones
-     */
-    public function test_un_lote_sin_contactos_importados_no_completa_la_sync(array $contacts): void
-    {
-        [$tenant, $config] = $this->createChannelWithConfig();
-
-        $config->forceFill([
-            'contact_sync_status' => WhatsAppConfig::SYNC_SYNCING,
-            'contact_sync_requested_at' => now()->subMinutes(20),
-        ])->save();
-
-        $this->postJson(self::WEBHOOK, $this->stateSyncPayload($config, $contacts))->assertOk();
-
-        $fresh = $config->fresh();
-        $this->assertSame(
-            WhatsAppConfig::SYNC_SYNCING,
-            $fresh->contact_sync_status,
-            'un lote sin importaciones debe dejar la sync pendiente, no completarla'
-        );
-        $this->assertSame(0, $fresh->contact_sync_contacts_count);
-        $this->assertNull($fresh->contact_sync_first_webhook_at);
-        $this->assertSame(0, Contact::where('tenant_id', $tenant->id)->count());
-
-        // El lote igual se registra: sirve para saber que Meta sigue hablándonos.
-        $this->assertNotNull($fresh->contact_sync_last_webhook_at);
-    }
-
-    public static function lotesSinImportaciones(): array
-    {
-        return [
-            'lote vacío' => [[]],
-            'sólo remove' => [[
-                ['action' => 'remove', 'phone_number' => '+5491133334444', 'full_name' => ''],
-            ]],
-            'contacto sin teléfono' => [[
-                ['action' => 'add', 'phone_number' => '', 'full_name' => 'Sin Teléfono'],
-            ]],
-            'acción desconocida' => [[
-                ['action' => 'archived', 'phone_number' => '+5491133334444', 'full_name' => 'Ana'],
-            ]],
-        ];
     }
 
     public function test_un_remove_manual_no_completa_una_sync_que_nunca_importo(): void
@@ -372,10 +333,14 @@ class WhatsAppContactSyncTest extends TestCase
 
     public function test_el_endpoint_expone_el_estado_de_la_importacion(): void
     {
-        [$tenant, $config] = $this->createChannelWithConfig();
+        // El endpoint es admin-only y la policy chequea `channels.connect_whatsapp`,
+        // así que hacen falta los roles de Spatie provisionados para el tenant.
+        $tenant = $this->seedTenantWithRoles();
+        [, $config] = $this->createChannelWithConfig($tenant);
         $channel = Channel::where('tenant_id', $tenant->id)->firstOrFail();
 
         $user = User::factory()->create(['tenant_id' => $tenant->id, 'role' => UserRole::ADMIN]);
+        $user->assignRole('Owner');
         Sanctum::actingAs($user);
 
         $config->forceFill([
@@ -392,11 +357,40 @@ class WhatsAppContactSyncTest extends TestCase
     }
 
     /**
+     * Tenant con el catálogo de permisos y los roles por defecto provisionados.
+     * Sin esto las rutas admin devuelven 403.
+     */
+    private function seedTenantWithRoles(): Tenant
+    {
+        $registrar = app(PermissionRegistrar::class);
+        $registrar->setPermissionsTeamId(null);
+        foreach (PermissionCatalog::all() as $name) {
+            Permission::findOrCreate($name, 'web');
+        }
+        $registrar->forgetCachedPermissions();
+
+        $tenant = Tenant::create(['name' => 'Acme '.uniqid()]);
+        app(RoleProvisioner::class)->provisionDefaultRoles($tenant);
+        $registrar->setPermissionsTeamId($tenant->id);
+
+        return $tenant;
+    }
+
+    /**
+     * @param  Tenant|null  $tenant  Reutiliza un tenant ya provisionado con roles;
+     *                               si no se pasa, crea uno simple (sin permisos).
      * @return array{0: Tenant, 1: WhatsAppConfig}
      */
-    private function createChannelWithConfig(): array
+    private function createChannelWithConfig(?Tenant $tenant = null): array
     {
-        $tenant = Tenant::create(['name' => 'Acme']);
+        $tenant ??= Tenant::create(['name' => 'Acme']);
+
+        // `channels.user_id` es un FK obligatorio: el canal siempre pertenece al
+        // usuario que lo conectó.
+        $owner = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'role' => UserRole::ADMIN,
+        ]);
 
         $config = new WhatsAppConfig([
             'phone_number_id' => 'PHONE_777',
@@ -408,8 +402,9 @@ class WhatsAppContactSyncTest extends TestCase
 
         Channel::create([
             'tenant_id' => $tenant->id,
+            'user_id' => $owner->id,
             'name' => 'WhatsApp',
-            'type' => \App\Enums\ChannelType::WHATSAPP,
+            'type' => ChannelType::WHATSAPP,
             'status' => 'active',
             'whatsapp_config_id' => $config->id,
         ]);
