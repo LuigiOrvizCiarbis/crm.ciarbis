@@ -686,6 +686,13 @@
         "apply": "Error enviando la difusión",
         "mixedChannels": "Seleccioná conversaciones del mismo número de WhatsApp para enviar una difusión"
       }
+    },
+    "views": {
+      "label": "Vistas de conversaciones",
+      "inbox": "Inbox",
+      "unread": "No leídos",
+      "review": "Por revisar",
+      "archived": "Archivados"
     }
   },
   "settings": {

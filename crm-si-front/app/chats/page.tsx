@@ -5,7 +5,6 @@ import { SidebarLayout } from "@/components/SidebarLayout"
 import { ChatFilters } from "@/components/chat/ChatFilters"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1660,12 +1659,16 @@ export default function ChatsPage() {
     onConnectChannelClick: (channelType?: ConnectableChannel) => void,
   ) => (
     <>
-      <div className="grid h-[70px] grid-cols-4 border-b border-border bg-card/95">
+      <div
+        role="tablist"
+        aria-label={t("chats.views.label")}
+        className="flex h-[70px] items-stretch border-b border-border bg-card/95"
+      >
         {([
-          { key: "inbox", label: "Inbox", count: conversationViewCounts.inbox },
-          { key: "unread", label: "No leídos", count: conversationViewCounts.unread },
-          { key: "review", label: "Por revisar", count: conversationViewCounts.review },
-          { key: "archived", label: "Archivados", count: conversationViewCounts.archived },
+          { key: "inbox", label: t("chats.views.inbox"), count: conversationViewCounts.inbox },
+          { key: "unread", label: t("chats.views.unread"), count: conversationViewCounts.unread },
+          { key: "review", label: t("chats.views.review"), count: conversationViewCounts.review },
+          { key: "archived", label: t("chats.views.archived"), count: conversationViewCounts.archived },
         ] as const).map((item) => {
           const isActive = viewType === item.key
           const hasUnreadCount = item.key === "unread" && item.count > 0
@@ -1673,31 +1676,32 @@ export default function ChatsPage() {
             <button
               key={item.key}
               type="button"
+              role="tab"
+              aria-selected={isActive}
               onClick={() => setViewType(item.key)}
-              className={`relative flex min-w-0 items-center justify-center gap-2 px-2 pb-1 pt-0 text-[15px] font-medium tracking-[-0.01em] transition-colors ${
+              title={item.label}
+              className={`group relative flex min-w-0 flex-1 items-center justify-center gap-1.5 px-2 text-sm font-medium tracking-[-0.01em] transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
                 isActive
-                  ? "text-foreground"
+                  ? "text-primary"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <span className={`whitespace-nowrap ${isActive ? "text-primary" : ""}`}>
-                {item.label}
-              </span>
-              <Badge
-                variant="outline"
-                className={`h-8 w-8 shrink-0 justify-center rounded-full p-0 text-sm font-medium shadow-inner transition-colors ${
+              <span className="truncate">{item.label}</span>
+              <span
+                aria-hidden={item.count === 0}
+                className={`inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border px-1.5 text-xs font-medium tabular-nums transition-colors ${
                   isActive
                     ? "border-primary/35 bg-primary/10 text-primary"
                     : hasUnreadCount
-                      ? "border-blue-500/25 bg-blue-500/15 text-blue-300"
+                      ? "border-primary/25 bg-primary/10 text-primary"
                       : "border-border bg-background/80 text-muted-foreground"
                 }`}
               >
-                {item.count}
-              </Badge>
+                {item.count > 99 ? "99+" : item.count}
+              </span>
               <span
-                className={`absolute bottom-0 left-0 h-0.5 transition-all ${
-                  isActive ? "w-full bg-primary" : "w-0 bg-transparent"
+                className={`absolute inset-x-0 bottom-0 h-0.5 origin-left transition-transform duration-200 ease-out ${
+                  isActive ? "scale-x-100 bg-primary" : "scale-x-0 bg-transparent"
                 }`}
               />
             </button>
