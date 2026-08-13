@@ -818,15 +818,21 @@ class WhatsAppMessageService
      * Procesa el webhook smb_app_state_sync (coexistencia).
      * Sincroniza los contactos del WhatsApp Business App al CRM.
      *
-     * Actions soportadas (normalizadas a lowercase):
-     *   upsert  → add, added, edit, edited, update, updated
-     *   remove lógico (no se borra del CRM para preservar historial)
-     *           → remove, removed, delete, deleted
+     * Meta sólo define dos actions: `add` (que cubre alta Y edición) y `remove`,
+     * que además llega sin los campos de nombre. Aceptamos variantes extra
+     * (added/edit/update/delete…) por robustez, pero no son parte del contrato.
      *
-     * @see https://developers.facebook.com/docs/whatsapp/embedded-signup/onboarding-business-app-users
+     * Ojo: el objeto `contact` de Meta trae full_name, first_name y phone_number.
+     * No incluye ningún id de usuario, así que el phone es la única clave estable.
+     *
+     * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
+     *
+     * @return int Contactos creados o actualizados en este lote. El caller lo usa
+     *             para registrar que el sync realmente trajo datos.
      */
-    public function processSmbAppStateSync(array $changeValue, int $tenantId): void
+    public function processSmbAppStateSync(array $changeValue, int $tenantId): int
     {
+        $upserted = 0;
         $stateSync = $changeValue['state_sync'] ?? [];
 
         // Acciones que significan crear/actualizar el contacto en el CRM.
@@ -871,6 +877,7 @@ class WhatsAppMessageService
                                 'phone' => $phoneNumber,
                                 'name' => $fullName,
                             ]);
+                            $upserted++;
 
                             continue;
                         }
@@ -880,6 +887,7 @@ class WhatsAppMessageService
                         ['tenant_id' => $tenantId, 'phone' => $phoneNumber],
                         ['name' => $fullName, 'external_id' => $bsuid, 'source' => 'whatsapp']
                     );
+                    $upserted++;
                 } else {
                     // Sin phone_number (username activado o sin mensajes recientes).
                     // Anti-duplicado: si ya existe por external_id, actualizamos ese registro
@@ -890,6 +898,7 @@ class WhatsAppMessageService
 
                     if ($existingByBsuid) {
                         $existingByBsuid->update(['name' => $fullName]);
+                        $upserted++;
 
                         continue;
                     }
@@ -898,6 +907,7 @@ class WhatsAppMessageService
                         ['tenant_id' => $tenantId, 'external_id' => $bsuid],
                         ['name' => $fullName, 'source' => 'whatsapp']
                     );
+                    $upserted++;
                 }
             } elseif (in_array($action, $removeActions, true)) {
                 // Preservamos el contacto y su historial; solo lo logueamos.
@@ -915,6 +925,8 @@ class WhatsAppMessageService
                 ]);
             }
         }
+
+        return $upserted;
     }
 
     /**
