@@ -6,10 +6,12 @@ use App\Enums\ChannelType;
 use App\Events\MessageStatusUpdated;
 use App\Exceptions\ChannelAlreadyConnectedException;
 use App\Http\Requests\ChannelStoreRequest;
+use App\Jobs\VerifyContactSyncJob;
 use App\Models\Channel;
 use App\Models\Message;
 use App\Models\WhatsAppConfig;
 use App\Services\WhatsAppBusinessVerificationService;
+use App\Services\WhatsAppContactSyncService;
 use App\Services\WhatsAppMessageService;
 use App\Support\MetaOAuth;
 use Illuminate\Http\JsonResponse;
@@ -18,12 +20,79 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class WhatsAppController extends Controller
 {
+    // REQUISITO DE CONFIGURACIÓN MANUAL (no se puede hacer por código):
+    // para que la coexistencia funcione, en App Dashboard > WhatsApp >
+    // Configuration > Webhook fields tienen que estar tildados `messages`,
+    // `smb_app_state_sync` y `smb_message_echoes`. Se configuran a nivel app: el
+    // endpoint POST /{WABA_ID}/subscribed_apps no acepta elegir campos y su GET
+    // tampoco los expone (verificado contra la API: sólo devuelve
+    // whatsapp_business_api_data), así que no hay forma de auditarlo desde acá.
+    // Si falta `smb_app_state_sync` los contactos no llegan nunca y el onboarding
+    // igual se ve exitoso: es lo primero a revisar ante ese síntoma.
+    // https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
+
+    /**
+     * Margen antes de verificar si llegaron los contactos. Meta manda los webhooks
+     * en lotes y puede tardar varios minutos en cuentas con agenda grande, así que
+     * verificar antes daría falsos negativos.
+     */
+    private const CONTACT_SYNC_VERIFY_DELAY_MINUTES = 15;
+
+    /**
+     * Memo por request de businessAppState(). Solo guarda respuestas efectivas de
+     * Meta: el "no sabemos" (null) no se cachea para que se pueda reintentar.
+     *
+     * @var array<string,bool>
+     */
+    private array $isOnBusinessAppCache = [];
+
     public function __construct(
         private WhatsAppMessageService $messageService
     ) {}
+
+    /**
+     * Estado de la importación de contactos de la WhatsApp Business App.
+     *
+     * Existe porque el onboarding devolvía success sin saber si los contactos
+     * llegaban: el usuario no tenía forma de distinguir "todavía no llegaron" de
+     * "nunca van a llegar". Admin-only.
+     *
+     * GET /api/admin/channels/{id}/contact-sync
+     */
+    public function contactSyncStatus(string $id): JsonResponse
+    {
+        $channel = Channel::findOrFail($id);
+
+        $this->authorize('connectWhatsapp', Channel::class);
+
+        $config = $channel->whatsappConfig;
+
+        if (! $config) {
+            return response()->json([
+                'message' => 'El canal no tiene configuración de WhatsApp.',
+            ], 422);
+        }
+
+        $status = $config->contact_sync_status ?? WhatsAppConfig::SYNC_PENDING;
+
+        return response()->json([
+            'data' => [
+                'status' => $status,
+                'contacts_imported' => $config->contact_sync_contacts_count,
+                'requested_at' => $config->contact_sync_requested_at?->toIso8601String(),
+                'last_webhook_at' => $config->contact_sync_last_webhook_at?->toIso8601String(),
+                'window_expires_at' => $config->contactSyncWindowExpiresAt()?->toIso8601String(),
+                'can_retry' => $status !== WhatsAppConfig::SYNC_NOT_APPLICABLE
+                    && $status !== WhatsAppConfig::SYNC_COMPLETED
+                    && $config->isWithinContactSyncWindow(),
+                'error' => $config->contact_sync_error,
+            ],
+        ]);
+    }
 
     /**
      * Devuelve el estado de verificación de negocio (Meta Business Verification)
@@ -89,16 +158,30 @@ class WhatsAppController extends Controller
                 ], 422);
             }
 
+            // La suscripción va ANTES del sync: si los webhooks no están activos
+            // cuando Meta empieza a mandar los contactos, esos lotes se pierden y
+            // el sync no se puede volver a pedir desde cero.
             $webhookOk = $this->subscribeToWebhooks($config);
             if (! $webhookOk) {
                 $warnings[] = 'No se pudo suscribir a los webhooks de Meta. Los mensajes entrantes pueden no llegar.';
             }
 
-            // Inicia la sincronización de contactos del WA Business App.
-            // Docs: hay una ventana de 24h y solo se puede hacer una vez por onboarding.
-            $syncOk = $this->triggerContactSync($config, $businessToken);
-            if (! $syncOk) {
-                $warnings[] = 'No se pudo iniciar la sincronización de contactos. Contactá a soporte.';
+            // Solo los números que vienen de la WhatsApp Business App tienen agenda
+            // para importar. Distinguimos "no es SMB" de "no pudimos averiguarlo":
+            // ante la duda intentamos el sync igual, porque marcar not_applicable
+            // por un error de red dejaría al cliente sin contactos en silencio.
+            $bizAppState = $this->businessAppState($config->phone_number_id, $businessToken);
+
+            if ($bizAppState === false) {
+                $config->forceFill([
+                    'contact_sync_status' => WhatsAppConfig::SYNC_NOT_APPLICABLE,
+                ])->save();
+            } else {
+                // Docs: ventana de 24h y un solo disparo por onboarding.
+                $syncOk = $this->triggerContactSync($config, $businessToken);
+                if (! $syncOk) {
+                    $warnings[] = 'No se pudo iniciar la sincronización de contactos. Contactá a soporte.';
+                }
             }
 
             return response()->json([
@@ -448,6 +531,25 @@ class WhatsAppController extends Controller
      */
     private function isOnBusinessApp(string $phoneNumberId, string $token): bool
     {
+        // Para el register, "no sabemos" se trata como false: que lo intente y el
+        // manejo del error "not available for SMB" actúa de red de seguridad.
+        return $this->businessAppState($phoneNumberId, $token) === true;
+    }
+
+    /**
+     * Estado de coexistencia del número, distinguiendo el caso "no pudimos saberlo".
+     *
+     * @return bool|null true = está en la Business App, false = no lo está,
+     *                   null = Meta no respondió y no podemos afirmar ninguna de las dos.
+     */
+    private function businessAppState(string $phoneNumberId, string $token): ?bool
+    {
+        // El onboarding consulta esto dos veces (registro y sync). Memoizamos por
+        // request para no pegarle dos veces a Meta con la misma pregunta.
+        if (array_key_exists($phoneNumberId, $this->isOnBusinessAppCache)) {
+            return $this->isOnBusinessAppCache[$phoneNumberId];
+        }
+
         $version = config('services.facebook.graph_version', 'v21.0');
 
         try {
@@ -458,7 +560,8 @@ class WhatsAppController extends Controller
                 ]);
 
             if ($response->successful()) {
-                return (bool) $response->json('is_on_biz_app', false);
+                return $this->isOnBusinessAppCache[$phoneNumberId]
+                    = (bool) $response->json('is_on_biz_app', false);
             }
 
             Log::warning('isOnBusinessApp: no se pudo consultar el estado del número', [
@@ -470,7 +573,8 @@ class WhatsAppController extends Controller
             Log::warning('isOnBusinessApp exception', $this->describeException($e));
         }
 
-        return false;
+        // No cacheamos: es "no sabemos", no una respuesta de Meta.
+        return null;
     }
 
     private function subscribeToWebhooks(WhatsAppConfig $whatsAppConfig): bool
@@ -494,6 +598,11 @@ class WhatsAppController extends Controller
         $version = config('services.facebook.graph_version', 'v21.0');
 
         try {
+            // Sin body: el endpoint sólo acepta override_callback_uri/verify_token.
+            // Los campos suscritos (messages, smb_app_state_sync, smb_message_echoes)
+            // se configuran a nivel app en el App Dashboard, NO por WABA ni por API,
+            // así que desde acá no se pueden forzar. Si faltan allá, los webhooks de
+            // coexistencia no llegan aunque esta llamada devuelva success:true.
             $response = Http::withToken($token)
                 ->timeout(15)
                 ->post("https://graph.facebook.com/{$version}/{$wabaId}/subscribed_apps");
@@ -530,6 +639,7 @@ class WhatsAppController extends Controller
 
         if (! $phoneNumberId) {
             Log::warning('triggerContactSync: phone_number_id no disponible, sync omitida');
+            $this->markSyncFailed($whatsAppConfig, 'phone_number_id no disponible');
 
             return false;
         }
@@ -545,9 +655,25 @@ class WhatsAppController extends Controller
                 ]);
 
             if ($response->successful()) {
-                Log::info('triggerContactSync: sincronización de contactos iniciada', [
+                // OJO: un 2xx solo dice que Meta aceptó el pedido. Los contactos
+                // llegan después por webhook, así que el estado queda en `syncing`
+                // hasta que VerifyContactSyncJob confirme que llegaron.
+                $whatsAppConfig->forceFill([
+                    'contact_sync_status' => WhatsAppConfig::SYNC_SYNCING,
+                    'contact_sync_requested_at' => now(),
+                    // Meta devuelve un request_id: es lo que pide su soporte para
+                    // rastrear un sync que no llegó.
+                    'contact_sync_request_id' => $response->json('request_id'),
+                    'contact_sync_error' => null,
+                ])->save();
+
+                Log::info('triggerContactSync: sync pedida a Meta, esperando webhooks', [
                     'phone_number_id' => $phoneNumberId,
+                    'request_id' => $response->json('request_id'),
                 ]);
+
+                VerifyContactSyncJob::dispatch($whatsAppConfig->id)
+                    ->delay(now()->addMinutes(self::CONTACT_SYNC_VERIFY_DELAY_MINUTES));
 
                 return true;
             }
@@ -570,6 +696,17 @@ class WhatsAppController extends Controller
                         'error_subcode' => $errorSubcode,
                     ]);
 
+                    // Meta ya consumió el único disparo permitido. Si nunca llegaron
+                    // contactos, reintentar es inútil: verificamos y, si está vacío,
+                    // el estado queda en `failed` para que se vea en el CRM.
+                    $whatsAppConfig->forceFill([
+                        'contact_sync_status' => WhatsAppConfig::SYNC_SYNCING,
+                        'contact_sync_requested_at' => $whatsAppConfig->contact_sync_requested_at ?? now(),
+                    ])->save();
+
+                    VerifyContactSyncJob::dispatch($whatsAppConfig->id)
+                        ->delay(now()->addMinutes(self::CONTACT_SYNC_VERIFY_DELAY_MINUTES));
+
                     return true;
                 }
 
@@ -577,6 +714,8 @@ class WhatsAppController extends Controller
                     'phone_number_id' => $phoneNumberId,
                     'error' => $this->describeMetaError($body),
                 ]);
+
+                $this->markSyncFailed($whatsAppConfig, $this->describeMetaError($body));
 
                 return false;
             }
@@ -587,13 +726,28 @@ class WhatsAppController extends Controller
                 'phone_number_id' => $phoneNumberId,
             ]);
 
+            $this->markSyncFailed($whatsAppConfig, $this->describeMetaError($response->json()));
+
             return false;
 
         } catch (\Throwable $e) {
             Log::error('triggerContactSync exception', $this->describeException($e));
+            $this->markSyncFailed($whatsAppConfig, $e->getMessage());
 
             return false;
         }
+    }
+
+    /**
+     * Deja registrado por qué falló el sync para poder mostrarlo en el CRM.
+     * Antes estos errores solo iban al log y el usuario nunca se enteraba.
+     */
+    private function markSyncFailed(WhatsAppConfig $whatsAppConfig, ?string $error): void
+    {
+        $whatsAppConfig->forceFill([
+            'contact_sync_status' => WhatsAppConfig::SYNC_FAILED,
+            'contact_sync_error' => Str::limit((string) $error, 500),
+        ])->save();
     }
 
     public function webhook(Request $request): Response|JsonResponse
@@ -768,6 +922,10 @@ class WhatsAppController extends Controller
         }
 
         $tenantId = $whatsappConfig->channels->first()->tenant_id;
-        $this->messageService->processSmbAppStateSync($value, $tenantId);
+        $upserted = $this->messageService->processSmbAppStateSync($value, $tenantId);
+
+        // Marca el sync como completado: es la prueba de que los contactos
+        // realmente llegaron, no solo que Meta aceptó el pedido.
+        app(WhatsAppContactSyncService::class)->recordWebhookBatch($whatsappConfig, $upserted);
     }
 }
