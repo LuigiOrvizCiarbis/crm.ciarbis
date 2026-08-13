@@ -686,6 +686,13 @@
         "apply": "Error sending broadcast",
         "mixedChannels": "Select conversations from the same WhatsApp number to send a broadcast"
       }
+    },
+    "views": {
+      "label": "Conversation views",
+      "inbox": "Inbox",
+      "unread": "Unread",
+      "review": "To review",
+      "archived": "Archived"
     }
   },
   "settings": {
