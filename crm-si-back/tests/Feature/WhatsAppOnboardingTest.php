@@ -74,6 +74,40 @@ class WhatsAppOnboardingTest extends TestCase
         $this->assertSame('TOKEN_NEW', Crypt::decryptString($config->bussines_token));
     }
 
+    /**
+     * Guard de idempotencia: un reauth del mismo número (segundo handleAuth para
+     * el mismo phone_number_id) no debe volver a pedir smb_app_data. Cubre el
+     * incidente real donde reintentos de onboarding duplicaron el contact sync y
+     * el history sync, quemando la cuota de rate limit de la app de Meta.
+     */
+    public function test_reauthenticating_the_same_number_does_not_duplicate_smb_app_data_calls(): void
+    {
+        [, $user] = $this->createTenantAndUser();
+        Sanctum::actingAs($user);
+
+        $this->fakeMetaWithRouter([
+            'CODE_FIRST' => ['waba' => 'WABA_AAA', 'phone' => 'PHONE_111', 'display' => '+54 11 1111-1111', 'token' => 'TOKEN_OLD'],
+            'CODE_SECOND' => ['waba' => 'WABA_AAA', 'phone' => 'PHONE_111', 'display' => '+54 11 1111-1111', 'token' => 'TOKEN_NEW'],
+        ]);
+
+        $this->postJson(self::ENDPOINT, $this->payload('WABA_AAA', 'PHONE_111', 'CODE_FIRST'))->assertOk();
+        $this->postJson(self::ENDPOINT, $this->payload('WABA_AAA', 'PHONE_111', 'CODE_SECOND'))->assertOk();
+
+        $smbAppDataCalls = collect(Http::recorded())
+            ->filter(fn ($pair) => str_contains((string) $pair[0]->url(), '/PHONE_111/smb_app_data'));
+
+        // sync_type=smb_app_state_sync + sync_type=history: uno de cada uno, no
+        // dos, aunque handleAuth haya corrido dos veces para el mismo número.
+        $this->assertCount(2, $smbAppDataCalls);
+
+        $syncTypes = $smbAppDataCalls->map(fn ($pair) => $pair[0]->data()['sync_type'] ?? null)->sort()->values();
+        $this->assertSame(['history', 'smb_app_state_sync'], $syncTypes->all());
+
+        $config = WhatsAppConfig::first();
+        $this->assertSame(WhatsAppConfig::SYNC_SYNCING, $config->contact_sync_status);
+        $this->assertSame(WhatsAppConfig::SYNC_SYNCING, $config->contact_history_sync_status);
+    }
+
     public function test_another_user_in_the_tenant_cannot_take_over_a_number_already_connected(): void
     {
         [$tenant, $owner] = $this->createTenantAndUser();
