@@ -63,7 +63,18 @@ export function ChannelsCard() {
       setRows((current) => current.map((row) => row.channel.id === channelId ? { ...row, data, retrying: false } : row))
     } catch (error) {
       const message = error instanceof Error ? error.message : t("settings.contactSync.retryError")
-      setRows((current) => current.map((row) => row.channel.id === channelId ? { ...row, retrying: false, data: row.data ? { ...row.data, status: "failed", error: message } : row.data } : row))
+      try {
+        // Un 409 puede significar que otra petición ya dejó el sync en curso.
+        // La API es la fuente de verdad: no convertimos ese estado en `failed`.
+        const data = await getContactSync(channelId)
+        setRows((current) => current.map((row) => row.channel.id === channelId ? { ...row, data, retrying: false } : row))
+      } catch {
+        setRows((current) => current.map((row) => row.channel.id === channelId ? {
+          ...row,
+          retrying: false,
+          data: row.data ? { ...row.data, error: message } : row.data,
+        } : row))
+      }
     }
   }
 
