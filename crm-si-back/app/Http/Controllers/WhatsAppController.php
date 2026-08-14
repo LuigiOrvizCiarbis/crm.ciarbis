@@ -86,8 +86,10 @@ class WhatsAppController extends Controller
                 'requested_at' => $config->contact_sync_requested_at?->toIso8601String(),
                 'last_webhook_at' => $config->contact_sync_last_webhook_at?->toIso8601String(),
                 'window_expires_at' => $config->contactSyncWindowExpiresAt()?->toIso8601String(),
-                'can_retry' => $status !== WhatsAppConfig::SYNC_NOT_APPLICABLE
-                    && $status !== WhatsAppConfig::SYNC_COMPLETED
+                'can_retry' => in_array($status, [
+                    WhatsAppConfig::SYNC_PENDING,
+                    WhatsAppConfig::SYNC_FAILED,
+                ], true)
                     && $config->contact_sync_retryable !== false
                     && $config->isWithinContactSyncWindow(),
                 'error' => $config->contact_sync_error,
@@ -117,16 +119,28 @@ class WhatsAppController extends Controller
             ], 422);
         }
 
-        if (! $config->isWithinContactSyncWindow()) {
-            return response()->json([
-                'message' => 'Meta ya no acepta el pedido. Hay que reconectar el canal.',
-            ], 422);
-        }
-
         if ($config->contact_sync_status === WhatsAppConfig::SYNC_COMPLETED) {
             return response()->json([
                 'message' => 'Los contactos ya fueron importados.',
             ], 409);
+        }
+
+        if ($config->contact_sync_status === WhatsAppConfig::SYNC_SYNCING) {
+            return response()->json([
+                'message' => 'La importación ya fue aceptada por Meta y está en curso.',
+            ], 409);
+        }
+
+        if ($config->contact_sync_retryable === false) {
+            return response()->json([
+                'message' => 'La importación no se puede reintentar. Hay que reconectar el canal.',
+            ], 409);
+        }
+
+        if (! $config->isWithinContactSyncWindow()) {
+            return response()->json([
+                'message' => 'Meta ya no acepta el pedido. Hay que reconectar el canal.',
+            ], 422);
         }
 
         if ($service->retrySync($config)) {
@@ -715,6 +729,7 @@ class WhatsAppController extends Controller
                     // rastrear un sync que no llegó.
                     'contact_sync_request_id' => $response->json('request_id'),
                     'contact_sync_error' => null,
+                    'contact_sync_retryable' => false,
                 ])->save();
 
                 Log::info('triggerContactSync: sync pedida a Meta, esperando webhooks', [
@@ -752,6 +767,7 @@ class WhatsAppController extends Controller
                     $whatsAppConfig->forceFill([
                         'contact_sync_status' => WhatsAppConfig::SYNC_SYNCING,
                         'contact_sync_requested_at' => $whatsAppConfig->contact_sync_requested_at ?? now(),
+                        'contact_sync_retryable' => false,
                     ])->save();
 
                     VerifyContactSyncJob::dispatch($whatsAppConfig->id)

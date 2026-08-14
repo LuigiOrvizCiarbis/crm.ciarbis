@@ -85,6 +85,7 @@ class WhatsAppContactSyncTest extends TestCase
         $this->assertNotNull($fresh->contact_sync_requested_at, 'requested_at ancla la ventana de 24h');
         $this->assertSame('REQ_123', $fresh->contact_sync_request_id);
         $this->assertSame(0, $fresh->contact_sync_contacts_count);
+        $this->assertFalse($fresh->contact_sync_retryable);
     }
 
     public function test_un_retry_no_extiende_la_ventana_de_24h_original(): void
@@ -308,6 +309,28 @@ class WhatsAppContactSyncTest extends TestCase
         Queue::assertPushed(VerifyContactSyncJob::class);
     }
 
+    public function test_el_job_espera_webhooks_sin_repetir_un_pedido_aceptado(): void
+    {
+        Queue::fake();
+        [, $config] = $this->createChannelWithConfig();
+
+        $config->forceFill([
+            'contact_sync_status' => WhatsAppConfig::SYNC_SYNCING,
+            'contact_sync_requested_at' => now()->subHour(),
+            'contact_sync_request_id' => 'REQ_ACCEPTED',
+            'contact_sync_retryable' => true,
+        ])->save();
+
+        Http::fake();
+
+        (new VerifyContactSyncJob($config->id))->handle(app(WhatsAppContactSyncService::class));
+
+        Http::assertNothingSent();
+        Queue::assertPushed(VerifyContactSyncJob::class);
+        $this->assertSame(WhatsAppConfig::SYNC_SYNCING, $config->fresh()->contact_sync_status);
+        $this->assertFalse($config->fresh()->contact_sync_retryable);
+    }
+
     public function test_si_la_waba_ya_no_es_accesible_la_sync_falla_sin_reintentar(): void
     {
         Queue::fake();
@@ -379,6 +402,38 @@ class WhatsAppContactSyncTest extends TestCase
         $this->assertTrue($fresh->contact_sync_retryable);
     }
 
+    public function test_un_rate_limit_no_pisa_un_pedido_que_meta_ya_acepto(): void
+    {
+        [, $config] = $this->createChannelWithConfig();
+
+        $requestedAt = now()->subMinute();
+        $config->forceFill([
+            'contact_sync_status' => WhatsAppConfig::SYNC_SYNCING,
+            'contact_sync_requested_at' => $requestedAt,
+            'contact_sync_request_id' => 'REQ_ACCEPTED',
+            'contact_sync_retryable' => true,
+        ])->save();
+
+        Http::fake([
+            '*/smb_app_data' => Http::response([
+                'error' => [
+                    'message' => 'Application request limit reached',
+                    'type' => 'OAuthException',
+                    'code' => 4,
+                ],
+            ], 403),
+        ]);
+
+        $this->assertFalse(app(WhatsAppContactSyncService::class)->retrySync($config));
+
+        $fresh = $config->fresh();
+        $this->assertSame(WhatsAppConfig::SYNC_SYNCING, $fresh->contact_sync_status);
+        $this->assertSame('REQ_ACCEPTED', $fresh->contact_sync_request_id);
+        $this->assertSame($requestedAt->timestamp, $fresh->contact_sync_requested_at->timestamp);
+        $this->assertNull($fresh->contact_sync_error);
+        $this->assertFalse($fresh->contact_sync_retryable);
+    }
+
     public function test_el_endpoint_expone_el_estado_de_la_importacion(): void
     {
         // El endpoint es admin-only y la policy chequea `channels.connect_whatsapp`,
@@ -414,6 +469,27 @@ class WhatsAppContactSyncTest extends TestCase
             ->assertJsonPath('data.status', WhatsAppConfig::SYNC_FAILED)
             ->assertJsonPath('data.can_retry', false)
             ->assertJsonPath('data.error', 'Reconectá el canal.');
+
+        $config->forceFill([
+            'contact_sync_status' => WhatsAppConfig::SYNC_SYNCING,
+            'contact_sync_requested_at' => now()->subMinute(),
+            'contact_sync_request_id' => 'REQ_ACCEPTED',
+            'contact_sync_retryable' => true,
+            'contact_sync_error' => null,
+        ])->save();
+
+        $this->getJson("/api/admin/channels/{$channel->id}/contact-sync")
+            ->assertOk()
+            ->assertJsonPath('data.status', WhatsAppConfig::SYNC_SYNCING)
+            ->assertJsonPath('data.can_retry', false);
+
+        Http::fake();
+
+        $this->postJson("/api/admin/channels/{$channel->id}/contact-sync/retry")
+            ->assertConflict()
+            ->assertJsonPath('message', 'La importación ya fue aceptada por Meta y está en curso.');
+
+        Http::assertNothingSent();
     }
 
     /**

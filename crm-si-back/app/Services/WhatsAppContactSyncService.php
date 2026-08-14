@@ -69,12 +69,10 @@ class WhatsAppContactSyncService
     /**
      * Reintenta el POST /smb_app_data dentro de la ventana de 24h.
      *
-     * Meta documenta que el sync "can only be performed once per onboarding flow"
-     * y NO documenta qué devuelve al repetirlo. Reintentamos igual porque el caso
-     * que queremos cubrir es el disparo que nunca prendió, y un rechazo de Meta es
-     * información útil (queda en contact_sync_error), no un daño: el sync ya está
-     * consumido de todos modos. Si Meta lo rechaza, el estado termina en `failed`,
-     * que es la señal correcta de que hace falta re-onboardear.
+     * Meta documenta que el sync "can only be performed once per onboarding flow".
+     * Este método sólo debe usarse cuando todavía no hay evidencia de que Meta
+     * aceptó un pedido. El controller y el job evitan repetirlo una vez aceptado;
+     * las defensas de este servicio preservan el estado ante llamadas concurrentes.
      *
      * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
      */
@@ -109,7 +107,7 @@ class WhatsAppContactSyncService
                     'contact_sync_requested_at' => $config->contact_sync_requested_at ?? now(),
                     'contact_sync_request_id' => $response->json('request_id'),
                     'contact_sync_error' => null,
-                    'contact_sync_retryable' => true,
+                    'contact_sync_retryable' => false,
                 ])->save();
 
                 return true;
@@ -118,6 +116,30 @@ class WhatsAppContactSyncService
             $body = $response->json();
             $metaError = MetaOAuth::describeMetaError($body);
             $errorMessage = strtolower((string) data_get($body, 'error.message', ''));
+
+            // Una llamada duplicada puede chocar con el límite de la aplicación.
+            // Si ya tenemos el request_id del pedido aceptado, ese 403 no revierte
+            // el estado real del sync ni reemplaza sus datos de seguimiento.
+            $persistedConfig = (int) data_get($body, 'error.code') === 4
+                ? $config->fresh()
+                : null;
+
+            if ($persistedConfig?->contact_sync_request_id) {
+                $persistedConfig->forceFill([
+                    'contact_sync_status' => WhatsAppConfig::SYNC_SYNCING,
+                    'contact_sync_error' => null,
+                    'contact_sync_retryable' => false,
+                ])->save();
+
+                Log::warning('retrySync: rate limit posterior a un pedido ya aceptado', [
+                    'whatsapp_config_id' => $config->id,
+                    'request_id' => $persistedConfig->contact_sync_request_id,
+                    'status' => $response->status(),
+                    'error' => $metaError,
+                ]);
+
+                return false;
+            }
 
             // El código 190 identifica un access token inválido o vencido. No hay
             // reintento útil con la misma credencial: el canal debe reconectarse.
