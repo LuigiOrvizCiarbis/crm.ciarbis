@@ -95,6 +95,55 @@ class WhatsAppController extends Controller
     }
 
     /**
+     * Reintenta la importación de contactos mientras Meta mantenga abierta la
+     * ventana de 24 horas del onboarding.
+     *
+     * POST /api/admin/channels/{id}/contact-sync/retry
+     */
+    public function retryContactSync(
+        string $id,
+        WhatsAppContactSyncService $service
+    ): JsonResponse {
+        $channel = Channel::findOrFail($id);
+
+        $this->authorize('connectWhatsapp', Channel::class);
+
+        $config = $channel->whatsappConfig;
+
+        if (! $config) {
+            return response()->json([
+                'message' => 'El canal no tiene configuración de WhatsApp.',
+            ], 422);
+        }
+
+        if (! $config->isWithinContactSyncWindow()) {
+            return response()->json([
+                'message' => 'Meta ya no acepta el pedido. Hay que reconectar el canal.',
+            ], 422);
+        }
+
+        if ($config->contact_sync_status === WhatsAppConfig::SYNC_COMPLETED) {
+            return response()->json([
+                'message' => 'Los contactos ya fueron importados.',
+            ], 409);
+        }
+
+        if ($service->retrySync($config)) {
+            return response()->json([
+                'data' => [
+                    'status' => WhatsAppConfig::SYNC_SYNCING,
+                    'message' => 'La importación fue solicitada. Los contactos llegarán en los próximos minutos.',
+                ],
+            ]);
+        }
+
+        return response()->json([
+            'message' => $config->fresh()->contact_sync_error
+                ?? 'Meta rechazó el pedido de importación. Intentá reconectar el canal.',
+        ], 422);
+    }
+
+    /**
      * Devuelve el estado de verificación de negocio (Meta Business Verification)
      * de un canal de WhatsApp. Admin-only (mismo permiso que conectar el canal).
      *
