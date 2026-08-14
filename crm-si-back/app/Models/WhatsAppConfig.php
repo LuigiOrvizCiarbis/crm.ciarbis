@@ -4,11 +4,33 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 
 class WhatsAppConfig extends Model
 {
+    /**
+     * Estados de la sincronización de contactos de coexistencia (SMB).
+     *
+     * Meta permite disparar el sync una sola vez por onboarding, con una ventana
+     * de 24h. `syncing` significa que Meta aceptó el pedido pero todavía no
+     * llegó ningún webhook; solo `completed` prueba que los contactos llegaron.
+     */
+    public const SYNC_PENDING = 'pending';
+
+    public const SYNC_SYNCING = 'syncing';
+
+    public const SYNC_COMPLETED = 'completed';
+
+    public const SYNC_FAILED = 'failed';
+
+    /** El número no viene de la WhatsApp Business App: no hay contactos que traer. */
+    public const SYNC_NOT_APPLICABLE = 'not_applicable';
+
+    /** Ventana que da Meta para completar el sync antes de exigir re-onboarding. */
+    public const SYNC_WINDOW_HOURS = 24;
+
     protected $table = 'whatsapp_configs';
 
     protected $fillable = [
@@ -24,10 +46,21 @@ class WhatsAppConfig extends Model
         'registration_pin',
         'ai_autoreply_default',
         'ai_system_prompt',
+        'contact_sync_status',
+        'contact_sync_requested_at',
+        'contact_sync_first_webhook_at',
+        'contact_sync_last_webhook_at',
+        'contact_sync_contacts_count',
+        'contact_sync_request_id',
+        'contact_sync_error',
     ];
 
     protected $casts = [
         'ai_autoreply_default' => 'boolean',
+        'contact_sync_requested_at' => 'datetime',
+        'contact_sync_first_webhook_at' => 'datetime',
+        'contact_sync_last_webhook_at' => 'datetime',
+        'contact_sync_contacts_count' => 'integer',
     ];
 
     protected $hidden = [
@@ -101,5 +134,40 @@ class WhatsAppConfig extends Model
     {
         $this->registration_pin = Crypt::encryptString($pin);
         $this->save();
+    }
+
+    /**
+     * Momento en que expira la ventana de 24h que da Meta para sincronizar.
+     * Pasada esa ventana el sync ya no se puede reintentar: hay que offboardear
+     * al cliente y rehacer el Embedded Signup.
+     */
+    public function contactSyncWindowExpiresAt(): ?Carbon
+    {
+        return $this->contact_sync_requested_at?->addHours(self::SYNC_WINDOW_HOURS);
+    }
+
+    /**
+     * ¿Todavía estamos dentro de la ventana en que Meta acepta reintentos?
+     * Si nunca disparamos el sync, la ventana no arrancó y sigue abierta.
+     */
+    public function isWithinContactSyncWindow(): bool
+    {
+        $expiresAt = $this->contactSyncWindowExpiresAt();
+
+        return $expiresAt === null || $expiresAt->isFuture();
+    }
+
+    /**
+     * El sync quedó colgado: Meta aceptó el pedido pero no se importó ni un
+     * contacto. Es el caso que antes se perdía en silencio.
+     *
+     * Se mide por contactos importados y no por "llegó un webhook", porque Meta
+     * emite smb_app_state_sync también ante cambios manuales del cliente en su
+     * agenda: un `remove` suelto llegaría sin que la importación haya ocurrido.
+     */
+    public function hasStalledContactSync(): bool
+    {
+        return $this->contact_sync_status === self::SYNC_SYNCING
+            && $this->contact_sync_contacts_count === 0;
     }
 }

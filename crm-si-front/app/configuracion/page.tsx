@@ -20,6 +20,7 @@ import { WhatsAppTemplatesSettings } from "@/components/config/WhatsAppTemplates
 import { AutomationsSettings } from "@/components/config/AutomationsSettings"
 import { IntegrationsSection } from "@/components/config/integrations/IntegrationsSection"
 import { BusinessVerificationCard } from "@/components/config/BusinessVerificationCard"
+import { ChannelsCard } from "@/components/config/ChannelsCard"
 import { usePermission } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
 import { cn } from "@/lib/utils"
@@ -270,6 +271,7 @@ export default function ConfiguracionPage() {
 
                 <SettingsSectionHeading section={sections[2]}>
                   <div className="space-y-8">
+                    <ChannelsCard />
                     <BusinessVerificationCard />
                     <IntegrationsSection />
                   </div>

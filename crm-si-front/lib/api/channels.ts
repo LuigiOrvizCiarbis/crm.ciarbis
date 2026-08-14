@@ -105,6 +105,54 @@ export async function getChannels(): Promise<Channel[]> {
   return json.data ?? [];
 }
 
+export type ContactSyncStatus =
+  | "completed"
+  | "syncing"
+  | "pending"
+  | "failed"
+  | "not_applicable";
+
+export interface ContactSync {
+  status: ContactSyncStatus;
+  contacts_imported: number;
+  requested_at: string | null;
+  last_webhook_at: string | null;
+  window_expires_at: string | null;
+  can_retry: boolean;
+  error: string | null;
+}
+
+export async function getContactSync(channelId: number): Promise<ContactSync> {
+  const token = getAuthToken();
+  if (!token) throw new Error("No authentication token found");
+
+  const response = await fetch(`/api/channels/${channelId}/contact-sync`, {
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throwApiError(response.status, error, "Error al consultar la importación de contactos");
+  }
+
+  return (await response.json()).data;
+}
+
+export async function retryContactSync(channelId: number): Promise<void> {
+  const token = getAuthToken();
+  if (!token) throw new Error("No authentication token found");
+
+  const response = await fetch(`/api/channels/${channelId}/contact-sync/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throwApiError(response.status, error, "No se pudo reintentar la importación");
+  }
+}
+
 export async function updateChannelName(id: number, name: string): Promise<Channel> {
   const token = getAuthToken();
   if (!token) throw new Error("No authentication token found");
