@@ -193,6 +193,48 @@ class WhatsAppOnboardingTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains((string) $request->url(), '/PHONE_111/smb_app_data'));
     }
 
+    public function test_onboarding_accepts_the_v26_waba_subscription_response_shape(): void
+    {
+        [, $user] = $this->createTenantAndUser();
+        Sanctum::actingAs($user);
+
+        Http::fake(function ($request) {
+            $url = (string) $request->url();
+
+            if (str_contains($url, '/oauth/access_token')) {
+                return Http::response(['access_token' => 'TOKEN_AAA'], 200);
+            }
+            if (str_contains($url, '/WABA_AAA/phone_numbers')) {
+                return Http::response(['data' => [['id' => 'PHONE_111']]], 200);
+            }
+            if ($request->method() === 'GET' && str_contains($url, '/PHONE_111?fields=')) {
+                return Http::response(['is_on_biz_app' => true], 200);
+            }
+            if ($request->method() === 'POST' && str_contains($url, '/WABA_AAA/subscribed_apps')) {
+                return Http::response(['success' => true], 200);
+            }
+            if ($request->method() === 'GET' && str_contains($url, '/WABA_AAA/subscribed_apps')) {
+                return Http::response([
+                    'data' => [[
+                        'whatsapp_business_api_data' => ['id' => 'test-app-id'],
+                    ]],
+                ], 200);
+            }
+            if (str_contains($url, '/PHONE_111/smb_app_data')) {
+                return Http::response(['request_id' => 'REQ_123'], 200);
+            }
+
+            return Http::response(['error' => ['message' => "unmapped url {$url}"]], 404);
+        });
+
+        $this->postJson(self::ENDPOINT, $this->payload('WABA_AAA', 'PHONE_111', 'CODE_AAA'))
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        Http::assertSent(fn ($request) => $request->method() === 'GET'
+            && str_contains((string) $request->url(), '/v26.0/WABA_AAA/subscribed_apps'));
+    }
+
     public function test_contact_sync_400_persists_the_meta_error_without_type_error(): void
     {
         $this->assertContactSyncRejectionIsPersisted(400, [
