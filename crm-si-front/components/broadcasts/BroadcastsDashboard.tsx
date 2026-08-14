@@ -10,9 +10,20 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Trash2,
   Users,
 } from "lucide-react"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,7 +35,7 @@ import { useToast } from "@/components/Toast"
 import { Channel, WhatsAppTemplate } from "@/data/types"
 import { ChannelType } from "@/data/enums"
 import { getChannels } from "@/lib/api/channels"
-import { getManagedTemplates, syncTemplates } from "@/lib/api/templates"
+import { deleteTemplate, getManagedTemplates, syncTemplates } from "@/lib/api/templates"
 import { BroadcastCampaign, getBroadcasts } from "@/lib/api/broadcasts"
 import { getPipelineStages, PipelineStage } from "@/lib/api/pipeline"
 import { getTags, Tag } from "@/lib/api/tags"
@@ -32,6 +43,15 @@ import { ContactField, getContactFields } from "@/lib/api/contact-fields"
 import { cn } from "@/lib/utils"
 import { usePermission } from "@/hooks/usePermission"
 import { NewBroadcastDialog } from "./NewBroadcastDialog"
+import { NewTemplateDialog } from "./NewTemplateDialog"
+
+const templateStateLabel: Record<string, string> = {
+  ALL: "Todos los estados",
+  APPROVED: "Aprobadas",
+  PENDING: "Pendientes",
+  REJECTED: "Rechazadas",
+  DISABLED: "Deshabilitadas",
+}
 
 const templateStatus: Record<string, { label: string; className: string }> = {
   APPROVED: { label: "Aprobada", className: "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
@@ -66,6 +86,9 @@ const channelSubtitle = (channel: Channel) =>
 export function BroadcastsDashboard() {
   const { addToast } = useToast()
   const canSend = usePermission("templates.send")
+  const canCreateTemplate = usePermission("templates.create")
+  const canDeleteTemplate = usePermission("templates.delete")
+  const canSyncTemplate = usePermission("templates.sync")
   const [channels, setChannels] = useState<Channel[]>([])
   const [campaigns, setCampaigns] = useState<BroadcastCampaign[]>([])
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
@@ -77,8 +100,12 @@ export function BroadcastsDashboard() {
   const [templatesLoading, setTemplatesLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [query, setQuery] = useState("")
+  const [stateFilter, setStateFilter] = useState("ALL")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [initialTemplateId, setInitialTemplateId] = useState<number | null>(null)
+  const [newTemplateOpen, setNewTemplateOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<WhatsAppTemplate | null>(null)
+  const [deletingTemplateId, setDeletingTemplateId] = useState<number | null>(null)
 
   const loadCampaigns = useCallback(async () => {
     setCampaigns(await getBroadcasts())
@@ -126,8 +153,12 @@ export function BroadcastsDashboard() {
 
   const visibleTemplates = useMemo(() => {
     const normalized = query.trim().toLowerCase()
-    return templates.filter((template) => !normalized || template.name.toLowerCase().includes(normalized))
-  }, [query, templates])
+    return templates.filter((template) => {
+      const matchesQuery = !normalized || template.name.toLowerCase().includes(normalized)
+      const matchesState = stateFilter === "ALL" || template.status === stateFilter
+      return matchesQuery && matchesState
+    })
+  }, [query, stateFilter, templates])
 
   const totals = useMemo(() => ({
     scheduled: campaigns.filter((campaign) => campaign.status === "scheduled").length,
@@ -152,6 +183,22 @@ export function BroadcastsDashboard() {
       addToast({ type: "error", title: error instanceof Error ? error.message : "No se pudieron sincronizar" })
     } finally {
       setSyncing(false)
+    }
+  }
+
+  const handleDeleteTemplate = async () => {
+    if (!selectedChannel || !deleteTarget || deletingTemplateId !== null) return
+    const templateId = deleteTarget.id
+    setDeletingTemplateId(templateId)
+    try {
+      await deleteTemplate(selectedChannel.id, templateId)
+      setTemplates((current) => current.filter((template) => template.id !== templateId))
+      setDeleteTarget(null)
+      addToast({ type: "success", title: "Plantilla eliminada de Meta y del CRM." })
+    } catch (error) {
+      addToast({ type: "error", title: error instanceof Error ? error.message : "No se pudo eliminar la plantilla" })
+    } finally {
+      setDeletingTemplateId(null)
     }
   }
 
@@ -297,16 +344,27 @@ export function BroadcastsDashboard() {
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar plantilla" className="h-9 pl-9" />
               </div>
-              <Button variant="outline" size="sm" className="h-9" onClick={handleSync} disabled={syncing || selectedChannel?.type !== ChannelType.WHATSAPP}>
-                <RefreshCw className={cn("mr-2 h-4 w-4", syncing && "animate-spin")} />
-                Sincronizar
-              </Button>
-              <Button variant="outline" size="sm" className="h-9" asChild>
-                <Link href="/configuracion#operation">
+              <select
+                value={stateFilter}
+                onChange={(event) => setStateFilter(event.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+              >
+                {Object.entries(templateStateLabel).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              {canSyncTemplate && (
+                <Button variant="outline" size="sm" className="h-9" onClick={handleSync} disabled={syncing || selectedChannel?.type !== ChannelType.WHATSAPP}>
+                  <RefreshCw className={cn("mr-2 h-4 w-4", syncing && "animate-spin")} />
+                  Sincronizar
+                </Button>
+              )}
+              {canCreateTemplate && (
+                <Button size="sm" className="h-9" onClick={() => setNewTemplateOpen(true)} disabled={selectedChannel?.type !== ChannelType.WHATSAPP}>
+                  <Plus className="mr-2 h-4 w-4" />
                   Crear plantilla
-                  <ArrowUpRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
+                </Button>
+              )}
             </div>
           </div>
 
@@ -362,9 +420,24 @@ export function BroadcastsDashboard() {
                           <TableCell><Badge variant="outline" className={state.className}>{state.label}</Badge></TableCell>
                           <TableCell className="text-sm text-muted-foreground">{dateTime.format(new Date(template.created_at))}</TableCell>
                           <TableCell className="text-right">
-                            <Button size="sm" variant="ghost" disabled={!canSend || template.status !== "APPROVED"} onClick={() => openDialog(template.id)}>
-                              Usar <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
-                            </Button>
+                            <div className="flex items-center justify-end gap-1">
+                              <Button size="sm" variant="ghost" disabled={!canSend || template.status !== "APPROVED"} onClick={() => openDialog(template.id)}>
+                                Usar <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
+                              </Button>
+                              {canDeleteTemplate && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  onClick={() => setDeleteTarget(template)}
+                                  disabled={deletingTemplateId === template.id}
+                                  aria-label={`Eliminar plantilla ${template.name} (${template.language})`}
+                                  title="Eliminar plantilla"
+                                >
+                                  {deletingTemplateId === template.id ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       )
@@ -383,6 +456,45 @@ export function BroadcastsDashboard() {
           </div>
         </section>
       </div>
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(openState) => !openState && deletingTemplateId === null && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar esta plantilla permanentemente?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará <strong className="font-medium text-foreground">{deleteTarget?.name}</strong> ({deleteTarget?.language}) de Meta y del CRM. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingTemplateId !== null}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void handleDeleteTemplate()
+              }}
+              disabled={deletingTemplateId !== null}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingTemplateId !== null && <Loader2 className="mr-2 size-4 animate-spin" />}
+              Eliminar de Meta y del CRM
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {canCreateTemplate && selectedChannel?.type === ChannelType.WHATSAPP && (
+        <NewTemplateDialog
+          open={newTemplateOpen}
+          onOpenChange={setNewTemplateOpen}
+          channelId={selectedChannel.id}
+          onCreated={async () => {
+            setTemplates(await getManagedTemplates(selectedChannel.id))
+          }}
+        />
+      )}
 
       {canSend && selectedChannel?.type === ChannelType.WHATSAPP && (
         <NewBroadcastDialog
