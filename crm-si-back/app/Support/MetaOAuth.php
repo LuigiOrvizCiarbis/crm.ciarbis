@@ -133,4 +133,25 @@ class MetaOAuth
             'message' => data_get($body, 'error.message'),
         ];
     }
+
+    /**
+     * Convierte la respuesta estructurada de Graph API en texto seguro para
+     * persistir o mostrar. `describeMetaError()` se reserva para logs JSON.
+     */
+    public static function formatMetaError(?array $body): string
+    {
+        $error = self::describeMetaError($body);
+        $identifiers = array_filter([
+            $error['code'],
+            $error['subcode'],
+        ], static fn (mixed $value): bool => $value !== null);
+        $prefix = $identifiers !== [] ? '[Meta '.implode('/', $identifiers).'] ' : '';
+        $message = trim((string) ($error['message'] ?? ''));
+
+        if ($message === '') {
+            return trim($prefix.'Meta devolvió un error sin detalle.');
+        }
+
+        return $prefix.self::scrubMessage($message);
+    }
 }
