@@ -776,6 +776,8 @@ class WhatsAppController extends Controller
                 VerifyContactSyncJob::dispatch($whatsAppConfig->id)
                     ->delay(now()->addMinutes(self::CONTACT_SYNC_VERIFY_DELAY_MINUTES));
 
+                $this->triggerHistorySync($whatsAppConfig, $token);
+
                 return true;
             }
 
@@ -808,6 +810,8 @@ class WhatsAppController extends Controller
 
                     VerifyContactSyncJob::dispatch($whatsAppConfig->id)
                         ->delay(now()->addMinutes(self::CONTACT_SYNC_VERIFY_DELAY_MINUTES));
+
+                    $this->triggerHistorySync($whatsAppConfig, $token);
 
                     return true;
                 }
@@ -855,6 +859,91 @@ class WhatsAppController extends Controller
         ])->save();
     }
 
+    /**
+     * Paso 2 de la coexistencia: sincronización del historial de mensajes.
+     *
+     * Docs Meta: "Use the SMB App Data API again, this time to initiate messaging
+     * history synchronization... you can only perform this step once." Va después
+     * del sync de contactos (nunca antes) y comparte su ventana de 24h.
+     *
+     * Best-effort: si falla, no revertimos el éxito ya devuelto por
+     * triggerContactSync. Los contactos son la parte crítica del onboarding; el
+     * historial es un complemento documentado que no debe bloquear la conexión.
+     *
+     * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
+     */
+    private function triggerHistorySync(WhatsAppConfig $whatsAppConfig, string $token): void
+    {
+        $phoneNumberId = $whatsAppConfig->phone_number_id;
+
+        if (! $phoneNumberId) {
+            return;
+        }
+
+        $version = config('services.facebook.graph_version', 'v21.0');
+
+        try {
+            $response = Http::withToken($token)
+                ->timeout(15)
+                ->post("https://graph.facebook.com/{$version}/{$phoneNumberId}/smb_app_data", [
+                    'messaging_product' => 'whatsapp',
+                    'sync_type' => 'history',
+                ]);
+
+            if ($response->successful()) {
+                $whatsAppConfig->forceFill([
+                    'contact_history_sync_status' => WhatsAppConfig::SYNC_SYNCING,
+                    'contact_history_sync_requested_at' => now(),
+                    'contact_history_sync_request_id' => $response->json('request_id'),
+                    'contact_history_sync_error' => null,
+                ])->save();
+
+                Log::info('triggerHistorySync: sync de historial pedida a Meta', [
+                    'phone_number_id' => $phoneNumberId,
+                    'request_id' => $response->json('request_id'),
+                ]);
+
+                return;
+            }
+
+            $body = $response->json();
+            $errorMessage = strtolower((string) data_get($body, 'error.message', ''));
+
+            // Igual que en triggerContactSync: un 400 "already" es el caso esperado
+            // cuando el paso 2 ya se pidió antes (reconexión del mismo canal).
+            if ($response->status() === 400 && str_contains($errorMessage, 'already') && str_contains($errorMessage, 'smb_app_data')) {
+                Log::info('triggerHistorySync: historial ya sincronizado previamente (400 esperado)', [
+                    'phone_number_id' => $phoneNumberId,
+                ]);
+
+                $whatsAppConfig->forceFill([
+                    'contact_history_sync_status' => WhatsAppConfig::SYNC_SYNCING,
+                    'contact_history_sync_requested_at' => $whatsAppConfig->contact_history_sync_requested_at ?? now(),
+                ])->save();
+
+                return;
+            }
+
+            Log::warning('triggerHistorySync: Meta rechazó el pedido de historial', [
+                'phone_number_id' => $phoneNumberId,
+                'status' => $response->status(),
+                'error' => $this->describeMetaError($body),
+            ]);
+
+            $whatsAppConfig->forceFill([
+                'contact_history_sync_status' => WhatsAppConfig::SYNC_FAILED,
+                'contact_history_sync_error' => Str::limit(MetaOAuth::formatMetaError($body), 500),
+            ])->save();
+        } catch (\Throwable $e) {
+            Log::error('triggerHistorySync exception', $this->describeException($e));
+
+            $whatsAppConfig->forceFill([
+                'contact_history_sync_status' => WhatsAppConfig::SYNC_FAILED,
+                'contact_history_sync_error' => Str::limit($e->getMessage(), 500),
+            ])->save();
+        }
+    }
+
     public function webhook(Request $request): Response|JsonResponse
     {
         $mode = $request->query('hub_mode', $request->query('hub.mode'));
@@ -888,6 +977,9 @@ class WhatsAppController extends Controller
 
                     } elseif ($field === 'smb_app_state_sync') {
                         $this->handleSmbAppStateSync($entry['id'] ?? null, $value);
+
+                    } elseif ($field === 'history') {
+                        $this->handleHistorySync($entry['id'] ?? null, $value);
                     }
                 }
             }
@@ -1032,5 +1124,48 @@ class WhatsAppController extends Controller
         // Marca el sync como completado: es la prueba de que los contactos
         // realmente llegaron, no solo que Meta aceptó el pedido.
         app(WhatsAppContactSyncService::class)->recordWebhookBatch($whatsappConfig, $upserted);
+    }
+
+    /**
+     * Webhook del paso 2 (sync_type=history) de la coexistencia.
+     *
+     * No hay documentación pública con un ejemplo de payload, así que por ahora
+     * solo confirmamos que Meta entregó el historial (marca `completed`) y
+     * logueamos el `value` completo para poder ver la forma real la primera vez
+     * que llegue. Importar los mensajes al CRM queda para una iteración
+     * posterior, una vez confirmado el formato.
+     */
+    private function handleHistorySync(?string $wabaId, array $value): void
+    {
+        $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
+        $whatsappConfig = null;
+
+        if ($phoneNumberId) {
+            $whatsappConfig = WhatsAppConfig::where('phone_number_id', $phoneNumberId)->first();
+        }
+
+        if (! $whatsappConfig && $wabaId) {
+            $whatsappConfig = WhatsAppConfig::where('waba_id', $wabaId)->first();
+        }
+
+        Log::info('history: webhook recibido', [
+            'waba_id' => $wabaId,
+            'phone_number_id' => $phoneNumberId,
+            'value' => $value,
+        ]);
+
+        if (! $whatsappConfig) {
+            Log::warning('history: canal no encontrado', [
+                'waba_id' => $wabaId,
+                'phone_number_id' => $phoneNumberId,
+            ]);
+
+            return;
+        }
+
+        $whatsappConfig->forceFill([
+            'contact_history_sync_status' => WhatsAppConfig::SYNC_COMPLETED,
+            'contact_history_sync_error' => null,
+        ])->save();
     }
 }
