@@ -29,7 +29,10 @@ use Sentry\State\Scope;
 
 class WhatsAppMessageService
 {
-    private const GRAPH_VERSION = 'v21.0';
+    private function graphVersion(): string
+    {
+        return config('services.facebook.graph_version', 'v21.0');
+    }
 
     public function processIncomingMessage(array $webhookData): ?Message
     {
@@ -280,7 +283,7 @@ class WhatsAppMessageService
         $uploadResponse = Http::withToken($businessToken)
             ->timeout(30)
             ->attach('file', Storage::disk('public')->get($localMediaPath), basename($localMediaPath), ['Content-Type' => $mimeType])
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/media", [
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/media", [
                 'messaging_product' => 'whatsapp',
                 'type' => $mimeType,
             ]);
@@ -307,7 +310,7 @@ class WhatsAppMessageService
 
         $sendResponse = Http::withToken($businessToken)
             ->timeout(10)
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/messages", $messagePayload);
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", $messagePayload);
 
         if (! $sendResponse->successful()) {
             throw new \RuntimeException('Error enviando imagen por WhatsApp: '.$sendResponse->body());
@@ -362,7 +365,7 @@ class WhatsAppMessageService
         $uploadResponse = Http::withToken($businessToken)
             ->timeout(30)
             ->attach('file', Storage::disk('public')->get($localMediaPath), basename($localMediaPath), ['Content-Type' => $mimeType])
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/media", [
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/media", [
                 'messaging_product' => 'whatsapp',
                 'type' => $mimeType,
             ]);
@@ -375,7 +378,7 @@ class WhatsAppMessageService
 
         $sendResponse = Http::withToken($businessToken)
             ->timeout(10)
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/messages", [
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
                 'recipient_type' => 'individual',
                 'to' => $to,
@@ -588,7 +591,7 @@ class WhatsAppMessageService
 
         $metaResponse = Http::withToken($accessToken)
             ->timeout(10)
-            ->get("https://graph.facebook.com/v21.0/{$mediaId}");
+            ->get("https://graph.facebook.com/{$this->graphVersion()}/{$mediaId}");
 
         if (! $metaResponse->successful()) {
             Log::error("Error obteniendo URL de media WhatsApp: {$metaResponse->body()}");
@@ -693,7 +696,7 @@ class WhatsAppMessageService
 
             $response = Http::withToken($businessToken)
                 ->timeout(10)
-                ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$waConfig->phone_number_id}/messages", [
+                ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$waConfig->phone_number_id}/messages", [
                     'messaging_product' => 'whatsapp',
                     'status' => 'read',
                     'message_id' => $externalId,
@@ -1012,87 +1015,164 @@ class WhatsAppMessageService
     /**
      * Procesa el webhook del paso 2 de coexistencia (sync_type=history).
      *
-     * Shape observado en producción (no documentado públicamente por Meta):
-     *   value.threads[] = [{
-     *     id: "<wa_id del contacto>",
-     *     messages: [{ id, from, to, timestamp, type, text: { body }, ... }],
+     * Shape real, confirmado contra la doc oficial de Meta (Onboard WhatsApp
+     * Business app users) y contra payloads de producción:
+     *   value.history[] = [{
+     *     metadata: { phase, chunk_order, progress },
+     *     threads: [{
+     *       id: "<wa_id del contacto, SIN 9 en AR>",
+     *       messages: [{ id, from, to?, timestamp, type, text: {...}, history_context: { status }, ... }],
+     *     }],
      *   }]
      *
-     * Cada mensaje trae `from`/`to`: si `from` coincide con el número del
-     * negocio (`display_phone_number`/`phone_number`) es un mensaje saliente
-     * histórico (el humano ya le había respondido desde la app celular),
-     * si no, es entrante. Igual que en smb_message_echoes, se dedupea por
-     * external_id (wamid) para no duplicar si Meta reentrega el batch.
+     * El teléfono del contacto sale de threads[].id, no de messages[].to: `to`
+     * sólo viene poblado cuando el mensaje representa un smb_message_echo, no en
+     * el resto del historial (documentado explícitamente por Meta).
+     *
+     * La dirección se determina comparando `from` contra el número del negocio
+     * (metadata.display_phone_number del propio webhook, más phone_number/
+     * display_phone_number de la config) normalizados a dígitos puros vía
+     * normalizePhoneForWhatsApp, porque display_phone_number en DB puede venir
+     * formateado ("+54 9 223 436-3047") mientras que `from` siempre llega en
+     * dígitos puros sin el 9 argentino.
+     *
+     * media_placeholder no se descarta: se persiste como mensaje de texto
+     * provisorio. Meta promete un webhook posterior con el mismo wamid y el
+     * contenido real "only if the message was sent within the last two weeks";
+     * ese caso se resuelve con un updateOrCreate por external_id (ver más abajo),
+     * nunca con un create nuevo, porque external_id es unique global en messages.
+     *
+     * @return array{imported: int, progress: int, phase: int|null, error_code: int|null}
      */
-    public function processHistorySync(array $value, Channel $channel): int
+    public function processHistorySync(array $value, Channel $channel): array
     {
-        $threads = $value['threads'] ?? [];
-        if (empty($threads)) {
-            return 0;
+        $historyChunks = $value['history'] ?? [];
+
+        // "Messaging history not shared": Meta entrega un chunk sin threads y con
+        // un error explícito en vez de contenido. No es un fallo de nuestro lado.
+        $errorCode = data_get($value, 'history.0.error.code') ?? data_get($value, 'errors.0.code');
+
+        if (empty($historyChunks)) {
+            return ['imported' => 0, 'progress' => 0, 'phase' => null, 'error_code' => $errorCode];
         }
 
         $tenantId = $channel->tenant_id;
         $waConfig = $channel->whatsappConfig;
-        $businessNumbers = array_filter([
-            $waConfig?->phone_number,
-            $waConfig?->display_phone_number,
-        ]);
+        $businessNumbers = array_filter(array_map(
+            fn (?string $n) => $n ? $this->normalizePhoneForWhatsApp(preg_replace('/\D/', '', $n)) : null,
+            [
+                $waConfig?->phone_number,
+                $waConfig?->display_phone_number,
+                data_get($value, 'metadata.display_phone_number'),
+            ]
+        ));
 
         $imported = 0;
+        $progress = 0;
+        $phase = null;
 
-        foreach ($threads as $thread) {
-            $messages = $thread['messages'] ?? [];
-            if (empty($messages)) {
-                continue;
-            }
+        foreach ($historyChunks as $chunk) {
+            $progress = max($progress, (int) ($chunk['metadata']['progress'] ?? 0));
+            $phase = $chunk['metadata']['phase'] ?? $phase;
 
-            foreach ($messages as $historyMessage) {
-                $externalId = $historyMessage['id'] ?? null;
-                if ($externalId && Message::where('tenant_id', $tenantId)->where('external_id', $externalId)->exists()) {
-                    continue;
+            foreach ($chunk['threads'] ?? [] as $thread) {
+                $threadPhone = $thread['id'] ?? null;
+
+                foreach ($thread['messages'] ?? [] as $historyMessage) {
+                    if ($this->importHistoryMessage($historyMessage, $threadPhone, $businessNumbers, $channel, $tenantId)) {
+                        $imported++;
+                    }
                 }
-
-                $type = $historyMessage['type'] ?? 'unknown';
-                if (! $this->isSupportedMessageType($type)) {
-                    // Tipos como "errors"/"edit"/"reaction" o no soportados: se
-                    // ignoran igual que en processIncomingMessage, sin frenar el resto del batch.
-                    continue;
-                }
-
-                $from = $historyMessage['from'] ?? null;
-                $to = $historyMessage['to'] ?? null;
-                if (! $from && ! $to) {
-                    continue;
-                }
-
-                $isOutbound = $from && in_array($from, $businessNumbers, true);
-                $customerPhone = $isOutbound ? $to : $from;
-                if (! $customerPhone) {
-                    continue;
-                }
-
-                $contact = $this->findOrCreateContact(null, $customerPhone, $channel);
-                $conversation = $this->findOrCreateConversation($contact, $channel);
-
-                $extracted = $this->extractMessageData($historyMessage);
-
-                $this->createMessage([
-                    'tenant_id' => $tenantId,
-                    'conversation_id' => $conversation->id,
-                    'sender_type' => $isOutbound ? SenderType::USER : SenderType::CONTACT,
-                    'sender_id' => $isOutbound ? $channel->user_id : $contact->id,
-                    'content' => $extracted['content'],
-                    'message_type' => $extracted['type'],
-                    'direction' => $isOutbound ? MessageDirection::OUTBOUND : MessageDirection::INBOUND,
-                    'external_id' => $externalId,
-                    'delivered_at' => $this->parseWebhookTimestamp($historyMessage['timestamp'] ?? null),
-                ]);
-
-                $imported++;
             }
         }
 
-        return $imported;
+        return ['imported' => $imported, 'progress' => $progress, 'phase' => $phase, 'error_code' => $errorCode];
+    }
+
+    private function importHistoryMessage(
+        array $historyMessage,
+        ?string $threadPhone,
+        array $businessNumbers,
+        Channel $channel,
+        int $tenantId
+    ): bool {
+        $externalId = $historyMessage['id'] ?? null;
+        $type = $historyMessage['type'] ?? 'unknown';
+
+        $isPlaceholder = $type === 'media_placeholder';
+        if (! $isPlaceholder && ! $this->isSupportedMessageType($type)) {
+            // reaction/edit/revoke/button/errors: mismo criterio que
+            // processIncomingMessage, se ignoran sin frenar el resto del batch.
+            return false;
+        }
+
+        $from = $historyMessage['from'] ?? null;
+        $fromNormalized = $from ? $this->normalizePhoneForWhatsApp(preg_replace('/\D/', '', $from)) : null;
+        $isOutbound = $fromNormalized && in_array($fromNormalized, $businessNumbers, true);
+
+        // El contacto siempre es el otro extremo del thread, nunca el negocio.
+        $customerPhone = $isOutbound
+            ? ($threadPhone ?? $historyMessage['to'] ?? null)
+            : ($from ?? $threadPhone);
+
+        if (! $customerPhone) {
+            return false;
+        }
+
+        $existing = $externalId ? Message::where('external_id', $externalId)->first() : null;
+
+        $contact = $this->findOrCreateContact(null, $customerPhone, $channel);
+        $conversation = $this->findOrCreateConversation($contact, $channel);
+
+        if ($isPlaceholder) {
+            if ($existing) {
+                // Ya se resolvió por un webhook de contenido posterior; nada que hacer.
+                return false;
+            }
+
+            $this->createMessage([
+                'tenant_id' => $tenantId,
+                'conversation_id' => $conversation->id,
+                'sender_type' => $isOutbound ? SenderType::USER : SenderType::CONTACT,
+                'sender_id' => $isOutbound ? $channel->user_id : $contact->id,
+                'content' => 'Multimedia no disponible',
+                'message_type' => MessageType::Text,
+                'direction' => $isOutbound ? MessageDirection::OUTBOUND : MessageDirection::INBOUND,
+                'external_id' => $externalId,
+                'delivered_at' => $this->parseWebhookTimestamp($historyMessage['timestamp'] ?? null),
+            ]);
+
+            return true;
+        }
+
+        $extracted = $this->extractMessageData($historyMessage);
+        $status = strtoupper((string) ($historyMessage['history_context']['status'] ?? ''));
+
+        $attributes = [
+            'tenant_id' => $tenantId,
+            'conversation_id' => $conversation->id,
+            'sender_type' => $isOutbound ? SenderType::USER : SenderType::CONTACT,
+            'sender_id' => $isOutbound ? $channel->user_id : $contact->id,
+            'content' => $extracted['content'],
+            'message_type' => $extracted['type'],
+            'direction' => $isOutbound ? MessageDirection::OUTBOUND : MessageDirection::INBOUND,
+            'external_id' => $externalId,
+            'delivered_at' => $this->parseWebhookTimestamp($historyMessage['timestamp'] ?? null),
+            'read_at' => $status === 'READ' ? $this->parseWebhookTimestamp($historyMessage['timestamp'] ?? null) : null,
+        ];
+
+        if ($existing) {
+            // Resuelve un media_placeholder previo (mismo wamid) con el contenido
+            // real que llega en un webhook history separado, dentro de las 2
+            // semanas. external_id es unique global: nunca un create nuevo acá.
+            $existing->update($attributes);
+
+            return true;
+        }
+
+        $this->createMessage($attributes);
+
+        return true;
     }
 
     public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
@@ -1102,7 +1182,7 @@ class WhatsAppMessageService
 
         $response = Http::withToken($businessToken)
             ->timeout(10)
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/messages", [
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
                 'recipient_type' => 'individual',
                 'to' => $to,
@@ -1163,7 +1243,7 @@ class WhatsAppMessageService
         // conversaciones/tenants. tries=1 en el job evita duplicar el envío.
         $response = Http::withToken($businessToken)
             ->timeout(10)
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/messages", [
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
                 'recipient_type' => 'individual',
                 'to' => $to,
