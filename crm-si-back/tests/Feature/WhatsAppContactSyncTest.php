@@ -88,6 +88,73 @@ class WhatsAppContactSyncTest extends TestCase
         $this->assertFalse($fresh->contact_sync_retryable);
     }
 
+    /**
+     * El reintento manual desde la UI también tiene que pedir el historial.
+     *
+     * Caso real: un onboarding falló con 422 (Meta devolvió datos incompletos) y
+     * el usuario lo recuperó con el botón de reintentar. Los contactos llegaron,
+     * pero el historial nunca se pidió, y como la ventana de 24h se consume
+     * igual, se perdió para siempre.
+     */
+    public function test_un_retry_exitoso_tambien_pide_el_historial(): void
+    {
+        [, $config] = $this->createChannelWithConfig();
+
+        $config->forceFill([
+            'contact_sync_status' => WhatsAppConfig::SYNC_PENDING,
+            'contact_sync_requested_at' => null,
+        ])->save();
+
+        Http::fake([
+            '*/smb_app_data' => Http::response([
+                'messaging_product' => 'whatsapp',
+                'request_id' => 'REQ_HISTORY',
+            ], 200),
+        ]);
+
+        $this->assertTrue(app(WhatsAppContactSyncService::class)->retrySync($config));
+
+        $syncTypes = collect(Http::recorded())
+            ->filter(fn ($pair) => str_contains((string) $pair[0]->url(), 'smb_app_data'))
+            ->map(fn ($pair) => $pair[0]->data()['sync_type'] ?? null)
+            ->sort()
+            ->values();
+
+        $this->assertSame(['history', 'smb_app_state_sync'], $syncTypes->all());
+        $this->assertSame(WhatsAppConfig::SYNC_SYNCING, $config->fresh()->contact_history_sync_status);
+    }
+
+    /**
+     * El guard de idempotencia también aplica al retry: si el historial ya se
+     * pidió antes, un reintento del sync de contactos no debe volver a pedirlo.
+     */
+    public function test_un_retry_no_repite_el_historial_ya_pedido(): void
+    {
+        [, $config] = $this->createChannelWithConfig();
+
+        $config->forceFill([
+            'contact_sync_status' => WhatsAppConfig::SYNC_PENDING,
+            'contact_sync_requested_at' => null,
+            'contact_history_sync_status' => WhatsAppConfig::SYNC_SYNCING,
+            'contact_history_sync_requested_at' => now()->subHour(),
+            'contact_history_sync_request_id' => 'REQ_PREVIO',
+        ])->save();
+
+        Http::fake([
+            '*/smb_app_data' => Http::response(['request_id' => 'REQ_NUEVO'], 200),
+        ]);
+
+        app(WhatsAppContactSyncService::class)->retrySync($config);
+
+        $syncTypes = collect(Http::recorded())
+            ->filter(fn ($pair) => str_contains((string) $pair[0]->url(), 'smb_app_data'))
+            ->map(fn ($pair) => $pair[0]->data()['sync_type'] ?? null)
+            ->values();
+
+        $this->assertSame(['smb_app_state_sync'], $syncTypes->all());
+        $this->assertSame('REQ_PREVIO', $config->fresh()->contact_history_sync_request_id);
+    }
+
     public function test_un_retry_no_extiende_la_ventana_de_24h_original(): void
     {
         [, $config] = $this->createChannelWithConfig();
