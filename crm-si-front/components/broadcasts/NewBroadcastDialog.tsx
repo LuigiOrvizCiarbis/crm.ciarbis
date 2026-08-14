@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   CalendarDays,
@@ -294,6 +295,26 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
                 <div className="mt-6 grid grid-cols-2 gap-3"><div className="rounded-2xl bg-white/8 p-4"><Users className="mb-2 h-4 w-4 text-lime-300" /><p className="text-2xl font-semibold">{estimate.audience_count.toLocaleString("es-AR")}</p><p className="text-xs text-emerald-50/60">contactos estimados</p></div><div className="rounded-2xl bg-white/8 p-4"><span className="mb-2 block text-sm font-bold text-lime-300">USD</span><p className="text-2xl font-semibold">{currency.format(estimate.estimated_cost_usd).replace("US$", "")}</p><p className="text-xs text-emerald-50/60">costo estimado</p></div></div>
                 <div className="mt-4 rounded-2xl border border-white/10 p-4 text-xs leading-5 text-emerald-50/70">Estimación calculada a USD 0,065 por mensaje. El gasto final refleja los envíos procesados.</div>
                 {estimate.capped && <Badge className="mt-3 bg-amber-300 text-amber-950">Audiencia limitada a 5.000 contactos</Badge>}
+
+                {estimate.messaging_limit.exceeded && estimate.messaging_limit.limit !== null && (
+                  <div className="mt-3 rounded-2xl border border-amber-300/30 bg-amber-300/10 p-4">
+                    <p className="flex items-center gap-2 text-sm font-medium text-amber-200">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      Supera tu límite de Meta
+                    </p>
+                    <p className="mt-1.5 text-xs leading-5 text-emerald-50/70">
+                      Meta te permite {estimate.messaging_limit.limit.toLocaleString("es-AR")} destinatarios únicos cada 24 horas.
+                      Los {(estimate.audience_count - estimate.messaging_limit.limit).toLocaleString("es-AR")} restantes van a fallar.
+                      El límite se comparte con los demás números de tu cuenta.
+                    </p>
+                  </div>
+                )}
+
+                {!estimate.messaging_limit.known && (
+                  <p className="mt-3 text-xs leading-5 text-emerald-50/55">
+                    No se pudo leer tu límite de envío de Meta, así que no verificamos si esta audiencia lo supera.
+                  </p>
+                )}
               </div>
             </div>
           )}

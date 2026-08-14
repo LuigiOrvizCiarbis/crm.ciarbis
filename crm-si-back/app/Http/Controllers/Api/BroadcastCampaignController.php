@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\BroadcastRecipientStatus;
 use App\Enums\ChannelType;
+use App\Enums\TemplateStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreBroadcastRequest;
 use App\Http\Resources\BroadcastCampaignResource;
@@ -12,6 +13,7 @@ use App\Models\Channel;
 use App\Models\WhatsAppTemplate;
 use App\Services\BroadcastAudienceService;
 use App\Services\BroadcastDispatcher;
+use App\Services\WhatsAppMessagingLimitService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -22,6 +24,7 @@ class BroadcastCampaignController extends Controller
     public function __construct(
         private readonly BroadcastAudienceService $audienceService,
         private readonly BroadcastDispatcher $dispatcher,
+        private readonly WhatsAppMessagingLimitService $messagingLimitService,
     ) {}
 
     public function index(Request $request)
@@ -41,11 +44,25 @@ class BroadcastCampaignController extends Controller
         $audience = $this->audienceService->resolve($request->user(), $channel->id, $request->validated('filters', []));
         $count = $audience->count();
 
+        $messagingLimit = $this->messagingLimitService->forConfig($channel->whatsappConfig);
+
         return response()->json([
             'data' => [
                 'audience_count' => $count,
                 'estimated_cost_usd' => round($count * (float) config('broadcasts.cost_per_message_usd'), 2),
                 'capped' => $count >= (int) config('broadcasts.max_recipients'),
+                // Techo de Meta para envíos fuera de ventana en 24h. Compartido
+                // por toda la cartera, así que otros números pueden haber
+                // consumido parte antes de que salga esta difusión.
+                'messaging_limit' => [
+                    'known' => $messagingLimit['known'],
+                    'tier' => $messagingLimit['tier'],
+                    'limit' => $messagingLimit['limit'],
+                    'unlimited' => $messagingLimit['unlimited'],
+                    'exceeded' => $messagingLimit['known']
+                        && $messagingLimit['limit'] !== null
+                        && $count > $messagingLimit['limit'],
+                ],
             ],
         ]);
     }
@@ -122,10 +139,31 @@ class BroadcastCampaignController extends Controller
 
         $template = WhatsAppTemplate::query()->findOrFail($request->validated('template_id'));
 
-        if (! $template->status->isApproved() || $template->whatsapp_config_id !== $channel->whatsappConfig->id) {
-            abort(422, 'La plantilla debe estar aprobada y pertenecer al canal seleccionado.');
+        if ($template->whatsapp_config_id !== $channel->whatsappConfig->id) {
+            abort(422, 'La plantilla no pertenece al canal seleccionado.');
+        }
+
+        // Meta puede pausar o deshabilitar una plantilla en cualquier momento por
+        // feedback negativo, así que una que estaba aprobada al abrir el diálogo
+        // puede no estarlo al confirmar. El motivo concreto evita que el usuario
+        // crea que se trata de una plantilla que nunca se aprobó.
+        if (! $template->status->isApproved()) {
+            abort(422, $this->templateRejectionMessage($template->status));
         }
 
         return [$channel, $template];
+    }
+
+    private function templateRejectionMessage(TemplateStatus $status): string
+    {
+        return match ($status) {
+            TemplateStatus::Paused => 'Meta pausó esta plantilla por feedback negativo de los usuarios. Vas a poder volver a usarla cuando Meta la reactive.',
+            TemplateStatus::Disabled => 'Meta deshabilitó esta plantilla de forma permanente. Creá una nueva para esta difusión.',
+            TemplateStatus::LimitExceeded => 'Esta plantilla alcanzó su límite de envíos en Meta.',
+            TemplateStatus::Rejected => 'Meta rechazó esta plantilla. Revisá el motivo en Configuración y creá una nueva.',
+            TemplateStatus::Pending, TemplateStatus::InAppeal => 'Meta todavía está revisando esta plantilla. Vas a poder enviarla cuando la apruebe.',
+            TemplateStatus::PendingDeletion, TemplateStatus::Deleted => 'Esta plantilla fue eliminada de Meta.',
+            default => 'Esta plantilla no está aprobada para enviar. Sincronizá las plantillas para ver su estado actual.',
+        };
     }
 }
