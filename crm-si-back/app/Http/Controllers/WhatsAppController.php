@@ -24,6 +24,13 @@ use Illuminate\Support\Str;
 
 class WhatsAppController extends Controller
 {
+    /**
+     * Meta devuelve la relación WABA ↔ app de forma consistente desde v26.0.
+     * Esta versión se limita al endpoint /subscribed_apps; el resto del CRM
+     * conserva la versión Graph configurada.
+     */
+    private const WEBHOOK_SUBSCRIPTION_GRAPH_VERSION = 'v26.0';
+
     // REQUISITO DE CONFIGURACIÓN MANUAL (no se puede hacer por código):
     // para que la coexistencia funcione, en App Dashboard > WhatsApp >
     // Configuration > Webhook fields tienen que estar tildados `messages`,
@@ -664,7 +671,7 @@ class WhatsAppController extends Controller
             return false;
         }
 
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = self::WEBHOOK_SUBSCRIPTION_GRAPH_VERSION;
 
         try {
             // Sin body: el endpoint sólo acepta override_callback_uri/verify_token.
@@ -699,7 +706,8 @@ class WhatsAppController extends Controller
 
             $appId = (string) config('services.facebook.app_id');
             $subscribed = $appId !== '' && collect($verification->json('data', []))
-                ->contains(fn (array $app): bool => (string) data_get($app, 'id') === $appId);
+                ->contains(fn (array $app): bool => (string) (data_get($app, 'id')
+                    ?? data_get($app, 'whatsapp_business_api_data.id')) === $appId);
 
             if (! $subscribed) {
                 Log::error('subscribeToWebhooks: Meta no confirmó la WABA suscripta', [
