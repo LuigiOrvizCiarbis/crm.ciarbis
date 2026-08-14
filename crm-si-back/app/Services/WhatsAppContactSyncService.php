@@ -110,6 +110,13 @@ class WhatsAppContactSyncService
                     'contact_sync_retryable' => false,
                 ])->save();
 
+                // El paso 2 (historial) va encadenado al 1, igual que en el
+                // onboarding. Sin esto, un onboarding que falla y se recupera con
+                // el botón de reintentar traía los contactos pero perdía el
+                // historial para siempre: la ventana de 24h se consume igual y
+                // smb_app_data sólo acepta un pedido de history por onboarding.
+                $this->triggerHistorySync($config, $token);
+
                 return true;
             }
 
@@ -200,6 +207,86 @@ class WhatsAppContactSyncService
             );
 
             return false;
+        }
+    }
+
+    /**
+     * Paso 2 de la coexistencia: pide el historial de mensajes.
+     *
+     * Best-effort: el historial es un complemento del sync de contactos y su
+     * fallo nunca revierte el éxito del paso 1.
+     *
+     * El guard es un UPDATE condicional (no un if en PHP) para que dos requests
+     * concurrentes no puedan pedirle el historial a Meta dos veces: sólo el que
+     * gana la carrera afecta filas. Meta acepta un único pedido por onboarding y
+     * los duplicados consumen cuota de rate limit de la app.
+     *
+     * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
+     */
+    private function triggerHistorySync(WhatsAppConfig $config, string $token): void
+    {
+        $phoneNumberId = $config->phone_number_id;
+
+        if (! $phoneNumberId) {
+            return;
+        }
+
+        $reserved = WhatsAppConfig::where('id', $config->id)
+            ->whereNull('contact_history_sync_requested_at')
+            ->where(function ($query) {
+                $query->whereNull('contact_history_sync_status')
+                    ->orWhere('contact_history_sync_status', WhatsAppConfig::SYNC_PENDING);
+            })
+            ->update(['contact_history_sync_status' => WhatsAppConfig::SYNC_SYNCING]);
+
+        if ($reserved === 0) {
+            return;
+        }
+
+        try {
+            $response = Http::withToken($token)
+                ->timeout(15)
+                ->post('https://graph.facebook.com/'.config('services.facebook.graph_version', 'v21.0')."/{$phoneNumberId}/smb_app_data", [
+                    'messaging_product' => 'whatsapp',
+                    'sync_type' => 'history',
+                ]);
+
+            if ($response->successful()) {
+                $config->forceFill([
+                    'contact_history_sync_status' => WhatsAppConfig::SYNC_SYNCING,
+                    'contact_history_sync_requested_at' => now(),
+                    'contact_history_sync_request_id' => $response->json('request_id'),
+                    'contact_history_sync_error' => null,
+                ])->save();
+
+                Log::info('retrySync: sync de historial pedida a Meta', [
+                    'whatsapp_config_id' => $config->id,
+                    'request_id' => $response->json('request_id'),
+                ]);
+
+                return;
+            }
+
+            Log::warning('retrySync: Meta rechazó el pedido de historial', [
+                'whatsapp_config_id' => $config->id,
+                'status' => $response->status(),
+                'error' => MetaOAuth::describeMetaError($response->json()),
+            ]);
+
+            $config->forceFill([
+                'contact_history_sync_status' => WhatsAppConfig::SYNC_FAILED,
+                'contact_history_sync_error' => Str::limit(MetaOAuth::formatMetaError($response->json()), 500),
+            ])->save();
+        } catch (\Throwable $e) {
+            Log::error('retrySync: excepción pidiendo el historial', [
+                'whatsapp_config_id' => $config->id,
+                'exception' => MetaOAuth::describeException($e),
+            ]);
+
+            $config->forceFill([
+                'contact_history_sync_status' => WhatsAppConfig::SYNC_FAILED,
+                'contact_history_sync_error' => Str::limit($e->getMessage(), 500),
+            ])->save();
         }
     }
 }
