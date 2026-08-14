@@ -73,8 +73,29 @@ export async function getBroadcasts(): Promise<BroadcastCampaign[]> {
   return payload.data
 }
 
-export async function estimateBroadcast(payload: BroadcastPayload): Promise<{ audience_count: number; estimated_cost_usd: number; capped: boolean }> {
-  const result = await request<{ data: { audience_count: number; estimated_cost_usd: number; capped: boolean } }>("/api/broadcasts/estimate", {
+/**
+ * Techo de Meta para envíos fuera de la ventana de atención en 24h.
+ * Se comparte entre todos los números de la cartera, así que `limit` es un
+ * máximo compartido y no un cupo exclusivo de este canal.
+ * `known: false` significa que no se pudo leer, no que no haya límite.
+ */
+export interface BroadcastMessagingLimit {
+  known: boolean
+  tier: string | null
+  limit: number | null
+  unlimited: boolean
+  exceeded: boolean
+}
+
+export interface BroadcastEstimate {
+  audience_count: number
+  estimated_cost_usd: number
+  capped: boolean
+  messaging_limit: BroadcastMessagingLimit
+}
+
+export async function estimateBroadcast(payload: BroadcastPayload): Promise<BroadcastEstimate> {
+  const result = await request<{ data: BroadcastEstimate }>("/api/broadcasts/estimate", {
     method: "POST",
     body: JSON.stringify(payload),
   })

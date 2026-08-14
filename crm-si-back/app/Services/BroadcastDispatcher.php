@@ -7,6 +7,7 @@ use App\Enums\BroadcastStatus;
 use App\Jobs\SendBroadcastMessageJob;
 use App\Models\BroadcastCampaign;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class BroadcastDispatcher
 {
@@ -19,6 +20,38 @@ class BroadcastDispatcher
                 ->firstOrFail();
 
             if ($locked->status !== BroadcastStatus::Scheduled || $locked->scheduled_at->isFuture()) {
+                return [];
+            }
+
+            // Entre que se programó la campaña y este momento pueden haber
+            // pasado días, y Meta pausa o deshabilita plantillas por su cuenta.
+            // Se corta acá: sin esta guarda cada job fallaría por separado y
+            // marcaría miles de destinatarios como error uno por uno.
+            $template = $locked->template()->withoutGlobalScopes()->first();
+
+            if (! $template?->status->isApproved()) {
+                Log::warning('BroadcastDispatcher: plantilla no enviable al momento del disparo', [
+                    'campaign_id' => $locked->id,
+                    'tenant_id' => $locked->tenant_id,
+                    'template_id' => $locked->whatsapp_template_id,
+                    'template_status' => $template?->status->value,
+                ]);
+
+                $locked->update([
+                    'status' => BroadcastStatus::Failed,
+                    'started_at' => now(),
+                    'completed_at' => now(),
+                ]);
+
+                $locked->recipients()
+                    ->where('status', BroadcastRecipientStatus::Pending)
+                    ->update([
+                        'status' => BroadcastRecipientStatus::Failed,
+                        'error' => $template === null
+                            ? 'La plantilla ya no existe.'
+                            : 'Meta dejó de permitir esta plantilla ('.$template->status->label().') antes del envío.',
+                    ]);
+
                 return [];
             }
 
