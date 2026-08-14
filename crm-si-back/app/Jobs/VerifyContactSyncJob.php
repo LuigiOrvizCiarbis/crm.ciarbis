@@ -18,8 +18,8 @@ use Illuminate\Support\Facades\Log;
  * Meta nunca completó), el onboarding se veía exitoso y el cliente se quedaba sin
  * contactos sin que nadie se enterara.
  *
- * Este job corre después del onboarding y, si no llegó nada, reintenta mientras
- * siga abierta la ventana de 24h que da Meta. Pasada la ventana marca `failed`,
+ * Este job corre después del onboarding y espera los webhooks sin volver a pedir
+ * una importación que Meta permite una sola vez. Pasada la ventana marca `failed`,
  * que es la señal de que hace falta offboardear y rehacer el Embedded Signup.
  */
 class VerifyContactSyncJob implements ShouldQueue
@@ -86,7 +86,24 @@ class VerifyContactSyncJob implements ShouldQueue
             return;
         }
 
-        // Dentro de la ventana: reintentamos el sync y volvemos a verificar.
+        // Meta ya aceptó el pedido. No volvemos a ejecutar /smb_app_data porque la
+        // importación inicial sólo se permite una vez por flujo de onboarding.
+        if ($config->contact_sync_request_id || $config->contact_sync_retryable === false) {
+            $config->forceFill(['contact_sync_retryable' => false])->save();
+
+            Log::info('VerifyContactSyncJob: pedido aceptado, esperando webhooks', [
+                'whatsapp_config_id' => $config->id,
+                'phone_number_id' => $config->phone_number_id,
+                'request_id' => $config->contact_sync_request_id,
+            ]);
+
+            self::dispatch($config->id)->delay(now()->addHours(1));
+
+            return;
+        }
+
+        // Estado legado sin evidencia de aceptación: hacemos un único intento y
+        // dejamos que el servicio persista si Meta lo aceptó o lo rechazó.
         $retried = $service->retrySync($config);
 
         Log::info('VerifyContactSyncJob: sin contactos todavía, reintento disparado', [
@@ -95,7 +112,9 @@ class VerifyContactSyncJob implements ShouldQueue
             'retry_ok' => $retried,
         ]);
 
-        self::dispatch($config->id)->delay(now()->addHours(1));
+        if ($retried) {
+            self::dispatch($config->id)->delay(now()->addHours(1));
+        }
     }
 
     public function failed(\Throwable $exception): void
