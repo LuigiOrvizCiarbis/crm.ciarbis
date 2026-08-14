@@ -28,7 +28,7 @@ import { Channel, WhatsAppTemplate } from "@/data/types"
 import { PipelineStage } from "@/lib/api/pipeline"
 import { Tag } from "@/lib/api/tags"
 import { ContactField } from "@/lib/api/contact-fields"
-import { BroadcastFilter, BroadcastPayload, createBroadcast, estimateBroadcast } from "@/lib/api/broadcasts"
+import { BroadcastEstimate, BroadcastFilter, BroadcastPayload, createBroadcast, estimateBroadcast } from "@/lib/api/broadcasts"
 import { uploadTemplateMedia } from "@/lib/api/templates"
 import {
   buildSendComponents,
@@ -84,7 +84,7 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
   const [launch, setLaunch] = useState<"now" | "scheduled">("now")
   const [scheduledAt, setScheduledAt] = useState("")
   const [intervalSeconds, setIntervalSeconds] = useState<BroadcastPayload["interval_seconds"]>(0)
-  const [estimate, setEstimate] = useState<{ audience_count: number; estimated_cost_usd: number; capped: boolean } | null>(null)
+  const [estimate, setEstimate] = useState<BroadcastEstimate | null>(null)
   const [estimating, setEstimating] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
