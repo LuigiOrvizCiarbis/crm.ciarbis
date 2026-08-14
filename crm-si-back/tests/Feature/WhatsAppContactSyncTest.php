@@ -329,6 +329,54 @@ class WhatsAppContactSyncTest extends TestCase
         $fresh = $config->fresh();
         $this->assertSame(WhatsAppConfig::SYNC_FAILED, $fresh->contact_sync_status);
         $this->assertStringContainsString('reconectar', $fresh->contact_sync_error);
+        $this->assertFalse($fresh->contact_sync_retryable);
+    }
+
+    public function test_un_token_invalido_exige_reconectar_y_no_permite_reintento(): void
+    {
+        [, $config] = $this->createChannelWithConfig();
+
+        Http::fake([
+            '*/smb_app_data' => Http::response([
+                'error' => [
+                    'message' => 'Invalid OAuth access token - Cannot parse access token',
+                    'type' => 'OAuthException',
+                    'code' => 190,
+                ],
+            ], 401),
+        ]);
+
+        $this->assertFalse(app(WhatsAppContactSyncService::class)->retrySync($config));
+
+        $fresh = $config->fresh();
+        $this->assertSame(WhatsAppConfig::SYNC_FAILED, $fresh->contact_sync_status);
+        $this->assertStringContainsString('Reconectá el canal', $fresh->contact_sync_error);
+        $this->assertFalse($fresh->contact_sync_retryable);
+    }
+
+    public function test_un_rechazo_no_terminal_persiste_el_codigo_y_mensaje_de_meta(): void
+    {
+        [, $config] = $this->createChannelWithConfig();
+
+        Http::fake([
+            '*/smb_app_data' => Http::response([
+                'error' => [
+                    'message' => 'Temporary Graph API failure',
+                    'type' => 'OAuthException',
+                    'code' => 2,
+                ],
+            ], 500),
+        ]);
+
+        $this->assertFalse(app(WhatsAppContactSyncService::class)->retrySync($config));
+
+        $fresh = $config->fresh();
+        $this->assertSame(WhatsAppConfig::SYNC_FAILED, $fresh->contact_sync_status);
+        $this->assertSame(
+            'Meta rechazó la importación [2]: Temporary Graph API failure',
+            $fresh->contact_sync_error
+        );
+        $this->assertTrue($fresh->contact_sync_retryable);
     }
 
     public function test_el_endpoint_expone_el_estado_de_la_importacion(): void
@@ -354,6 +402,18 @@ class WhatsAppContactSyncTest extends TestCase
             ->assertJsonPath('data.status', WhatsAppConfig::SYNC_COMPLETED)
             ->assertJsonPath('data.contacts_imported', 42)
             ->assertJsonPath('data.can_retry', false);
+
+        $config->forceFill([
+            'contact_sync_status' => WhatsAppConfig::SYNC_FAILED,
+            'contact_sync_retryable' => false,
+            'contact_sync_error' => 'Reconectá el canal.',
+        ])->save();
+
+        $this->getJson("/api/admin/channels/{$channel->id}/contact-sync")
+            ->assertOk()
+            ->assertJsonPath('data.status', WhatsAppConfig::SYNC_FAILED)
+            ->assertJsonPath('data.can_retry', false)
+            ->assertJsonPath('data.error', 'Reconectá el canal.');
     }
 
     /**
