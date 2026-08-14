@@ -54,6 +54,10 @@ class WhatsAppConfig extends Model
         'contact_sync_request_id',
         'contact_sync_error',
         'contact_sync_retryable',
+        'contact_history_sync_status',
+        'contact_history_sync_requested_at',
+        'contact_history_sync_request_id',
+        'contact_history_sync_error',
     ];
 
     protected $casts = [
@@ -63,6 +67,7 @@ class WhatsAppConfig extends Model
         'contact_sync_last_webhook_at' => 'datetime',
         'contact_sync_contacts_count' => 'integer',
         'contact_sync_retryable' => 'boolean',
+        'contact_history_sync_requested_at' => 'datetime',
     ];
 
     protected $hidden = [

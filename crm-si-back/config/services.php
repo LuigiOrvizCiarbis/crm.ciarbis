@@ -73,7 +73,7 @@ return [
     'facebook' => [
         'app_id' => env('FACEBOOK_APP_ID'),
         'app_secret' => env('FACEBOOK_APP_SECRET'),
-        'graph_version' => env('FACEBOOK_GRAPH_API_VERSION', 'v21.0'),
+        'graph_version' => env('FACEBOOK_GRAPH_API_VERSION', 'v26.0'),
         'verify_token' => env('FACEBOOK_VERIFY_TOKEN', 'embbebedsecret'),
         // Base pública desde la que Meta puede fetchear media saliente (imágenes,
         // audio) enviada por attachment.url. Debe ser HTTPS y accesible desde
