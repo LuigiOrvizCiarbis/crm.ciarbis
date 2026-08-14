@@ -1009,6 +1009,92 @@ class WhatsAppMessageService
         }
     }
 
+    /**
+     * Procesa el webhook del paso 2 de coexistencia (sync_type=history).
+     *
+     * Shape observado en producción (no documentado públicamente por Meta):
+     *   value.threads[] = [{
+     *     id: "<wa_id del contacto>",
+     *     messages: [{ id, from, to, timestamp, type, text: { body }, ... }],
+     *   }]
+     *
+     * Cada mensaje trae `from`/`to`: si `from` coincide con el número del
+     * negocio (`display_phone_number`/`phone_number`) es un mensaje saliente
+     * histórico (el humano ya le había respondido desde la app celular),
+     * si no, es entrante. Igual que en smb_message_echoes, se dedupea por
+     * external_id (wamid) para no duplicar si Meta reentrega el batch.
+     */
+    public function processHistorySync(array $value, Channel $channel): int
+    {
+        $threads = $value['threads'] ?? [];
+        if (empty($threads)) {
+            return 0;
+        }
+
+        $tenantId = $channel->tenant_id;
+        $waConfig = $channel->whatsappConfig;
+        $businessNumbers = array_filter([
+            $waConfig?->phone_number,
+            $waConfig?->display_phone_number,
+        ]);
+
+        $imported = 0;
+
+        foreach ($threads as $thread) {
+            $messages = $thread['messages'] ?? [];
+            if (empty($messages)) {
+                continue;
+            }
+
+            foreach ($messages as $historyMessage) {
+                $externalId = $historyMessage['id'] ?? null;
+                if ($externalId && Message::where('tenant_id', $tenantId)->where('external_id', $externalId)->exists()) {
+                    continue;
+                }
+
+                $type = $historyMessage['type'] ?? 'unknown';
+                if (! $this->isSupportedMessageType($type)) {
+                    // Tipos como "errors"/"edit"/"reaction" o no soportados: se
+                    // ignoran igual que en processIncomingMessage, sin frenar el resto del batch.
+                    continue;
+                }
+
+                $from = $historyMessage['from'] ?? null;
+                $to = $historyMessage['to'] ?? null;
+                if (! $from && ! $to) {
+                    continue;
+                }
+
+                $isOutbound = $from && in_array($from, $businessNumbers, true);
+                $customerPhone = $isOutbound ? $to : $from;
+                if (! $customerPhone) {
+                    continue;
+                }
+
+                $contact = $this->findOrCreateContact(null, $customerPhone, $channel);
+                $conversation = $this->findOrCreateConversation($contact, $channel);
+
+                $extracted = $this->extractMessageData($historyMessage);
+
+                $this->createMessage([
+                    'tenant_id' => $tenantId,
+                    'conversation_id' => $conversation->id,
+                    'sender_type' => $isOutbound ? SenderType::USER : SenderType::CONTACT,
+                    'sender_id' => $isOutbound ? $channel->user_id : $contact->id,
+                    'content' => $extracted['content'],
+                    'message_type' => $extracted['type'],
+                    'direction' => $isOutbound ? MessageDirection::OUTBOUND : MessageDirection::INBOUND,
+                    'external_id' => $externalId,
+                    'delivered_at' => $this->parseWebhookTimestamp($historyMessage['timestamp'] ?? null),
+                ]);
+
+                $imported++;
+            }
+        }
+
+        return $imported;
+    }
+
     public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
     {
         ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
