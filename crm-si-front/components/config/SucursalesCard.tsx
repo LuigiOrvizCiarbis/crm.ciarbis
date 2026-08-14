@@ -1,10 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Building2, Plus } from "lucide-react"
 import { SucursalesList } from "@/components/admin/SucursalesList"
+import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { useTranslation } from "@/hooks/useTranslation"
 import { usePermission } from "@/hooks/usePermission"
 
@@ -17,27 +17,20 @@ export function SucursalesCard() {
   if (!allowed) return null
 
   return (
-    <Card className="rounded-2xl border-border">
-      <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Building2 className="w-5 h-5" />
-              {t("sucursales.title")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">{t("sucursales.subtitle")}</p>
-          </div>
-          {canManage && (
-            <Button onClick={() => setCreating(true)} size="sm">
-              <Plus className="w-4 h-4 mr-1" />
-              {t("sucursales.create")}
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        <SucursalesList creating={creating} onCreatingChange={setCreating} />
-      </CardContent>
-    </Card>
+    <SettingsBlock
+      title={t("sucursales.title")}
+      description={t("sucursales.subtitle")}
+      icon={Building2}
+      action={
+        canManage && (
+          <Button onClick={() => setCreating(true)} size="sm">
+            <Plus className="mr-1 size-4" />
+            {t("sucursales.create")}
+          </Button>
+        )
+      }
+    >
+      <SucursalesList creating={creating} onCreatingChange={setCreating} />
+    </SettingsBlock>
   )
 }

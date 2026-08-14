@@ -4,14 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { SettingsBlock } from "@/components/config/SettingsBlock"
 import {
   Dialog,
   DialogContent,
@@ -273,23 +266,20 @@ export function FieldsCard() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <SlidersHorizontal className="size-5 text-muted-foreground" />
-          {t("fields.title")}
-        </CardTitle>
-        <CardDescription>{t("fields.subtitle")}</CardDescription>
-        {canManage ? (
-          <CardAction>
-            <Button size="sm" onClick={openCreate}>
-              <Plus className="size-4 mr-1" />
-              {t("fields.addField")}
-            </Button>
-          </CardAction>
-        ) : null}
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <SettingsBlock
+      title={t("fields.title")}
+      description={t("fields.subtitle")}
+      icon={SlidersHorizontal}
+      action={
+        canManage ? (
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="mr-1 size-4" />
+            {t("fields.addField")}
+          </Button>
+        ) : null
+      }
+    >
+      <div className="space-y-4">
         {visibleEntities.length > 1 ? (
           <ToggleGroup
             type="single"
@@ -369,7 +359,7 @@ export function FieldsCard() {
             </SortableContext>
           </DndContext>
         )}
-      </CardContent>
+      </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
@@ -458,7 +448,7 @@ export function FieldsCard() {
           </form>
         </DialogContent>
       </Dialog>
-    </Card>
+    </SettingsBlock>
   )
 }
 

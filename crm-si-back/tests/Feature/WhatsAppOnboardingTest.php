@@ -141,6 +141,9 @@ class WhatsAppOnboardingTest extends TestCase
             if (str_contains($url, '/WABA_AAA/phone_numbers')) {
                 return Http::response(['data' => [['id' => 'PHONE_111', 'display_phone_number' => '+54 11 1111-1111']]], 200);
             }
+            if ($request->method() === 'GET' && str_contains($url, '/WABA_AAA/subscribed_apps')) {
+                return Http::response(['data' => [['id' => 'test-app-id']]], 200);
+            }
             // Onboarding normal: Meta ya registró el número.
             if (str_contains($url, '/PHONE_111/register')) {
                 return Http::response(['error' => ['code' => 133015, 'message' => 'Phone number already registered']], 400);
@@ -153,6 +156,41 @@ class WhatsAppOnboardingTest extends TestCase
 
         $response->assertOk()->assertJsonPath('success', true);
         $this->assertSame(1, Channel::where('tenant_id', $tenant->id)->count());
+    }
+
+    public function test_onboarding_does_not_request_contact_sync_when_meta_does_not_confirm_waba_subscription(): void
+    {
+        [, $user] = $this->createTenantAndUser();
+        Sanctum::actingAs($user);
+
+        Http::fake(function ($request) {
+            $url = (string) $request->url();
+
+            if (str_contains($url, '/oauth/access_token')) {
+                return Http::response(['access_token' => 'TOKEN_AAA'], 200);
+            }
+            if (str_contains($url, '/WABA_AAA/phone_numbers')) {
+                return Http::response(['data' => [['id' => 'PHONE_111']]], 200);
+            }
+            if ($request->method() === 'GET' && str_contains($url, '/PHONE_111?fields=')) {
+                return Http::response(['is_on_biz_app' => true], 200);
+            }
+            if ($request->method() === 'POST' && str_contains($url, '/WABA_AAA/subscribed_apps')) {
+                return Http::response(['success' => true], 200);
+            }
+            if ($request->method() === 'GET' && str_contains($url, '/WABA_AAA/subscribed_apps')) {
+                return Http::response(['data' => []], 200);
+            }
+
+            return Http::response(['error' => ['message' => "unmapped url {$url}"]], 404);
+        });
+
+        $this->postJson(self::ENDPOINT, $this->payload('WABA_AAA', 'PHONE_111', 'CODE_AAA'))
+            ->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Meta no confirmó la suscripción de webhooks para esta cuenta de WhatsApp. Intentá reconectar el canal.');
+
+        Http::assertNotSent(fn ($request) => str_contains((string) $request->url(), '/PHONE_111/smb_app_data'));
     }
 
     public function test_contact_sync_400_persists_the_meta_error_without_type_error(): void
@@ -239,8 +277,12 @@ class WhatsAppOnboardingTest extends TestCase
                         ]],
                     ], 200);
                 }
-                if (str_contains($url, "/{$entry['waba']}/subscribed_apps")
-                    || str_contains($url, "/{$entry['phone']}/register")
+                if (str_contains($url, "/{$entry['waba']}/subscribed_apps")) {
+                    return $request->method() === 'GET'
+                        ? Http::response(['data' => [['id' => 'test-app-id']]], 200)
+                        : Http::response(['success' => true], 200);
+                }
+                if (str_contains($url, "/{$entry['phone']}/register")
                     || str_contains($url, "/{$entry['phone']}/smb_app_data")) {
                     return Http::response(['success' => true], 200);
                 }
@@ -289,7 +331,9 @@ class WhatsAppOnboardingTest extends TestCase
             }
 
             if (str_contains($url, '/WABA_AAA/subscribed_apps')) {
-                return Http::response(['success' => true], 200);
+                return $request->method() === 'GET'
+                    ? Http::response(['data' => [['id' => 'test-app-id']]], 200)
+                    : Http::response(['success' => true], 200);
             }
 
             if (str_contains($url, '/PHONE_111/smb_app_data')) {

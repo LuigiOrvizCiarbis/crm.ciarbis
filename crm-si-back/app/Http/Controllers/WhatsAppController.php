@@ -28,9 +28,8 @@ class WhatsAppController extends Controller
     // para que la coexistencia funcione, en App Dashboard > WhatsApp >
     // Configuration > Webhook fields tienen que estar tildados `messages`,
     // `smb_app_state_sync` y `smb_message_echoes`. Se configuran a nivel app: el
-    // endpoint POST /{WABA_ID}/subscribed_apps no acepta elegir campos y su GET
-    // tampoco los expone (verificado contra la API: sólo devuelve
-    // whatsapp_business_api_data), así que no hay forma de auditarlo desde acá.
+    // endpoint POST /{WABA_ID}/subscribed_apps no acepta elegir campos. En cambio,
+    // su GET sí permite validar que esta WABA quedó vinculada a nuestra app.
     // Si falta `smb_app_state_sync` los contactos no llegan nunca y el onboarding
     // igual se ve exitoso: es lo primero a revisar ante ese síntoma.
     // https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
@@ -227,7 +226,13 @@ class WhatsAppController extends Controller
             // el sync no se puede volver a pedir desde cero.
             $webhookOk = $this->subscribeToWebhooks($config);
             if (! $webhookOk) {
-                $warnings[] = 'No se pudo suscribir a los webhooks de Meta. Los mensajes entrantes pueden no llegar.';
+                // No seguimos: `smb_app_data` sólo se puede pedir una vez por
+                // onboarding y, sin la WABA suscripta, Meta no podrá entregar los
+                // contactos que acepte importar.
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Meta no confirmó la suscripción de webhooks para esta cuenta de WhatsApp. Intentá reconectar el canal.',
+                ], 422);
             }
 
             // Solo los números que vienen de la WhatsApp Business App tienen agenda
@@ -663,10 +668,8 @@ class WhatsAppController extends Controller
 
         try {
             // Sin body: el endpoint sólo acepta override_callback_uri/verify_token.
-            // Los campos suscritos (messages, smb_app_state_sync, smb_message_echoes)
-            // se configuran a nivel app en el App Dashboard, NO por WABA ni por API,
-            // así que desde acá no se pueden forzar. Si faltan allá, los webhooks de
-            // coexistencia no llegan aunque esta llamada devuelva success:true.
+            // Los campos se seleccionan en App Dashboard; este POST vincula la WABA
+            // con nuestra app para que esos campos puedan ser entregados.
             $response = Http::withToken($token)
                 ->timeout(15)
                 ->post("https://graph.facebook.com/{$version}/{$wabaId}/subscribed_apps");
@@ -680,7 +683,32 @@ class WhatsAppController extends Controller
                 return false;
             }
 
-            return true;
+            $verification = Http::withToken($token)
+                ->timeout(15)
+                ->get("https://graph.facebook.com/{$version}/{$wabaId}/subscribed_apps");
+
+            if (! $verification->successful()) {
+                Log::error('subscribeToWebhooks verification failed', [
+                    'status' => $verification->status(),
+                    'error' => $this->describeMetaError($verification->json()),
+                    'waba_id' => $wabaId,
+                ]);
+
+                return false;
+            }
+
+            $appId = (string) config('services.facebook.app_id');
+            $subscribed = $appId !== '' && collect($verification->json('data', []))
+                ->contains(fn (array $app): bool => (string) data_get($app, 'id') === $appId);
+
+            if (! $subscribed) {
+                Log::error('subscribeToWebhooks: Meta no confirmó la WABA suscripta', [
+                    'waba_id' => $wabaId,
+                    'app_id' => $appId,
+                ]);
+            }
+
+            return $subscribed;
         } catch (\Throwable $e) {
             Log::error('subscribeToWebhooks exception', $this->describeException($e));
 

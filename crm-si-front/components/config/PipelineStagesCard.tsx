@@ -1,7 +1,7 @@
 "use client"
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { GitBranch } from "lucide-react"
+import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { useTranslation } from "@/hooks/useTranslation"
 import { usePermission } from "@/hooks/usePermission"
 import { PipelineStagesManager } from "@/components/pipeline-stages-manager"
@@ -13,17 +13,13 @@ export function PipelineStagesCard() {
   if (!canView) return null
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <GitBranch className="h-5 w-5 text-muted-foreground" />
-          {t("pipeline.stages.cardTitle")}
-        </CardTitle>
-        <CardDescription>{t("pipeline.stages.manageDesc")}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <PipelineStagesManager />
-      </CardContent>
-    </Card>
+    <SettingsBlock
+      title={t("pipeline.stages.cardTitle")}
+      description={t("pipeline.stages.manageDesc")}
+      icon={GitBranch}
+      measure="prose"
+    >
+      <PipelineStagesManager />
+    </SettingsBlock>
   )
 }
