@@ -155,6 +155,25 @@ class WhatsAppOnboardingTest extends TestCase
         $this->assertSame(1, Channel::where('tenant_id', $tenant->id)->count());
     }
 
+    public function test_contact_sync_400_persists_the_meta_error_without_type_error(): void
+    {
+        $this->assertContactSyncRejectionIsPersisted(400, [
+            'message' => '(#135000) Generic user error',
+            'type' => 'OAuthException',
+            'code' => 135000,
+        ], '[Meta 135000] (#135000) Generic user error');
+    }
+
+    public function test_contact_sync_unexpected_status_persists_the_meta_error_without_type_error(): void
+    {
+        $this->assertContactSyncRejectionIsPersisted(503, [
+            'message' => 'Graph API temporarily unavailable',
+            'type' => 'OAuthException',
+            'code' => 2,
+            'error_subcode' => 99,
+        ], '[Meta 2/99] Graph API temporarily unavailable');
+    }
+
     /**
      * @return array{0: Tenant, 1: User}
      */
@@ -229,5 +248,68 @@ class WhatsAppOnboardingTest extends TestCase
 
             return Http::response(['error' => ['message' => "unmapped url {$url}"]], 404);
         });
+    }
+
+    /**
+     * Verifica el onboarding completo cuando Meta rechaza POST /smb_app_data.
+     * La conexión debe sobrevivir con una advertencia y conservar el error real.
+     *
+     * @param  array<string, int|string>  $metaError
+     */
+    private function assertContactSyncRejectionIsPersisted(
+        int $status,
+        array $metaError,
+        string $expectedError
+    ): void {
+        [, $user] = $this->createTenantAndUser();
+        Sanctum::actingAs($user);
+
+        Http::fake(function ($request) use ($status, $metaError) {
+            $url = (string) $request->url();
+
+            if (str_contains($url, '/oauth/access_token')) {
+                return Http::response(['access_token' => 'TOKEN_AAA'], 200);
+            }
+
+            if (str_contains($url, '/WABA_AAA/phone_numbers')) {
+                return Http::response([
+                    'data' => [[
+                        'id' => 'PHONE_111',
+                        'display_phone_number' => '+54 11 1111-1111',
+                    ]],
+                ], 200);
+            }
+
+            if ($request->method() === 'GET' && str_contains($url, '/PHONE_111?fields=')) {
+                return Http::response([
+                    'id' => 'PHONE_111',
+                    'is_on_biz_app' => true,
+                    'platform_type' => 'CLOUD_API',
+                ], 200);
+            }
+
+            if (str_contains($url, '/WABA_AAA/subscribed_apps')) {
+                return Http::response(['success' => true], 200);
+            }
+
+            if (str_contains($url, '/PHONE_111/smb_app_data')) {
+                return Http::response(['error' => $metaError], $status);
+            }
+
+            return Http::response(['error' => ['message' => "unmapped url {$url}"]], 404);
+        });
+
+        $response = $this->postJson(
+            self::ENDPOINT,
+            $this->payload('WABA_AAA', 'PHONE_111', 'CODE_AAA')
+        );
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('warnings.0', 'No se pudo iniciar la sincronización de contactos. Contactá a soporte.');
+
+        $config = WhatsAppConfig::where('phone_number_id', 'PHONE_111')->firstOrFail();
+        $this->assertSame(WhatsAppConfig::SYNC_FAILED, $config->contact_sync_status);
+        $this->assertSame($expectedError, $config->contact_sync_error);
     }
 }

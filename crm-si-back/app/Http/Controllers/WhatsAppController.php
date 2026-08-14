@@ -88,6 +88,7 @@ class WhatsAppController extends Controller
                 'window_expires_at' => $config->contactSyncWindowExpiresAt()?->toIso8601String(),
                 'can_retry' => $status !== WhatsAppConfig::SYNC_NOT_APPLICABLE
                     && $status !== WhatsAppConfig::SYNC_COMPLETED
+                    && $config->contact_sync_retryable !== false
                     && $config->isWithinContactSyncWindow(),
                 'error' => $config->contact_sync_error,
             ],
@@ -764,7 +765,7 @@ class WhatsAppController extends Controller
                     'error' => $this->describeMetaError($body),
                 ]);
 
-                $this->markSyncFailed($whatsAppConfig, $this->describeMetaError($body));
+                $this->markSyncFailed($whatsAppConfig, MetaOAuth::formatMetaError($body));
 
                 return false;
             }
@@ -775,7 +776,10 @@ class WhatsAppController extends Controller
                 'phone_number_id' => $phoneNumberId,
             ]);
 
-            $this->markSyncFailed($whatsAppConfig, $this->describeMetaError($response->json()));
+            $this->markSyncFailed(
+                $whatsAppConfig,
+                MetaOAuth::formatMetaError($response->json())
+            );
 
             return false;
 

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\WhatsAppConfig;
+use App\Support\MetaOAuth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -41,6 +42,7 @@ class WhatsAppContactSyncService
             $attributes['contact_sync_first_webhook_at'] = $config->contact_sync_first_webhook_at ?? $now;
             $attributes['contact_sync_contacts_count'] = $config->contact_sync_contacts_count + $contactsInBatch;
             $attributes['contact_sync_error'] = null;
+            $attributes['contact_sync_retryable'] = false;
         }
 
         $config->forceFill($attributes)->save();
@@ -51,14 +53,16 @@ class WhatsAppContactSyncService
         $config->forceFill([
             'contact_sync_status' => WhatsAppConfig::SYNC_COMPLETED,
             'contact_sync_error' => null,
+            'contact_sync_retryable' => false,
         ])->save();
     }
 
-    public function markFailed(WhatsAppConfig $config, string $error): void
+    public function markFailed(WhatsAppConfig $config, string $error, bool $retryable = true): void
     {
         $config->forceFill([
             'contact_sync_status' => WhatsAppConfig::SYNC_FAILED,
             'contact_sync_error' => Str::limit($error, 500),
+            'contact_sync_retryable' => $retryable,
         ])->save();
     }
 
@@ -105,13 +109,33 @@ class WhatsAppContactSyncService
                     'contact_sync_requested_at' => $config->contact_sync_requested_at ?? now(),
                     'contact_sync_request_id' => $response->json('request_id'),
                     'contact_sync_error' => null,
+                    'contact_sync_retryable' => true,
                 ])->save();
 
                 return true;
             }
 
             $body = $response->json();
+            $metaError = MetaOAuth::describeMetaError($body);
             $errorMessage = strtolower((string) data_get($body, 'error.message', ''));
+
+            // El código 190 identifica un access token inválido o vencido. No hay
+            // reintento útil con la misma credencial: el canal debe reconectarse.
+            if (data_get($body, 'error.code') === 190) {
+                $this->markFailed(
+                    $config,
+                    'El acceso de Meta venció o fue revocado. Reconectá el canal para importar los contactos.',
+                    false
+                );
+
+                Log::warning('retrySync: token de Meta inválido', [
+                    'whatsapp_config_id' => $config->id,
+                    'status' => $response->status(),
+                    'error' => $metaError,
+                ]);
+
+                return false;
+            }
 
             // La WABA dejó de ser accesible con este token (asset desvinculado en
             // Meta, permisos revocados). Reintentar no lo arregla: es terminal.
@@ -122,7 +146,8 @@ class WhatsAppContactSyncService
                 $this->markFailed(
                     $config,
                     'La cuenta de WhatsApp ya no es accesible desde el CRM. '.
-                    'Hay que reconectar el canal.'
+                    'Hay que reconectar el canal.',
+                    false
                 );
 
                 return false;
@@ -131,14 +156,26 @@ class WhatsAppContactSyncService
             Log::warning('retrySync: Meta rechazó el reintento', [
                 'whatsapp_config_id' => $config->id,
                 'status' => $response->status(),
+                'error' => $metaError,
             ]);
+
+            $code = $metaError['code'] !== null ? " [{$metaError['code']}]" : '';
+            $message = trim((string) ($metaError['message'] ?? ''));
+            $detail = $message !== '' ? ': '.MetaOAuth::scrubMessage($message) : '.';
+
+            $this->markFailed($config, "Meta rechazó la importación{$code}{$detail}");
 
             return false;
         } catch (\Throwable $e) {
             Log::error('retrySync exception', [
                 'whatsapp_config_id' => $config->id,
-                'error' => $e->getMessage(),
+                'exception' => MetaOAuth::describeException($e),
             ]);
+
+            $this->markFailed(
+                $config,
+                'No se pudo contactar a Meta para importar los contactos. Intentá nuevamente.'
+            );
 
             return false;
         }
