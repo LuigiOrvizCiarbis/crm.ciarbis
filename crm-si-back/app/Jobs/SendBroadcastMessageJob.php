@@ -2,6 +2,8 @@
 
 namespace App\Jobs;
 
+use App\Enums\BroadcastRecipientStatus;
+use App\Models\BroadcastRecipient;
 use App\Models\Conversation;
 use App\Models\User;
 use App\Models\WhatsAppTemplate;
@@ -31,8 +33,9 @@ class SendBroadcastMessageJob implements ShouldQueue
         public int $conversationId,
         public int $templateId,
         public array $components,
-        public int $senderId,
+        public ?int $senderId,
         public int $tenantId,
+        public ?int $broadcastRecipientId = null,
     ) {}
 
     public function handle(WhatsAppTemplateService $templateService): void
@@ -48,15 +51,21 @@ class SendBroadcastMessageJob implements ShouldQueue
             ->where('tenant_id', $this->tenantId)
             ->find($this->templateId);
 
-        $sender = User::where('tenant_id', $this->tenantId)->find($this->senderId);
+        $sender = $this->senderId === null
+            ? null
+            : User::where('tenant_id', $this->tenantId)->find($this->senderId);
 
-        if (! $conversation || ! $template || ! $sender) {
+        $recipient = $this->findRecipient();
+
+        if (! $conversation || ! $template || ($this->senderId !== null && ! $sender)) {
             Log::warning('SendBroadcastMessageJob: recurso no encontrado en el tenant', [
                 'tenant_id' => $this->tenantId,
                 'conversation_id' => $this->conversationId,
                 'template_id' => $this->templateId,
                 'sender_id' => $this->senderId,
             ]);
+
+            $this->failRecipient($recipient, 'No se encontró un recurso necesario para realizar el envío.');
 
             return;
         }
@@ -75,11 +84,22 @@ class SendBroadcastMessageJob implements ShouldQueue
                 'channel_config_id' => $configId,
             ]);
 
+            $this->failRecipient($recipient, 'La plantilla ya no está aprobada para este canal.');
+
             return;
         }
 
         try {
-            $templateService->sendTemplateMessage($conversation, $template, $this->components, $sender);
+            $message = $templateService->sendTemplateMessage($conversation, $template, $this->components, $sender);
+            if ($recipient) {
+                $recipient->update([
+                    'message_id' => $message->id,
+                    'status' => BroadcastRecipientStatus::Sent,
+                    'sent_at' => now(),
+                    'error' => null,
+                ]);
+                $recipient->campaign->refreshDeliveryStatus();
+            }
         } catch (\Throwable $e) {
             // Fallo aislado: no rompe el resto del lote de la difusión.
             Log::error('SendBroadcastMessageJob: error enviando plantilla', [
@@ -88,6 +108,41 @@ class SendBroadcastMessageJob implements ShouldQueue
                 'template_id' => $this->templateId,
                 'error' => $e->getMessage(),
             ]);
+            $this->failRecipient($recipient, $e->getMessage());
         }
+    }
+
+    private function failRecipient(?BroadcastRecipient $recipient, string $error): void
+    {
+        if (! $recipient) {
+            return;
+        }
+
+        $recipient->update([
+            'status' => BroadcastRecipientStatus::Failed,
+            'error' => mb_substr($error, 0, 2000),
+        ]);
+        $recipient->campaign->refreshDeliveryStatus();
+    }
+
+    public function failed(\Throwable $exception): void
+    {
+        if ($this->broadcastRecipientId === null) {
+            return;
+        }
+
+        $this->failRecipient($this->findRecipient(), $exception->getMessage());
+    }
+
+    private function findRecipient(): ?BroadcastRecipient
+    {
+        if ($this->broadcastRecipientId === null) {
+            return null;
+        }
+
+        return BroadcastRecipient::query()
+            ->whereKey($this->broadcastRecipientId)
+            ->whereHas('campaign', fn ($query) => $query->withoutGlobalScopes()->where('tenant_id', $this->tenantId))
+            ->first();
     }
 }

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { getConversationUnreadCount } from "@/lib/api/conversations"
 import { useAuthStore } from "@/store/useAuthStore"
 import { useTaskStore } from "@/store/useTaskStore"
-import { MessageSquare, Users, Target, CheckSquare, BarChart3, Menu, Settings, LogOut } from "lucide-react"
+import { MessageSquare, Users, Target, CheckSquare, BarChart3, Menu, Settings, LogOut, Megaphone } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -145,6 +145,11 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
   ]
 
   const menuItems: { href: string; icon: typeof Settings; label: string; onClick?: () => void }[] = [
+    {
+      href: "/difusiones",
+      icon: Megaphone,
+      label: "Difusiones",
+    },
     {
       href: "/configuracion",
       icon: Settings,

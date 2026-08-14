@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\BroadcastRecipientStatus;
 use App\Enums\MessageDirection;
 use App\Enums\MessageType;
 use App\Enums\SenderType;
@@ -106,6 +107,11 @@ class Message extends Model
         return $this->belongsTo(self::class, 'mail_parent_message_id');
     }
 
+    public function broadcastRecipient(): HasOne
+    {
+        return $this->hasOne(BroadcastRecipient::class);
+    }
+
     /**
      * Scope para mensajes entrantes
      */
@@ -163,6 +169,15 @@ class Message extends Model
             'failed_at' => now(),
             'error_message' => $error,
         ]);
+
+        $recipient = $this->broadcastRecipient()->with('campaign')->first();
+        if ($recipient) {
+            $recipient->update([
+                'status' => BroadcastRecipientStatus::Failed,
+                'error' => $error,
+            ]);
+            $recipient->campaign->refreshDeliveryStatus();
+        }
     }
 
     /**

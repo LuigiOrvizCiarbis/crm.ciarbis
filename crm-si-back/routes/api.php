@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AiConfigController;
 use App\Http\Controllers\Api\AutomationController;
 use App\Http\Controllers\Api\AutomationRunController;
 use App\Http\Controllers\Api\BranchController;
+use App\Http\Controllers\Api\BroadcastCampaignController;
 use App\Http\Controllers\Api\ChannelController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\ContactFieldController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\GoogleCalendarConnectionController;
 use App\Http\Controllers\Api\IncomingWebhookController;
 use App\Http\Controllers\Api\InvitationController;
+use App\Http\Controllers\Api\MailIntakeController;
 use App\Http\Controllers\Api\MediaAssetController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\MessageHotkeyController;
@@ -36,9 +38,8 @@ use App\Http\Controllers\Api\WooCommerceConfigController;
 use App\Http\Controllers\FacebookDataDeletionController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstagramController;
-use App\Http\Controllers\MessengerController;
 use App\Http\Controllers\MailController;
-use App\Http\Controllers\Api\MailIntakeController;
+use App\Http\Controllers\MessengerController;
 use App\Http\Controllers\WhatsAppController;
 use App\Models\Invitation;
 use App\Models\Scopes\TenantScope;
@@ -328,6 +329,10 @@ Route::post('reset-password', function (Request $request) {
 });
 
 Route::middleware('auth:sanctum')->group(function () {
+
+    Route::get('broadcasts', [BroadcastCampaignController::class, 'index']);
+    Route::post('broadcasts/estimate', [BroadcastCampaignController::class, 'estimate']);
+    Route::post('broadcasts', [BroadcastCampaignController::class, 'store']);
 
     Route::get('user', function (Request $request): JsonResponse {
         $user = $request->user()->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at', 'tenant.plan:id,key,name']);

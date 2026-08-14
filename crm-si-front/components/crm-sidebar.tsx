@@ -97,6 +97,12 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
       label: t("nav.tasks"),
       shortLabel: t("nav.tasksShort"),
     },
+    {
+      href: "/difusiones",
+      emoji: "📣",
+      label: "Difusiones",
+      shortLabel: "Difus.",
+    },
   ]
 
   const automationItems = [
