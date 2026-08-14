@@ -110,6 +110,63 @@ class BroadcastCampaignTest extends TestCase
         $this->assertSame(BroadcastStatus::Processing, $campaign->fresh()->status);
     }
 
+    public function test_paused_template_is_rejected_with_its_reason(): void
+    {
+        [$user, $channel, $template] = $this->createSetup();
+        $this->createConversation($user, $channel);
+        Sanctum::actingAs($user);
+
+        $template->update(['status' => TemplateStatus::Paused]);
+
+        $this->postJson('/api/broadcasts', $this->payload($channel, $template))
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Meta pausó esta plantilla por feedback negativo de los usuarios. Vas a poder volver a usarla cuando Meta la reactive.');
+    }
+
+    public function test_disabled_template_is_rejected_with_its_reason(): void
+    {
+        [$user, $channel, $template] = $this->createSetup();
+        $this->createConversation($user, $channel);
+        Sanctum::actingAs($user);
+
+        $template->update(['status' => TemplateStatus::Disabled]);
+
+        $this->postJson('/api/broadcasts', $this->payload($channel, $template))
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Meta deshabilitó esta plantilla de forma permanente. Creá una nueva para esta difusión.');
+    }
+
+    /**
+     * Meta puede pausar la plantilla entre que se programa la campaña y el
+     * momento del disparo. La campaña debe cortarse entera en vez de encolar un
+     * job por destinatario que va a fallar de a uno.
+     */
+    public function test_scheduled_campaign_aborts_when_template_gets_paused_before_dispatch(): void
+    {
+        Queue::fake();
+        [$user, $channel, $template] = $this->createSetup();
+        $this->createConversation($user, $channel);
+        Sanctum::actingAs($user);
+
+        $payload = $this->payload($channel, $template);
+        $payload['launch'] = 'scheduled';
+        $payload['scheduled_at'] = now()->addHour()->toIso8601String();
+        $this->postJson('/api/broadcasts', $payload)->assertCreated();
+
+        $campaign = BroadcastCampaign::firstOrFail();
+        $campaign->update(['scheduled_at' => now()->subMinute()]);
+        $template->update(['status' => TemplateStatus::Paused]);
+
+        $this->artisan('broadcasts:dispatch-due')->assertSuccessful();
+
+        Queue::assertNothingPushed();
+        $this->assertSame(BroadcastStatus::Failed, $campaign->fresh()->status);
+
+        $recipient = $campaign->recipients()->firstOrFail();
+        $this->assertSame(BroadcastRecipientStatus::Failed, $recipient->status);
+        $this->assertStringContainsString('Pausado', (string) $recipient->error);
+    }
+
     public function test_campaign_list_is_isolated_by_tenant(): void
     {
         [$user, $channel, $template] = $this->createSetup();

@@ -53,10 +53,42 @@ const templateStateLabel: Record<string, string> = {
   DISABLED: "Deshabilitadas",
 }
 
-const templateStatus: Record<string, { label: string; className: string }> = {
+/**
+ * Estados de plantilla de Meta. Solo APPROVED se puede enviar: PAUSED y
+ * DISABLED los aplica Meta por feedback negativo o baja tasa de lectura, y
+ * bloquean el envío hasta que se resuelvan.
+ *
+ * `hint` explica qué hacer cuando el estado no es autoexplicativo.
+ *
+ * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/overview
+ */
+const templateStatus: Record<string, { label: string; className: string; hint?: string }> = {
   APPROVED: { label: "Aprobada", className: "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
   PENDING: { label: "En revisión", className: "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300" },
   REJECTED: { label: "Rechazada", className: "border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300" },
+  PAUSED: {
+    label: "Pausada",
+    className: "border-orange-500/25 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+    hint: "Meta la pausó por feedback negativo. Se reactiva sola con el tiempo.",
+  },
+  DISABLED: {
+    label: "Deshabilitada",
+    className: "border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300",
+    hint: "Meta la deshabilitó de forma permanente. Creá una nueva.",
+  },
+  LIMIT_EXCEEDED: {
+    label: "Límite excedido",
+    className: "border-orange-500/25 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+    hint: "Se alcanzó el máximo de envíos de esta plantilla.",
+  },
+  IN_APPEAL: {
+    label: "En apelación",
+    className: "border-sky-500/25 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    hint: "Meta está revisando la apelación.",
+  },
+  PENDING_DELETION: { label: "Eliminación pendiente", className: "bg-muted text-muted-foreground" },
+  DELETED: { label: "Eliminada", className: "bg-muted text-muted-foreground" },
+  UNKNOWN: { label: "Estado desconocido", className: "bg-muted text-muted-foreground" },
 }
 
 const campaignStatus: Record<string, { label: string; className: string }> = {
@@ -417,7 +449,10 @@ export function BroadcastsDashboard() {
                             <p className="font-medium">{template.name}</p>
                             <p className="text-xs text-muted-foreground">{template.category} · {template.language}</p>
                           </TableCell>
-                          <TableCell><Badge variant="outline" className={state.className}>{state.label}</Badge></TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={state.className}>{state.label}</Badge>
+                            {state.hint && <p className="mt-1 max-w-56 text-xs leading-4 text-muted-foreground">{state.hint}</p>}
+                          </TableCell>
                           <TableCell className="text-sm text-muted-foreground">{dateTime.format(new Date(template.created_at))}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
