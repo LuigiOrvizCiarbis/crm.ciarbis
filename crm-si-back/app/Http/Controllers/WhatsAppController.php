@@ -1129,11 +1129,10 @@ class WhatsAppController extends Controller
     /**
      * Webhook del paso 2 (sync_type=history) de la coexistencia.
      *
-     * No hay documentación pública con un ejemplo de payload, así que por ahora
-     * solo confirmamos que Meta entregó el historial (marca `completed`) y
-     * logueamos el `value` completo para poder ver la forma real la primera vez
-     * que llegue. Importar los mensajes al CRM queda para una iteración
-     * posterior, una vez confirmado el formato.
+     * Importa los threads/mensajes al CRM (Contact/Conversation/Message) igual
+     * que un mensaje entrante normal, y marca el sync como `completed`. Formato
+     * del payload no documentado públicamente por Meta: confirmado en producción
+     * como value.threads[].messages[] (ver processHistorySync).
      */
     private function handleHistorySync(?string $wabaId, array $value): void
     {
@@ -1141,11 +1140,15 @@ class WhatsAppController extends Controller
         $whatsappConfig = null;
 
         if ($phoneNumberId) {
-            $whatsappConfig = WhatsAppConfig::where('phone_number_id', $phoneNumberId)->first();
+            $whatsappConfig = WhatsAppConfig::with('channels')
+                ->where('phone_number_id', $phoneNumberId)
+                ->first();
         }
 
         if (! $whatsappConfig && $wabaId) {
-            $whatsappConfig = WhatsAppConfig::where('waba_id', $wabaId)->first();
+            $whatsappConfig = WhatsAppConfig::with('channels')
+                ->where('waba_id', $wabaId)
+                ->first();
         }
 
         Log::info('history: webhook recibido', [
@@ -1154,7 +1157,7 @@ class WhatsAppController extends Controller
             'value' => $value,
         ]);
 
-        if (! $whatsappConfig) {
+        if (! $whatsappConfig || $whatsappConfig->channels->isEmpty()) {
             Log::warning('history: canal no encontrado', [
                 'waba_id' => $wabaId,
                 'phone_number_id' => $phoneNumberId,
@@ -1163,9 +1166,28 @@ class WhatsAppController extends Controller
             return;
         }
 
-        $whatsappConfig->forceFill([
-            'contact_history_sync_status' => WhatsAppConfig::SYNC_COMPLETED,
-            'contact_history_sync_error' => null,
-        ])->save();
+        try {
+            $imported = $this->messageService->processHistorySync($value, $whatsappConfig->channels->first());
+
+            Log::info('history: mensajes importados', [
+                'whatsapp_config_id' => $whatsappConfig->id,
+                'imported' => $imported,
+            ]);
+
+            $whatsappConfig->forceFill([
+                'contact_history_sync_status' => WhatsAppConfig::SYNC_COMPLETED,
+                'contact_history_sync_error' => null,
+            ])->save();
+        } catch (\Throwable $e) {
+            Log::error('history: error importando mensajes', [
+                'whatsapp_config_id' => $whatsappConfig->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            $whatsappConfig->forceFill([
+                'contact_history_sync_status' => WhatsAppConfig::SYNC_FAILED,
+                'contact_history_sync_error' => $e->getMessage(),
+            ])->save();
+        }
     }
 }
