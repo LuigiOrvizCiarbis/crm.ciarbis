@@ -481,6 +481,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('admin/channels/{id}/business-verification', [WhatsAppController::class, 'businessVerification']);
     Route::get('admin/channels/{id}/contact-sync', [WhatsAppController::class, 'contactSyncStatus']);
     Route::post('admin/channels/{id}/contact-sync/retry', [WhatsAppController::class, 'retryContactSync']);
+    Route::post('admin/channels/{id}/contact-sync/retry-history', [WhatsAppController::class, 'retryHistorySync']);
 
     Route::get('/conversations/{id}/messages', [ConversationController::class, 'fetchMessages']);
 

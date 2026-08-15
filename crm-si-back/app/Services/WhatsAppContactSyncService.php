@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\WhatsAppConfig;
 use App\Support\MetaOAuth;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -57,12 +58,33 @@ class WhatsAppContactSyncService
         ])->save();
     }
 
-    public function markFailed(WhatsAppConfig $config, string $error, bool $retryable = true): void
+    public function markFailed(WhatsAppConfig $config, string $error, bool $retryable = true, ?string $errorCode = null): void
     {
         $config->forceFill([
             'contact_sync_status' => WhatsAppConfig::SYNC_FAILED,
             'contact_sync_error' => Str::limit($error, 500),
+            'contact_sync_error_code' => $errorCode,
             'contact_sync_retryable' => $retryable,
+        ])->save();
+    }
+
+    /**
+     * Persiste la última lectura del header X-App-Usage. Ver
+     * WhatsAppController::recordMetaUsage / WhatsAppConfig::hasCriticalMetaUsage
+     * para el porqué: es la cuota del business token del cliente, distinta de
+     * la cuota de la app, y sólo visible leyendo este header.
+     */
+    private function recordMetaUsage(WhatsAppConfig $config, Response $response): void
+    {
+        $usagePct = MetaOAuth::parseAppUsage($response);
+
+        if ($usagePct === null) {
+            return;
+        }
+
+        $config->forceFill([
+            'meta_app_usage_pct' => $usagePct,
+            'meta_app_usage_at' => now(),
         ])->save();
     }
 
@@ -87,6 +109,25 @@ class WhatsAppContactSyncService
             return false;
         }
 
+        // Guard preventivo: ver WhatsAppController::triggerContactSync para el
+        // detalle. No consumimos el disparo único si ya sabemos, por una
+        // lectura reciente del header X-App-Usage, que Meta lo va a rechazar.
+        if ($config->hasCriticalMetaUsage()) {
+            Log::warning('retrySync: cuota de Meta crítica, se omite el reintento', [
+                'whatsapp_config_id' => $config->id,
+                'meta_app_usage_pct' => $config->meta_app_usage_pct,
+            ]);
+
+            $this->markFailed(
+                $config,
+                'Meta está limitando las llamadas de la app. Esperá unos minutos y reintentá.',
+                retryable: true,
+                errorCode: 'rate_limit'
+            );
+
+            return false;
+        }
+
         $version = config('services.facebook.graph_version', 'v21.0');
 
         try {
@@ -96,6 +137,8 @@ class WhatsAppContactSyncService
                     'messaging_product' => 'whatsapp',
                     'sync_type' => 'smb_app_state_sync',
                 ]);
+
+            $this->recordMetaUsage($config, $response);
 
             if ($response->successful()) {
                 // Queda en `syncing`, no en `completed`: Meta aceptó el pedido pero
@@ -192,7 +235,17 @@ class WhatsAppContactSyncService
             $message = trim((string) ($metaError['message'] ?? ''));
             $detail = $message !== '' ? ': '.MetaOAuth::scrubMessage($message) : '.';
 
-            $this->markFailed($config, "Meta rechazó la importación{$code}{$detail}");
+            // Código 4 sin request_id previo: primer rechazo por rate limit de
+            // este onboarding (el caso ya cubierto arriba es un rechazo
+            // *posterior* a un pedido ya aceptado). Igual clasificamos como
+            // rate_limit para que el front muestre el mensaje traducido.
+            $isRateLimit = (int) data_get($body, 'error.code') === 4;
+
+            $this->markFailed(
+                $config,
+                "Meta rechazó la importación{$code}{$detail}",
+                errorCode: $isRateLimit ? 'rate_limit' : null
+            );
 
             return false;
         } catch (\Throwable $e) {
@@ -221,9 +274,14 @@ class WhatsAppContactSyncService
      * gana la carrera afecta filas. Meta acepta un único pedido por onboarding y
      * los duplicados consumen cuota de rate limit de la app.
      *
+     * Público porque además de encadenarse desde retrySync() (contact sync
+     * exitoso), es el punto de reintento cuando el historial quedó `failed` en
+     * rate_limit y el contact sync ya está `completed`: retryContactSync()
+     * rechaza ese caso con 409 sin tocar el historial (ver retryHistorySync).
+     *
      * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
      */
-    private function triggerHistorySync(WhatsAppConfig $config, string $token): void
+    public function triggerHistorySync(WhatsAppConfig $config, string $token): void
     {
         $phoneNumberId = $config->phone_number_id;
 
@@ -243,6 +301,26 @@ class WhatsAppContactSyncService
             return;
         }
 
+        $config->refresh();
+
+        // Mismo guard preventivo que en retrySync(): si la última lectura de
+        // X-App-Usage vio la cuota del business token en crítico y sigue
+        // vigente, no llamamos. Un rechazo por cuota consumiría igual el único
+        // disparo permitido de smb_app_data sin traer nada.
+        if ($config->hasCriticalMetaUsage()) {
+            Log::warning('triggerHistorySync: cuota de Meta crítica, se omite el pedido', [
+                'whatsapp_config_id' => $config->id,
+                'meta_app_usage_pct' => $config->meta_app_usage_pct,
+            ]);
+
+            $config->forceFill([
+                'contact_history_sync_status' => WhatsAppConfig::SYNC_FAILED,
+                'contact_history_sync_error' => 'Meta está limitando las llamadas de la app. Esperá unos minutos y reintentá.',
+            ])->save();
+
+            return;
+        }
+
         try {
             $response = Http::withToken($token)
                 ->timeout(15)
@@ -250,6 +328,8 @@ class WhatsAppContactSyncService
                     'messaging_product' => 'whatsapp',
                     'sync_type' => 'history',
                 ]);
+
+            $this->recordMetaUsage($config, $response);
 
             if ($response->successful()) {
                 $config->forceFill([
@@ -288,5 +368,48 @@ class WhatsAppContactSyncService
                 'contact_history_sync_error' => Str::limit($e->getMessage(), 500),
             ])->save();
         }
+    }
+
+    /**
+     * Reintenta sólo el historial. Existe porque triggerHistorySync() puede
+     * quedar `failed` (por ejemplo, guard de cuota crítica) mientras el
+     * contact sync ya está `completed` — retryContactSync() rechaza ese estado
+     * con 409 sin tocar el historial, así que sin esto un rate limit temporal
+     * y previo al request dejaba el historial bloqueado para siempre pese a
+     * que el propio mensaje de error le decía al usuario que reintentara.
+     *
+     * No valida `retryable` (no existe un campo equivalente para el historial):
+     * el guard atómico de triggerHistorySync ya impide duplicar el pedido a
+     * Meta una vez que fue aceptado (contact_history_sync_requested_at seteado).
+     * Si nunca se pidió con éxito, reintentar es siempre válido dentro de la
+     * ventana de 24h del sync de contactos, que ambos pasos comparten.
+     */
+    public function retryHistorySync(WhatsAppConfig $config): bool
+    {
+        $token = $config->getDecryptedToken();
+
+        if (! $token) {
+            $config->forceFill([
+                'contact_history_sync_status' => WhatsAppConfig::SYNC_FAILED,
+                'contact_history_sync_error' => 'No se pudo obtener el token de Meta para reintentar el historial.',
+            ])->save();
+
+            return false;
+        }
+
+        // El guard atómico de triggerHistorySync sólo reserva el slot si el
+        // status está en null/pending: un `failed` previo (guard de cuota,
+        // excepción, o el propio 400/403 de Meta) lo deja afuera y el reintento
+        // no haría nada. Si Meta nunca llegó a aceptar un pedido real
+        // (requested_at sigue null), es seguro volver a `pending` para que el
+        // guard deje pasar; si ya lo aceptó una vez, no se toca: ese pedido ya
+        // consumió el disparo único y no hay que gastarlo de nuevo.
+        if ($config->contact_history_sync_requested_at === null) {
+            $config->forceFill(['contact_history_sync_status' => WhatsAppConfig::SYNC_PENDING])->save();
+        }
+
+        $this->triggerHistorySync($config, $token);
+
+        return $config->fresh()->contact_history_sync_status === WhatsAppConfig::SYNC_SYNCING;
     }
 }

@@ -1079,7 +1079,12 @@ class WhatsAppMessageService
                 $threadPhone = $thread['id'] ?? null;
 
                 foreach ($thread['messages'] ?? [] as $historyMessage) {
-                    if ($this->importHistoryMessage($historyMessage, $threadPhone, $businessNumbers, $channel, $tenantId)) {
+                    // Sólo se cuenta el `create`: un `update` es un placeholder
+                    // resuelto por un webhook posterior con el mismo wamid, y
+                    // Meta reentrega contenido duplicado entre chunks del mismo
+                    // sync. Contar ambos infla el número muy por encima de los
+                    // mensajes que realmente terminan en el chat.
+                    if ($this->importHistoryMessage($historyMessage, $threadPhone, $businessNumbers, $channel, $tenantId) === 'created') {
                         $imported++;
                     }
                 }
@@ -1089,13 +1094,16 @@ class WhatsAppMessageService
         return ['imported' => $imported, 'progress' => $progress, 'phase' => $phase, 'error_code' => $errorCode];
     }
 
+    /**
+     * @return 'created'|'updated'|'skipped'
+     */
     private function importHistoryMessage(
         array $historyMessage,
         ?string $threadPhone,
         array $businessNumbers,
         Channel $channel,
         int $tenantId
-    ): bool {
+    ): string {
         $externalId = $historyMessage['id'] ?? null;
         $type = $historyMessage['type'] ?? 'unknown';
 
@@ -1103,7 +1111,7 @@ class WhatsAppMessageService
         if (! $isPlaceholder && ! $this->isSupportedMessageType($type)) {
             // reaction/edit/revoke/button/errors: mismo criterio que
             // processIncomingMessage, se ignoran sin frenar el resto del batch.
-            return false;
+            return 'skipped';
         }
 
         $from = $historyMessage['from'] ?? null;
@@ -1116,7 +1124,7 @@ class WhatsAppMessageService
             : ($from ?? $threadPhone);
 
         if (! $customerPhone) {
-            return false;
+            return 'skipped';
         }
 
         $existing = $externalId ? Message::where('external_id', $externalId)->first() : null;
@@ -1127,7 +1135,7 @@ class WhatsAppMessageService
         if ($isPlaceholder) {
             if ($existing) {
                 // Ya se resolvió por un webhook de contenido posterior; nada que hacer.
-                return false;
+                return 'skipped';
             }
 
             $this->createMessage([
@@ -1142,7 +1150,7 @@ class WhatsAppMessageService
                 'delivered_at' => $this->parseWebhookTimestamp($historyMessage['timestamp'] ?? null),
             ]);
 
-            return true;
+            return 'created';
         }
 
         $extracted = $this->extractMessageData($historyMessage);
@@ -1167,12 +1175,12 @@ class WhatsAppMessageService
             // semanas. external_id es unique global: nunca un create nuevo acá.
             $existing->update($attributes);
 
-            return true;
+            return 'updated';
         }
 
         $this->createMessage($attributes);
 
-        return true;
+        return 'created';
     }
 
     public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
