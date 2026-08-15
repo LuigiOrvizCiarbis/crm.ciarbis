@@ -9,7 +9,7 @@ import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ChannelType } from "@/data/enums"
 import type { Channel } from "@/data/types"
-import { getChannels, getContactSync, retryContactSync, type ContactSync } from "@/lib/api/channels"
+import { getChannels, getContactSync, retryContactSync, retryHistorySync, type ContactSync } from "@/lib/api/channels"
 import { useIsAdmin } from "@/hooks/usePermission"
 import { useToast } from "@/components/Toast"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -20,6 +20,7 @@ interface Row {
   data?: ContactSync
   error?: boolean
   retrying?: boolean
+  retryingHistory?: boolean
 }
 
 export function ChannelsCard() {
@@ -78,6 +79,30 @@ export function ChannelsCard() {
     }
   }
 
+  const retryHistory = async (channelId: number) => {
+    setRows((current) => current.map((row) => row.channel.id === channelId ? { ...row, retryingHistory: true } : row))
+    try {
+      await retryHistorySync(channelId)
+      addToast({ type: "success", title: t("settings.contactSync.historyRetryStarted") })
+      const data = await getContactSync(channelId)
+      setRows((current) => current.map((row) => row.channel.id === channelId ? { ...row, data, retryingHistory: false } : row))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("settings.contactSync.historyRetryError")
+      try {
+        // Mismo criterio que retry(): un 409 puede significar que otra
+        // petición ya dejó el sync en curso. La API es la fuente de verdad.
+        const data = await getContactSync(channelId)
+        setRows((current) => current.map((row) => row.channel.id === channelId ? { ...row, data, retryingHistory: false } : row))
+      } catch {
+        setRows((current) => current.map((row) => row.channel.id === channelId ? {
+          ...row,
+          retryingHistory: false,
+          data: row.data ? { ...row.data, error: message } : row.data,
+        } : row))
+      }
+    }
+  }
+
   const refreshRow = async (channelId: number) => {
     setRows((current) => current.map((row) => row.channel.id === channelId ? { ...row, loading: true, error: false } : row))
     try {
@@ -108,12 +133,12 @@ export function ChannelsCard() {
         </div>
       ) : rows.length === 0 ? (
         <p className="py-6 text-sm text-muted-foreground">{t("settings.contactSync.empty")}</p>
-      ) : <div className="divide-y divide-border border-y border-border">{rows.map((row) => <ChannelRow key={row.channel.id} row={row} onRetry={() => void retry(row.channel.id)} onRefresh={() => void refreshRow(row.channel.id)} onReconnect={() => addToast({ type: "info", title: t("settings.contactSync.reconnect"), description: t("settings.contactSync.reconnectHint") })} language={language} t={t} />)}</div>}
+      ) : <div className="divide-y divide-border border-y border-border">{rows.map((row) => <ChannelRow key={row.channel.id} row={row} onRetry={() => void retry(row.channel.id)} onRetryHistory={() => void retryHistory(row.channel.id)} onRefresh={() => void refreshRow(row.channel.id)} onReconnect={() => addToast({ type: "info", title: t("settings.contactSync.reconnect"), description: t("settings.contactSync.reconnectHint") })} language={language} t={t} />)}</div>}
     </SettingsBlock>
   )
 }
 
-function ChannelRow({ row, onRetry, onRefresh, t, onReconnect, language }: { row: Row; onRetry: () => void; onRefresh: () => void; onReconnect: () => void; language: string; t: (key: string, params?: Record<string, string | number>) => string }) {
+function ChannelRow({ row, onRetry, onRetryHistory, onRefresh, t, onReconnect, language }: { row: Row; onRetry: () => void; onRetryHistory: () => void; onRefresh: () => void; onReconnect: () => void; language: string; t: (key: string, params?: Record<string, string | number>) => string }) {
   const sync = row.data
   const name = row.channel.name || t("settings.contactSync.whatsapp")
   const phone = row.channel.whatsapp_config?.display_phone_number || row.channel.phone
@@ -136,15 +161,49 @@ function ChannelRow({ row, onRetry, onRefresh, t, onReconnect, language }: { row
         {row.retrying ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}{t("settings.contactSync.retry")}
       </Button>}
       {!row.loading && sync?.status === "failed" && !sync.can_retry && <Button size="sm" variant="outline" onClick={onReconnect}>{t("settings.contactSync.reconnect")}</Button>}
+      {/* Independiente del botón de contactos: el historial puede quedar
+          `failed` (p. ej. rate limit) mientras los contactos ya están
+          `completed`, y sin esto no había forma de reintentarlo. */}
+      {!row.loading && sync?.history_status === "failed" && sync.history_can_retry && <Button size="sm" variant="outline" onClick={onRetryHistory} disabled={row.retryingHistory}>
+        {row.retryingHistory ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}{t("settings.contactSync.historyRetry")}
+      </Button>}
     </div>
   </div>
 }
 
 function SyncStatus({ sync, language, t }: { sync?: ContactSync; language: string; t: (key: string, params?: Record<string, string | number>) => string }) {
   if (!sync) return null
+  return <div className="flex flex-col gap-0.5">
+    <ContactSyncLine sync={sync} language={language} t={t} />
+    <HistorySyncLine sync={sync} t={t} />
+  </div>
+}
+
+function ContactSyncLine({ sync, language, t }: { sync: ContactSync; language: string; t: (key: string, params?: Record<string, string | number>) => string }) {
   if (sync.status === "completed") return <span className="font-mono text-xs text-muted-foreground">{t("settings.contactSync.completed", { count: sync.contacts_imported })}</span>
   if (sync.status === "syncing") return <span className="flex items-center gap-1"><Clock3 className="h-4 w-4" />{t("settings.contactSync.syncing")}{sync.window_expires_at ? ` · ${t("settings.contactSync.until", { date: new Date(sync.window_expires_at).toLocaleString(language === "es" ? "es-AR" : "en-US") })}` : ""}</span>
   if (sync.status === "pending") return <span>{t("settings.contactSync.pending")}</span>
-  if (sync.status === "failed") return <span className="text-destructive">{sync.can_retry ? (sync.error || t("settings.contactSync.failed")) : t("settings.contactSync.expired")}</span>
+  if (sync.status === "failed") {
+    if (!sync.can_retry) return <span className="text-destructive">{t("settings.contactSync.expired")}</span>
+    // error_code traduce el mensaje en vez de mostrar el texto crudo de Meta
+    // (p. ej. "(#4) Application request limit reached" no le dice al usuario
+    // qué hacer). Sin código conocido, el texto de Meta sigue siendo lo mejor
+    // que tenemos: mejor mostrarlo que ocultarlo.
+    const message = sync.error_code === "rate_limit" ? t("settings.contactSync.rateLimit") : (sync.error || t("settings.contactSync.failed"))
+    return <span className="text-destructive">{message}</span>
+  }
+  return null
+}
+
+// El sync de historial es un evento separado del de contactos (ver
+// ContactSync en lib/api/channels.ts): un canal puede traer conversaciones de
+// números que nunca estuvieron en la agenda del teléfono. Sin esta línea, un
+// onboarding que sólo trajo 1 contacto nuevo pero 97 mensajes de historial se
+// ve como si casi no hubiera traído nada.
+function HistorySyncLine({ sync, t }: { sync: ContactSync; t: (key: string, params?: Record<string, string | number>) => string }) {
+  if (!sync.history_status || sync.history_status === "pending") return null
+  if (sync.history_status === "syncing") return <span className="flex items-center gap-1 text-xs"><Clock3 className="h-3 w-3" />{t("settings.contactSync.historySyncing")}</span>
+  if (sync.history_status === "completed") return <span className="font-mono text-xs text-muted-foreground">{t("settings.contactSync.historyCompleted", { count: sync.history_messages_imported })}</span>
+  if (sync.history_status === "failed") return <span className="text-xs text-destructive">{t("settings.contactSync.historyFailed")}</span>
   return null
 }

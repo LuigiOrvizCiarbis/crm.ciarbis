@@ -321,6 +321,57 @@ class WhatsAppHistorySyncTest extends TestCase
     }
 
     /**
+     * Caso real: un onboarding trajo el historial en 3 webhooks separados que
+     * reportaron 14+117+47=178 mensajes "procesados", pero sólo 97 quedaron
+     * persistidos (Meta reentrega contenido duplicado entre chunks del mismo
+     * sync, y el dedupe por wamid lo descarta). El contador expuesto en
+     * /configuracion debe reflejar lo que realmente llegó al chat, no el bruto:
+     * mostrar 178 tras un sync exitoso de 97 mensajes sería tan confuso como el
+     * problema original que motivó esto.
+     */
+    public function test_contact_history_sync_messages_count_no_cuenta_duplicados_entre_chunks(): void
+    {
+        [, $config] = $this->createChannelWithConfig();
+
+        $repeatedMessage = [
+            'from' => '16505551234',
+            'id' => 'wamid.REPEATED_ACROSS_CHUNKS',
+            'timestamp' => (string) now()->timestamp,
+            'type' => 'text',
+            'text' => ['body' => 'este mensaje llega en dos chunks distintos'],
+            'history_context' => ['status' => 'READ'],
+        ];
+
+        $newMessage = [
+            'from' => '16505551234',
+            'id' => 'wamid.ONLY_IN_SECOND_CHUNK',
+            'timestamp' => (string) now()->timestamp,
+            'type' => 'text',
+            'text' => ['body' => 'este solo llega una vez'],
+            'history_context' => ['status' => 'READ'],
+        ];
+
+        // Primer webhook: un chunk con el mensaje repetido.
+        $this->postJson(self::WEBHOOK, $this->historyPayload($config, [[
+            'metadata' => ['phase' => 0, 'chunk_order' => 1, 'progress' => 50],
+            'threads' => [['id' => '16505551234', 'messages' => [$repeatedMessage]]],
+        ]]))->assertOk();
+
+        // Segundo webhook: Meta reentrega el mismo mensaje + trae uno nuevo.
+        $this->postJson(self::WEBHOOK, $this->historyPayload($config, [[
+            'metadata' => ['phase' => 0, 'chunk_order' => 2, 'progress' => 100],
+            'threads' => [['id' => '16505551234', 'messages' => [$repeatedMessage, $newMessage]]],
+        ]]))->assertOk();
+
+        $this->assertSame(2, Message::count(), 'sólo 2 mensajes distintos, pese a que el segundo chunk procesó 2');
+        $this->assertSame(
+            2,
+            $config->fresh()->contact_history_sync_messages_count,
+            'el contador expuesto en /configuracion debe reflejar mensajes creados, no procesados'
+        );
+    }
+
+    /**
      * @return array{0: Tenant, 1: WhatsAppConfig}
      */
     private function createChannelWithConfig(array $overrides = []): array
