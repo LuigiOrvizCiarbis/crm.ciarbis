@@ -5,7 +5,7 @@ import { AlertCircle, Clock3, Loader2, MessageSquare, RefreshCw } from "lucide-r
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ChannelType } from "@/data/enums"
 import type { Channel } from "@/data/types"
@@ -116,32 +116,25 @@ export function ChannelsCard() {
   if (!isAdmin) return null
 
   return (
-    <Card className="rounded-xl border-border shadow-sm">
-      <CardHeader className="gap-1.5 px-5 pb-4 pt-5 sm:px-6 sm:pt-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-              <MessageSquare className="h-4 w-4 text-muted-foreground sm:h-5 sm:w-5" />
-              {t("settings.channels")}
-            </CardTitle>
-            <p className="mt-1 max-w-prose text-sm text-muted-foreground">{t("settings.contactSync.subtitle")}</p>
-          </div>
-          <Button variant="ghost" size="sm" aria-label={t("settings.contactSync.refresh")} onClick={() => void load()} disabled={loading}>
-            <RefreshCw className="mr-1 h-4 w-4" />{t("settings.contactSync.refresh")}
-          </Button>
+    <SettingsBlock
+      title={t("settings.channels")}
+      description={t("settings.contactSync.subtitle")}
+      icon={MessageSquare}
+      action={
+        <Button variant="ghost" size="sm" aria-label={t("settings.contactSync.refresh")} onClick={() => void load()} disabled={loading}>
+          <RefreshCw className="mr-1 size-4" />{t("settings.contactSync.refresh")}
+        </Button>
+      }
+    >
+      {loading ? <div className="space-y-3"><Skeleton className="h-20 w-full rounded-md" /><Skeleton className="h-20 w-full rounded-md" /></div> : loadError ? (
+        <div className="flex flex-col items-start gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <span className="flex items-center gap-2 text-destructive"><AlertCircle className="size-4 shrink-0" />{t("settings.contactSync.loadError")}</span>
+          <Button size="sm" variant="outline" onClick={() => void load()}>{t("settings.contactSync.retryQuery")}</Button>
         </div>
-      </CardHeader>
-      <CardContent className="px-5 pb-5 sm:px-6 sm:pb-6">
-        {loading ? <div className="space-y-3"><Skeleton className="h-20 w-full rounded-md" /><Skeleton className="h-20 w-full rounded-md" /></div> : loadError ? (
-          <div className="flex flex-col items-start gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-            <span className="flex items-center gap-2 text-destructive"><AlertCircle className="h-4 w-4 shrink-0" />{t("settings.contactSync.loadError")}</span>
-            <Button size="sm" variant="outline" onClick={() => void load()}>{t("settings.contactSync.retryQuery")}</Button>
-          </div>
-        ) : rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">{t("settings.contactSync.empty")}</p>
-        ) : <div className="divide-y divide-border">{rows.map((row) => <ChannelRow key={row.channel.id} row={row} onRetry={() => void retry(row.channel.id)} onRetryHistory={() => void retryHistory(row.channel.id)} onRefresh={() => void refreshRow(row.channel.id)} onReconnect={() => addToast({ type: "info", title: t("settings.contactSync.reconnect"), description: t("settings.contactSync.reconnectHint") })} language={language} t={t} />)}</div>}
-      </CardContent>
-    </Card>
+      ) : rows.length === 0 ? (
+        <p className="py-6 text-sm text-muted-foreground">{t("settings.contactSync.empty")}</p>
+      ) : <div className="divide-y divide-border border-y border-border">{rows.map((row) => <ChannelRow key={row.channel.id} row={row} onRetry={() => void retry(row.channel.id)} onRetryHistory={() => void retryHistory(row.channel.id)} onRefresh={() => void refreshRow(row.channel.id)} onReconnect={() => addToast({ type: "info", title: t("settings.contactSync.reconnect"), description: t("settings.contactSync.reconnectHint") })} language={language} t={t} />)}</div>}
+    </SettingsBlock>
   )
 }
 

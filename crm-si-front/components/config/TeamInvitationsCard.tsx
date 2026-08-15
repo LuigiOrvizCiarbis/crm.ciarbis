@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -82,14 +82,12 @@ export function TeamInvitationsCard() {
   const getInitial = (email: string) => email.trim().charAt(0).toUpperCase() || "?"
 
   return (
-    <Card className="rounded-2xl border-border">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <UserPlus className="w-5 h-5" />
-          {t("team.inviteTitle")}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-6">
+    <SettingsBlock
+      title={t("team.inviteTitle")}
+      icon={UserPlus}
+      measure="prose"
+    >
+      <div className="space-y-7">
         {/* Invite form */}
         <form onSubmit={handleSend} className="space-y-2">
           <Input
@@ -119,7 +117,7 @@ export function TeamInvitationsCard() {
               disabled={sending || roles.length === 0}
               className="shrink-0"
             >
-              {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : t("team.sendInvitation")}
+              {sending ? <Loader2 className="size-4 animate-spin" /> : t("team.sendInvitation")}
             </Button>
           </div>
         </form>
@@ -128,27 +126,27 @@ export function TeamInvitationsCard() {
         {loading ? (
           <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
         ) : pendingInvitations.length > 0 ? (
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {t("team.pendingInvitations")}
             </p>
-            <div className="space-y-2">
+            <div className="divide-y divide-border border-y border-border">
               {pendingInvitations.map((inv) => (
                 <div
                   key={inv.id}
-                  className="group flex items-center gap-3 p-3 rounded-xl border border-border bg-card hover:bg-muted/40 transition-colors"
+                  className="group flex items-center gap-3 py-3 transition-colors hover:bg-muted/40"
                 >
-                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary text-sm font-semibold shrink-0">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
                     {getInitial(inv.email)}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{inv.email}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{inv.email}</p>
                     <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                       <Badge variant="outline" className="text-xs font-normal">
                         {inv.role_name}
                       </Badge>
                       <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                        <Clock className="w-3 h-3" />
+                        <Clock className="size-3" />
                         {t("team.expires")} {new Date(inv.expires_at).toLocaleDateString()}
                       </span>
                     </div>
@@ -156,37 +154,34 @@ export function TeamInvitationsCard() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="shrink-0 h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    className="size-8 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                     onClick={() => handleRevoke(inv.id)}
                     aria-label={t("team.invitationRevoked")}
                   >
-                    <X className="w-4 h-4" />
+                    <X className="size-4" />
                   </Button>
                 </div>
               ))}
             </div>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground text-center py-2">{t("team.noInvitations")}</p>
+          <p className="py-2 text-sm text-muted-foreground">{t("team.noInvitations")}</p>
         )}
 
         {/* Accepted invitations */}
         {acceptedInvitations.length > 0 && (
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {t("team.accepted")}
             </p>
-            <div className="space-y-2">
+            <div className="divide-y divide-border border-y border-border">
               {acceptedInvitations.map((inv) => (
-                <div
-                  key={inv.id}
-                  className="flex items-center gap-3 p-3 rounded-xl border border-border/60 bg-muted/30"
-                >
-                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-muted text-muted-foreground text-sm font-semibold shrink-0">
+                <div key={inv.id} className="flex items-center gap-3 py-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground">
                     {getInitial(inv.email)}
                   </div>
-                  <p className="flex-1 min-w-0 text-sm truncate">{inv.email}</p>
-                  <Badge variant="secondary" className="text-xs shrink-0">
+                  <p className="min-w-0 flex-1 truncate text-sm">{inv.email}</p>
+                  <Badge variant="secondary" className="shrink-0 text-xs">
                     {t("team.accepted")}
                   </Badge>
                 </div>
@@ -194,7 +189,7 @@ export function TeamInvitationsCard() {
             </div>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </SettingsBlock>
   )
 }

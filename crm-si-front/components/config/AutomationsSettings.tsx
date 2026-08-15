@@ -22,7 +22,7 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -308,27 +308,27 @@ export function AutomationsSettings() {
   }
 
   return (
-    <Card className="overflow-hidden rounded-2xl border-border">
-      <CardHeader className="border-b border-border bg-muted/20 md:flex-row md:items-center md:justify-between">
-        <div>
-          <CardTitle className="flex items-center gap-2"><Workflow className="size-5 text-primary" />{t("settings.automations.title")}</CardTitle>
-          <CardDescription className="mt-1 max-w-2xl">{t("settings.automations.description")}</CardDescription>
-        </div>
-        <Button className="mt-4 md:mt-0" onClick={openCreate}><Plus className="mr-2 size-4" />{t("settings.automations.new")}</Button>
-      </CardHeader>
-      <CardContent className="p-0">
+    <SettingsBlock
+      title={t("settings.automations.title")}
+      description={t("settings.automations.description")}
+      icon={Workflow}
+      action={
+        <Button onClick={openCreate}><Plus className="mr-2 size-4" />{t("settings.automations.new")}</Button>
+      }
+    >
+      <div>
         {loading ? (
           <div className="flex items-center justify-center py-16"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
         ) : rules.length === 0 ? (
-          <div className="mx-auto flex max-w-md flex-col items-center px-6 py-14 text-center">
+          <div className="flex max-w-md flex-col items-start border-y border-dashed border-border py-12">
             <div className="mb-4 flex size-12 items-center justify-center rounded-full border border-dashed border-primary/50 bg-primary/5"><Workflow className="size-5 text-primary" /></div>
             <p className="font-medium">{t("settings.automations.emptyTitle")}</p>
             <p className="mt-1 text-sm text-muted-foreground">{t("settings.automations.empty")}</p>
           </div>
         ) : (
-          <div className="divide-y divide-border">
+          <div className="divide-y divide-border border-y border-border">
             {rules.map((rule) => (
-              <article key={rule.id} className="group grid gap-4 px-5 py-4 transition-colors hover:bg-muted/20 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+              <article key={rule.id} className="group grid gap-4 py-4 transition-colors hover:bg-muted/20 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="truncate font-medium">{rule.name}</h3>
@@ -354,7 +354,7 @@ export function AutomationsSettings() {
             ))}
           </div>
         )}
-      </CardContent>
+      </div>
 
       <Dialog open={builderOpen} onOpenChange={(open) => { if (!saving) setBuilderOpen(open) }}>
         <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto p-0">
@@ -406,7 +406,7 @@ export function AutomationsSettings() {
 
       <PreviewDialog rule={previewRule} value={previewSubject} preview={preview} t={t} onValueChange={setPreviewSubject} onRun={runPreview} onClose={() => setPreviewRule(null)} />
       <RunsDialog rule={runsRule} runs={runs} t={t} onClose={() => setRunsRule(null)} onRetry={retryRun} />
-    </Card>
+    </SettingsBlock>
   )
 }
 

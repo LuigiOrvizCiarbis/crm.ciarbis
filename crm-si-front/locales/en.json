@@ -1028,7 +1028,9 @@
         "available": "Available",
         "error": "Error",
         "comingSoon": "Coming soon"
-      }
+      },
+      "directoryTitle": "Connected services",
+      "directoryDescription": "Connect external tools to sync their data with the CRM."
     },
     "googleCalendar": {
       "title": "Google Calendar",
