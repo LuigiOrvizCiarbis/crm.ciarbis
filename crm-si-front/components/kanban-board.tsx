@@ -31,6 +31,7 @@ import { es } from "date-fns/locale"
 
 interface Opportunity {
   id: number
+  conversation_id?: number | string | null
   title: string
   status: "open" | "won" | "lost" | "archived"
   source_type: "manual" | "conversation"
@@ -218,7 +219,7 @@ function OpportunityCard({
   const score = getOpportunityScore(opportunity)
   const referenceDate = opportunity.conversation?.last_message_at || opportunity.last_activity_at
   const activityOwner = opportunity.source_type === "conversation" ? "Conversación" : sourceLabel
-  const conversationId = opportunity.conversation?.id
+  const conversationId = opportunity.conversation?.id ?? opportunity.conversation_id
 
   const openConversation = () => {
     if (conversationId) router.push(`/chats?chat=${conversationId}`)
@@ -297,13 +298,13 @@ function OpportunityCard({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 min-w-8 px-2 text-muted-foreground hover:text-foreground"
+              className="h-8 min-h-10 gap-2 px-2 text-muted-foreground hover:text-foreground"
               disabled={!conversationId}
               onClick={openConversation}
               title={conversationId ? "Abrir conversación" : "Sin conversación"}
             >
               <MessageSquare className="w-3.5 h-3.5" />
-              <span className="sr-only">Abrir conversación</span>
+              <span className="text-xs">{conversationId ? "Abrir chat" : "Sin chat"}</span>
             </Button>
             {opportunity.contact.phone && (
               <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
