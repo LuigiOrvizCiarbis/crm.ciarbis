@@ -7,6 +7,7 @@ export interface MessageStatusUpdate {
   conversation_id: number;
   delivered_at?: string | null;
   read_at?: string | null;
+  played_at?: string | null;
   failed_at?: string | null;
   error_message?: string | null;
 }

@@ -1266,6 +1266,23 @@ class WhatsAppController extends Controller
                     }
                     break;
 
+                case 'played':
+                    // `played` implica entregado y leído: no se puede reproducir
+                    // un audio sin haber abierto el chat. Completamos lo que falte.
+                    if (! $message->isDelivered()) {
+                        $message->markAsDelivered();
+                        $changed = true;
+                    }
+                    if (! $message->isRead()) {
+                        $message->markAsRead();
+                        $changed = true;
+                    }
+                    if (! $message->isPlayed()) {
+                        $message->markAsPlayed();
+                        $changed = true;
+                    }
+                    break;
+
                 case 'failed':
                     if (! $message->isFailed()) {
                         $error = $this->describeStatusError($status['errors'] ?? []);

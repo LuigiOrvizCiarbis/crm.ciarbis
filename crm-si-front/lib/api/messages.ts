@@ -10,7 +10,7 @@ function resolveMediaType(file: File): "image" | "audio" {
   return "image";
 }
 
-export async function sendMessage(conversationId: number, content: string, media?: File) {
+export async function sendMessage(conversationId: number, content: string, media?: File, voice = false) {
   const token = getAuthToken();
   if (!token) throw new Error("Token faltante");
 
@@ -20,6 +20,7 @@ export async function sendMessage(conversationId: number, content: string, media
     formData.append("conversation_id", String(conversationId));
     formData.append("type", type);
     formData.append(type, media);
+    if (voice) formData.append("voice", "true");
     if (content && type === "image") formData.append("content", content);
 
     const res = await fetch("/api/messages", {
