@@ -618,6 +618,11 @@ export function ContactsList({
     }
   }
 
+  const openContactConversation = (contact: Contact) => {
+    const conversationId = contact.conversations?.[0]?.id
+    if (conversationId) router.push(`/chats?chat=${conversationId}`)
+  }
+
   const handleDeleteContact = async () => {
     if (!deleteContact) return
     setDeleting(true)
@@ -707,13 +712,21 @@ export function ContactsList({
       case "contact":
         return (
           <div className="flex items-center gap-3">
-            <Avatar className="w-9 h-9 flex-shrink-0">
-              <AvatarFallback
-                className={`text-xs font-bold bg-gradient-to-br ${getAvatarGradient(contact.id)} text-white`}
-              >
-                {getInitials(contact.name)}
-              </AvatarFallback>
-            </Avatar>
+            <button
+              type="button"
+              onClick={() => openContactConversation(contact)}
+              disabled={!contact.conversations?.[0]?.id}
+              className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default"
+              title={contact.conversations?.[0]?.id ? "Abrir conversación" : "Sin conversación"}
+            >
+              <Avatar className="w-9 h-9">
+                <AvatarFallback
+                  className={`text-xs font-bold bg-gradient-to-br ${getAvatarGradient(contact.id)} text-white`}
+                >
+                  {getInitials(contact.name)}
+                </AvatarFallback>
+              </Avatar>
+            </button>
             <div className="min-w-0 flex-1">
               <EditableCell
                 type="text"
@@ -726,9 +739,14 @@ export function ContactsList({
                 className="px-1"
               />
               {contact.conversations && contact.conversations.length > 0 ? (
-                <p className="text-xs text-muted-foreground truncate max-w-[180px] px-1">
+                <button
+                  type="button"
+                  onClick={() => openContactConversation(contact)}
+                  className="block max-w-[180px] truncate rounded px-1 text-left text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  title="Abrir conversación"
+                >
                   {contact.conversations[0].last_message_content}
-                </p>
+                </button>
               ) : null}
             </div>
           </div>
@@ -1052,7 +1070,89 @@ export function ContactsList({
         </div>
       ) : (
         <>
-          <div className="border rounded-lg overflow-hidden">
+          <div className="space-y-3 md:hidden">
+            {filteredContacts.map((contact) => {
+              const conversation = contact.conversations?.[0]
+              const conversationId = conversation?.id
+              const telHref = contact.phone ? `tel:${contact.phone.replace(/[^\d+]/g, "")}` : undefined
+              const mailHref = contact.email ? `mailto:${contact.email}` : undefined
+
+              return (
+                <div key={contact.id} className="rounded-lg border bg-card p-4 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <button
+                      type="button"
+                      onClick={() => openContactConversation(contact)}
+                      disabled={!conversationId}
+                      className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default"
+                      title={conversationId ? "Abrir conversación" : "Sin conversación"}
+                    >
+                      <Avatar className="h-11 w-11">
+                        <AvatarFallback className={`font-bold bg-gradient-to-br ${getAvatarGradient(contact.id)} text-white`}>
+                          {getInitials(contact.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold text-foreground">{contact.name}</p>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {conversation?.last_message_content || "Sin conversación"}
+                      </p>
+                    </div>
+                    <Checkbox
+                      checked={selectedIds.has(contact.id)}
+                      onCheckedChange={() => toggleSelect(contact.id)}
+                      aria-label={`Seleccionar ${contact.name}`}
+                    />
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">Teléfono</p>
+                      <p className="truncate">{contact.phone || "—"}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">Email</p>
+                      <p className="truncate">{contact.email || "—"}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Badge className={sourceColors[contact.source] || "bg-gray-500/10 text-gray-600 border-gray-200"} variant="outline">
+                        {sourceLabels[contact.source] || contact.source}
+                      </Badge>
+                      <span className="truncate text-xs text-muted-foreground">{getLastContact(contact)}</span>
+                    </div>
+                    <Button
+                      variant={conversationId ? "default" : "outline"}
+                      size="sm"
+                      disabled={!conversationId}
+                      onClick={() => openContactConversation(contact)}
+                      className="min-h-10 shrink-0 gap-2"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      {conversationId ? "Abrir chat" : "Sin chat"}
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-end gap-1 border-t pt-3">
+                    <Button asChild={!!telHref} variant="ghost" size="sm" disabled={!telHref} className="h-10 w-10 p-0">
+                      {telHref ? <a href={telHref} aria-label={`Llamar a ${contact.name}`}><Phone className="h-4 w-4" /></a> : <Phone className="h-4 w-4" />}
+                    </Button>
+                    <Button asChild={!!mailHref} variant="ghost" size="sm" disabled={!mailHref} className="h-10 w-10 p-0">
+                      {mailHref ? <a href={mailHref} aria-label={`Enviar email a ${contact.name}`}><Mail className="h-4 w-4" /></a> : <Mail className="h-4 w-4" />}
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-10 px-3" onClick={() => openProfileSheet(contact)}>
+                      Ver perfil
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="hidden border rounded-lg overflow-hidden md:block">
             <div className="overflow-x-auto">
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
                 <Table className="min-w-[1100px]">
