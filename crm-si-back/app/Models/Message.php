@@ -33,6 +33,7 @@ class Message extends Model
         'mail_parent_message_id',
         'delivered_at',
         'read_at',
+        'played_at',
         'failed_at',
         'error_message',
         'edited_at',
@@ -45,6 +46,7 @@ class Message extends Model
         'message_type' => MessageType::class,
         'delivered_at' => 'datetime',
         'read_at' => 'datetime',
+        'played_at' => 'datetime',
         'failed_at' => 'datetime',
         'edited_at' => 'datetime',
         'created_at' => 'datetime',
@@ -161,6 +163,15 @@ class Message extends Model
     }
 
     /**
+     * Marcar un mensaje de voz como reproducido. Meta lo reporta solo la primera
+     * vez, así que no tiene sentido volver a escribirlo si ya está seteado.
+     */
+    public function markAsPlayed(): void
+    {
+        $this->update(['played_at' => now()]);
+    }
+
+    /**
      * Marcar mensaje como fallido, guardando el error reportado por el canal.
      */
     public function markAsFailed(?string $error = null): void
@@ -202,6 +213,14 @@ class Message extends Model
     public function isRead(): bool
     {
         return ! is_null($this->read_at);
+    }
+
+    /**
+     * Verificar si el mensaje de voz fue reproducido
+     */
+    public function isPlayed(): bool
+    {
+        return ! is_null($this->played_at);
     }
 
     public function isEdited(): bool

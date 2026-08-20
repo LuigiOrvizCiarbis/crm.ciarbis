@@ -146,6 +146,13 @@ interface ChatsCompactHeaderProps {
   onNewConversation: () => void
   onConnectChannel: (channelType?: ConnectableChannel) => void
   onOpenChannels: () => void
+  /**
+   * En mobile la vista es una pila: al abrir un hilo, la lista de
+   * conversaciones deja de estar en pantalla y este encabezado pierde sentido
+   * (su buscador filtra una lista invisible). Se oculta por CSS, no
+   * desmontando, para que el texto tipeado siga ahí al volver.
+   */
+  hideOnMobile?: boolean
 }
 
 function ChatsCompactHeader({
@@ -154,10 +161,15 @@ function ChatsCompactHeader({
   onNewConversation,
   onConnectChannel,
   onOpenChannels,
+  hideOnMobile = false,
 }: ChatsCompactHeaderProps) {
   const { t } = useTranslation()
   return (
-    <div className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-xl supports-[backdrop-filter]:bg-background/90">
+    <div
+      className={`sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-xl supports-[backdrop-filter]:bg-background/90 ${
+        hideOnMobile ? "hidden md:block" : ""
+      }`}
+    >
       <div className="flex h-18.75 items-center gap-3 px-4 md:px-6">
         <Button
           variant="ghost"
@@ -529,6 +541,7 @@ export default function ChatsPage() {
                 ...m,
                 delivered_at: status.delivered_at ?? m.delivered_at,
                 read_at: status.read_at ?? m.read_at,
+                played_at: status.played_at ?? m.played_at,
                 failed_at: status.failed_at ?? m.failed_at,
                 error_message: status.error_message ?? m.error_message,
               }
@@ -1235,7 +1248,7 @@ export default function ChatsPage() {
     }
   };
 
-  const handleSendMessage = async (content: string, media?: File) => {
+  const handleSendMessage = async (content: string, media?: File, voice = false) => {
     if (!content && !media) return;
     if (!selectedConversationId) return;
 
@@ -1285,7 +1298,7 @@ export default function ChatsPage() {
     });
 
     try {
-      const savedMessage = await sendMessage(selectedConversationId, textToSend, media);
+      const savedMessage = await sendMessage(selectedConversationId, textToSend, media, voice);
 
       setCurrentConversation((prev) => {
         if (!prev) return prev;
@@ -1776,6 +1789,7 @@ export default function ChatsPage() {
         onNewConversation={handleNewConversation}
         onConnectChannel={handleConnectChannel}
         onOpenChannels={() => setIsChannelsSheetOpen(true)}
+        hideOnMobile={Boolean(selectedConversationId)}
       />
 
       <Sheet open={isChannelsSheetOpen} onOpenChange={setIsChannelsSheetOpen}>
@@ -1788,7 +1802,12 @@ export default function ChatsPage() {
         </SheetContent>
       </Sheet>
 
-      <div className="flex h-[calc(100vh-75px)] flex-1 overflow-hidden bg-background">
+      {/* `flex-1 min-h-0` en vez de `h-[calc(100vh-75px)]`: el 75px era un
+          número mágico que sólo valía para el encabezado de escritorio. En
+          mobile el encabezado mide 125px (trae el buscador) y desaparece del
+          todo con un hilo abierto, así que ninguna constante sirve para los
+          tres casos. El flex mide lo que sobra, siempre. */}
+      <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
         <div className="hidden w-[360px] flex-col border-r border-border bg-card md:flex lg:w-[380px]">
           {renderChannelsSidebar(handleChannelSelect, handleConnectChannel)}
         </div>
@@ -2076,6 +2095,7 @@ export default function ChatsPage() {
                   conversationId={selectedConversationId}
                   onSendTemplate={handleSendTemplate}
                   supportsTemplates={activeConversation?.channel?.type === ChannelType.WHATSAPP}
+                  supportsVoice={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   editingMessage={editingMessage}
                   onCancelEdit={handleCancelEdit}
                   expansionContext={hotkeyExpansionContext}
