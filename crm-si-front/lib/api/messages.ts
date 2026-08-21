@@ -47,7 +47,7 @@ export async function sendMessage(conversationId: number, content: string, media
     formData.append("conversation_id", String(conversationId));
     formData.append("type", type);
     formData.append(type, outgoingFile);
-    if (voice) formData.append("voice", "true");
+    if (voice) formData.append("voice", "1");
     if (content && type === "image") formData.append("content", content);
 
     const res = await fetch("/api/messages", {
