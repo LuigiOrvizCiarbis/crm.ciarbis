@@ -36,7 +36,7 @@ function withAudioFilename(file: File): File {
   return new File([file], name, { type: file.type });
 }
 
-export async function sendMessage(conversationId: number, content: string, media?: File) {
+export async function sendMessage(conversationId: number, content: string, media?: File, voice = false) {
   const token = getAuthToken();
   if (!token) throw new Error("Token faltante");
 
@@ -47,6 +47,7 @@ export async function sendMessage(conversationId: number, content: string, media
     formData.append("conversation_id", String(conversationId));
     formData.append("type", type);
     formData.append(type, outgoingFile);
+    if (voice) formData.append("voice", "true");
     if (content && type === "image") formData.append("content", content);
 
     const res = await fetch("/api/messages", {

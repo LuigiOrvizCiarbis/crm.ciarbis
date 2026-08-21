@@ -15,6 +15,7 @@ use App\Services\InstagramMessageService;
 use App\Services\MailMessageService;
 use App\Services\MessengerMessageService;
 use App\Services\WhatsAppMessageService;
+use App\Services\VoiceTranscoder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -55,6 +56,7 @@ class MessageController extends Controller
         private InstagramMessageService $instagramService,
         private MessengerMessageService $messengerService,
         private MailMessageService $mailService,
+        private VoiceTranscoder $voiceTranscoder,
     ) {}
 
     public function index(Request $request, Conversation $conversation): JsonResponse
@@ -88,6 +90,7 @@ class MessageController extends Controller
             'type' => 'required|string|in:text,image,audio,mail',
             'image' => 'required_if:type,image|image|max:10240',
             'audio' => 'required_if:type,audio|file|mimetypes:'.implode(',', self::ALLOWED_AUDIO_MIMES).'|max:16384',
+            'voice' => 'sometimes|boolean',
             'cc' => 'nullable|array|max:20',
             'cc.*' => 'required|email:rfc|max:255',
             'bcc' => 'nullable|array|max:20',
@@ -107,6 +110,11 @@ class MessageController extends Controller
         $this->authorize('sendMessage', $conversation);
 
         $type = $data['type'] ?? 'text';
+        $channelType = $conversation->channel?->type;
+        $voice = $request->boolean('voice');
+        if ($voice && ($type !== 'audio' || $channelType !== ChannelType::WHATSAPP)) {
+            return response()->json(['message' => 'voice sólo está disponible para audios de WhatsApp.'], 422);
+        }
         $tenantId = $request->user()->tenant_id;
 
         // El servicio de transporte se elige por el tipo de canal. Las firmas de
@@ -115,8 +123,6 @@ class MessageController extends Controller
         // match exhaustivo con default explícito: un canal sin transporte de
         // envío (Telegram, Web, Manual) debe cortar acá con un 422 claro,
         // no caer silenciosamente a WhatsApp.
-        $channelType = $conversation->channel?->type;
-
         if ($type === 'mail' && $channelType !== ChannelType::MAIL) {
             return response()->json(['message' => 'El formato email sólo está disponible en canales de correo.'], 422);
         }
@@ -198,15 +204,33 @@ class MessageController extends Controller
                 );
             } elseif ($type === 'audio' && $request->hasFile('audio')) {
                 $file = $request->file('audio');
-                $path = $file->store("messages/{$tenantId}", 'public');
+                $voicePath = null;
+                try {
+                    if ($voice) {
+                        $voicePath = $this->voiceTranscoder->transcode($file->getRealPath());
+                        $path = "messages/{$tenantId}/".uniqid('voice_', true).'.ogg';
+                        Storage::disk('public')->put($path, file_get_contents($voicePath));
+                    } else {
+                        $path = $file->store("messages/{$tenantId}", 'public');
+                    }
 
-                $message = $service->sendAudioMessageFromCRM(
-                    $conversation,
-                    $path,
-                    '/storage/'.$path,
-                    $file->getMimeType() ?: 'audio/mpeg',
-                    $request->user()
-                );
+                    if ($channelType === ChannelType::WHATSAPP) {
+                        $message = $this->messageService->sendAudioMessageFromCRM(
+                            $conversation, $path, '/storage/'.$path,
+                            $voice ? 'audio/ogg' : ($file->getMimeType() ?: 'audio/mpeg'),
+                            $request->user(), $voice
+                        );
+                    } else {
+                        $message = $service->sendAudioMessageFromCRM(
+                            $conversation, $path, '/storage/'.$path,
+                            $file->getMimeType() ?: 'audio/mpeg', $request->user()
+                        );
+                    }
+                } finally {
+                    if ($voicePath !== null && is_file($voicePath)) {
+                        unlink($voicePath);
+                    }
+                }
             } else {
                 $message = $service->sendTextMessageFromCRM(
                     $conversation,

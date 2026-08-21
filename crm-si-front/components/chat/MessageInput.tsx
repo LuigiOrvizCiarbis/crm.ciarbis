@@ -3,58 +3,30 @@
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
+import { EmojiPicker } from "./EmojiPicker"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTranslation } from "@/hooks/useTranslation"
-import { Paperclip, Smile, Send, X, Pencil, Check, Music2, Languages, Loader2, RotateCcw } from "lucide-react"
+import { Paperclip, Smile, Send, X, Pencil, Check, Music2, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon } from "lucide-react"
 import { KeyboardEvent, SyntheticEvent, useMemo, useRef, useState, useEffect } from "react"
 import dynamic from "next/dynamic"
 import Image from "next/image"
 import { Message, TranslationLanguage } from "@/data/types"
 import { getMessageHotkeys, type MessageHotkey } from "@/lib/api/message-hotkeys"
-import { pauseOtherAudios, canRecordAudio } from "@/lib/audio"
+import { pauseOtherAudios } from "@/lib/audio"
 import { expandHotkey, parseSlashCommand, type HotkeyExpansionContext } from "@/lib/utils/hotkeys"
 import { HotkeyAutocomplete } from "./HotkeyAutocomplete"
-import { AudioRecorder } from "./AudioRecorder"
-import type { AudioRecorderError } from "@/hooks/use-audio-recorder"
-import { useToast } from "@/components/Toast"
+import { VoiceRecorder } from "./VoiceRecorder"
 
 const TemplatePicker = dynamic(
   () => import("./TemplatePicker").then(m => m.TemplatePicker),
   { ssr: false }
 )
 
-const EMOJI_GROUPS = [
-  {
-    key: "smileys",
-    translationKey: "chats.emojiCategorySmileys",
-    emojis: ["😀", "😂", "😊", "😍", "😎", "🤔", "🥲", "😴"],
-  },
-  {
-    key: "gestures",
-    translationKey: "chats.emojiCategoryGestures",
-    emojis: ["👍", "👎", "👏", "🙌", "🙏", "🤝", "💪", "👌"],
-  },
-  {
-    key: "hearts",
-    translationKey: "chats.emojiCategoryHearts",
-    emojis: ["❤️", "🧡", "💛", "💚", "💙", "💜", "🤍", "🖤"],
-  },
-  {
-    key: "celebration",
-    translationKey: "chats.emojiCategoryCelebration",
-    emojis: ["🎉", "✨", "🔥", "🚀", "🏆", "🎯", "🥳", "💥"],
-  },
-  {
-    key: "objects",
-    translationKey: "chats.emojiCategoryObjects",
-    emojis: ["📌", "📅", "💬", "📞", "✅", "⚠️", "💡", "📎"],
-  },
-]
-
 interface MessageInputProps {
   value: string
   onChange: (value: string) => void
-  onSend: (content: string, media?: File) => void
+  onSend: (content: string, media?: File, voice?: boolean) => void | Promise<void>
   disabled?: boolean
   placeholder?: string
   channelId?: number | null
@@ -68,6 +40,7 @@ interface MessageInputProps {
   contactLanguage: TranslationLanguage
   onContactLanguageChange: (language: TranslationLanguage) => void | Promise<void>
   onTranslateDraft: (content: string, targetLanguage: TranslationLanguage) => Promise<string>
+  supportsVoice?: boolean
 }
 
 interface SlashState {
@@ -92,15 +65,14 @@ export function MessageInput({
   contactLanguage,
   onContactLanguageChange,
   onTranslateDraft,
+  supportsVoice = false,
 }: MessageInputProps) {
   const { t } = useTranslation()
-  const { addToast } = useToast()
   const resolvedPlaceholder = placeholder ?? t("chats.messagePlaceholder")
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [selectedMedia, setSelectedMedia] = useState<File | null>(null)
   const [mediaPreview, setMediaPreview] = useState<string | null>(null)
-  const [isRecordingAudio, setIsRecordingAudio] = useState(false)
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false)
   const [hotkeys, setHotkeys] = useState<MessageHotkey[]>([])
   const [slashState, setSlashState] = useState<SlashState | null>(null)
@@ -109,6 +81,12 @@ export function MessageInput({
   const [translationError, setTranslationError] = useState<string | null>(null)
   const [originalDraft, setOriginalDraft] = useState<string | null>(null)
   const [translatedLanguage, setTranslatedLanguage] = useState<TranslationLanguage | null>(null)
+  const [isTranslationOpen, setIsTranslationOpen] = useState(false)
+  const [isActionsOpen, setIsActionsOpen] = useState(false)
+  const [isEmojiSheetOpen, setIsEmojiSheetOpen] = useState(false)
+  const [isTranslationSheetOpen, setIsTranslationSheetOpen] = useState(false)
+  const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false)
+  const [isVoiceComposerActive, setIsVoiceComposerActive] = useState(false)
 
   const isEditing = !!editingMessage
   const isAudio = !!selectedMedia?.type.startsWith("audio/")
@@ -268,6 +246,7 @@ export function MessageInput({
       setOriginalDraft((current) => current ?? source)
       setTranslatedLanguage(contactLanguage)
       onChange(translated)
+      closeTranslationSurfaces()
       requestAnimationFrame(() => inputRef.current?.focus())
     } catch (error) {
       setTranslationError(error instanceof Error ? error.message : t("chats.translationError"))
@@ -300,27 +279,6 @@ export function MessageInput({
     return true
   }
 
-  // El audio grabado va a la misma preview que un adjunto: nunca se envía
-  // solo al soltar, siempre hay que confirmar (botón enviar) antes.
-  const handleAudioRecorded = (file: File) => {
-    acceptMediaFile(file)
-  }
-
-  const handleAudioRecorderError = (error: AudioRecorderError) => {
-    if (error === "not-allowed") {
-      addToast({
-        type: "error",
-        title: t("chats.micPermissionDenied"),
-      })
-      return
-    }
-
-    addToast({
-      type: "error",
-      title: t("chats.audioFormatUnsupported"),
-    })
-  }
-
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -345,14 +303,7 @@ export function MessageInput({
   }
 
   const canSend = isAudio ? selectedMedia : value.trim() || selectedMedia
-  const emojiPickerDisabled = disabled || isAudio || isRecordingAudio
-  // El micrófono reemplaza al botón de enviar cuando no hay nada que mandar
-  // todavía. En cuanto hay texto o media seleccionada, vuelve el avión de
-  // papel. Sin MediaRecorder o sin contexto seguro (http), se oculta el
-  // botón y sólo queda el clip de adjuntar. Mientras graba, se mantiene
-  // aunque cambien value/selectedMedia por debajo (no debería, están
-  // deshabilitados, pero evita desmontar el grabador a mitad de gesto).
-  const showMicButton = !isEditing && (isRecordingAudio || (!value.trim() && !selectedMedia)) && canRecordAudio()
+  const emojiPickerDisabled = disabled || isAudio
 
   const handleEmojiSelect = (emoji: string) => {
     const input = inputRef.current
@@ -363,12 +314,134 @@ export function MessageInput({
 
     onChange(nextValue)
     setIsEmojiPickerOpen(false)
+    setIsEmojiSheetOpen(false)
 
     requestAnimationFrame(() => {
       inputRef.current?.focus()
       inputRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition)
     })
   }
+
+  /** El traductor vive en un popover (escritorio) y una hoja (móvil): cerramos ambos. */
+  const closeTranslationSurfaces = () => {
+    setIsTranslationOpen(false)
+    setIsTranslationSheetOpen(false)
+  }
+
+  /** Mismo cuerpo para el popover de escritorio y la hoja móvil. */
+  const translationPanel = (
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        <p className="text-xs font-medium text-muted-foreground">
+          {t("chats.contactLanguage")}
+        </p>
+        <Select
+          value={contactLanguage}
+          onValueChange={(next) => void onContactLanguageChange(next as TranslationLanguage)}
+          disabled={disabled || isTranslating}
+        >
+          <SelectTrigger className="h-10 w-full text-sm sm:h-9" aria-label={t("chats.contactLanguage")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(["es", "en", "pt", "fr", "it", "de", "zh"] as TranslationLanguage[]).map((lang) => (
+              <SelectItem key={lang} value={lang}>
+                {t(`chats.language.${lang}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {originalDraft !== null ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-10 w-full gap-2 sm:h-9"
+          onClick={() => {
+            restoreOriginalDraft()
+            closeTranslationSurfaces()
+          }}
+          disabled={disabled || isTranslating}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          {t("chats.restoreOriginal")}
+        </Button>
+      ) : (
+        <Button
+          type="button"
+          size="sm"
+          className="h-10 w-full gap-2 sm:h-9"
+          onClick={() => void handleTranslateDraft()}
+          disabled={disabled || isTranslating || isAudio || !value.trim()}
+        >
+          {isTranslating ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+          ) : (
+            <Languages className="h-3.5 w-3.5" />
+          )}
+          {isTranslating ? t("chats.translating") : t("chats.translateDraft")}
+        </Button>
+      )}
+
+      {translationError && (
+        <p className="text-[11px] text-destructive" role="status">
+          {translationError}
+        </p>
+      )}
+    </div>
+  )
+
+  /** Acciones de la hoja inferior, en grilla. Sólo móvil. */
+  const composerActions = [
+    {
+      key: "gallery",
+      label: t("chats.attachImage"),
+      Icon: ImageIcon,
+      tone: "bg-primary/10 text-primary",
+      disabled: disabled,
+      onClick: () => {
+        setIsActionsOpen(false)
+        fileInputRef.current?.click()
+      },
+    },
+    ...(supportsTemplates && channelId && conversationId && onSendTemplate
+      ? [{
+          key: "template",
+          label: t("chats.templates"),
+          Icon: FileText,
+          tone: "bg-muted text-foreground",
+          disabled: disabled,
+          onClick: () => {
+            setIsActionsOpen(false)
+            setIsTemplateDialogOpen(true)
+          },
+        }]
+      : []),
+    {
+      key: "emoji",
+      label: t("chats.emojiPickerTitle"),
+      Icon: Smile,
+      tone: "bg-muted text-foreground",
+      disabled: emojiPickerDisabled,
+      onClick: () => {
+        setIsActionsOpen(false)
+        setIsEmojiSheetOpen(true)
+      },
+    },
+    {
+      key: "translate",
+      label: t("chats.translateAction"),
+      Icon: Languages,
+      tone: translatedLanguage ? "bg-primary/10 text-primary" : "bg-muted text-foreground",
+      disabled: disabled,
+      onClick: () => {
+        setIsActionsOpen(false)
+        setIsTranslationSheetOpen(true)
+      },
+    },
+  ]
 
   return (
     <div className="border-t border-border bg-card sticky bottom-0 md:relative">
@@ -417,81 +490,40 @@ export function MessageInput({
           </div>
         </div>
       )}
-      {!isEditing && (
-        <div className="flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-1.5 text-xs text-muted-foreground">
-          <div className="flex min-w-0 items-center gap-2">
-            <Languages className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline">{t("chats.contactLanguage")}</span>
-            <Select
-              value={contactLanguage}
-              onValueChange={(next) => void onContactLanguageChange(next as TranslationLanguage)}
-              disabled={disabled || isTranslating}
-            >
-              <SelectTrigger
-                className="h-7 w-[128px] border-0 bg-transparent px-2 text-xs font-medium shadow-none focus:ring-2"
-                aria-label={t("chats.contactLanguage")}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(["es", "en", "pt", "fr", "it", "de", "zh"] as TranslationLanguage[]).map((lang) => (
-                  <SelectItem key={lang} value={lang}>
-                    {t(`chats.language.${lang}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex min-w-0 items-center gap-2" aria-live="polite">
-            {translatedLanguage && originalDraft !== null && (
-              <span className="hidden truncate text-[11px] sm:inline">
-                {t("chats.draftTranslatedTo", { language: t(`chats.language.${translatedLanguage}`) })}
-              </span>
-            )}
-            {originalDraft !== null ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1.5 px-2 text-xs"
-                onClick={restoreOriginalDraft}
-                disabled={disabled || isTranslating}
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                {t("chats.restoreOriginal")}
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1.5 px-2 text-xs"
-                onClick={() => void handleTranslateDraft()}
-                disabled={disabled || isTranslating || isAudio || !value.trim()}
-              >
-                {isTranslating ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
-                ) : (
-                  <Languages className="h-3.5 w-3.5" />
-                )}
-                <span className="hidden sm:inline">
-                  {isTranslating ? t("chats.translating") : t("chats.translateDraft")}
-                </span>
-                <span className="sm:hidden">{t("chats.translateShort")}</span>
-              </Button>
-            )}
-          </div>
-          {translationError && (
-            <div className="w-full text-right text-[11px] text-destructive" role="status">
+      {/* Estado de traducción fuera del popover: el chip resume qué pasó cuando
+          el panel ya se cerró. Con el popover abierto no se duplica. */}
+      {!isEditing && !isTranslationOpen && (translatedLanguage || translationError) && (
+        <div
+          className="flex items-center gap-2 px-4 pt-2 text-[11px] text-muted-foreground"
+          aria-live="polite"
+        >
+          {translationError ? (
+            <span className="truncate text-destructive" role="status">
               {translationError}
-            </div>
+            </span>
+          ) : (
+            <>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 font-medium">
+                <Languages className="h-3 w-3 shrink-0" />
+                {t(`chats.language.${translatedLanguage}`)}
+              </span>
+              {originalDraft !== null && (
+                <button
+                  type="button"
+                  onClick={restoreOriginalDraft}
+                  disabled={disabled || isTranslating}
+                  className="shrink-0 underline underline-offset-2 transition-colors hover:text-foreground disabled:opacity-50"
+                >
+                  {t("chats.restoreOriginal")}
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
-      <div className="p-4">
-        <div className="flex items-end gap-2">
-          {!isEditing && (
+      <div className="px-3 py-2.5 sm:p-4">
+        <div className="flex items-end gap-1 sm:gap-2">
+          {!isEditing && !isVoiceComposerActive && (
             <>
               <input
                 ref={fileInputRef}
@@ -500,38 +532,143 @@ export function MessageInput({
                 className="hidden"
                 onChange={handleFileSelect}
               />
+              {/* En móvil las acciones secundarias suben desde el borde inferior,
+                  al alcance del pulgar. Con cinco botones inline al textarea le
+                  quedaban 150px de 366. */}
+              <Sheet open={isActionsOpen} onOpenChange={setIsActionsOpen}>
+                <SheetTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-10 w-10 shrink-0 p-0 sm:hidden"
+                    disabled={disabled}
+                    aria-label={t("chats.moreActions")}
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="bottom" className="gap-0 rounded-t-2xl pb-[env(safe-area-inset-bottom)]">
+                  <SheetHeader className="pb-2">
+                    <SheetTitle className="text-base">{t("chats.moreActions")}</SheetTitle>
+                  </SheetHeader>
+                  <div className="grid grid-cols-4 gap-2 px-4 pb-6">
+                    {composerActions.map((action) => (
+                      <button
+                        key={action.key}
+                        type="button"
+                        disabled={action.disabled}
+                        onClick={action.onClick}
+                        className="flex flex-col items-center gap-1.5 rounded-lg py-2 transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-40 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                      >
+                        <span className={`flex h-12 w-12 items-center justify-center rounded-full ${action.tone}`}>
+                          <action.Icon className="h-5 w-5" />
+                        </span>
+                        <span className="text-[11px] leading-tight text-muted-foreground">
+                          {action.label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </SheetContent>
+              </Sheet>
+
+              {/* Hoja de emojis: en móvil sube desde abajo, en escritorio es popover. */}
+              <Sheet open={isEmojiSheetOpen} onOpenChange={setIsEmojiSheetOpen}>
+                <SheetContent side="bottom" className="gap-0 rounded-t-2xl pb-[env(safe-area-inset-bottom)]">
+                  <SheetHeader className="pb-2">
+                    <SheetTitle className="text-base">{t("chats.emojiPickerTitle")}</SheetTitle>
+                  </SheetHeader>
+                  <div className="px-4 pb-6">
+                    <EmojiPicker size="touch" onSelect={handleEmojiSelect} />
+                  </div>
+                </SheetContent>
+              </Sheet>
+
+              {/* Hoja del traductor en móvil. */}
+              <Sheet open={isTranslationSheetOpen} onOpenChange={setIsTranslationSheetOpen}>
+                <SheetContent side="bottom" className="gap-0 rounded-t-2xl pb-[env(safe-area-inset-bottom)]">
+                  <SheetHeader className="pb-2">
+                    <SheetTitle className="text-base">{t("chats.translateDraft")}</SheetTitle>
+                  </SheetHeader>
+                  <div className="px-4 pb-6">
+                    {translationPanel}
+                  </div>
+                </SheetContent>
+              </Sheet>
+
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={disabled || isRecordingAudio}
+                className="hidden shrink-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5"
+                disabled={disabled}
                 onClick={() => fileInputRef.current?.click()}
+                aria-label={t("chats.attachFile")}
               >
                 <Paperclip className="w-4 h-4" />
               </Button>
               {supportsTemplates && channelId && conversationId && onSendTemplate && (
-                <TemplatePicker
-                  channelId={channelId}
-                  conversationId={conversationId}
-                  onSend={onSendTemplate}
-                  disabled={disabled || isRecordingAudio}
-                />
+                <>
+                  {/* Botón propio sólo en escritorio; en móvil se abre desde la hoja. */}
+                  <span className="hidden shrink-0 sm:contents">
+                    <TemplatePicker
+                      channelId={channelId}
+                      conversationId={conversationId}
+                      onSend={onSendTemplate}
+                      disabled={disabled}
+                      open={isTemplateDialogOpen}
+                      onOpenChange={setIsTemplateDialogOpen}
+                    />
+                  </span>
+                  <span className="contents sm:hidden">
+                    <TemplatePicker
+                      channelId={channelId}
+                      conversationId={conversationId}
+                      onSend={onSendTemplate}
+                      disabled={disabled}
+                      open={isTemplateDialogOpen}
+                      onOpenChange={setIsTemplateDialogOpen}
+                      hideTrigger
+                    />
+                  </span>
+                </>
               )}
+              <Popover open={isTranslationOpen} onOpenChange={setIsTranslationOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={disabled}
+                    aria-label={t("chats.translateDraft")}
+                    title={t("chats.translateDraft")}
+                    className={`h-10 w-10 shrink-0 p-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5 ${
+                      value.trim() || translatedLanguage ? "inline-flex" : "hidden"
+                    } ${translatedLanguage ? "text-primary" : ""}`}
+                  >
+                    {isTranslating ? (
+                      <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" />
+                    ) : (
+                      <Languages className="w-4 h-4" />
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-64 p-3">
+                  {translationPanel}
+                </PopoverContent>
+              </Popover>
             </>
           )}
-          <div className="relative flex-1">
+          {!isVoiceComposerActive && <div className="relative flex-1">
             <Textarea
               ref={inputRef}
               rows={1}
               placeholder={
                 isEditing
                   ? t("chats.editingMessage")
-                  : isRecordingAudio
-                    ? (t("chats.recording") || "Grabando...")
-                    : isAudio
-                      ? (t("chats.audioPlaceholder") || "Audio listo para enviar")
-                      : (selectedMedia ? (t("chats.captionPlaceholder") || "Agregar caption...") : resolvedPlaceholder)
+                  : isAudio
+                    ? (t("chats.audioPlaceholder") || "Audio listo para enviar")
+                    : (selectedMedia ? (t("chats.captionPlaceholder") || "Agregar caption...") : resolvedPlaceholder)
               }
-              className="w-full min-h-9 max-h-32 resize-none py-2"
+              className="w-full min-h-9 max-h-32 resize-none py-2 [field-sizing:content]"
               value={value}
               onChange={handleInputChange}
               onSelect={handleInputSelect}
@@ -539,7 +676,7 @@ export function MessageInput({
               onBlur={() => requestAnimationFrame(closeHotkeyDropdown)}
               onKeyDown={handleKeyDown}
               onKeyUp={stopPropagation}
-              disabled={disabled || isAudio || isRecordingAudio}
+              disabled={disabled || isAudio}
             />
             {isHotkeyDropdownOpen && (
               <HotkeyAutocomplete
@@ -550,13 +687,14 @@ export function MessageInput({
                 anchorRef={inputRef}
               />
             )}
-          </div>
-          {!isEditing && (
+          </div>}
+          {!isEditing && !isVoiceComposerActive && (
             <Popover open={isEmojiPickerOpen} onOpenChange={setIsEmojiPickerOpen}>
               <PopoverTrigger asChild>
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="hidden shrink-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5"
                   disabled={emojiPickerDisabled}
                   aria-label={t("chats.openEmojiPicker")}
                 >
@@ -564,47 +702,28 @@ export function MessageInput({
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-80 p-3">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">{t("chats.emojiPickerTitle")}</p>
-                    <Smile className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  {EMOJI_GROUPS.map((group) => (
-                    <div key={group.key} className="space-y-2">
-                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        {t(group.translationKey)}
-                      </p>
-                      <div className="grid grid-cols-8 gap-1">
-                        {group.emojis.map((emoji) => (
-                          <button
-                            key={`${group.key}-${emoji}`}
-                            type="button"
-                            className="flex h-9 w-9 items-center justify-center rounded-md text-lg transition-colors hover:bg-accent focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none"
-                            onClick={() => handleEmojiSelect(emoji)}
-                            aria-label={`${t(group.translationKey)} ${emoji}`}
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <EmojiPicker onSelect={handleEmojiSelect} />
               </PopoverContent>
             </Popover>
           )}
-          {showMicButton ? (
-            <AudioRecorder
+          {supportsVoice && !isEditing && !selectedMedia && (
+            <VoiceRecorder
+              conversationId={conversationId}
               disabled={disabled}
-              onRecorded={handleAudioRecorded}
-              onError={handleAudioRecorderError}
-              onRecordingChange={setIsRecordingAudio}
+              canRecord={!value.trim()}
+              onActiveChange={setIsVoiceComposerActive}
+              onSend={(file) => onSend("", file, true)}
             />
-          ) : (
-            <Button size="sm" onClick={handleSend} disabled={disabled || !canSend}>
-              {isEditing ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-            </Button>
           )}
+          {!isVoiceComposerActive && <Button
+            size="sm"
+            className="h-10 w-10 shrink-0 p-0 sm:h-8 sm:w-auto sm:px-3"
+            onClick={handleSend}
+            disabled={disabled || !canSend}
+            aria-label={isEditing ? t("chats.save") : t("chats.send")}
+          >
+            {isEditing ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+          </Button>}
         </div>
       </div>
     </div>

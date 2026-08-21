@@ -429,7 +429,8 @@ class WhatsAppMessageService
         string $localMediaPath,
         string $mediaUrl,
         string $mimeType,
-        User $user
+        User $user,
+        bool $voice = false
     ): Message {
         ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
@@ -467,6 +468,7 @@ class WhatsAppMessageService
                 'type' => 'audio',
                 'audio' => [
                     'id' => $whatsappMediaId,
+                    ...($voice ? ['voice' => true] : []),
                 ],
             ]);
 
