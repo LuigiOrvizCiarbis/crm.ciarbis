@@ -96,6 +96,42 @@ class WhatsAppVoiceMessageTest extends TestCase
         $this->assertFileDoesNotExist($temporary);
     }
 
+    /**
+     * El front manda multipart, donde todo valor es string. Laravel valida
+     * `boolean` contra 1/0/"1"/"0" (no acepta "true"), así que este caso cubre
+     * el valor tal cual viaja por HTTP.
+     */
+    public function test_voice_flag_accepts_multipart_string_value(): void
+    {
+        Storage::fake('public');
+        $temporary = tempnam(sys_get_temp_dir(), 'test_voice_');
+        $this->assertNotFalse($temporary);
+        file_put_contents($temporary, 'valid ogg fixture');
+        $transcoder = Mockery::mock(VoiceTranscoder::class);
+        $transcoder->expects('transcode')->once()->andReturn($temporary);
+        $this->app->instance(VoiceTranscoder::class, $transcoder);
+        Http::fake([
+            'https://graph.facebook.com/v26.0/*/media' => Http::response(['id' => 'media_voice'], 200),
+            'https://graph.facebook.com/v26.0/*/messages' => Http::response(['messages' => [['id' => 'wamid_voice']]], 200),
+        ]);
+        [$user, $conversation] = $this->conversation(ChannelType::WHATSAPP);
+        Sanctum::actingAs($user);
+
+        $this->post('/api/messages', [
+            'conversation_id' => $conversation->id, 'type' => 'audio',
+            'audio' => UploadedFile::fake()->createWithContent(
+                'voice.webm',
+                "\x1A\x45\xDF\xA3\x93\x42\x82\x88webm\x42\x87\x81\x02\x42\x85\x81\x02\x18\x53\x80\x67"
+            ),
+            'voice' => '1',
+        ])->assertStatus(201);
+
+        Http::assertSent(function ($request) {
+            return str_ends_with($request->url(), '/messages')
+                && $request['audio']['voice'] === true;
+        });
+    }
+
     public function test_normal_whatsapp_audio_skips_transcoder_and_omits_voice_key(): void
     {
         Storage::fake('public');
