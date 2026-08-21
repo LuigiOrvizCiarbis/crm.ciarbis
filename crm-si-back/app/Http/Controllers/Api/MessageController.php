@@ -23,6 +23,34 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 
 class MessageController extends Controller
 {
+    /**
+     * Mimes que aceptamos para el campo `audio` del envío general (regla de
+     * validación de `store`). Laravel detecta el mime por CONTENIDO, no por lo
+     * que declara el navegador, así que además de los formatos "de escritorio"
+     * (mp3/ogg) sumamos lo que produce grabar/adjuntar audio desde mobile:
+     * Chrome/Android graba webm/opus, Safari/iOS graba mp4 (que PHP suele
+     * detectar como video/mp4 o audio/x-m4a), y las notas de voz de WhatsApp
+     * reenviadas desde iOS llegan como audio/x-m4a.
+     * `video/*` está acá porque son contenedores sólo-audio que PHP marca
+     * como video; no habilita subir video real, sólo pasa la validación —
+     * `WhatsAppMessageService` sigue tratándolo como audio.
+     */
+    private const ALLOWED_AUDIO_MIMES = [
+        'audio/aac',
+        'audio/mpeg',
+        'audio/mp3',
+        'audio/ogg',
+        'audio/mp4',
+        'audio/amr',
+        'audio/3gpp',
+        'audio/webm',
+        'video/webm',
+        'audio/x-m4a',
+        'audio/wav',
+        'audio/x-wav',
+        'video/mp4',
+    ];
+
     public function __construct(
         private WhatsAppMessageService $messageService,
         private InstagramMessageService $instagramService,
@@ -61,7 +89,7 @@ class MessageController extends Controller
             'content_html' => 'nullable|string|max:200000',
             'type' => 'required|string|in:text,image,audio,mail',
             'image' => 'required_if:type,image|image|max:10240',
-            'audio' => 'required_if:type,audio|file|mimetypes:audio/aac,audio/mpeg,audio/mp3,audio/ogg,audio/mp4,audio/amr,audio/3gpp,audio/webm,video/webm,video/mp4|max:16384',
+            'audio' => 'required_if:type,audio|file|mimetypes:'.implode(',', self::ALLOWED_AUDIO_MIMES).'|max:16384',
             'voice' => 'sometimes|boolean',
             'cc' => 'nullable|array|max:20',
             'cc.*' => 'required|email:rfc|max:255',
@@ -69,6 +97,8 @@ class MessageController extends Controller
             'bcc.*' => 'required|email:rfc|max:255',
             'attachments' => 'nullable|array|max:10',
             'attachments.*' => 'file|max:10240',
+        ], [
+            'audio.mimetypes' => 'Este formato de audio no es compatible. Probá grabar de nuevo o adjuntar un MP3, OGG o M4A.',
         ]);
 
         $conversation = Conversation::query()
