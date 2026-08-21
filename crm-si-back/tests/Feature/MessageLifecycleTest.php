@@ -264,13 +264,13 @@ class MessageLifecycleTest extends TestCase
         $response->assertStatus(201);
         $this->assertSame(1, Message::query()->where('message_type', MessageType::Audio)->count());
 
-        // audio/x-m4a ya es compatible con Meta (mapea a aac/mp4): no debería
-        // haberse invocado ffmpeg. Meta recibe el mime tal cual, no 'audio/ogg'.
+        // M4A no necesita transcodificación, pero Meta exige el MIME estándar
+        // audio/mp4 en el multipart y en el campo type.
         Http::assertSent(function ($request) {
             $typePart = collect($request->data())->firstWhere('name', 'type');
 
             return str_contains($request->url(), '/media')
-                && ($typePart['contents'] ?? null) === 'audio/x-m4a';
+                && ($typePart['contents'] ?? null) === 'audio/mp4';
         });
     }
 

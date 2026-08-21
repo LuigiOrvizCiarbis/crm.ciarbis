@@ -366,9 +366,13 @@ class WhatsAppMessageService
      */
     private function ensureWhatsAppCompatibleAudio(string $localMediaPath, string $mimeType): array
     {
-        // audio/x-m4a: PHP/fileinfo detecta así los .m4a (incluidas las notas de
-        // voz de WhatsApp reenviadas desde iOS); Meta los acepta igual que mp4/aac.
-        $metaCompatible = ['audio/aac', 'audio/mp4', 'audio/x-m4a', 'audio/mpeg', 'audio/mp3', 'audio/amr', 'audio/3gpp', 'audio/ogg'];
+        // PHP/fileinfo suele detectar los .m4a como audio/x-m4a, pero Meta sólo
+        // acepta ese contenedor con el MIME estándar audio/mp4.
+        if ($mimeType === 'audio/x-m4a') {
+            return [$localMediaPath, 'audio/mp4', basename($localMediaPath)];
+        }
+
+        $metaCompatible = ['audio/aac', 'audio/mp4', 'audio/mpeg', 'audio/mp3', 'audio/amr', 'audio/3gpp', 'audio/ogg'];
         $needsTranscode = ! in_array($mimeType, $metaCompatible, true);
 
         if (! $needsTranscode) {
