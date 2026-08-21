@@ -23,7 +23,9 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Sentry\Severity;
 use Sentry\State\Scope;
 
@@ -352,6 +354,72 @@ class WhatsAppMessageService
         return $message;
     }
 
+    /**
+     * WhatsApp Cloud API sólo acepta audio/aac, audio/mp4, audio/mpeg, audio/amr
+     * y audio/ogg (opus). webm y wav pasan la validación general del CRM (son
+     * lo que graba el navegador en mobile) pero Meta los rechaza en el upload
+     * a /media. Los convertimos acá a ogg/opus, el formato nativo de las notas
+     * de voz de WhatsApp, antes de subir.
+     *
+     * Devuelve [path local (posiblemente convertido), mime, nombre de archivo].
+     * Si el mime ya es compatible con Meta, no toca nada.
+     */
+    private function ensureWhatsAppCompatibleAudio(string $localMediaPath, string $mimeType): array
+    {
+        // audio/x-m4a: PHP/fileinfo detecta así los .m4a (incluidas las notas de
+        // voz de WhatsApp reenviadas desde iOS); Meta los acepta igual que mp4/aac.
+        $metaCompatible = ['audio/aac', 'audio/mp4', 'audio/x-m4a', 'audio/mpeg', 'audio/mp3', 'audio/amr', 'audio/3gpp', 'audio/ogg'];
+        $needsTranscode = ! in_array($mimeType, $metaCompatible, true);
+
+        if (! $needsTranscode) {
+            return [$localMediaPath, $mimeType, basename($localMediaPath)];
+        }
+
+        if (! $this->ffmpegAvailable()) {
+            throw new \InvalidArgumentException(
+                'Este formato de audio no es compatible con WhatsApp y el servidor no puede convertirlo. Probá grabar de nuevo o adjuntar un MP3, OGG o M4A.'
+            );
+        }
+
+        $sourceAbsolutePath = Storage::disk('public')->path($localMediaPath);
+        // Guardamos el convertido junto al original (mismo directorio "messages/{tenant}")
+        // con nombre nuevo; si el path viniera plano, dirname() devuelve "." y el
+        // resultado queda igual de válido para Storage::disk('public').
+        $convertedRelativePath = ($dir = dirname($localMediaPath)) !== '.'
+            ? $dir.'/'.Str::uuid().'.ogg'
+            : Str::uuid().'.ogg';
+        $convertedAbsolutePath = Storage::disk('public')->path($convertedRelativePath);
+
+        $result = Process::timeout(30)->run([
+            'ffmpeg', '-y',
+            '-i', $sourceAbsolutePath,
+            '-c:a', 'libopus',
+            '-b:a', '64k',
+            '-vn',
+            $convertedAbsolutePath,
+        ]);
+
+        if ($result->failed() || ! is_file($convertedAbsolutePath)) {
+            Log::error('Error transcodificando audio a ogg/opus para WhatsApp', [
+                'source' => $localMediaPath,
+                'mime' => $mimeType,
+                'exit_code' => $result->exitCode(),
+                'stderr' => $result->errorOutput(),
+            ]);
+
+            throw new \InvalidArgumentException(
+                'No se pudo convertir el audio a un formato compatible con WhatsApp. Probá grabar de nuevo.'
+            );
+        }
+
+        return [$convertedRelativePath, 'audio/ogg', basename($convertedRelativePath)];
+    }
+
+    private function ffmpegAvailable(): bool
+    {
+        return Process::run(['which', 'ffmpeg'])->successful();
+    }
+
     public function sendAudioMessageFromCRM(
         Conversation $conversation,
         string $localMediaPath,
@@ -362,13 +430,23 @@ class WhatsAppMessageService
         ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
 
+        [$uploadMediaPath, $uploadMimeType, $uploadFilename] =
+            $this->ensureWhatsAppCompatibleAudio($localMediaPath, $mimeType);
+        $wasTranscoded = $uploadMediaPath !== $localMediaPath;
+
         $uploadResponse = Http::withToken($businessToken)
             ->timeout(30)
-            ->attach('file', Storage::disk('public')->get($localMediaPath), basename($localMediaPath), ['Content-Type' => $mimeType])
+            ->attach('file', Storage::disk('public')->get($uploadMediaPath), $uploadFilename, ['Content-Type' => $uploadMimeType])
             ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/media", [
                 'messaging_product' => 'whatsapp',
-                'type' => $mimeType,
+                'type' => $uploadMimeType,
             ]);
+
+        // El .ogg convertido es sólo para el upload a Meta; el CRM conserva y
+        // reproduce el archivo original. Lo borramos apenas termina el upload.
+        if ($wasTranscoded) {
+            Storage::disk('public')->delete($uploadMediaPath);
+        }
 
         if (! $uploadResponse->successful()) {
             throw new \RuntimeException('Error subiendo audio a WhatsApp: '.$uploadResponse->body());

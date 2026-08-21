@@ -16,7 +16,10 @@ use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Process;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -120,6 +123,172 @@ class MessageLifecycleTest extends TestCase
 
         $this->assertSame('🎵 Audio', $conversation->last_message_content);
         $this->assertNotNull($conversation->last_message_at);
+    }
+
+    /**
+     * Fixture real generada con ffmpeg (audio sólo-audio en contenedor webm/opus).
+     * PHP/fileinfo la detecta como video/webm (contenedor sólo-audio marcado
+     * video), justo el caso que rompía el envío desde Chrome/Android antes del fix.
+     */
+    private function webmAudioFixturePath(): string
+    {
+        return __DIR__.'/../Fixtures/audio/audio-sample.webm';
+    }
+
+    /** Fixture m4a/aac real; fileinfo la detecta como audio/x-m4a (Safari/iOS, notas de voz de WhatsApp). */
+    private function m4aAudioFixturePath(): string
+    {
+        return __DIR__.'/../Fixtures/audio/audio-sample.m4a';
+    }
+
+    /**
+     * Crea tenant (con roles Spatie provisionados), usuario Owner, canal
+     * WhatsApp y conversación lista para enviar audio. Las policies autorizan
+     * por permisos de Spatie: sin `assignRole('Owner')` el endpoint responde 403.
+     */
+    private function createWhatsAppConversationForAudioTests(): array
+    {
+        $tenant = $this->createTenantWithRoles();
+
+        $user = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'role' => UserRole::ADMIN,
+        ]);
+        $user->assignRole('Owner');
+
+        $channel = Channel::create([
+            'tenant_id' => $tenant->id,
+            'user_id' => $user->id,
+            'type' => ChannelType::WHATSAPP,
+            'name' => 'Main channel',
+            'status' => 'active',
+        ]);
+
+        $config = WhatsAppConfig::create([
+            'phone_number_id' => '123456789',
+            'display_phone_number' => '+54 9 223 511-2208',
+            'waba_id' => 'waba-test',
+            'bussines_token' => Crypt::encryptString('test-token'),
+        ]);
+        $channel->update(['whatsapp_config_id' => $config->id]);
+
+        $contact = Contact::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Jane Doe',
+            'phone' => '+5491111111111',
+            'source' => 'whatsapp',
+        ]);
+
+        $conversation = Conversation::create([
+            'tenant_id' => $tenant->id,
+            'channel_id' => $channel->id,
+            'contact_id' => $contact->id,
+            'status' => 'open',
+        ]);
+
+        return [$user, $conversation];
+    }
+
+    public function test_webm_audio_from_mobile_recorder_is_accepted_and_transcoded_before_whatsapp_upload(): void
+    {
+        [$user, $conversation] = $this->createWhatsAppConversationForAudioTests();
+
+        Http::fake([
+            'https://graph.facebook.com/*/media' => Http::response(['id' => 'media_123'], 200),
+            'https://graph.facebook.com/*/messages' => Http::response(['messages' => [['id' => 'wamid_123']]], 200),
+        ]);
+
+        // ffmpeg no está instalado en el container de test todavía (requiere
+        // rebuild de imagen, agregado al Dockerfile en este cambio); simulamos
+        // una conversión exitosa a ogg/opus para no acoplar este test a la
+        // infraestructura del container. El fake de "which" resuelve OK
+        // (ffmpeg "disponible") y el de "ffmpeg" crea el .ogg de salida, que es
+        // lo que el servicio verifica con is_file() después de correr.
+        Process::fake(function ($process) {
+            $command = $process->command;
+
+            if (is_array($command) && ($command[0] ?? null) === 'which') {
+                return Process::result(exitCode: 0);
+            }
+
+            if (is_array($command) && ($command[0] ?? null) === 'ffmpeg') {
+                $outputPath = end($command);
+                file_put_contents($outputPath, 'fake-ogg-content');
+
+                return Process::result('');
+            }
+
+            return Process::result(exitCode: 1);
+        });
+
+        Sanctum::actingAs($user);
+
+        $response = $this->post('/api/messages', [
+            'conversation_id' => $conversation->id,
+            'type' => 'audio',
+            'audio' => new UploadedFile($this->webmAudioFixturePath(), 'nota-de-voz.webm', 'video/webm', null, true),
+        ], ['Accept' => 'application/json']);
+
+        $response->assertStatus(201);
+
+        $this->assertSame(1, Message::query()->where('message_type', MessageType::Audio)->count());
+
+        // El upload a Meta debe llevar el mime convertido (ogg), no el webm original.
+        // Es un request multipart: data() devuelve las partes como lista
+        // [{name, contents}, ...], no un array asociativo.
+        Http::assertSent(function ($request) {
+            $typePart = collect($request->data())->firstWhere('name', 'type');
+
+            return str_contains($request->url(), '/media')
+                && ($typePart['contents'] ?? null) === 'audio/ogg';
+        });
+    }
+
+    public function test_x_m4a_audio_is_accepted_without_transcoding(): void
+    {
+        [$user, $conversation] = $this->createWhatsAppConversationForAudioTests();
+
+        Http::fake([
+            'https://graph.facebook.com/*/media' => Http::response(['id' => 'media_456'], 200),
+            'https://graph.facebook.com/*/messages' => Http::response(['messages' => [['id' => 'wamid_456']]], 200),
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->post('/api/messages', [
+            'conversation_id' => $conversation->id,
+            'type' => 'audio',
+            'audio' => new UploadedFile($this->m4aAudioFixturePath(), 'nota-de-voz.m4a', 'audio/x-m4a', null, true),
+        ], ['Accept' => 'application/json']);
+
+        $response->assertStatus(201);
+        $this->assertSame(1, Message::query()->where('message_type', MessageType::Audio)->count());
+
+        // audio/x-m4a ya es compatible con Meta (mapea a aac/mp4): no debería
+        // haberse invocado ffmpeg. Meta recibe el mime tal cual, no 'audio/ogg'.
+        Http::assertSent(function ($request) {
+            $typePart = collect($request->data())->firstWhere('name', 'type');
+
+            return str_contains($request->url(), '/media')
+                && ($typePart['contents'] ?? null) === 'audio/x-m4a';
+        });
+    }
+
+    public function test_unsupported_audio_format_is_rejected_with_clear_message(): void
+    {
+        [$user, $conversation] = $this->createWhatsAppConversationForAudioTests();
+
+        Sanctum::actingAs($user);
+
+        $response = $this->post('/api/messages', [
+            'conversation_id' => $conversation->id,
+            'type' => 'audio',
+            'audio' => UploadedFile::fake()->createWithContent('documento.pdf', '%PDF-1.4 fake content'),
+        ], ['Accept' => 'application/json']);
+
+        $response->assertStatus(422);
+        $this->assertStringContainsString('formato de audio', $response->json('message'));
+        $this->assertSame(0, Message::count());
     }
 
     public function test_sticker_message_updates_conversation_preview_with_sticker_label(): void

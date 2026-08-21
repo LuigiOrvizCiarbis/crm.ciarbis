@@ -11,9 +11,12 @@ import dynamic from "next/dynamic"
 import Image from "next/image"
 import { Message, TranslationLanguage } from "@/data/types"
 import { getMessageHotkeys, type MessageHotkey } from "@/lib/api/message-hotkeys"
-import { pauseOtherAudios } from "@/lib/audio"
+import { pauseOtherAudios, canRecordAudio } from "@/lib/audio"
 import { expandHotkey, parseSlashCommand, type HotkeyExpansionContext } from "@/lib/utils/hotkeys"
 import { HotkeyAutocomplete } from "./HotkeyAutocomplete"
+import { AudioRecorder } from "./AudioRecorder"
+import type { AudioRecorderError } from "@/hooks/use-audio-recorder"
+import { useToast } from "@/components/Toast"
 
 const TemplatePicker = dynamic(
   () => import("./TemplatePicker").then(m => m.TemplatePicker),
@@ -91,11 +94,13 @@ export function MessageInput({
   onTranslateDraft,
 }: MessageInputProps) {
   const { t } = useTranslation()
+  const { addToast } = useToast()
   const resolvedPlaceholder = placeholder ?? t("chats.messagePlaceholder")
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [selectedMedia, setSelectedMedia] = useState<File | null>(null)
   const [mediaPreview, setMediaPreview] = useState<string | null>(null)
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false)
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false)
   const [hotkeys, setHotkeys] = useState<MessageHotkey[]>([])
   const [slashState, setSlashState] = useState<SlashState | null>(null)
@@ -295,6 +300,27 @@ export function MessageInput({
     return true
   }
 
+  // El audio grabado va a la misma preview que un adjunto: nunca se envía
+  // solo al soltar, siempre hay que confirmar (botón enviar) antes.
+  const handleAudioRecorded = (file: File) => {
+    acceptMediaFile(file)
+  }
+
+  const handleAudioRecorderError = (error: AudioRecorderError) => {
+    if (error === "not-allowed") {
+      addToast({
+        type: "error",
+        title: t("chats.micPermissionDenied"),
+      })
+      return
+    }
+
+    addToast({
+      type: "error",
+      title: t("chats.audioFormatUnsupported"),
+    })
+  }
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -319,7 +345,14 @@ export function MessageInput({
   }
 
   const canSend = isAudio ? selectedMedia : value.trim() || selectedMedia
-  const emojiPickerDisabled = disabled || isAudio
+  const emojiPickerDisabled = disabled || isAudio || isRecordingAudio
+  // El micrófono reemplaza al botón de enviar cuando no hay nada que mandar
+  // todavía. En cuanto hay texto o media seleccionada, vuelve el avión de
+  // papel. Sin MediaRecorder o sin contexto seguro (http), se oculta el
+  // botón y sólo queda el clip de adjuntar. Mientras graba, se mantiene
+  // aunque cambien value/selectedMedia por debajo (no debería, están
+  // deshabilitados, pero evita desmontar el grabador a mitad de gesto).
+  const showMicButton = !isEditing && (isRecordingAudio || (!value.trim() && !selectedMedia)) && canRecordAudio()
 
   const handleEmojiSelect = (emoji: string) => {
     const input = inputRef.current
@@ -470,7 +503,7 @@ export function MessageInput({
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={disabled}
+                disabled={disabled || isRecordingAudio}
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Paperclip className="w-4 h-4" />
@@ -480,7 +513,7 @@ export function MessageInput({
                   channelId={channelId}
                   conversationId={conversationId}
                   onSend={onSendTemplate}
-                  disabled={disabled}
+                  disabled={disabled || isRecordingAudio}
                 />
               )}
             </>
@@ -492,9 +525,11 @@ export function MessageInput({
               placeholder={
                 isEditing
                   ? t("chats.editingMessage")
-                  : isAudio
-                    ? (t("chats.audioPlaceholder") || "Audio listo para enviar")
-                    : (selectedMedia ? (t("chats.captionPlaceholder") || "Agregar caption...") : resolvedPlaceholder)
+                  : isRecordingAudio
+                    ? (t("chats.recording") || "Grabando...")
+                    : isAudio
+                      ? (t("chats.audioPlaceholder") || "Audio listo para enviar")
+                      : (selectedMedia ? (t("chats.captionPlaceholder") || "Agregar caption...") : resolvedPlaceholder)
               }
               className="w-full min-h-9 max-h-32 resize-none py-2"
               value={value}
@@ -504,7 +539,7 @@ export function MessageInput({
               onBlur={() => requestAnimationFrame(closeHotkeyDropdown)}
               onKeyDown={handleKeyDown}
               onKeyUp={stopPropagation}
-              disabled={disabled || isAudio}
+              disabled={disabled || isAudio || isRecordingAudio}
             />
             {isHotkeyDropdownOpen && (
               <HotkeyAutocomplete
@@ -558,9 +593,18 @@ export function MessageInput({
               </PopoverContent>
             </Popover>
           )}
-          <Button size="sm" onClick={handleSend} disabled={disabled || !canSend}>
-            {isEditing ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-          </Button>
+          {showMicButton ? (
+            <AudioRecorder
+              disabled={disabled}
+              onRecorded={handleAudioRecorded}
+              onError={handleAudioRecorderError}
+              onRecordingChange={setIsRecordingAudio}
+            />
+          ) : (
+            <Button size="sm" onClick={handleSend} disabled={disabled || !canSend}>
+              {isEditing ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+            </Button>
+          )}
         </div>
       </div>
     </div>
