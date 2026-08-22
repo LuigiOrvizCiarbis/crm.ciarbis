@@ -914,7 +914,7 @@ export default function ChatsPage() {
   }, [selectedConversationId, aiDraft?.status]);
 
   const latestInboundMessage = useMemo(() => {
-    const latest = [...(currentConversation?.messages ?? [])].reverse()[0]
+    const latest = [...(currentConversation?.messages ?? [])].filter((item) => !item.deleted_at).reverse()[0]
     return latest?.direction === "inbound" && (latest.message_type === "text" || latest.message_type === "image") ? latest : undefined
   }, [currentConversation?.messages]);
   const handleRequestAiDraft = useCallback(async () => {
