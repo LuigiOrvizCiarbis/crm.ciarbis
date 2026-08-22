@@ -1,17 +1,13 @@
 import { Message, TranslationLanguage } from "@/data/types"
+import { MessageBubble } from "./MessageBubble"
+import { getDayLabel, isSameDay, parseTemplateContent } from "./messageThreadUtils"
+import { ThreadBackdrop } from "./ThreadBackdrop"
 import { ChannelType } from "@/data/enums"
 import { Fragment, useEffect, useRef, useLayoutEffect, useState, useMemo, useCallback } from "react"
-import { Loader2, MoreHorizontal, Pencil, Trash2, Music2, Search, X, ChevronUp, ChevronDown, Bot, Languages, EyeOff, RefreshCw, AlertCircle } from "lucide-react"
+import { Loader2, Search, X, ChevronUp, ChevronDown, RefreshCw } from "lucide-react"
 import type { MessageTranslationResponse } from "@/lib/api/messages"
 import { useTranslation } from "@/hooks/useTranslation"
-import { pauseOtherAudios } from "@/lib/audio"
 import { Input } from "@/components/ui/input"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,8 +18,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Button } from "@/components/ui/button"
 import { MailMessageBlock } from "./MailMessageBlock"
+
+/** Ventana para agrupar mensajes consecutivos del mismo emisor. */
+const GROUPING_WINDOW_MS = 5 * 60 * 1000
+
+/**
+ * Identifica al emisor real para no mezclar, por ejemplo, un agente humano
+ * con una respuesta automática del sistema aunque ambos sean salientes.
+ */
+const getMessageGroupKey = (message: Message) =>
+  `${message.direction}:${message.sender_type}:${message.sender_id ?? "none"}`
 
 interface MessageListProps {
   messages: Message[]
@@ -46,227 +51,6 @@ interface TranslationState {
   visible: boolean
   loading: boolean
   error?: string
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-}
-
-/**
- * Resalta las coincidencias de `query` dentro de `text`.
- * Marca la coincidencia activa con un color distinto para la navegación.
- */
-function highlightText(
-  text: string,
-  query: string,
-  activeKey: string | null,
-  matchKeyPrefix: string,
-): React.ReactNode {
-  if (!query) return text
-  const regex = new RegExp(`(${escapeRegExp(query)})`, "gi")
-  const parts = text.split(regex)
-  let matchIndex = 0
-  return parts.map((part, i) => {
-    if (part.toLowerCase() === query.toLowerCase()) {
-      const key = `${matchKeyPrefix}-${matchIndex++}`
-      const isActive = key === activeKey
-      return (
-        <mark
-          key={i}
-          data-match-key={key}
-          className={
-            isActive
-              ? "rounded bg-orange-400 px-0.5 text-black"
-              : "rounded bg-yellow-300/70 px-0.5 text-black"
-          }
-        >
-          {part}
-        </mark>
-      )
-    }
-    return part
-  })
-}
-
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  )
-}
-
-/**
- * Etiqueta de día estilo WhatsApp: "Hoy", "Ayer", día de la semana si es de
- * los últimos 7 días, y fecha completa localizada para lo anterior.
- */
-function getDayLabel(
-  date: Date,
-  language: string,
-  t: (key: string) => string,
-): string {
-  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
-  const diffDays = Math.round(
-    (startOfDay(new Date()).getTime() - startOfDay(date).getTime()) / 86400000,
-  )
-  if (diffDays === 0) return t("chats.dateToday")
-  if (diffDays === 1) return t("chats.dateYesterday")
-  if (diffDays > 1 && diffDays < 7) {
-    const weekday = date.toLocaleDateString(language, { weekday: "long" })
-    return weekday.charAt(0).toUpperCase() + weekday.slice(1)
-  }
-  return date.toLocaleDateString(language, {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  })
-}
-
-function parseTemplateContent(content: string): { isTemplate: boolean; title: string; body: string } {
-  const trimmed = (content || "").trim()
-  if (!trimmed) return { isTemplate: false, title: "", body: "" }
-  const withoutLeadingIcons = trimmed.replace(/^[^A-Za-z0-9]+/, "").trim()
-
-  if (trimmed.startsWith("📋")) {
-    const withoutIcon = trimmed.replace(/^📋\s*/, "")
-    if (withoutIcon.includes("\n")) {
-      const [firstLine, ...rest] = withoutIcon.split("\n")
-      return {
-        isTemplate: true,
-        title: `📋 ${firstLine.trim()}`,
-        body: rest.join("\n").trim(),
-      }
-    }
-
-    const legacyWithBody = withoutIcon.match(/^Template:\s*([^(]+)\s*\(([\s\S]+)\)$/i)
-    if (legacyWithBody) {
-      return {
-        isTemplate: true,
-        title: `📋 ${legacyWithBody[1].trim()}`,
-        body: legacyWithBody[2].trim(),
-      }
-    }
-
-    const legacyWithBodyNoClose = withoutIcon.match(/^Template:\s*([^(]+)\s*\(([\s\S]+)$/i)
-    if (legacyWithBodyNoClose) {
-      return {
-        isTemplate: true,
-        title: `📋 ${legacyWithBodyNoClose[1].trim()}`,
-        body: legacyWithBodyNoClose[2].trim(),
-      }
-    }
-
-    const legacyNameOnly = withoutIcon.match(/^Template:\s*([\s\S]+)$/i)
-    if (legacyNameOnly) {
-      return {
-        isTemplate: true,
-        title: `📋 ${legacyNameOnly[1].trim()}`,
-        body: "",
-      }
-    }
-
-    return {
-      isTemplate: true,
-      title: `📋 ${withoutIcon.trim()}`,
-      body: "",
-    }
-  }
-
-  const plainLegacy = withoutLeadingIcons.match(/^Template:\s*([^(]+)\s*\(([\s\S]+)\)$/i)
-  if (plainLegacy) {
-    return {
-      isTemplate: true,
-      title: `📋 ${plainLegacy[1].trim()}`,
-      body: plainLegacy[2].trim(),
-    }
-  }
-
-  const plainLegacyNoClose = withoutLeadingIcons.match(/^Template:\s*([^(]+)\s*\(([\s\S]+)$/i)
-  if (plainLegacyNoClose) {
-    return {
-      isTemplate: true,
-      title: `📋 ${plainLegacyNoClose[1].trim()}`,
-      body: plainLegacyNoClose[2].trim(),
-    }
-  }
-
-  const plainNameOnly = withoutLeadingIcons.match(/^Template:\s*([\s\S]+)$/i)
-  if (plainNameOnly) {
-    return {
-      isTemplate: true,
-      title: `📋 ${plainNameOnly[1].trim()}`,
-      body: "",
-    }
-  }
-
-  return { isTemplate: false, title: "", body: "" }
-}
-
-function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center cursor-pointer"
-      onClick={onClose}
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src}
-        alt="Imagen completa"
-        className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
-        onClick={(e) => e.stopPropagation()}
-      />
-    </div>
-  )
-}
-
-function MessageBubbleImage({ mediaUrl, isUser }: { mediaUrl: string; isUser: boolean }) {
-  const [lightboxOpen, setLightboxOpen] = useState(false)
-
-  return (
-    <>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={mediaUrl}
-        alt="Imagen"
-        className={`rounded-lg max-w-[240px] max-h-[240px] object-cover cursor-pointer hover:opacity-90 transition-opacity ${
-          isUser ? "bg-primary/20" : "bg-muted"
-        }`}
-        onClick={() => setLightboxOpen(true)}
-        loading="lazy"
-      />
-      {lightboxOpen && <ImageLightbox src={mediaUrl} onClose={() => setLightboxOpen(false)} />}
-    </>
-  )
-}
-
-function MessageBubbleSticker({ mediaUrl }: { mediaUrl: string }) {
-  const [lightboxOpen, setLightboxOpen] = useState(false)
-
-  return (
-    <>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={mediaUrl}
-        alt="Sticker"
-        className="max-w-[160px] max-h-[160px] object-contain cursor-pointer hover:opacity-90 transition-opacity"
-        onClick={() => setLightboxOpen(true)}
-        loading="lazy"
-      />
-      {lightboxOpen && <ImageLightbox src={mediaUrl} onClose={() => setLightboxOpen(false)} />}
-    </>
-  )
-}
-
-function MessageBubbleAudio({ mediaUrl, filename }: { mediaUrl: string; filename?: string | null }) {
-  return (
-    <div className="space-y-2 min-w-[220px]">
-      <div className="flex items-center gap-2 text-xs opacity-80">
-        <Music2 className="h-4 w-4 shrink-0" />
-        <span className="truncate">{filename || "Audio"}</span>
-      </div>
-      <audio controls src={mediaUrl} className="w-full max-w-[280px]" preload="metadata" onPlay={pauseOtherAudios} />
-    </div>
-  )
 }
 
 export function MessageList({
@@ -537,7 +321,8 @@ export function MessageList({
   return (
     <>
       {/* Contenedor relativo para superponer el buscador sobre los mensajes */}
-      <div className="relative flex flex-1 min-h-0 flex-col">
+      <div className="thread-scroll-root relative flex flex-1 min-h-0 flex-col">
+        <ThreadBackdrop />
         {/* Botón lupa flotante (cuando el buscador está cerrado) */}
         {!searchOpen && (
           <button
@@ -636,7 +421,7 @@ export function MessageList({
 
         <div
           ref={scrollRef}
-          className={`flex-1 p-4 overflow-y-auto min-h-0 transition-[padding] ${searchOpen ? "pt-16" : ""}`}
+          className={`thread-scroller relative z-[1] flex-1 p-4 overflow-y-auto min-h-0 transition-[padding] ${searchOpen ? "pt-16" : ""}`}
           onScroll={handleScroll}
         >
         {isLoadingMore && (
@@ -672,277 +457,51 @@ export function MessageList({
               )
             }
 
-            const isUser = msg.sender_type === "user"
-            const isBot = msg.sender_type === "system" && msg.direction === "outbound"
-            const isDeleted = !!msg.deleted_at
-            const isEdited = !!msg.edited_at && !isDeleted
-            const hasOriginalContent =
-              isEdited &&
-              !!msg.original_content &&
-              msg.original_content !== msg.content
-            const imageUrl = msg.media_full_url || msg.media_url
-            const stickerUrl = msg.media_full_url || msg.media_url
-            const audioUrl = msg.media_full_url || msg.media_url
-            const isImage = msg.message_type === "image" && imageUrl
-            const isSticker = msg.message_type === "sticker" && stickerUrl
-            const isAudio = msg.message_type === "audio" && audioUrl
-            const parsed = !isImage && !isSticker && !isAudio && !isDeleted
-              ? parseTemplateContent(msg.content || "")
-              : { isTemplate: false, title: "", body: "" }
-            const matchKeyPrefix = `msg-${msg.id}`
-            const translationState = translations[String(msg.id)]
-            const isCurrentTranslation = translationState?.sourceContent === msg.content
-              && translationState.targetLanguage === translationLanguage
+            const isOwn = msg.sender_type === "user" || (msg.sender_type === "system" && msg.direction === "outbound")
+            const messageGroupKey = getMessageGroupKey(msg)
+            const prevMessageGroupKey = prevMsg ? getMessageGroupKey(prevMsg) : null
+            const nextMsg = index < messages.length - 1 ? messages[index + 1] : null
+            const nextMessageGroupKey = nextMsg ? getMessageGroupKey(nextMsg) : null
+            const nextTimestamp = nextMsg ? nextMsg.delivered_at || nextMsg.created_at : null
+            const nextDate = nextTimestamp ? new Date(nextTimestamp) : null
+
+            // Agrupamos mensajes consecutivos del mismo emisor dentro de una
+            // ventana corta: sólo el último de la tanda lleva cola y hora.
+            const withinWindow = (a: Date | null, b: Date | null) =>
+              !!a && !!b && Math.abs(a.getTime() - b.getTime()) < GROUPING_WINDOW_MS
+
+            const isFirstOfGroup =
+              !!dayLabel || prevMessageGroupKey !== messageGroupKey || !withinWindow(msgDate, prevDate)
+            const isLastOfGroup =
+              !nextMsg ||
+              nextMessageGroupKey !== messageGroupKey ||
+              !withinWindow(msgDate, nextDate) ||
+              (!!nextDate && !!msgDate && !isSameDay(msgDate, nextDate))
 
             return (
               <Fragment key={msg.id}>
                 {dayLabel && (
-                  <div data-day-label={dayLabel} className="flex justify-center">
+                  <div data-day-label={dayLabel} className="flex justify-center py-2">
                     <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground dark:bg-card">
                       {dayLabel}
                     </span>
                   </div>
                 )}
-              <div
-                className={`group/msg flex ${isUser || isBot ? "justify-end" : "justify-start"}`}
-              >
-                {/* Action button - before bubble for user messages */}
-                {isUser && hasActions(msg) && (
-                  <div className="flex items-center mr-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7">
-                          <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {canTranslate(msg) && (
-                          <DropdownMenuItem
-                            onClick={() => void handleTranslate(msg)}
-                            disabled={isCurrentTranslation && translationState.loading}
-                          >
-                            {isCurrentTranslation && translationState.visible ? (
-                              <EyeOff className="h-4 w-4 mr-2" />
-                            ) : (
-                              <Languages className="h-4 w-4 mr-2" />
-                            )}
-                            {isCurrentTranslation && translationState.visible
-                              ? t("chats.hideTranslation")
-                              : isCurrentTranslation && translationState.content
-                                ? t("chats.showTranslation")
-                                : t("chats.translateMessage")}
-                          </DropdownMenuItem>
-                        )}
-                        {canEdit(msg) && onEditMessage && (
-                          <DropdownMenuItem onClick={() => onEditMessage(msg)}>
-                            <Pencil className="h-4 w-4 mr-2" />
-                            {t("chats.editMessage")}
-                          </DropdownMenuItem>
-                        )}
-                        {canDelete(msg) && onDeleteMessage && (
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => setDeleteTarget(msg)}
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            {t("chats.deleteMessage")}
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                )}
-
-                <div
-                  className={`p-3 rounded-lg max-w-xs break-words overflow-hidden ${isUser
-                      ? "bg-primary text-primary-foreground"
-                      : isBot
-                        ? "border border-primary/30 bg-primary/10"
-                        : "bg-muted"
-                    }`}
-                >
-                  {isBot && (
-                    <div className="mb-1 flex items-center gap-1 text-[11px] font-medium text-primary">
-                      <Bot className="h-3 w-3" />
-                      {t("chats.aiBadge")}
-                    </div>
-                  )}
-                  {isDeleted ? (
-                    <p className="text-sm italic opacity-60">
-                      {t("chats.messageDeleted")}
-                    </p>
-                  ) : hasOriginalContent ? (
-                    <div className="space-y-2">
-                      <p className="text-xs opacity-70 line-through whitespace-pre-wrap [overflow-wrap:anywhere]">
-                        {msg.original_content}
-                      </p>
-                      <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-                        {normalizedQuery
-                          ? highlightText(msg.content || "", normalizedQuery, activeMatchKey, matchKeyPrefix)
-                          : msg.content}
-                      </p>
-                    </div>
-                  ) : isImage && imageUrl ? (
-                    <div className="space-y-1">
-                      <MessageBubbleImage mediaUrl={imageUrl} isUser={isUser} />
-                      {msg.content && (
-                        <p className="text-sm mt-1">
-                          {normalizedQuery
-                            ? highlightText(msg.content, normalizedQuery, activeMatchKey, matchKeyPrefix)
-                            : msg.content}
-                        </p>
-                      )}
-                    </div>
-                  ) : isSticker && stickerUrl ? (
-                    <div className="space-y-1">
-                      <MessageBubbleSticker mediaUrl={stickerUrl} />
-                      {msg.content && (
-                        <p className="text-sm mt-1">
-                          {normalizedQuery
-                            ? highlightText(msg.content, normalizedQuery, activeMatchKey, matchKeyPrefix)
-                            : msg.content}
-                        </p>
-                      )}
-                    </div>
-                  ) : isAudio && audioUrl ? (
-                    <MessageBubbleAudio mediaUrl={audioUrl} filename={msg.media_filename} />
-                  ) : parsed.isTemplate ? (
-                    <div className="space-y-1">
-                      <span className="text-xs font-medium opacity-75">
-                        {parsed.title}
-                      </span>
-                      {parsed.body && (
-                        <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-                          {normalizedQuery
-                            ? highlightText(parsed.body, normalizedQuery, activeMatchKey, matchKeyPrefix)
-                            : parsed.body}
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-                      {normalizedQuery
-                        ? highlightText(msg.content || "", normalizedQuery, activeMatchKey, matchKeyPrefix)
-                        : msg.content}
-                    </p>
-                  )}
-                  {(() => {
-                    const translation = translationState
-                    if (!translation?.visible || !isCurrentTranslation) return null
-
-                    return (
-                      <div
-                        className="mt-2 border-t border-current/15 pt-2"
-                        aria-live="polite"
-                      >
-                        <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-medium opacity-70">
-                          <span className="inline-flex items-center gap-1">
-                            <Languages className="h-3 w-3" />
-                            {t("chats.translationTo", { language: t(`chats.language.${translationLanguage}`) })}
-                          </span>
-                          {!translation.loading && !translation.error && (
-                            <button
-                              type="button"
-                              className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              onClick={() => void handleTranslate(msg)}
-                            >
-                              {t("chats.hideTranslation")}
-                            </button>
-                          )}
-                        </div>
-                        {translation.loading ? (
-                          <div className="space-y-1.5 py-1" aria-label={t("chats.translating") }>
-                            <div className="h-3 w-full animate-pulse rounded-sm bg-current/10 motion-reduce:animate-none" />
-                            <div className="h-3 w-2/3 animate-pulse rounded-sm bg-current/10 motion-reduce:animate-none" />
-                          </div>
-                        ) : translation.error ? (
-                          <div className="flex items-start justify-between gap-2 text-xs">
-                            <span className="opacity-80">{translation.error}</span>
-                            <button
-                              type="button"
-                              className="inline-flex shrink-0 items-center gap-1 rounded-sm font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              onClick={() => void handleTranslate(msg)}
-                            >
-                              <RefreshCw className="h-3 w-3" />
-                              {t("chats.retry")}
-                            </button>
-                          </div>
-                        ) : (
-                          <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-                            {translation.content}
-                          </p>
-                        )}
-                      </div>
-                    )
-                  })()}
-                  {(msg.delivered_at || msg.created_at) && (
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(msg.delivered_at || msg.created_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          hour12: true,
-                        })}
-                      </span>
-                      {isEdited && (
-                        <span className="text-xs text-muted-foreground opacity-70">
-                          · {t("chats.edited")}
-                        </span>
-                      )}
-                      {msg.direction === "outbound" && msg.failed_at && (
-                        <span
-                          className="flex items-center gap-0.5 text-xs text-destructive"
-                          title={msg.error_message ?? undefined}
-                        >
-                          <AlertCircle className="h-3 w-3" />
-                          {t("chats.messageFailed")}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Action button - after bubble for contact messages */}
-                {!isUser && hasActions(msg) && (
-                  <div className="flex items-center ml-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7">
-                          <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start">
-                        {canTranslate(msg) && (
-                          <DropdownMenuItem
-                            onClick={() => void handleTranslate(msg)}
-                            disabled={isCurrentTranslation && translationState.loading}
-                          >
-                            {isCurrentTranslation && translationState.visible ? (
-                              <EyeOff className="h-4 w-4 mr-2" />
-                            ) : (
-                              <Languages className="h-4 w-4 mr-2" />
-                            )}
-                            {isCurrentTranslation && translationState.visible
-                              ? t("chats.hideTranslation")
-                              : isCurrentTranslation && translationState.content
-                                ? t("chats.showTranslation")
-                                : t("chats.translateMessage")}
-                          </DropdownMenuItem>
-                        )}
-                        {canDelete(msg) && onDeleteMessage && (
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={() => setDeleteTarget(msg)}
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            {t("chats.deleteMessage")}
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                )}
-              </div>
+                <MessageBubble
+                  message={msg}
+                  isFirstOfGroup={isFirstOfGroup}
+                  isLastOfGroup={isLastOfGroup}
+                  translationLanguage={translationLanguage}
+                  translationState={translations[String(msg.id)]}
+                  normalizedQuery={normalizedQuery}
+                  activeMatchKey={activeMatchKey}
+                  onTranslate={(target) => void handleTranslate(target)}
+                  onEdit={onEditMessage}
+                  onDelete={(target) => setDeleteTarget(target)}
+                  canEdit={!!canEdit(msg) && !!onEditMessage}
+                  canDelete={!!canDelete(msg) && !!onDeleteMessage}
+                  canTranslate={!!canTranslate(msg)}
+                />
               </Fragment>
             )
           })}
