@@ -8,6 +8,8 @@ use App\Jobs\SendBroadcastMessageJob;
 use App\Models\Channel;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\ManualAiDraft;
+use App\Events\ManualAiDraftUpdated;
 use App\Models\Opportunity;
 use App\Models\PipelineStage;
 use App\Models\WhatsAppTemplate;
@@ -453,6 +455,10 @@ class ConversationController extends Controller
 
         $conversation->update(['ai_autoreply_enabled' => $validated['enabled']]);
 
+        if ($validated['enabled']) {
+            $this->cancelManualAiDrafts($conversation);
+        }
+
         return response()->json([
             'data' => [
                 'id' => $conversation->id,
@@ -591,6 +597,9 @@ class ConversationController extends Controller
 
         foreach ($authorized as $conversation) {
             $conversation->update(['ai_autoreply_enabled' => $validated['enabled']]);
+            if ($validated['enabled']) {
+                $this->cancelManualAiDrafts($conversation);
+            }
         }
 
         return response()->json([
@@ -598,6 +607,18 @@ class ConversationController extends Controller
             'failed' => count($validated['ids']) - $authorized->count(),
             'enabled' => $validated['enabled'],
         ]);
+    }
+
+    private function cancelManualAiDrafts(Conversation $conversation): void
+    {
+        $drafts = ManualAiDraft::where('conversation_id', $conversation->id)
+            ->whereIn('status', ['pending', 'ready'])
+            ->get();
+
+        foreach ($drafts as $draft) {
+            $draft->update(['status' => 'cancelled']);
+            broadcast(new ManualAiDraftUpdated($draft->fresh()));
+        }
     }
 
     /**

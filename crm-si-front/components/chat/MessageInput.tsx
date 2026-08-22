@@ -7,7 +7,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { EmojiPicker } from "./EmojiPicker"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTranslation } from "@/hooks/useTranslation"
-import { Paperclip, Smile, Send, X, Pencil, Check, Music2, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon } from "lucide-react"
+import { Paperclip, Smile, Send, X, Pencil, Check, Music2, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles } from "lucide-react"
 import { KeyboardEvent, SyntheticEvent, useMemo, useRef, useState, useEffect } from "react"
 import dynamic from "next/dynamic"
 import Image from "next/image"
@@ -16,6 +16,7 @@ import { getMessageHotkeys, type MessageHotkey } from "@/lib/api/message-hotkeys
 import { pauseOtherAudios } from "@/lib/audio"
 import { expandHotkey, parseSlashCommand, type HotkeyExpansionContext } from "@/lib/utils/hotkeys"
 import { HotkeyAutocomplete } from "./HotkeyAutocomplete"
+import type { ManualAiDraft } from "@/lib/api/manual-ai-drafts"
 import { VoiceRecorder } from "./VoiceRecorder"
 
 const TemplatePicker = dynamic(
@@ -40,6 +41,10 @@ interface MessageInputProps {
   contactLanguage: TranslationLanguage
   onContactLanguageChange: (language: TranslationLanguage) => void | Promise<void>
   onTranslateDraft: (content: string, targetLanguage: TranslationLanguage) => Promise<string>
+  aiDraft?: ManualAiDraft | null
+  onRequestAiDraft?: () => void
+  onCancelAiDraft?: () => void
+  onUseAiDraft?: () => void
   supportsVoice?: boolean
 }
 
@@ -65,6 +70,10 @@ export function MessageInput({
   contactLanguage,
   onContactLanguageChange,
   onTranslateDraft,
+  aiDraft,
+  onRequestAiDraft,
+  onCancelAiDraft,
+  onUseAiDraft,
   supportsVoice = false,
 }: MessageInputProps) {
   const { t } = useTranslation()
@@ -458,6 +467,14 @@ export function MessageInput({
           >
             <X className="w-4 h-4" />
           </button>
+        </div>
+      )}
+
+      {!isEditing && (onRequestAiDraft || aiDraft?.content) && (
+        <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs">
+          {aiDraft?.status === "pending" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-primary" />}
+          {aiDraft?.status === "pending" ? <span className="text-muted-foreground">{t("chats.aiDraftGenerating")}</span> : aiDraft?.content ? <><span className="line-clamp-2 flex-1 text-muted-foreground">{aiDraft.content}</span><Button type="button" size="sm" variant="secondary" onClick={onUseAiDraft} disabled={!!value.trim()}>{t("chats.aiDraftUse")}</Button><Button type="button" size="icon" variant="ghost" onClick={onCancelAiDraft} aria-label={t("chats.aiDraftCancel")}><X className="h-3.5 w-3.5" /></Button></> : <Button type="button" size="sm" variant="ghost" onClick={onRequestAiDraft} disabled={disabled}>{t("chats.aiDraftGenerate")}</Button>}
+          {aiDraft?.status === "pending" && <Button type="button" size="sm" variant="ghost" onClick={onCancelAiDraft}>{t("chats.aiDraftCancel")}</Button>}
         </div>
       )}
 

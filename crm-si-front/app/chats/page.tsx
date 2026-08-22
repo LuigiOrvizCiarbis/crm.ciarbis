@@ -81,6 +81,8 @@ import { TagFilterMenu } from "@/components/tags/TagFilterMenu"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useSSEMessages, type MessageStatusUpdate } from "@/hooks/useSSEMessages"
 import { useTenantSSE } from "@/hooks/useTenantSSE"
+import { getPusher } from "@/lib/pusher"
+import { cancelManualAiDraft, getManualAiDraft, requestManualAiDraft, type ManualAiDraft } from "@/lib/api/manual-ai-drafts"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useAuthStore } from "@/store/useAuthStore"
 import { useFacebookSDK } from "@/hooks/useFacebookSDK"
@@ -380,6 +382,7 @@ export default function ChatsPage() {
   const [hasMore, setHasMore] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
+  const [aiDraft, setAiDraft] = useState<ManualAiDraft | null>(null)
 
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedConversationIds, setSelectedConversationIds] = useState<Set<number>>(new Set())
@@ -435,6 +438,9 @@ export default function ChatsPage() {
 
 
   const handleRealTimeMessage = useCallback((newMessage: Message) => {
+    if (newMessage.direction === "inbound" && selectedConversationId === newMessage.conversation_id) {
+      setAiDraft(null)
+    }
     // 1. Actualizar el chat abierto (si coincide el ID)
     if (selectedConversationId === newMessage.conversation_id) {
       setCurrentConversation((prev) => {
@@ -859,6 +865,7 @@ export default function ChatsPage() {
   useEffect(() => {
     if (!selectedConversationId) {
       setCurrentConversation(null);
+      setAiDraft(null);
       return;
     }
 
@@ -868,8 +875,11 @@ export default function ChatsPage() {
     let cancelled = false;
     (async () => {
       try {
-        const data = await getConversationWithMessages(selectedConversationId);
-        if (!cancelled) setCurrentConversation(data);
+        const [data, draft] = await Promise.all([
+          getConversationWithMessages(selectedConversationId),
+          getManualAiDraft(selectedConversationId).catch(() => null),
+        ]);
+        if (!cancelled) { setCurrentConversation(data); setAiDraft(draft); }
       } catch (error) {
         if (cancelled) return;
         setCurrentConversation(null);
@@ -882,6 +892,48 @@ export default function ChatsPage() {
     })();
     return () => { cancelled = true };
   }, [selectedConversationId]);
+
+  useEffect(() => {
+    const userId = user?.id;
+    if (!userId) return;
+    const pusher = getPusher();
+    const channel = pusher.subscribe(`private-App.Models.User.${userId}`);
+    const onDraft = (event: { draft: ManualAiDraft }) => {
+      if (event.draft.conversation_id === selectedConversationId) setAiDraft(event.draft.status === "cancelled" ? null : event.draft);
+    };
+    channel.bind("manual-ai-draft.updated", onDraft);
+    return () => { channel.unbind("manual-ai-draft.updated", onDraft); pusher.unsubscribe(`private-App.Models.User.${userId}`); };
+  }, [user?.id, selectedConversationId]);
+
+  useEffect(() => {
+    if (!selectedConversationId || aiDraft?.status !== "pending") return;
+    const timer = window.setInterval(() => {
+      getManualAiDraft(selectedConversationId).then(setAiDraft).catch(() => {});
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [selectedConversationId, aiDraft?.status]);
+
+  const latestInboundMessage = useMemo(() => {
+    const latest = [...(currentConversation?.messages ?? [])].reverse()[0]
+    return latest?.direction === "inbound" && (latest.message_type === "text" || latest.message_type === "image") ? latest : undefined
+  }, [currentConversation?.messages]);
+  const handleRequestAiDraft = useCallback(async () => {
+    if (!selectedConversationId || !latestInboundMessage) return;
+    try {
+      const draft = await requestManualAiDraft(selectedConversationId, latestInboundMessage.id);
+      setAiDraft(draft);
+    } catch (error) {
+      addToast({ type: "error", title: t("chats.aiDraftError"), description: error instanceof Error ? error.message : undefined });
+    }
+  }, [selectedConversationId, latestInboundMessage, addToast, t]);
+  const handleCancelAiDraft = useCallback(async () => {
+    if (!selectedConversationId) return;
+    await cancelManualAiDraft(selectedConversationId).catch(() => {});
+    setAiDraft(null);
+  }, [selectedConversationId]);
+  const handleUseAiDraft = useCallback(() => {
+    if (aiDraft?.content && !message.trim()) setMessage(aiDraft.content);
+  }, [aiDraft?.content, message]);
 
 
   const handleConnectChannel = (channelType: ConnectableChannel = "whatsapp") => {
@@ -2084,6 +2136,10 @@ export default function ChatsPage() {
                     .reverse()
                     .find((item) => item.mail_details?.subject)
                     ?.mail_details?.subject}
+                  aiDraft={aiDraft}
+                  onRequestAiDraft={latestInboundMessage ? handleRequestAiDraft : undefined}
+                  onCancelAiDraft={handleCancelAiDraft}
+                  onUseAiDraft={handleUseAiDraft}
                 />
               ) : (
                 <MessageInput
@@ -2102,6 +2158,10 @@ export default function ChatsPage() {
                   contactLanguage={(currentConversation ?? activeConversation)?.contactLanguage ?? "es"}
                   onContactLanguageChange={handleTranslationLanguageChange}
                   onTranslateDraft={handleTranslateDraft}
+                  aiDraft={aiDraft}
+                  onRequestAiDraft={latestInboundMessage ? handleRequestAiDraft : undefined}
+                  onCancelAiDraft={handleCancelAiDraft}
+                  onUseAiDraft={handleUseAiDraft}
                 />
               )}
             </>
