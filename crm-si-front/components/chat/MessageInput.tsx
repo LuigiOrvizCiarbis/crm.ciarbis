@@ -450,6 +450,19 @@ export function MessageInput({
         setIsTranslationSheetOpen(true)
       },
     },
+    ...(onRequestAiDraft ? [{
+      key: "ai-draft",
+      label: t("chats.aiDraftGenerate"),
+      Icon: Sparkles,
+      tone: "bg-primary/10 text-primary",
+      disabled,
+      onClick: () => {
+        setIsActionsOpen(false)
+        if (aiDraft?.status === "pending") onCancelAiDraft?.()
+        else if (aiDraft?.content) onUseAiDraft?.()
+        else onRequestAiDraft()
+      },
+    }] : []),
   ]
 
   return (
@@ -467,14 +480,6 @@ export function MessageInput({
           >
             <X className="w-4 h-4" />
           </button>
-        </div>
-      )}
-
-      {!isEditing && (onRequestAiDraft || aiDraft?.content) && (
-        <div className="flex min-h-11 items-center gap-2 border-b border-border bg-muted/20 px-3 py-1.5 text-xs" aria-live="polite">
-          {aiDraft?.status === "pending" ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" /> : <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />}
-          {aiDraft?.status === "pending" ? <span className="min-w-0 flex-1 truncate text-muted-foreground">{t("chats.aiDraftGenerating")}</span> : aiDraft?.content ? <><span className="min-w-0 flex-1 truncate text-muted-foreground">{aiDraft.content}</span><Button type="button" size="sm" variant="secondary" className="h-8 shrink-0 px-2.5 text-xs" onClick={onUseAiDraft} disabled={!!value.trim()}>{t("chats.aiDraftUse")}</Button><Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" onClick={onCancelAiDraft} aria-label={t("chats.aiDraftCancel")}><X className="h-3.5 w-3.5" /></Button></> : <Button type="button" size="sm" variant="ghost" className="h-8 justify-start px-1 text-sm font-medium" onClick={onRequestAiDraft} disabled={disabled}>{t("chats.aiDraftGenerate")}</Button>}
-          {aiDraft?.status === "pending" && <Button type="button" size="sm" variant="ghost" className="h-8 shrink-0 px-2 text-xs text-muted-foreground" onClick={onCancelAiDraft}>{t("chats.aiDraftCancel")}</Button>}
         </div>
       )}
 
@@ -672,6 +677,25 @@ export function MessageInput({
                   {translationPanel}
                 </PopoverContent>
               </Popover>
+              {!isEditing && onRequestAiDraft && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={`h-10 w-10 shrink-0 p-0 sm:h-8 sm:w-8 ${aiDraft?.content ? "bg-primary/10 text-primary hover:bg-primary/15" : ""}`}
+                  disabled={disabled}
+                  onClick={() => {
+                    if (aiDraft?.status === "pending") onCancelAiDraft?.()
+                    else if (aiDraft?.content) onUseAiDraft?.()
+                    else onRequestAiDraft()
+                  }}
+                  aria-label={aiDraft?.status === "pending" ? t("chats.aiDraftCancel") : aiDraft?.content ? t("chats.aiDraftUse") : t("chats.aiDraftGenerate")}
+                  title={aiDraft?.status === "pending" ? t("chats.aiDraftCancel") : aiDraft?.content ? t("chats.aiDraftUse") : t("chats.aiDraftGenerate")}
+                  aria-busy={aiDraft?.status === "pending"}
+                >
+                  {aiDraft?.status === "pending" ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Sparkles className="h-4 w-4" />}
+                </Button>
+              )}
             </>
           )}
           {!isVoiceComposerActive && <div className="relative flex-1">
