@@ -15,6 +15,7 @@ import {
   Send,
   Underline,
   X,
+  Sparkles,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import type { ManualAiDraft } from "@/lib/api/manual-ai-drafts"
@@ -134,14 +135,6 @@ export function MailMessageInput({
           </button>
         </div>
 
-        {(onRequestAiDraft || aiDraft?.content) && (
-          <div className="flex min-h-11 items-center gap-2 border-b border-border bg-muted/20 px-3 py-1.5 text-xs" aria-live="polite">
-            {aiDraft?.status === "pending" ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" /> : <span className="shrink-0 text-primary">✦</span>}
-            {aiDraft?.status === "pending" ? <span className="min-w-0 flex-1 truncate text-muted-foreground">{t("chats.aiDraftGenerating")}</span> : aiDraft?.content ? <><span className="min-w-0 flex-1 truncate text-muted-foreground">{aiDraft.content}</span><Button type="button" size="sm" variant="secondary" className="h-8 shrink-0 px-2.5 text-xs" onClick={onUseAiDraft} disabled={!!value.trim()}>{t("chats.aiDraftUse")}</Button><Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" onClick={onCancelAiDraft} aria-label={t("chats.aiDraftCancel")}><X className="h-3.5 w-3.5" /></Button></> : <Button type="button" size="sm" variant="ghost" className="h-8 justify-start px-1 text-sm font-medium" onClick={onRequestAiDraft} disabled={disabled}>{t("chats.aiDraftGenerate")}</Button>}
-            {aiDraft?.status === "pending" && <Button type="button" size="sm" variant="ghost" className="h-8 shrink-0 px-2 text-xs text-muted-foreground" onClick={onCancelAiDraft}>{t("chats.aiDraftCancel")}</Button>}
-          </div>
-        )}
-
         {showRecipients && (
           <div className="grid gap-2 border-b border-border bg-muted/35 p-3 sm:grid-cols-2">
             <label className="grid gap-1 text-xs font-medium text-muted-foreground">
@@ -254,6 +247,25 @@ export function MailMessageInput({
             >
               <Paperclip className="h-4 w-4" />
             </Button>
+            {onRequestAiDraft && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={`h-9 w-9 ${aiDraft?.content ? "bg-primary/10 text-primary hover:bg-primary/15" : ""}`}
+                aria-label={aiDraft?.status === "pending" ? t("chats.aiDraftCancel") : aiDraft?.content ? t("chats.aiDraftUse") : t("chats.aiDraftGenerate")}
+                title={aiDraft?.status === "pending" ? t("chats.aiDraftCancel") : aiDraft?.content ? t("chats.aiDraftUse") : t("chats.aiDraftGenerate")}
+                aria-busy={aiDraft?.status === "pending"}
+                onClick={() => {
+                  if (aiDraft?.status === "pending") onCancelAiDraft?.()
+                  else if (aiDraft?.content) onUseAiDraft?.()
+                  else onRequestAiDraft()
+                }}
+                disabled={disabled || isSending}
+              >
+                {aiDraft?.status === "pending" ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Sparkles className="h-4 w-4" />}
+              </Button>
+            )}
           </div>
 
           <Button
