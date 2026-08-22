@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\MailIntakeController;
 use App\Http\Controllers\Api\MediaAssetController;
 use App\Http\Controllers\Api\MessageController;
+use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MessageHotkeyController;
 use App\Http\Controllers\Api\MessageTranslationController;
 use App\Http\Controllers\Api\NoteController;
@@ -456,6 +457,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('conversations/bulk-read', [ConversationController::class, 'bulkMarkRead']);
     Route::post('conversations/bulk-broadcast', [ConversationController::class, 'bulkBroadcast']);
     Route::get('conversations/{conversation}', [ConversationController::class, 'show']);
+    Route::get('conversations/{conversation}/ai-draft', [ManualAiDraftController::class, 'show']);
+    Route::post('conversations/{conversation}/ai-draft', [ManualAiDraftController::class, 'store']);
+    Route::delete('conversations/{conversation}/ai-draft', [ManualAiDraftController::class, 'destroy']);
     Route::post('conversations/{conversation}/tags', [TagController::class, 'attachToConversation']);
     Route::delete('conversations/{conversation}/tags/{tag}', [TagController::class, 'detachFromConversation']);
 

@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import type { ManualAiDraft } from "@/lib/api/manual-ai-drafts"
 
 interface MailMessageInputProps {
   value: string
@@ -24,6 +25,10 @@ interface MailMessageInputProps {
   onSend: (input: SendMailMessageInput) => void | Promise<void>
   disabled?: boolean
   subject?: string | null
+  aiDraft?: ManualAiDraft | null
+  onRequestAiDraft?: () => void
+  onCancelAiDraft?: () => void
+  onUseAiDraft?: () => void
 }
 
 function parseAddresses(value: string): string[] {
@@ -39,6 +44,10 @@ export function MailMessageInput({
   onSend,
   disabled = false,
   subject,
+  aiDraft,
+  onRequestAiDraft,
+  onCancelAiDraft,
+  onUseAiDraft,
 }: MailMessageInputProps) {
   const { t } = useTranslation()
   const editorRef = useRef<HTMLDivElement>(null)
@@ -124,6 +133,14 @@ export function MailMessageInput({
             CC/BCC
           </button>
         </div>
+
+        {(onRequestAiDraft || aiDraft?.content) && (
+          <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs">
+            {aiDraft?.status === "pending" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="text-primary">✦</span>}
+            {aiDraft?.status === "pending" ? <span className="flex-1 text-muted-foreground">{t("chats.aiDraftGenerating")}</span> : aiDraft?.content ? <><span className="line-clamp-2 flex-1 text-muted-foreground">{aiDraft.content}</span><Button type="button" size="sm" variant="secondary" onClick={onUseAiDraft} disabled={!!value.trim()}>{t("chats.aiDraftUse")}</Button><Button type="button" size="icon" variant="ghost" onClick={onCancelAiDraft} aria-label={t("chats.aiDraftCancel")}><X className="h-3.5 w-3.5" /></Button></> : <Button type="button" size="sm" variant="ghost" onClick={onRequestAiDraft} disabled={disabled}>{t("chats.aiDraftGenerate")}</Button>}
+            {aiDraft?.status === "pending" && <Button type="button" size="sm" variant="ghost" onClick={onCancelAiDraft}>{t("chats.aiDraftCancel")}</Button>}
+          </div>
+        )}
 
         {showRecipients && (
           <div className="grid gap-2 border-b border-border bg-muted/35 p-3 sm:grid-cols-2">
