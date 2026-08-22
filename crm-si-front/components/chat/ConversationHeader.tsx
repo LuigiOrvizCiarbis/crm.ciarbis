@@ -1,4 +1,4 @@
-import { Avatar, AvatarFallback } from "@radix-ui/react-avatar"
+import { ContactAvatar } from "@/components/contact-avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -90,12 +90,6 @@ export function ConversationHeader({
     }
   }
 
-  const initials = conversation.contact.name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-
   return (
     <div className="border-b border-border bg-card px-3 py-2.5 sm:p-4">
       <div className="flex min-w-0 items-center justify-between gap-3">
@@ -109,11 +103,12 @@ export function ConversationHeader({
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>
-          <Avatar className="flex h-10 w-10 shrink-0 overflow-hidden rounded-full ring-1 ring-border">
-            <AvatarFallback className="flex h-full w-full items-center justify-center bg-muted text-sm font-semibold">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
+          <ContactAvatar
+            contactId={conversation.contact?.id}
+            name={conversation.contact?.name}
+            className="h-10 w-10 ring-1 ring-border"
+            fallbackClassName="text-sm font-semibold"
+          />
           <div className="flex-1 min-w-0">
             <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
               {isEditingName ? (

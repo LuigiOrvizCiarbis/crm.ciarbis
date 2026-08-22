@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge, LeadScoreBadge } from "@/components/Badges"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { ContactAvatar } from "@/components/contact-avatar"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/Toast"
 import { getPipelineStages } from "@/lib/api/pipeline"
@@ -203,13 +203,6 @@ function OpportunityCard({
     ? formatDistanceToNow(new Date(opportunity.last_activity_at), { locale: es, addSuffix: true })
     : "Sin actividad"
 
-  const initials = opportunity.contact.name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase()
-
   const { label: sourceLabel, className: sourceClassName } = getOpportunitySource(opportunity)
   const valueFormatted = opportunity.value
     ? formatColumnCurrency(Number(opportunity.value))
@@ -241,11 +234,12 @@ function OpportunityCard({
             }`}
             title={conversationId ? "Abrir conversación" : "Sin conversación"}
           >
-            <Avatar className="w-8 h-8 shrink-0">
-              <AvatarFallback className="text-xs bg-cyan-500/15 text-cyan-400 font-semibold">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
+            <ContactAvatar
+              contactId={opportunity.contact.id}
+              name={opportunity.contact.name}
+              className="w-8 h-8 shrink-0"
+              fallbackClassName="text-xs bg-cyan-500/15 text-cyan-400 font-semibold"
+            />
             <span className="min-w-0 flex-1">
               <span className="block font-medium text-sm truncate">{opportunity.contact.name}</span>
               <span className="block text-xs text-muted-foreground truncate">{opportunity.title}</span>
