@@ -135,10 +135,10 @@ export function MailMessageInput({
         </div>
 
         {(onRequestAiDraft || aiDraft?.content) && (
-          <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs">
-            {aiDraft?.status === "pending" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="text-primary">✦</span>}
-            {aiDraft?.status === "pending" ? <span className="flex-1 text-muted-foreground">{t("chats.aiDraftGenerating")}</span> : aiDraft?.content ? <><span className="line-clamp-2 flex-1 text-muted-foreground">{aiDraft.content}</span><Button type="button" size="sm" variant="secondary" onClick={onUseAiDraft} disabled={!!value.trim()}>{t("chats.aiDraftUse")}</Button><Button type="button" size="icon" variant="ghost" onClick={onCancelAiDraft} aria-label={t("chats.aiDraftCancel")}><X className="h-3.5 w-3.5" /></Button></> : <Button type="button" size="sm" variant="ghost" onClick={onRequestAiDraft} disabled={disabled}>{t("chats.aiDraftGenerate")}</Button>}
-            {aiDraft?.status === "pending" && <Button type="button" size="sm" variant="ghost" onClick={onCancelAiDraft}>{t("chats.aiDraftCancel")}</Button>}
+          <div className="flex min-h-11 items-center gap-2 border-b border-border bg-muted/20 px-3 py-1.5 text-xs" aria-live="polite">
+            {aiDraft?.status === "pending" ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" /> : <span className="shrink-0 text-primary">✦</span>}
+            {aiDraft?.status === "pending" ? <span className="min-w-0 flex-1 truncate text-muted-foreground">{t("chats.aiDraftGenerating")}</span> : aiDraft?.content ? <><span className="min-w-0 flex-1 truncate text-muted-foreground">{aiDraft.content}</span><Button type="button" size="sm" variant="secondary" className="h-8 shrink-0 px-2.5 text-xs" onClick={onUseAiDraft} disabled={!!value.trim()}>{t("chats.aiDraftUse")}</Button><Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" onClick={onCancelAiDraft} aria-label={t("chats.aiDraftCancel")}><X className="h-3.5 w-3.5" /></Button></> : <Button type="button" size="sm" variant="ghost" className="h-8 justify-start px-1 text-sm font-medium" onClick={onRequestAiDraft} disabled={disabled}>{t("chats.aiDraftGenerate")}</Button>}
+            {aiDraft?.status === "pending" && <Button type="button" size="sm" variant="ghost" className="h-8 shrink-0 px-2 text-xs text-muted-foreground" onClick={onCancelAiDraft}>{t("chats.aiDraftCancel")}</Button>}
           </div>
         )}
 

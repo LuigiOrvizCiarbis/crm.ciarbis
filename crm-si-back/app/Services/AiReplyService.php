@@ -107,6 +107,7 @@ class AiReplyService
         $maxHistory = (int) config('services.ai.max_history', 20);
 
         $recent = $conversation->messages()
+            ->withoutTrashed()
             ->whereIn('message_type', [MessageType::Text, MessageType::Image])
             ->orderByDesc('created_at')
             ->orderByDesc('id')
