@@ -935,6 +935,7 @@ class WhatsAppMessageService
             }
 
             $contactData = $syncItem['contact'] ?? [];
+            $this->logUnexpectedContactFields($contactData);
             $action = strtolower(trim($syncItem['action'] ?? 'add'));
             $phoneNumber = $contactData['phone_number'] ?? null;
             $bsuid = $contactData['user_id'] ?? null;
@@ -1014,6 +1015,53 @@ class WhatsAppMessageService
         }
 
         return $upserted;
+    }
+
+    /**
+     * Campos que Meta documenta para el objeto `contact` de smb_app_state_sync.
+     *
+     * `user_id` (BSUID) no figura en el ejemplo de la doc de coexistencia pero sí
+     * llega cuando el feature está habilitado, y ya lo consumimos más arriba.
+     *
+     * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
+     */
+    private const KNOWN_SMB_CONTACT_FIELDS = [
+        'full_name',
+        'first_name',
+        'phone_number',
+        'user_id',
+        'parent_user_id',
+        'username',
+    ];
+
+    /**
+     * Loguea los NOMBRES de campos no documentados que Meta mande en el objeto
+     * `contact`.
+     *
+     * Motivo: la doc de Meta no expone ninguna foto de perfil del contacto — el
+     * único `profile_picture_url` de la Graph API pertenece al perfil del NEGOCIO,
+     * no al del cliente. Esta sonda existe para verificar ese negativo contra
+     * tráfico real, porque Meta a veces agrega campos antes de documentarlos. Si
+     * algún día aparece algo con forma de imagen, queda registrado acá.
+     *
+     * Sólo se loguean las CLAVES, nunca los valores: el contenido son datos
+     * personales del contacto y no deben terminar en los logs.
+     */
+    private function logUnexpectedContactFields(array $contactData): void
+    {
+        if ($contactData === []) {
+            return;
+        }
+
+        $unexpected = array_diff(array_keys($contactData), self::KNOWN_SMB_CONTACT_FIELDS);
+
+        if ($unexpected === []) {
+            return;
+        }
+
+        Log::info('smb_app_state_sync: campos no documentados en el contacto', [
+            'fields' => array_values($unexpected),
+        ]);
     }
 
     /**

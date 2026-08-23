@@ -10,6 +10,8 @@
     "start": "next start"
   },
   "dependencies": {
+    "@dicebear/core": "^10.6.1",
+    "@dicebear/styles": "^10.5.0",
     "@dnd-kit/core": "latest",
     "@dnd-kit/sortable": "latest",
     "@dnd-kit/utilities": "latest",

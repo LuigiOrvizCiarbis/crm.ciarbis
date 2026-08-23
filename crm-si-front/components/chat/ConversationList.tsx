@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react"
 import { Card } from "@/components/ui/card"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { ContactAvatar } from "@/components/contact-avatar"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { LeadScoreBadge } from "@/components/Badges"
@@ -79,13 +79,6 @@ const ConversationCard = memo(function ConversationCard({
     return date.toLocaleDateString([], { day: "2-digit", month: "2-digit" })
   }
 
-  const initials = contactName
-    .split(" ")
-    .map((name) => name[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase()
-
   const handleCardClick = () => {
     if (selectionMode) {
       onToggleSelect?.(conversation.id)
@@ -116,11 +109,11 @@ const ConversationCard = memo(function ConversationCard({
               className="w-4 h-4"
             />
           )}
-          <Avatar className="w-8 h-8 bg-muted">
-            <AvatarFallback className="text-xs font-medium">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
+          <ContactAvatar
+            contactId={conversation.contact?.id}
+            name={contactName}
+            className="w-8 h-8"
+          />
         </div>
 
         <div className="flex-1 min-w-0">
