@@ -107,7 +107,6 @@ import {
   Megaphone,
   Menu,
   MoreHorizontal,
-  Plus,
   Search,
   Sparkles,
   Tags,
@@ -145,7 +144,6 @@ const CONNECTABLE_CHANNELS: {
 interface ChatsCompactHeaderProps {
   searchQuery: string
   onSearchChange: (query: string) => void
-  onNewConversation: () => void
   onConnectChannel: (channelType?: ConnectableChannel) => void
   onOpenChannels: () => void
   /**
@@ -160,7 +158,6 @@ interface ChatsCompactHeaderProps {
 function ChatsCompactHeader({
   searchQuery,
   onSearchChange,
-  onNewConversation,
   onConnectChannel,
   onOpenChannels,
   hideOnMobile = false,
@@ -237,11 +234,6 @@ function ChatsCompactHeader({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-
-          <Button size="sm" onClick={onNewConversation} className="gap-2">
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Nueva conversación</span>
-          </Button>
         </div>
       </div>
 
@@ -963,14 +955,6 @@ export default function ChatsPage() {
     } else {
       launchWhatsAppSignup()
     }
-  }
-
-  const handleNewConversation = () => {
-    addToast({
-      type: "info",
-      title: "Nueva conversación",
-      description: "Selecciona un canal conectado para iniciar o continuar un chat.",
-    })
   }
 
   const handleFilterChange = (filter: FilterType) => {
@@ -1838,7 +1822,6 @@ export default function ChatsPage() {
       <ChatsCompactHeader
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        onNewConversation={handleNewConversation}
         onConnectChannel={handleConnectChannel}
         onOpenChannels={() => setIsChannelsSheetOpen(true)}
         hideOnMobile={Boolean(selectedConversationId)}
