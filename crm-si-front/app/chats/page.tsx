@@ -107,7 +107,6 @@ import {
   Megaphone,
   Menu,
   MoreHorizontal,
-  Plus,
   Search,
   Sparkles,
   Tags,
@@ -145,7 +144,6 @@ const CONNECTABLE_CHANNELS: {
 interface ChatsCompactHeaderProps {
   searchQuery: string
   onSearchChange: (query: string) => void
-  onNewConversation: () => void
   onConnectChannel: (channelType?: ConnectableChannel) => void
   onOpenChannels: () => void
   /**
@@ -160,7 +158,6 @@ interface ChatsCompactHeaderProps {
 function ChatsCompactHeader({
   searchQuery,
   onSearchChange,
-  onNewConversation,
   onConnectChannel,
   onOpenChannels,
   hideOnMobile = false,
@@ -237,11 +234,6 @@ function ChatsCompactHeader({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-
-          <Button size="sm" onClick={onNewConversation} className="gap-2">
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Nueva conversación</span>
-          </Button>
         </div>
       </div>
 
@@ -963,14 +955,6 @@ export default function ChatsPage() {
     } else {
       launchWhatsAppSignup()
     }
-  }
-
-  const handleNewConversation = () => {
-    addToast({
-      type: "info",
-      title: "Nueva conversación",
-      description: "Selecciona un canal conectado para iniciar o continuar un chat.",
-    })
   }
 
   const handleFilterChange = (filter: FilterType) => {
@@ -1745,16 +1729,14 @@ export default function ChatsPage() {
               aria-selected={isActive}
               onClick={() => setViewType(item.key)}
               title={item.label}
-              className={`group relative flex min-w-0 flex-1 items-center justify-center gap-1.5 px-2 text-sm font-medium tracking-[-0.01em] transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
+              className={`group relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 text-xs font-medium tracking-[-0.01em] transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
                 isActive
                   ? "text-primary"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <span className="truncate">{item.label}</span>
               <span
-                aria-hidden={item.count === 0}
-                className={`inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border px-1.5 text-xs font-medium tabular-nums transition-colors ${
+                className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full border px-1.5 text-xs font-semibold tabular-nums transition-colors ${
                   isActive
                     ? "border-primary/35 bg-primary/10 text-primary"
                     : hasUnreadCount
@@ -1764,6 +1746,7 @@ export default function ChatsPage() {
               >
                 {item.count > 99 ? "99+" : item.count}
               </span>
+              <span className="max-w-full truncate leading-none">{item.label}</span>
               <span
                 className={`absolute inset-x-0 bottom-0 h-0.5 origin-left transition-transform duration-200 ease-out ${
                   isActive ? "scale-x-100 bg-primary" : "scale-x-0 bg-transparent"
@@ -1838,7 +1821,6 @@ export default function ChatsPage() {
       <ChatsCompactHeader
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        onNewConversation={handleNewConversation}
         onConnectChannel={handleConnectChannel}
         onOpenChannels={() => setIsChannelsSheetOpen(true)}
         hideOnMobile={Boolean(selectedConversationId)}
