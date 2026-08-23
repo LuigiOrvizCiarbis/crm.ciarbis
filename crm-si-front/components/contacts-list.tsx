@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { ContactAvatar } from "@/components/contact-avatar"
 import { Checkbox } from "@/components/ui/checkbox"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -78,26 +78,9 @@ const DEFAULT_FORM: { name: string; phone: string; email: string; source: string
   custom_data: {},
 }
 
-function getInitials(name: string): string {
-  return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
-}
-
 function capitalize(value: string): string {
   if (!value) return value
   return value.charAt(0).toUpperCase() + value.slice(1)
-}
-
-const AVATAR_GRADIENTS = [
-  "from-cyan-500 to-blue-600",
-  "from-violet-500 to-purple-600",
-  "from-emerald-500 to-green-600",
-  "from-orange-500 to-amber-600",
-  "from-pink-500 to-rose-600",
-  "from-indigo-500 to-blue-600",
-]
-
-function getAvatarGradient(id: number): string {
-  return AVATAR_GRADIENTS[id % AVATAR_GRADIENTS.length]
 }
 
 const sourceColors: Record<string, string> = {
@@ -719,13 +702,12 @@ export function ContactsList({
               className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default"
               title={contact.conversations?.[0]?.id ? "Abrir conversación" : "Sin conversación"}
             >
-              <Avatar className="w-9 h-9">
-                <AvatarFallback
-                  className={`text-xs font-bold bg-gradient-to-br ${getAvatarGradient(contact.id)} text-white`}
-                >
-                  {getInitials(contact.name)}
-                </AvatarFallback>
-              </Avatar>
+              <ContactAvatar
+                contactId={contact.id}
+                name={contact.name}
+                className="w-9 h-9"
+                fallbackClassName="text-xs font-bold"
+              />
             </button>
             <div className="min-w-0 flex-1">
               <EditableCell
@@ -1087,11 +1069,12 @@ export function ContactsList({
                       className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default"
                       title={conversationId ? "Abrir conversación" : "Sin conversación"}
                     >
-                      <Avatar className="h-11 w-11">
-                        <AvatarFallback className={`font-bold bg-gradient-to-br ${getAvatarGradient(contact.id)} text-white`}>
-                          {getInitials(contact.name)}
-                        </AvatarFallback>
-                      </Avatar>
+                      <ContactAvatar
+                        contactId={contact.id}
+                        name={contact.name}
+                        className="h-11 w-11"
+                        fallbackClassName="font-bold"
+                      />
                     </button>
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold text-foreground">{contact.name}</p>
@@ -1341,13 +1324,12 @@ export function ContactsList({
           {profileContact && (
             <div className="mt-6 space-y-6">
               <div className="flex items-center gap-4">
-                <Avatar className="w-16 h-16">
-                  <AvatarFallback
-                    className={`text-xl font-bold bg-gradient-to-br ${getAvatarGradient(profileContact.id)} text-white`}
-                  >
-                    {getInitials(profileContact.name)}
-                  </AvatarFallback>
-                </Avatar>
+                <ContactAvatar
+                  contactId={profileContact.id}
+                  name={profileContact.name}
+                  className="w-16 h-16"
+                  fallbackClassName="text-xl font-bold"
+                />
                 <div>
                   <h3 className="text-lg font-semibold">{profileContact.name}</h3>
                   <Badge className={sourceColors[profileContact.source] || "bg-gray-500/10 text-gray-600"} variant="outline">
