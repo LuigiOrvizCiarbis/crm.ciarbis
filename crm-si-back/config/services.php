@@ -93,6 +93,10 @@ return [
             // TTL de un job en processing antes de que el watchdog lo recupere.
             // Cubre worker muerto por OOM/deploy, que dejaría la fila colgada.
             'lease_seconds' => env('AI_EXTRACTION_LEASE_SECONDS', 600),
+            // Horas que sobrevive un PDF subido que nunca llegó a usarse (el
+            // usuario cerró el diálogo antes de encolar). Un asset referenciado
+            // por una extracción o por un campo File no se borra nunca.
+            'orphan_ttl_hours' => env('AI_EXTRACTION_ORPHAN_TTL_HOURS', 24),
         ],
     ],
 
