@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\ContactTimelineController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\ConversationTranslationController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\DocumentExtractionController;
 use App\Http\Controllers\Api\GoogleCalendarConnectionController;
 use App\Http\Controllers\Api\IncomingWebhookController;
 use App\Http\Controllers\Api\InvitationController;
@@ -405,6 +406,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('contacts/{contact}', [ContactController::class, 'show']);
     Route::put('contacts/{contact}', [ContactController::class, 'update']);
     Route::delete('contacts/{contact}', [ContactController::class, 'destroy']);
+    // Extracción de datos desde documentos. El upload es propio del contacto:
+    // el genérico /media-assets exige automations.manage, que el rol operativo
+    // no tiene, y abrirlo permitiría subir archivos sin vínculo con un contacto.
+    Route::post('contacts/{contact}/documents', [DocumentExtractionController::class, 'upload']);
+    Route::post('contacts/{contact}/extractions', [DocumentExtractionController::class, 'store']);
+    Route::get('contacts/{contact}/extractions/{extraction}', [DocumentExtractionController::class, 'show']);
+    Route::post('contacts/{contact}/extractions/{extraction}/confirm', [DocumentExtractionController::class, 'confirm']);
     Route::get('contacts/{contact}/history', [ContactHistoryController::class, 'show']);
     Route::get('contacts/{contact}/timeline', [ContactTimelineController::class, 'show']);
     Route::post('contacts/{contact}/tags', [TagController::class, 'attachToContact']);

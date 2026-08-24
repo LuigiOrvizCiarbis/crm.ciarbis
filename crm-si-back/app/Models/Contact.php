@@ -36,6 +36,7 @@ class Contact extends Model
         'external_id',
         'source',
         'custom_data',
+        'lock_version',
     ];
 
     protected $attributes = [
@@ -48,6 +49,7 @@ class Contact extends Model
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
             'custom_data' => 'array',
+            'lock_version' => 'integer',
         ];
     }
 
