@@ -53,4 +53,21 @@ interface AiProvider
      * @param  string  $model  Modelo contra el que probar.
      */
     public function verify(string $systemPrompt, string $model): AiVerificationResult;
+
+    /**
+     * Extrae datos estructurados de un texto según un JSON Schema.
+     *
+     * Recibe TEXTO, no el documento: el PDF se convierte localmente con
+     * pdftotext antes de llegar acá. Eso abarata el request (~10x contra
+     * visión) y hace que cualquier modelo de texto sirva, sin depender de que
+     * el proveedor lea PDFs.
+     *
+     * A diferencia de generate(), nunca devuelve null silencioso: el resultado
+     * distingue cada modo de falla para que el job lo persista y la UI pueda
+     * explicarle al usuario qué pasó.
+     *
+     * @param  string  $text  Texto del documento (contenido NO confiable).
+     * @param  array<string, mixed>  $schema  JSON Schema del objeto a extraer.
+     */
+    public function extract(string $text, array $schema, string $systemPrompt, string $model): AiExtractionResult;
 }

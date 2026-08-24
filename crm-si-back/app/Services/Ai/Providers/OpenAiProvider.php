@@ -2,6 +2,7 @@
 
 namespace App\Services\Ai\Providers;
 
+use App\Services\Ai\AiExtractionResult;
 use App\Services\Ai\AiProvider;
 use App\Services\Ai\AiVerificationResult;
 use GuzzleHttp\Client as GuzzleClient;
@@ -157,6 +158,22 @@ class OpenAiProvider implements AiProvider
 
             return [];
         }
+    }
+
+    /**
+     * La extracción de documentos todavía no está implementada para OpenAI.
+     *
+     * No hay impedimento técnico: como al modelo se le manda texto plano (el PDF
+     * se convierte antes con pdftotext), alcanza con function calling y `strict`.
+     * Queda para una iteración siguiente; mientras tanto se devuelve un código
+     * explícito para que la UI lo explique en vez de fallar de forma opaca.
+     */
+    public function extract(string $text, array $schema, string $systemPrompt, string $model): AiExtractionResult
+    {
+        return AiExtractionResult::failure(
+            'unsupported',
+            'La extracción de datos desde documentos requiere Claude como proveedor de IA.',
+        );
     }
 
     public function verify(string $systemPrompt, string $model): AiVerificationResult
