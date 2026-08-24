@@ -423,6 +423,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('contact-fields/{contact_field}', [ContactFieldController::class, 'update']);
     Route::delete('contact-fields/{contact_field}', [ContactFieldController::class, 'destroy']);
     Route::post('contact-fields/reorder', [ContactFieldController::class, 'reorder']);
+    Route::post('contact-fields/apply-preset', [ContactFieldController::class, 'applyPreset']);
 
     // Config de IA por tenant (proveedor + API key BYOK).
     Route::get('ai-config', [AiConfigController::class, 'show']);
