@@ -68,6 +68,32 @@ return [
             'openai' => env('AI_OPENAI_TRANSLATION_MODEL', 'gpt-5-mini'),
             'claude' => env('AI_CLAUDE_TRANSLATION_MODEL', 'claude-haiku-4-5-20251001'),
         ],
+        // Extracción de datos desde documentos. Al documento se le saca el texto
+        // localmente con pdftotext y se manda TEXTO al modelo (no el PDF), así
+        // cualquier modelo de texto sirve y el costo baja ~10x contra visión.
+        'extraction' => [
+            'model' => env('AI_CLAUDE_EXTRACTION_MODEL', 'claude-opus-5'),
+            // Timeout del request al proveedor. Debe quedar por debajo del timeout
+            // del job, que a su vez queda por debajo del --timeout del worker.
+            'timeout' => env('AI_EXTRACTION_TIMEOUT', 120),
+            'max_tokens' => env('AI_EXTRACTION_MAX_TOKENS', 8000),
+            // Cotas del documento. Excederlas es un error explícito, NO se trunca:
+            // el modelo interpretaría lo que quedó afuera como dato ausente y
+            // devolvería null para cláusulas que sí están en el contrato.
+            'max_chars' => env('AI_EXTRACTION_MAX_CHARS', 120000),
+            'max_pages' => env('AI_EXTRACTION_MAX_PAGES', 100),
+            'max_file_bytes' => env('AI_EXTRACTION_MAX_FILE_BYTES', 20971520), // 20 MB
+            // Mínimo de caracteres por página para considerarla legible.
+            'min_page_chars' => env('AI_EXTRACTION_MIN_PAGE_CHARS', 20),
+            // pdftotext: timeout del proceso y tope de memoria virtual (KB) via
+            // ulimit -v. El worker de producción tiene 256 MB: sin esta cota un
+            // PDF patológico puede provocar OOM y matar el worker entero.
+            'pdftotext_timeout' => env('AI_EXTRACTION_PDFTOTEXT_TIMEOUT', 30),
+            'pdftotext_memory_kb' => env('AI_EXTRACTION_PDFTOTEXT_MEMORY_KB', 131072), // 128 MB
+            // TTL de un job en processing antes de que el watchdog lo recupere.
+            // Cubre worker muerto por OOM/deploy, que dejaría la fila colgada.
+            'lease_seconds' => env('AI_EXTRACTION_LEASE_SECONDS', 600),
+        ],
     ],
 
     'facebook' => [
