@@ -66,14 +66,46 @@ class PdfTextExtractorTest extends TestCase
     }
 
     #[Test]
-    public function it_fails_when_the_pdf_has_no_text_layer(): void
+    public function it_rasterizes_a_scanned_pdf_instead_of_giving_up(): void
     {
+        // Un contrato firmado casi siempre es un escaneo, así que rendirse ahí
+        // dejaría la feature inservible para su caso principal: se convierten
+        // las páginas a imágenes para un modelo con visión.
+        $path = $this->makePdf([' ', ' ']);
+
+        $result = app(PdfTextExtractor::class)->extract($path);
+
+        $this->assertTrue($result->ok);
+        $this->assertTrue($result->isScanned());
+        $this->assertCount(2, $result->images);
+        $this->assertSame('image/jpeg', $result->images[0]['mime']);
+        $this->assertNotSame('', $result->images[0]['data']);
+        $this->assertSame('', $result->text);
+    }
+
+    #[Test]
+    public function it_fails_when_the_pdf_has_no_text_layer_and_vision_is_disabled(): void
+    {
+        config(['services.ai.extraction.vision.enabled' => false]);
         $path = $this->makePdf([' ']);
 
         $result = app(PdfTextExtractor::class)->extract($path);
 
         $this->assertFalse($result->ok);
         $this->assertSame('no_text_layer', $result->errorCode);
+    }
+
+    #[Test]
+    public function it_refuses_to_rasterize_a_scan_beyond_the_page_limit(): void
+    {
+        // Cada página es una imagen y el costo escala lineal.
+        config(['services.ai.extraction.vision.max_pages' => 1]);
+        $path = $this->makePdf([' ', ' ']);
+
+        $result = app(PdfTextExtractor::class)->extract($path);
+
+        $this->assertFalse($result->ok);
+        $this->assertSame('too_many_pages', $result->errorCode);
     }
 
     #[Test]

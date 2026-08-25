@@ -97,6 +97,20 @@ return [
             // usuario cerró el diálogo antes de encolar). Un asset referenciado
             // por una extracción o por un campo File no se borra nunca.
             'orphan_ttl_hours' => env('AI_EXTRACTION_ORPHAN_TTL_HOURS', 24),
+            // Fallback para PDFs escaneados (sin capa de texto): se rasterizan
+            // las páginas y se mandan como imágenes a un modelo con visión.
+            // Cuesta bastante más que el camino de texto, así que sólo se activa
+            // cuando pdftotext no encontró nada.
+            'vision' => [
+                'enabled' => env('AI_EXTRACTION_VISION_ENABLED', true),
+                // 120 DPI: legible para OCR del modelo y ~4 MB en base64 para un
+                // contrato de 13 páginas, holgado contra el tope de 32 MB de la API.
+                'dpi' => env('AI_EXTRACTION_VISION_DPI', 120),
+                // Tope de páginas: cada una es una imagen y el costo escala lineal.
+                'max_pages' => env('AI_EXTRACTION_VISION_MAX_PAGES', 20),
+                // Cota del payload total en base64, por debajo del límite de la API.
+                'max_total_bytes' => env('AI_EXTRACTION_VISION_MAX_TOTAL_BYTES', 20971520),
+            ],
         ],
     ],
 
