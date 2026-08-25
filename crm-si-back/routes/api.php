@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\IncomingWebhookController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\MailIntakeController;
 use App\Http\Controllers\Api\MediaAssetController;
+use App\Http\Controllers\Api\MediaAssetDownloadController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MessageHotkeyController;
@@ -394,6 +395,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('automations/{automation}/runs', [AutomationController::class, 'runs']);
     Route::get('automation-runs/{run}', [AutomationRunController::class, 'show']);
     Route::post('automation-runs/{run}/retry', [AutomationRunController::class, 'retry']);
+
+    // Lectura autenticada de un archivo del espacio. Se declara antes que las
+    // rutas genéricas de media-assets porque no comparte su permiso: un adjunto
+    // de contacto se autoriza como el contacto, no con automations.manage.
+    Route::get('media-assets/{mediaAsset}/meta', [MediaAssetDownloadController::class, 'meta']);
+    Route::get('media-assets/{mediaAsset}/download', [MediaAssetDownloadController::class, 'download']);
 
     Route::get('media-assets', [MediaAssetController::class, 'index']);
     Route::post('media-assets', [MediaAssetController::class, 'store']);

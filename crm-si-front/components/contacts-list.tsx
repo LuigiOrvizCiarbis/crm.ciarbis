@@ -14,10 +14,11 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags } from "lucide-react"
+import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip } from "lucide-react"
 import { ImportContactsDialog } from "./import-contacts-dialog"
 import { BulkTagsDialog } from "./contacts/bulk-tags-dialog"
 import { ExtractDocumentDialog } from "./contacts/ExtractDocumentDialog"
+import { DocumentViewerSheet } from "./contacts/DocumentViewerSheet"
 import { getAuthToken } from "@/lib/api/auth-token"
 import { getPipelineStages } from "@/lib/api/pipeline"
 import { createOpportunity, getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
@@ -288,6 +289,16 @@ export function ContactsList({
   const [formData, setFormData] = useState<{ name: string; phone: string; email: string; source: string; custom_data: Record<string, unknown> }>({ ...DEFAULT_FORM })
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
+
+  // Visor del documento adjunto de un campo tipo archivo. Se guarda el contacto
+  // y la clave para que reemplazar o quitar escriba en la celda correcta.
+  const [viewerTarget, setViewerTarget] = useState<{
+    contactId: number
+    key: string
+    label: string
+    assetId: number
+  } | null>(null)
+  const [viewerOpen, setViewerOpen] = useState(false)
 
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileContact, setProfileContact] = useState<Contact | null>(null)
@@ -934,6 +945,41 @@ export function ContactsList({
             )
           }
 
+          // Un campo tipo archivo se consulta mucho más de lo que se reemplaza,
+          // así que el click abre el documento en vez del uploader. Cambiar el
+          // archivo se hace desde el propio visor.
+          if (field.type === "file") {
+            const assetId = typeof raw === "number" ? raw : null
+
+            if (assetId === null) {
+              return (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none"
+                  onClick={() => setEditingCell({ contactId: contact.id, field: columnId })}
+                >
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  Subir archivo
+                </button>
+              )
+            }
+
+            return (
+              <button
+                type="button"
+                className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-sm text-foreground transition-colors hover:bg-muted/60 focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none"
+                aria-label={`Ver ${field.label} de ${contact.name}`}
+                onClick={() => {
+                  setViewerTarget({ contactId: contact.id, key, label: field.label, assetId })
+                  setViewerOpen(true)
+                }}
+              >
+                <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="truncate">Ver documento</span>
+              </button>
+            )
+          }
+
           return (
             <button
               type="button"
@@ -1056,6 +1102,31 @@ export function ContactsList({
           }}
         />
       )}
+
+      <DocumentViewerSheet
+        open={viewerOpen}
+        onOpenChange={(open) => {
+          setViewerOpen(open)
+          // El target se limpia después de la animación de salida para que el
+          // panel no se vacíe mientras se desliza.
+          if (!open) setTimeout(() => setViewerTarget(null), 300)
+        }}
+        assetId={viewerTarget?.assetId ?? null}
+        contactId={viewerTarget?.contactId ?? null}
+        fieldLabel={viewerTarget?.label}
+        onValueChange={(assetId) => {
+          if (!viewerTarget) return
+          const contact = contacts.find((c) => c.id === viewerTarget.contactId)
+          if (!contact) return
+          handleCustomCellSave(contact, viewerTarget.key, assetId)
+          if (assetId === null) {
+            setViewerOpen(false)
+            return
+          }
+          // Tras reemplazar, el visor apunta al archivo nuevo y lo recarga.
+          setViewerTarget({ ...viewerTarget, assetId })
+        }}
+      />
 
       <BulkTagsDialog
         open={bulkTagsOpen}
