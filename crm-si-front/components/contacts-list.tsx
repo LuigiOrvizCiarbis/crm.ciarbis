@@ -17,6 +17,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags } from "lucide-react"
 import { ImportContactsDialog } from "./import-contacts-dialog"
 import { BulkTagsDialog } from "./contacts/bulk-tags-dialog"
+import { ExtractDocumentDialog } from "./contacts/ExtractDocumentDialog"
 import { getAuthToken } from "@/lib/api/auth-token"
 import { getPipelineStages } from "@/lib/api/pipeline"
 import { createOpportunity, getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
@@ -290,6 +291,10 @@ export function ContactsList({
 
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileContact, setProfileContact] = useState<Contact | null>(null)
+
+  // Extracción de datos desde un PDF. Vive acá y no en el panel de perfil
+  // porque ese es de sólo lectura y no recarga el contacto al confirmar.
+  const [extractionContact, setExtractionContact] = useState<Contact | null>(null)
 
   const [deleteContact, setDeleteContact] = useState<Contact | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -856,6 +861,9 @@ export function ContactsList({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => openProfileSheet(contact)}>Ver perfil</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openEditDialog(contact)}>Editar</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setExtractionContact(contact)}>
+                  Extraer datos de un PDF
+                </DropdownMenuItem>
                 <DropdownMenuItem>Crear tarea</DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={addingToPipelineId === contact.id}
@@ -1028,6 +1036,25 @@ export function ContactsList({
             </Button>
           </div>
         </div>
+      )}
+
+      {extractionContact && (
+        <ExtractDocumentDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setExtractionContact(null)
+          }}
+          contactId={extractionContact.id}
+          currentCustomData={(extractionContact.custom_data as Record<string, unknown>) ?? {}}
+          onConfirmed={(customData) => {
+            // El backend devuelve el custom_data ya mergeado y validado: se usa
+            // ese en vez de recomponerlo acá.
+            setContacts((prev) =>
+              prev.map((c) => (c.id === extractionContact.id ? { ...c, custom_data: customData } : c)),
+            )
+            setExtractionContact((prev) => (prev ? { ...prev, custom_data: customData } : prev))
+          }}
+        />
       )}
 
       <BulkTagsDialog

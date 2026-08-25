@@ -126,3 +126,30 @@ export async function reorderContactFields(items: Array<{ id: number; display_or
     throwApiError(response.status, payload, "Error al reordenar campos");
   }
 }
+
+export type ContactFieldPreset = "rental_contract";
+
+export interface ApplyPresetResult {
+  data: ContactField[];
+  /** Keys creadas por el preset. */
+  created: string[];
+  /** Keys que ya existían: no se duplican ni se pisan. */
+  existing: string[];
+}
+
+/**
+ * Crea de una vez los campos de una plantilla (por ejemplo un contrato de
+ * alquiler). Quedan como campos normales: editables, reordenables y borrables.
+ */
+export async function applyContactFieldPreset(preset: ContactFieldPreset): Promise<ApplyPresetResult> {
+  const response = await fetch("/api/contact-fields/apply-preset", {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ preset }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throwApiError(response.status, payload, "Error al aplicar la plantilla");
+
+  return payload as ApplyPresetResult;
+}

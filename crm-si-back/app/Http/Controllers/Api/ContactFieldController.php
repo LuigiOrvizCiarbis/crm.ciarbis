@@ -8,10 +8,13 @@ use App\Http\Requests\StoreContactFieldRequest;
 use App\Http\Requests\UpdateContactFieldRequest;
 use App\Models\ContactField;
 use App\Support\ContactFieldRegistry;
+use App\Support\ExtractionPresetProvisioner;
+use App\Support\ExtractionPresetRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class ContactFieldController extends Controller
 {
@@ -101,6 +104,40 @@ class ContactFieldController extends Controller
         ContactField::clearTenantCache($request->user()->tenant_id);
 
         return response()->json(['message' => 'Orden actualizado.']);
+    }
+
+    /**
+     * Aplica una plantilla de campos (por ejemplo los de un contrato de
+     * alquiler) para no tener que crearlos de a uno.
+     *
+     * Los campos quedan como cualquier otro: editables, reordenables y
+     * borrables. Reaplicar el preset no duplica ni pisa lo que el tenant
+     * cambió; la respuesta dice qué se creó y qué ya estaba.
+     */
+    public function applyPreset(Request $request, ExtractionPresetProvisioner $provisioner): JsonResponse
+    {
+        if (! $request->user()?->can('contact_fields.manage')) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'preset' => ['required', 'string', Rule::in(ExtractionPresetRegistry::keys())],
+        ]);
+
+        $result = $provisioner->apply($request->user()->tenant_id, $validated['preset']);
+
+        $fields = ContactField::query()
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (ContactField $f): array => $this->serialize($f))
+            ->all();
+
+        return response()->json([
+            'data' => $fields,
+            'created' => $result['created'],
+            'existing' => $result['existing'],
+        ]);
     }
 
     private function generateUniqueKey(string $label, int $tenantId): string
