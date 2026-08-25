@@ -1488,9 +1488,16 @@
       "optionsRequired": "You must define at least one option.",
       "invalidPayload": "Invalid custom data."
     },
+    "currency": "Currency",
+    "currencyHint": "The amount is stored as a plain number; the currency only changes how it is displayed. There is no conversion between currencies.",
+    "currencies": {
+      "ARS": "Argentine peso (ARS)",
+      "USD": "US dollar (USD)"
+    },
     "typeLabels": {
       "text": "Text",
       "number": "Number",
+      "currency": "Currency",
       "date": "Date",
       "boolean": "Boolean",
       "select": "Select",
@@ -1498,7 +1505,29 @@
       "email": "Email",
       "url": "URL",
       "phone": "Phone",
-      "file": "File"
+      "file": "File",
+      "repeater": "Repeater"
+    },
+    "repeater": {
+      "title": "Repeating rows",
+      "description": "Define the nested fields and allowed row count.",
+      "addSubfield": "Add subfield",
+      "subfieldLabel": "Subfield name",
+      "moveUp": "Move subfield up",
+      "moveDown": "Move subfield down",
+      "archiveSubfield": "Archive subfield",
+      "restoreSubfield": "Restore subfield",
+      "noSubfields": "Add at least one subfield.",
+      "minItems": "Minimum rows",
+      "maxItems": "Maximum rows",
+      "invalidLimits": "The minimum cannot be greater than the maximum.",
+      "addRow": "Add row",
+      "row": "Row {{index}}",
+      "moveRowUp": "Move row up",
+      "moveRowDown": "Move row down",
+      "removeRow": "Remove row",
+      "minimumError": "Add at least {{count}} row(s).",
+      "emptyRows": "There are no rows yet."
     }
   },
   "trial": {

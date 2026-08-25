@@ -75,6 +75,7 @@ type TranslateFn = ReturnType<typeof useTranslation>["t"]
 
 function formatCustomValue(raw: unknown, type: ProductField["type"], t: TranslateFn): string {
   if (raw === null || raw === undefined || raw === "") return "—"
+  if (type === "repeater" && Array.isArray(raw)) return `${raw.length} ${raw.length === 1 ? "element" : "elements"}`
   if (Array.isArray(raw)) return raw.length ? raw.join(", ") : "—"
   if (type === "boolean") return raw ? t("common.yes") : t("common.no")
   return String(raw)
@@ -362,9 +363,13 @@ export function ProductsList() {
       header: field.label,
       minWidth: "140px",
       cell: (product) => (
-        <span className="text-sm">
-          {formatCustomValue(product.custom_data?.[field.key], field.type, t)}
-        </span>
+        field.type === "repeater" ? (
+          <button type="button" className="text-left text-sm underline-offset-2 hover:underline" onClick={() => openEdit(product)}>
+            {formatCustomValue(product.custom_data?.[field.key], field.type, t)}
+          </button>
+        ) : (
+          <span className="text-sm">{formatCustomValue(product.custom_data?.[field.key], field.type, t)}</span>
+        )
       ),
     })),
     {

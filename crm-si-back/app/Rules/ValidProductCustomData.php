@@ -4,6 +4,8 @@ namespace App\Rules;
 
 use App\Models\Product;
 use App\Models\ProductField;
+use App\Enums\ContactFieldType;
+use App\Support\RepeaterFieldSchema;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Support\Facades\Auth;
@@ -70,6 +72,13 @@ class ValidProductCustomData implements ValidationRule
                     $fail("custom_data.{$key}: {$message}");
                 }
 
+                continue;
+            }
+
+            if ($field->type === ContactFieldType::Repeater) {
+                foreach (RepeaterFieldSchema::valueErrors($rawValue, $field->options ?? []) as $message) {
+                    $fail("custom_data.{$key}: {$message}");
+                }
                 continue;
             }
 

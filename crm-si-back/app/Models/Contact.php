@@ -36,6 +36,7 @@ class Contact extends Model
         'external_id',
         'source',
         'custom_data',
+        'lock_version',
     ];
 
     protected $attributes = [
@@ -48,6 +49,7 @@ class Contact extends Model
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
             'custom_data' => 'array',
+            'lock_version' => 'integer',
         ];
     }
 
@@ -141,5 +143,34 @@ class Contact extends Model
     public function messages(): MorphMany
     {
         return $this->morphMany(Message::class, 'sender');
+    }
+
+    /**
+     * Avanza lock_version en cada modificación persistida.
+     *
+     * Vive acá y no en cada writer a propósito: el contacto se escribe desde el
+     * CRUD, los webhooks entrantes, el import de CSV y la confirmación de una
+     * extracción. Si el contador sólo lo tocara quien lo lee, una edición hecha
+     * por cualquiera de las otras vías dejaría la versión igual y la
+     * confirmación de una extracción pisaría ese cambio sin devolver 409, que
+     * es justo lo que el contador viene a evitar.
+     *
+     * Se excluye el caso en que lock_version ya venga modificado en el mismo
+     * save (la confirmación lo incrementa explícitamente), para no contarlo dos
+     * veces.
+     */
+    protected static function booted(): void
+    {
+        static::updating(function (self $contact): void {
+            if ($contact->isDirty('lock_version')) {
+                return;
+            }
+
+            if ($contact->getDirty() === []) {
+                return;
+            }
+
+            $contact->lock_version = (int) $contact->getOriginal('lock_version') + 1;
+        });
     }
 }

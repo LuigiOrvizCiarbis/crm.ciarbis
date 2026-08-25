@@ -278,11 +278,60 @@ class ContactImportService
     private function castRawValue(string $raw, ContactField $field): mixed
     {
         return match ($field->type->value) {
+            'repeater' => $this->castRepeater($raw),
             'multi_select' => array_values(array_filter(array_map('trim', preg_split('/[;|]/', $raw)))),
             'boolean' => in_array(strtolower($raw), ['1', 'true', 'yes', 'si', 'sí'], true),
             'number' => is_numeric($raw) ? $raw + 0 : $raw,
+            'currency' => $this->castCurrency($raw),
             default => $raw,
         };
+    }
+
+    /**
+     * Un CSV real trae importes como se los ve en pantalla: "$ 1.250.000,50",
+     * "USD 1,250,000.50". Se limpia el símbolo y los separadores de miles antes
+     * de convertir; si aun así no es un número, se devuelve el crudo para que
+     * la validación lo rechace con el mensaje del campo.
+     */
+    private function castCurrency(string $raw): mixed
+    {
+        $cleaned = preg_replace('/[^\d,.\-]/', '', $raw) ?? '';
+        if ($cleaned === '') {
+            return $raw;
+        }
+
+        $lastComma = strrpos($cleaned, ',');
+        $lastDot = strrpos($cleaned, '.');
+        if ($lastComma !== false && $lastDot !== false) {
+            // Gana el separador más a la derecha: es el decimal.
+            $cleaned = $lastComma > $lastDot
+                ? str_replace(',', '.', str_replace('.', '', $cleaned))
+                : str_replace(',', '', $cleaned);
+        } elseif ($lastComma !== false) {
+            // Una sola coma: decimal si deja 1-2 dígitos ("1250,5"), separador
+            // de miles si deja exactamente 3 ("1,250").
+            $decimals = strlen($cleaned) - $lastComma - 1;
+            $cleaned = $decimals === 3
+                ? str_replace(',', '', $cleaned)
+                : str_replace(',', '.', $cleaned);
+        } elseif ($lastDot !== false) {
+            // Mismo criterio que la coma, por simetría: "1.250" son mil
+            // doscientos cincuenta, no uno con veinticinco. Un importe con
+            // decimales reales se escribe "1250.50", que deja 2 dígitos.
+            $decimals = strlen($cleaned) - $lastDot - 1;
+            if (substr_count($cleaned, '.') > 1 || $decimals === 3) {
+                $cleaned = str_replace('.', '', $cleaned);
+            }
+        }
+
+        return is_numeric($cleaned) ? $cleaned + 0 : $raw;
+    }
+
+    private function castRepeater(string $raw): mixed
+    {
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : $raw;
     }
 
     /**

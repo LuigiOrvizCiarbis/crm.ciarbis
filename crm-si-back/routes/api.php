@@ -13,11 +13,13 @@ use App\Http\Controllers\Api\ContactTimelineController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\ConversationTranslationController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\DocumentExtractionController;
 use App\Http\Controllers\Api\GoogleCalendarConnectionController;
 use App\Http\Controllers\Api\IncomingWebhookController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\MailIntakeController;
 use App\Http\Controllers\Api\MediaAssetController;
+use App\Http\Controllers\Api\MediaAssetDownloadController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MessageHotkeyController;
@@ -394,6 +396,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('automation-runs/{run}', [AutomationRunController::class, 'show']);
     Route::post('automation-runs/{run}/retry', [AutomationRunController::class, 'retry']);
 
+    // Lectura autenticada de un archivo del espacio. Se declara antes que las
+    // rutas genéricas de media-assets porque no comparte su permiso: un adjunto
+    // de contacto se autoriza como el contacto, no con automations.manage.
+    Route::get('media-assets/{mediaAsset}/meta', [MediaAssetDownloadController::class, 'meta']);
+    Route::get('media-assets/{mediaAsset}/download', [MediaAssetDownloadController::class, 'download']);
+
     Route::get('media-assets', [MediaAssetController::class, 'index']);
     Route::post('media-assets', [MediaAssetController::class, 'store']);
     Route::delete('media-assets/{mediaAsset}', [MediaAssetController::class, 'destroy']);
@@ -406,6 +414,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('contacts/{contact}', [ContactController::class, 'show']);
     Route::put('contacts/{contact}', [ContactController::class, 'update']);
     Route::delete('contacts/{contact}', [ContactController::class, 'destroy']);
+    // Extracción de datos desde documentos. El upload es propio del contacto:
+    // el genérico /media-assets exige automations.manage, que el rol operativo
+    // no tiene, y abrirlo permitiría subir archivos sin vínculo con un contacto.
+    Route::post('contacts/{contact}/documents', [DocumentExtractionController::class, 'upload']);
+    Route::post('contacts/{contact}/extractions', [DocumentExtractionController::class, 'store']);
+    Route::get('contacts/{contact}/extractions/{extraction}', [DocumentExtractionController::class, 'show']);
+    Route::post('contacts/{contact}/extractions/{extraction}/confirm', [DocumentExtractionController::class, 'confirm']);
     Route::get('contacts/{contact}/history', [ContactHistoryController::class, 'show']);
     Route::get('contacts/{contact}/timeline', [ContactTimelineController::class, 'show']);
     Route::post('contacts/{contact}/tags', [TagController::class, 'attachToContact']);
@@ -416,6 +431,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('contact-fields/{contact_field}', [ContactFieldController::class, 'update']);
     Route::delete('contact-fields/{contact_field}', [ContactFieldController::class, 'destroy']);
     Route::post('contact-fields/reorder', [ContactFieldController::class, 'reorder']);
+    Route::post('contact-fields/apply-preset', [ContactFieldController::class, 'applyPreset']);
 
     // Config de IA por tenant (proveedor + API key BYOK).
     Route::get('ai-config', [AiConfigController::class, 'show']);
