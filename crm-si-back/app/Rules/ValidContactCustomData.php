@@ -63,6 +63,16 @@ class ValidContactCustomData implements ValidationRule
                 continue;
             }
 
+            // Sólo se valida lo que vino en este request. El payload llega
+            // mergeado con el custom_data que ya tenía el contacto, así que sin
+            // este filtro un valor viejo inválido —por ejemplo un campo File
+            // cuyo archivo se borró— bloquearía para siempre cualquier
+            // actualización de otros campos, incluida la confirmación de una
+            // extracción que no lo toca.
+            if (! $sentInPayload) {
+                continue;
+            }
+
             $rules = ['value' => $field->type->valueRules($field->options)];
             $itemRules = $field->type->itemRules($field->options);
             if ($itemRules !== null) {

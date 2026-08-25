@@ -195,6 +195,41 @@ class DocumentExtractionTest extends TestCase
     }
 
     #[Test]
+    public function a_stale_value_in_another_field_does_not_block_the_confirmation(): void
+    {
+        // El payload llega mergeado con el custom_data que ya tenía el contacto.
+        // Si un campo File apunta a un archivo que se borró, ese valor viejo no
+        // puede impedir guardar campos nuevos que no lo tocan.
+        ['user' => $user, 'contact' => $contact, 'tenant' => $tenant] = $this->setUpTenant();
+
+        ContactField::create([
+            'tenant_id' => $tenant->id,
+            'key' => 'contrato_pdf',
+            'label' => 'Contrato (PDF)',
+            'type' => ContactFieldType::File,
+        ]);
+        ContactField::clearTenantCache($tenant->id);
+
+        // Un id de MediaAsset que ya no existe.
+        $contact->forceFill(['custom_data' => ['contrato_pdf' => 999999]])->save();
+
+        $extraction = $this->makeExtraction($tenant, $contact, [
+            'status' => ExtractionStatus::Completed,
+            'result' => ['monto' => 150000],
+            'fields_snapshot' => ['monto' => 'number'],
+        ]);
+
+        $this->actingAs($user)
+            ->postJson("/api/contacts/{$contact->id}/extractions/{$extraction->id}/confirm", [
+                'fields' => ['monto' => 150000],
+                'lock_version' => (int) $contact->fresh()->lock_version,
+            ])
+            ->assertOk();
+
+        $this->assertSame(150000, $contact->fresh()->custom_data['monto']);
+    }
+
+    #[Test]
     public function it_returns_409_when_the_contact_changed_since_the_extraction_started(): void
     {
         ['user' => $user, 'contact' => $contact, 'tenant' => $tenant] = $this->setUpTenant();
