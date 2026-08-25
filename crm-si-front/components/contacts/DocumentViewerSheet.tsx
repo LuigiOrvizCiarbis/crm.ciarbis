@@ -174,6 +174,16 @@ export function DocumentViewerSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       {/* Ancho generoso: una hoja A4 dentro de 24rem es ilegible. */}
       <SheetContent className="w-full gap-0 p-0 sm:max-w-3xl">
+        {/* Fuera de la barra inferior: el estado "archivo faltante" también
+            ofrece subir, y ahí la barra no se renderiza. */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/pdf"
+          className="sr-only"
+          onChange={(e) => void handleReplace(e.target.files?.[0])}
+        />
+
         <SheetHeader className="gap-1 border-b px-6 pt-6 pb-4">
           {/* pr-10 deja lugar al botón de cerrar que SheetContent posiciona absoluto. */}
           <SheetTitle className="truncate pr-10 text-base" title={fileName}>
@@ -221,12 +231,21 @@ export function DocumentViewerSheet({
           {state.kind === "missing" && (
             <StatusPanel
               title="El archivo ya no está disponible."
-              description="La referencia quedó apuntando a un archivo que se borró del espacio."
+              description="La referencia quedó apuntando a un archivo que no está en el espacio."
               action={
-                onValueChange ? (
-                  <Button variant="outline" size="sm" onClick={handleRemove}>
-                    Quitar referencia
-                  </Button>
+                onValueChange && contactId !== null ? (
+                  // Subir de nuevo va primero: el caso habitual es que el
+                  // documento exista y sea la referencia la que quedó mal.
+                  // Quitar deja el campo vacío, así que es la salida secundaria.
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" disabled={replacing} onClick={() => fileInputRef.current?.click()}>
+                      <RefreshCw className={`h-4 w-4 ${replacing ? "animate-spin" : ""}`} aria-hidden />
+                      {replacing ? "Subiendo…" : "Subir de nuevo"}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={handleRemove}>
+                      Quitar referencia
+                    </Button>
+                  </div>
                 ) : null
               }
             />
@@ -254,13 +273,6 @@ export function DocumentViewerSheet({
 
           {onValueChange && contactId !== null && (
             <>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="application/pdf"
-                className="sr-only"
-                onChange={(e) => void handleReplace(e.target.files?.[0])}
-              />
               <Button
                 variant="outline"
                 size="sm"
