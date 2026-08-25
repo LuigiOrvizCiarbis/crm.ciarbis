@@ -11,10 +11,25 @@ export type ContactFieldType =
   | "email"
   | "url"
   | "phone"
-  | "file";
+  | "file"
+  | "repeater";
 
 export interface ContactFieldOptions {
   choices?: string[];
+  fields?: RepeaterSubfield[];
+  min_items?: number;
+  max_items?: number;
+}
+
+export type RepeaterSubfieldType = Exclude<ContactFieldType, "file" | "multi_select" | "repeater">;
+
+export interface RepeaterSubfield {
+  key?: string;
+  label: string;
+  type: RepeaterSubfieldType;
+  options?: { choices?: string[] } | null;
+  is_required?: boolean;
+  is_active?: boolean;
 }
 
 export interface ContactField {

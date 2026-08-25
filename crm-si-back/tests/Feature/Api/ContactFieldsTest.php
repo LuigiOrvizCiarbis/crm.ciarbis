@@ -38,6 +38,115 @@ class ContactFieldsTest extends TestCase
         $this->assertDatabaseHas('contact_fields', ['key' => 'talle', 'label' => 'Talle']);
     }
 
+    public function test_owner_can_create_and_validate_repeater_field(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/contact-fields', [
+            'label' => 'Productos',
+            'type' => 'repeater',
+            'options' => [
+                'fields' => [
+                    ['label' => 'Producto', 'type' => 'text', 'is_required' => true],
+                    ['label' => 'Cantidad', 'type' => 'number'],
+                ],
+                'min_items' => 1,
+                'max_items' => 3,
+            ],
+        ]);
+
+        $response->assertCreated()->assertJsonPath('data.type', 'repeater');
+        $field = ContactField::where('key', 'productos')->firstOrFail();
+        $this->assertSame('producto', $field->options['fields'][0]['key']);
+
+        $this->postJson('/api/contacts', [
+            'name' => 'Sin filas',
+            'custom_data' => ['productos' => []],
+        ])->assertStatus(422);
+
+        $this->postJson('/api/contacts', [
+            'name' => 'Con filas',
+            'custom_data' => ['productos' => [['producto' => 'Remera', 'cantidad' => 2]]],
+        ])->assertCreated();
+    }
+
+    public function test_new_keyless_repeater_subfield_cannot_reuse_omitted_key(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $created = $this->postJson('/api/contact-fields', [
+            'label' => 'Productos',
+            'type' => 'repeater',
+            'options' => ['fields' => [['label' => 'Producto', 'type' => 'text']]],
+        ])->assertCreated();
+
+        $id = $created->json('data.id');
+        $updated = $this->putJson("/api/contact-fields/{$id}", [
+            'options' => ['fields' => [['label' => 'Producto', 'type' => 'number']]],
+        ])->assertOk();
+
+        $fields = $updated->json('data.options.fields');
+        $this->assertSame('producto_2', $fields[0]['key']);
+        $this->assertSame('producto', $fields[1]['key']);
+        $this->assertFalse($fields[1]['is_active']);
+    }
+
+    public function test_required_repeater_cannot_have_zero_max_items(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/contact-fields', [
+            'label' => 'Items inválidos',
+            'type' => 'repeater',
+            'is_required' => true,
+            'options' => [
+                'fields' => [['label' => 'Item', 'type' => 'text']],
+                'max_items' => 0,
+            ],
+        ])->assertStatus(422)->assertJsonValidationErrors('options.max_items');
+
+        $created = $this->postJson('/api/contact-fields', [
+            'label' => 'Items válidos',
+            'type' => 'repeater',
+            'options' => [
+                'fields' => [['label' => 'Item', 'type' => 'text']],
+                'max_items' => 1,
+            ],
+        ])->assertCreated();
+
+        $this->putJson('/api/contact-fields/'.$created->json('data.id'), [
+            'is_required' => true,
+            'options' => [
+                'fields' => $created->json('data.options.fields'),
+                'max_items' => 0,
+            ],
+        ])->assertStatus(422)->assertJsonValidationErrors('options.max_items');
+    }
+
+    public function test_repeater_rejects_unique_on_partial_update(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $created = $this->postJson('/api/contact-fields', [
+            'label' => 'Items únicos',
+            'type' => 'repeater',
+            'options' => ['fields' => [['label' => 'Item', 'type' => 'text']]],
+        ])->assertCreated();
+
+        $this->putJson('/api/contact-fields/'.$created->json('data.id'), [
+            'is_unique' => true,
+        ])->assertStatus(422)->assertJsonValidationErrors('is_unique');
+
+        $this->assertDatabaseHas('contact_fields', [
+            'id' => $created->json('data.id'),
+            'is_unique' => false,
+        ]);
+    }
+
     public function test_member_cannot_create_field(): void
     {
         $tenant = $this->seedTenantWithRoles();

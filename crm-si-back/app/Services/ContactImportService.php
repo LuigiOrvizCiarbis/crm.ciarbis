@@ -278,11 +278,19 @@ class ContactImportService
     private function castRawValue(string $raw, ContactField $field): mixed
     {
         return match ($field->type->value) {
+            'repeater' => $this->castRepeater($raw),
             'multi_select' => array_values(array_filter(array_map('trim', preg_split('/[;|]/', $raw)))),
             'boolean' => in_array(strtolower($raw), ['1', 'true', 'yes', 'si', 'sí'], true),
             'number' => is_numeric($raw) ? $raw + 0 : $raw,
             default => $raw,
         };
+    }
+
+    private function castRepeater(string $raw): mixed
+    {
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : $raw;
     }
 
     /**

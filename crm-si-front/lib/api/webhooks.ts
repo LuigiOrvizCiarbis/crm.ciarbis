@@ -37,12 +37,16 @@ export type WebhookContactFieldType =
   | "email"
   | "url"
   | "phone"
+  | "repeater"
 
 export interface WebhookContactField {
   key: string
   label: string
   type: WebhookContactFieldType
-  options: { choices?: string[] } | null
+  options: {
+    choices?: string[]
+    fields?: Array<{ key?: string; label: string; type: string; options?: { choices?: string[] } | null; is_active?: boolean }>
+  } | null
   is_required: boolean
 }
 

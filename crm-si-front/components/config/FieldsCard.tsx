@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { Loader2, Pencil, Plus, SlidersHorizontal, Trash2, GripVertical } from "lucide-react"
+import { ChevronDown, ChevronUp, GripVertical, Loader2, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -33,7 +33,7 @@ import { useToast } from "@/components/Toast"
 import { useAuthStore } from "@/store/useAuthStore"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 import { useProductFieldsStore } from "@/store/useProductFieldsStore"
-import type { ContactField, ContactFieldType } from "@/lib/api/contact-fields"
+import type { ContactField, ContactFieldType, RepeaterSubfield, RepeaterSubfieldType } from "@/lib/api/contact-fields"
 import type { ProductField } from "@/lib/api/product-fields"
 
 import {
@@ -70,6 +70,7 @@ const TYPE_OPTIONS: FieldType[] = [
   "url",
   "phone",
   "file",
+  "repeater",
 ]
 
 type EntityKey = "contacts" | "products"
@@ -102,6 +103,9 @@ interface FormState {
   choices: string
   is_required: boolean
   is_unique: boolean
+  repeaterFields: RepeaterSubfield[]
+  min_items: number
+  max_items: number
 }
 
 const emptyForm: FormState = {
@@ -110,10 +114,17 @@ const emptyForm: FormState = {
   choices: "",
   is_required: false,
   is_unique: false,
+  repeaterFields: [],
+  min_items: 0,
+  max_items: 10,
 }
 
 function needsOptions(type: FieldType): boolean {
   return type === "select" || type === "multi_select"
+}
+
+function isRepeater(type: FieldType): boolean {
+  return type === "repeater"
 }
 
 export function FieldsCard() {
@@ -182,6 +193,9 @@ export function FieldsCard() {
       choices: (field.options?.choices ?? []).join("\n"),
       is_required: field.is_required,
       is_unique: field.is_unique,
+      repeaterFields: field.type === "repeater" ? (field.options?.fields ?? []) : [],
+      min_items: field.options?.min_items ?? 0,
+      max_items: field.options?.max_items ?? 10,
     })
     setOpen(true)
   }
@@ -196,6 +210,16 @@ export function FieldsCard() {
         return
       }
     }
+    if (isRepeater(form.type)) {
+      if (form.repeaterFields.filter((field) => field.is_active !== false && field.label.trim()).length === 0) {
+        addToast({ type: "error", title: t("fields.repeater.noSubfields") })
+        return
+      }
+      if (form.min_items > form.max_items) {
+        addToast({ type: "error", title: t("fields.repeater.invalidLimits") })
+        return
+      }
+    }
 
     setSaving(true)
     const choices = form.choices.split("\n").map((c) => c.trim()).filter(Boolean)
@@ -203,9 +227,11 @@ export function FieldsCard() {
       if (editing) {
         const result = await update(editing.id, {
           label: form.label.trim(),
-          options: needsOptions(editing.type) ? { choices } : null,
+          options: editing.type === "repeater"
+            ? { fields: form.repeaterFields, min_items: form.min_items, max_items: form.max_items }
+            : needsOptions(editing.type) ? { choices } : null,
           is_required: form.is_required,
-          is_unique: form.is_unique,
+          is_unique: isRepeater(form.type) ? false : form.is_unique,
         })
         if (result) {
           addToast({ type: "success", title: t("fields.savedTitle") })
@@ -215,9 +241,11 @@ export function FieldsCard() {
         const result = await create({
           label: form.label.trim(),
           type: form.type,
-          options: needsOptions(form.type) ? { choices } : null,
+          options: isRepeater(form.type)
+            ? { fields: form.repeaterFields, min_items: form.min_items, max_items: form.max_items }
+            : needsOptions(form.type) ? { choices } : null,
           is_required: form.is_required,
-          is_unique: form.is_unique,
+          is_unique: isRepeater(form.type) ? false : form.is_unique,
         })
         if (result) {
           addToast({ type: "success", title: t("fields.savedTitle") })
@@ -418,6 +446,17 @@ export function FieldsCard() {
               </div>
             ) : null}
 
+            {isRepeater(form.type) ? (
+              <RepeaterSchemaBuilder
+                fields={form.repeaterFields}
+                minItems={form.min_items}
+                maxItems={form.max_items}
+                disabled={saving}
+                onChange={(repeaterFields) => setForm((f) => ({ ...f, repeaterFields }))}
+                onLimitsChange={(min_items, max_items) => setForm((f) => ({ ...f, min_items, max_items }))}
+              />
+            ) : null}
+
             <div className="flex items-center justify-between">
               <Label htmlFor="cf-required">{t("fields.required")}</Label>
               <Switch
@@ -427,14 +466,14 @@ export function FieldsCard() {
               />
             </div>
 
-            <div className="flex items-center justify-between">
+            {isRepeater(form.type) ? null : <div className="flex items-center justify-between">
               <Label htmlFor="cf-unique">{t("fields.unique")}</Label>
               <Switch
                 id="cf-unique"
                 checked={form.is_unique}
                 onCheckedChange={(checked) => setForm((f) => ({ ...f, is_unique: checked }))}
               />
-            </div>
+            </div>}
 
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={saving}>
@@ -449,6 +488,99 @@ export function FieldsCard() {
         </DialogContent>
       </Dialog>
     </SettingsBlock>
+  )
+}
+
+interface RepeaterSchemaBuilderProps {
+  fields: RepeaterSubfield[]
+  minItems: number
+  maxItems: number
+  disabled: boolean
+  onChange: (fields: RepeaterSubfield[]) => void
+  onLimitsChange: (min: number, max: number) => void
+}
+
+function RepeaterSchemaBuilder({ fields, minItems, maxItems, disabled, onChange, onLimitsChange }: RepeaterSchemaBuilderProps) {
+  const { t } = useTranslation()
+  const activeTypes: RepeaterSubfieldType[] = ["text", "number", "date", "boolean", "select", "email", "url", "phone"]
+  const update = (index: number, patch: Partial<RepeaterSubfield>) => {
+    onChange(fields.map((field, i) => (i === index ? { ...field, ...patch } : field)))
+  }
+  const add = () => onChange([...fields, { label: "", type: "text", is_required: false, is_active: true }])
+  const move = (index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (target < 0 || target >= fields.length) return
+    const next = [...fields]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    onChange(next)
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium">{t("fields.repeater.title")}</p>
+          <p className="text-xs text-muted-foreground">{t("fields.repeater.description")}</p>
+        </div>
+        <Button type="button" size="sm" variant="outline" onClick={add} disabled={disabled}>
+          <Plus className="mr-1 size-4" />{t("fields.repeater.addSubfield")}
+        </Button>
+      </div>
+
+      {fields.map((field, index) => (
+        <div key={field.key ?? `new-${index}`} className={field.is_active === false ? "space-y-2 rounded-md border border-dashed p-2 opacity-60" : "space-y-2 rounded-md border bg-background p-2"}>
+          <div className="flex items-center gap-2">
+            <Input
+              value={field.label}
+              placeholder={t("fields.repeater.subfieldLabel")}
+              onChange={(e) => update(index, { label: e.target.value })}
+              disabled={disabled || field.is_active === false}
+              aria-label={t("fields.repeater.subfieldLabel")}
+            />
+            <Select value={field.type} onValueChange={(type) => update(index, { type: type as RepeaterSubfieldType, options: type === "select" ? field.options : null })} disabled={disabled || !!field.key || field.is_active === false}>
+              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {activeTypes.map((type) => <SelectItem key={type} value={type}>{t(`fields.typeLabels.${type}`)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button type="button" variant="ghost" size="icon" onClick={() => move(index, -1)} disabled={disabled || index === 0} aria-label={t("fields.repeater.moveUp")}><ChevronUp className="size-4" /></Button>
+            <Button type="button" variant="ghost" size="icon" onClick={() => move(index, 1)} disabled={disabled || index === fields.length - 1} aria-label={t("fields.repeater.moveDown")}><ChevronDown className="size-4" /></Button>
+          </div>
+          {field.type === "select" && field.is_active !== false ? (
+            <textarea
+              className="w-full min-h-16 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={field.options?.choices?.join("\n") ?? ""}
+              placeholder={t("fields.optionsPlaceholder")}
+              onChange={(e) => update(index, { options: { choices: e.target.value.split("\n").map((choice) => choice.trim()).filter(Boolean) } })}
+              aria-label={t("fields.options")}
+              disabled={disabled}
+            />
+          ) : null}
+          <div className="flex items-center justify-between gap-3">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Switch checked={Boolean(field.is_required)} onCheckedChange={(checked) => update(index, { is_required: checked })} disabled={disabled || field.is_active === false} />
+              {t("fields.required")}
+            </label>
+            <Button type="button" variant="ghost" size="sm" onClick={() => update(index, { is_active: field.is_active === false })} disabled={disabled}>
+              {field.is_active === false ? t("fields.repeater.restoreSubfield") : t("fields.repeater.archiveSubfield")}
+            </Button>
+          </div>
+        </div>
+      ))}
+
+      {fields.length === 0 ? <p className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">{t("fields.repeater.noSubfields")}</p> : null}
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="space-y-1 text-xs text-muted-foreground">
+          {t("fields.repeater.minItems")}
+          <Input type="number" min={0} max={100} value={minItems} onChange={(e) => onLimitsChange(Math.max(0, Math.min(100, Number(e.target.value))), maxItems)} disabled={disabled} />
+        </label>
+        <label className="space-y-1 text-xs text-muted-foreground">
+          {t("fields.repeater.maxItems")}
+          <Input type="number" min={0} max={100} value={maxItems} onChange={(e) => onLimitsChange(minItems, Math.max(0, Math.min(100, Number(e.target.value))))} disabled={disabled} />
+        </label>
+      </div>
+    </div>
   )
 }
 

@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Enums\ContactFieldType;
 use App\Models\ContactField;
+use App\Support\RepeaterFieldSchema;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -142,7 +143,61 @@ class ExtractionSchemaBuilder
             ],
             // File queda excluido antes de llegar acá.
             ContactFieldType::File => [],
+            ContactFieldType::Repeater => [
+                'type' => ['array', 'null'],
+                'items' => [
+                    'type' => 'object',
+                    'properties' => $this->repeaterProperties($field),
+                    'required' => $this->repeaterRequired($field),
+                    'additionalProperties' => false,
+                ],
+                'minItems' => (int) ($field->options['min_items'] ?? RepeaterFieldSchema::DEFAULT_MIN_ITEMS),
+                'maxItems' => (int) ($field->options['max_items'] ?? RepeaterFieldSchema::DEFAULT_MAX_ITEMS),
+                'description' => $description,
+            ],
         };
+    }
+
+    /** @return array<string, mixed> */
+    private function repeaterProperties(ContactField $field): array
+    {
+        $properties = [];
+        foreach (($field->options['fields'] ?? []) as $nested) {
+            if (! is_array($nested) || ($nested['is_active'] ?? true) === false || ! isset($nested['key'])) continue;
+            $properties[$nested['key']] = $this->nestedProperty($nested);
+        }
+
+        return $properties;
+    }
+
+    /** @return list<string> */
+    private function repeaterRequired(ContactField $field): array
+    {
+        return array_keys($this->repeaterProperties($field));
+    }
+
+    /** @param array<string, mixed> $field @return array<string, mixed> */
+    private function nestedProperty(array $field): array
+    {
+        $type = match ($field['type'] ?? 'text') {
+            'number' => 'number',
+            'boolean' => 'boolean',
+            default => 'string',
+        };
+        if (($field['type'] ?? null) === 'select') {
+            return [
+                'anyOf' => [
+                    ['type' => 'string', 'enum' => array_values($field['options']['choices'] ?? [])],
+                    ['type' => 'null'],
+                ],
+                'description' => (string) ($field['label'] ?? $field['key']),
+            ];
+        }
+
+        return [
+            'type' => [$type, 'null'],
+            'description' => (string) ($field['label'] ?? $field['key']),
+        ];
     }
 
     /**

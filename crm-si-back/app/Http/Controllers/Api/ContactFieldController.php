@@ -10,6 +10,7 @@ use App\Models\ContactField;
 use App\Support\ContactFieldRegistry;
 use App\Support\ExtractionPresetProvisioner;
 use App\Support\ExtractionPresetRegistry;
+use App\Support\RepeaterFieldSchema;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -49,9 +50,11 @@ class ContactFieldController extends Controller
             'key' => $key,
             'label' => (string) $request->string('label'),
             'type' => $type,
-            'options' => $type->requiresOptions() ? $request->input('options') : null,
+            'options' => $type === ContactFieldType::Repeater
+                ? RepeaterFieldSchema::normalize((array) $request->input('options', []))
+                : ($type->requiresOptions() ? $request->input('options') : null),
             'is_required' => (bool) $request->boolean('is_required'),
-            'is_unique' => (bool) $request->boolean('is_unique'),
+            'is_unique' => $type === ContactFieldType::Repeater ? false : (bool) $request->boolean('is_unique'),
             'display_order' => (int) ($request->input('display_order')
                 ?? ((int) ContactField::query()->max('display_order') + 1)),
         ]);
@@ -63,7 +66,15 @@ class ContactFieldController extends Controller
     {
         $payload = $request->only(['label', 'options', 'is_required', 'is_unique', 'display_order']);
 
-        if (! $contactField->type->requiresOptions()) {
+        if ($contactField->type === ContactFieldType::Repeater) {
+            $payload['is_unique'] = false;
+            if (isset($payload['options'])) {
+                $payload['options'] = RepeaterFieldSchema::normalize(
+                    (array) $payload['options'],
+                    $contactField->options,
+                );
+            }
+        } elseif (! $contactField->type->requiresOptions()) {
             unset($payload['options']);
         }
 
