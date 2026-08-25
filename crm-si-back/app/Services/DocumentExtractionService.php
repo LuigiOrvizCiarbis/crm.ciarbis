@@ -86,7 +86,13 @@ class DocumentExtractionService
         }
 
         $model = (string) config('services.ai.extraction.model');
-        $result = $provider->extract($pdf->text, $schema, $this->systemPrompt(), $model);
+        $result = $provider->extract(
+            $pdf->text,
+            $pdf->images,
+            $schema,
+            $this->systemPrompt($pdf->isScanned()),
+            $model,
+        );
 
         if (! $result->ok) {
             return $this->fail(
@@ -127,10 +133,16 @@ class DocumentExtractionService
         return array_intersect_key($data, $fields);
     }
 
-    private function systemPrompt(): string
+    private function systemPrompt(bool $scanned = false): string
     {
+        $source = $scanned
+            ? 'Recibís las páginas escaneadas de un documento como imágenes y registrás los datos '
+                .'solicitados con la herramienta provista. Leé el texto de las imágenes con cuidado: '
+                .'si un valor no se lee con claridad, devolvé null en vez de adivinar.'
+            : 'Recibís el texto de un documento y registrás los datos solicitados con la herramienta provista.';
+
         return 'Sos un asistente que extrae datos de documentos para un CRM. '
-            .'Recibís el texto de un documento y registrás los datos solicitados con la herramienta provista.'
+            .$source
             ."\n\n"
             .'Reglas:'."\n"
             .'- Si un dato no figura en el documento, devolvé null para ese campo. '

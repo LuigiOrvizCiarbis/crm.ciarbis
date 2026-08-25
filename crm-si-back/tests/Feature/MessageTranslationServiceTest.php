@@ -134,7 +134,7 @@ class MessageTranslationServiceTest extends TestCase
                 return AiVerificationResult::ok();
             }
 
-            public function extract(string $text, array $schema, string $systemPrompt, string $model): AiExtractionResult
+            public function extract(string $text, array $images, array $schema, string $systemPrompt, string $model): AiExtractionResult
             {
                 return AiExtractionResult::failure('unsupported');
             }

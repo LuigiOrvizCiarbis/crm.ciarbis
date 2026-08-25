@@ -137,11 +137,19 @@ class DocumentExtractionController extends Controller
         ]);
 
         if ($extraction->status === ExtractionStatus::Confirmed) {
-            // Reintento del mismo POST: no se vuelve a escribir.
+            // Reintento del mismo POST (respuesta perdida, doble click): no se
+            // vuelve a escribir, pero se devuelve el estado actual del contacto
+            // igual que en el camino normal. Sin esto el front interpreta la
+            // ausencia como custom_data vacío y borra los datos de su copia
+            // local, aunque en la base estén bien.
             return response()->json([
                 'data' => $this->serialize($extraction),
                 'applied' => [],
                 'discarded' => [],
+                'contact' => [
+                    'lock_version' => (int) $contact->lock_version,
+                    'custom_data' => $contact->custom_data ?? [],
+                ],
             ]);
         }
 
@@ -190,9 +198,11 @@ class DocumentExtractionController extends Controller
                 throw new ValidationException($validator);
             }
 
+            // El contador lo avanza el propio modelo en updating(), así que
+            // acá alcanza con guardar.
             $locked->custom_data = $merged;
-            $locked->lock_version = (int) $locked->lock_version + 1;
             $locked->save();
+            $locked->refresh();
 
             $extraction->update(['status' => ExtractionStatus::Confirmed]);
 

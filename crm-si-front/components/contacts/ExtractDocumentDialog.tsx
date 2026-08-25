@@ -57,6 +57,9 @@ export function ExtractDocumentDialog({
   const [extraction, setExtraction] = useState<DocumentExtraction | null>(null)
   const [values, setValues] = useState<Record<string, unknown>>({})
   const [selected, setSelected] = useState<Record<string, boolean>>({})
+  // Si el PDF era un escaneo no hay texto que mostrar en la revisión, así que
+  // se guarda el archivo local para poder abrirlo y comparar.
+  const [documentUrl, setDocumentUrl] = useState<string | null>(null)
 
   // El polling tiene que cortarse al cerrar el diálogo o cambiar de contacto:
   // si no, sigue pegándole al backend por una extracción que nadie mira.
@@ -89,6 +92,10 @@ export function ExtractDocumentDialog({
     setExtraction(null)
     setValues({})
     setSelected({})
+    setDocumentUrl((previous) => {
+      if (previous) URL.revokeObjectURL(previous)
+      return null
+    })
   }, [stopPolling])
 
   const handleOpenChange = (next: boolean) => {
@@ -126,8 +133,14 @@ export function ExtractDocumentDialog({
         }
 
         if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
-          setError("La extracción está tardando demasiado. Probá de nuevo en unos minutos.")
-          setStep("upload")
+          // No se vuelve al paso de subida: el job sigue encolado y va a
+          // llamar al proveedor igual, así que invitar a reintentar duplicaría
+          // el costo. Se deja de mirar y se explica que puede volver después.
+          setExtraction(current)
+          setError(
+            "La extracción sigue en curso y está tardando más de lo normal. Podés cerrar esta ventana: " +
+              "cuando termine, los datos van a estar disponibles volviendo a abrirla.",
+          )
           return
         }
 
@@ -150,6 +163,10 @@ export function ExtractDocumentDialog({
     try {
       const asset = await uploadContactDocument(contactId, file)
       const started = await startExtraction(contactId, asset.id)
+      setDocumentUrl((previous) => {
+        if (previous) URL.revokeObjectURL(previous)
+        return URL.createObjectURL(file)
+      })
       setExtraction(started)
       setStep("extracting")
       void poll(started.id, Date.now())
@@ -186,7 +203,11 @@ export function ExtractDocumentDialog({
         )
       }
 
-      onConfirmed(result.contact?.custom_data ?? {})
+      // Sin payload de contacto no se toca la copia local: tratar la ausencia
+      // como {} borraría datos que en la base están bien.
+      if (result.contact) {
+        onConfirmed(result.contact.custom_data)
+      }
       if (result.discarded.length === 0) handleOpenChange(false)
     } catch (err) {
       if (err instanceof StaleContactError) {
@@ -214,7 +235,7 @@ export function ExtractDocumentDialog({
         <DialogHeader>
           <DialogTitle>Extraer datos de un documento</DialogTitle>
           <DialogDescription>
-            Los datos los sugiere la IA a partir del texto del PDF. Revisalos contra el documento
+            Los datos los sugiere la IA leyendo el PDF. Revisalos contra el documento
             antes de guardarlos.
           </DialogDescription>
         </DialogHeader>
@@ -237,7 +258,7 @@ export function ExtractDocumentDialog({
               onChange={(e) => void handleFile(e.target.files?.[0])}
             />
             <p className="text-xs text-muted-foreground">
-              El PDF tiene que tener texto seleccionable. Un documento escaneado no se puede leer.
+              Funciona con PDFs digitales y también con contratos escaneados.
             </p>
             {extractableFields.length === 0 && (
               <p className="text-xs text-destructive">
@@ -262,6 +283,7 @@ export function ExtractDocumentDialog({
             values={values}
             selected={selected}
             currentCustomData={currentCustomData}
+            documentUrl={documentUrl}
             onValueChange={(key, value) => setValues((prev) => ({ ...prev, [key]: value }))}
             onToggle={(key, checked) => setSelected((prev) => ({ ...prev, [key]: checked }))}
           />
@@ -288,6 +310,8 @@ interface ReviewPanelsProps {
   values: Record<string, unknown>
   selected: Record<string, boolean>
   currentCustomData: Record<string, unknown>
+  /** Object URL del PDF que se acaba de subir, para abrirlo y comparar. */
+  documentUrl: string | null
   onValueChange: (key: string, value: unknown) => void
   onToggle: (key: string, checked: boolean) => void
 }
@@ -305,6 +329,7 @@ function ReviewPanels({
   values,
   selected,
   currentCustomData,
+  documentUrl,
   onValueChange,
   onToggle,
 }: ReviewPanelsProps) {
@@ -327,12 +352,30 @@ function ReviewPanels({
         <div className="flex flex-col overflow-hidden">
           <div className="flex items-center gap-2 pb-2 text-sm font-medium">
             <FileText className="h-4 w-4" />
-            Texto del documento
+            {extraction.document_text ? "Texto del documento" : "Documento"}
           </div>
-          {/* Texto plano, nunca HTML: el contenido lo controla quien sube el PDF. */}
-          <pre className="flex-1 overflow-auto rounded-md border bg-muted/30 p-3 text-xs whitespace-pre-wrap font-mono">
-            {extraction.document_text || "Sin texto disponible."}
-          </pre>
+          {extraction.document_text ? (
+            /* Texto plano, nunca HTML: el contenido lo controla quien sube el PDF. */
+            <pre className="flex-1 overflow-auto rounded-md border bg-muted/30 p-3 text-xs whitespace-pre-wrap font-mono">
+              {extraction.document_text}
+            </pre>
+          ) : (
+            /* PDF escaneado: se leyó como imágenes, así que no hay texto que
+               mostrar. Se abre el original para comparar. */
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 rounded-md border bg-muted/30 p-6 text-center">
+              <FileText className="h-8 w-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                El documento es un PDF escaneado: se leyó como imágenes, sin texto que mostrar acá.
+              </p>
+              {documentUrl && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={documentUrl} target="_blank" rel="noopener noreferrer">
+                    Abrir el PDF para comparar
+                  </a>
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col overflow-hidden">

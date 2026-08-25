@@ -117,11 +117,11 @@ class PdfTextExtractor
             $pages[] = "[Página {$page}]\n".$trimmed;
         }
 
+        // Ninguna página tenía texto: es un escaneo. El contrato firmado casi
+        // siempre lo es, así que en vez de rendirse se rasterizan las páginas y
+        // se mandan como imágenes a un modelo con visión.
         if ($pages === []) {
-            return PdfTextResult::failure(
-                'no_text_layer',
-                'El PDF no tiene texto seleccionable (parece escaneado).',
-            );
+            return $this->rasterize($path, $pageCount, $hasForms);
         }
 
         return PdfTextResult::ok(
@@ -130,6 +130,148 @@ class PdfTextExtractor
             pagesWithoutText: $pagesWithoutText,
             hasForms: $hasForms,
         );
+    }
+
+    /**
+     * Convierte cada página en una imagen JPEG para mandarla a un modelo con
+     * visión. Es el camino caro: cuesta bastante más que el texto y ata la
+     * extracción a proveedores con visión, así que sólo se usa cuando pdftotext
+     * no encontró nada.
+     */
+    private function rasterize(string $path, int $pageCount, bool $hasForms): PdfTextResult
+    {
+        if (! config('services.ai.extraction.vision.enabled', true)) {
+            return PdfTextResult::failure(
+                'no_text_layer',
+                'El PDF no tiene texto seleccionable (parece escaneado).',
+            );
+        }
+
+        $maxPages = (int) config('services.ai.extraction.vision.max_pages', 20);
+        if ($pageCount > $maxPages) {
+            // Código propio: el tope global de páginas es otro y bastante más
+            // alto, así que reusar too_many_pages daría un mensaje que
+            // contradice lo que el usuario vio al subir.
+            return PdfTextResult::failure(
+                'too_many_scanned_pages',
+                "El documento escaneado tiene {$pageCount} páginas y el máximo para este modo es {$maxPages}.",
+            );
+        }
+
+        $dpi = (int) config('services.ai.extraction.vision.dpi', 120);
+        $maxTotal = (int) config('services.ai.extraction.vision.max_total_bytes', 20971520);
+        $timeout = (int) config('services.ai.extraction.vision.timeout', 120);
+        $memoryKb = (int) config('services.ai.extraction.vision.memory_kb', 786432);
+
+        $dir = sys_get_temp_dir().'/pdfvision_'.bin2hex(random_bytes(6));
+        if (! mkdir($dir, 0700) && ! is_dir($dir)) {
+            return PdfTextResult::failure('extraction_failed', 'No se pudo preparar la conversión del PDF.');
+        }
+
+        try {
+            // Rasterizar es más pesado que extraer texto, así que el timeout se
+            // escala con la cantidad de páginas.
+            $command = sprintf(
+                'ulimit -v %d && pdftoppm -jpeg -r %d -f 1 -l %d %s %s',
+                $memoryKb,
+                $dpi,
+                $pageCount,
+                escapeshellarg($path),
+                escapeshellarg($dir.'/pg'),
+            );
+
+            $process = Process::fromShellCommandline($command);
+            $process->setTimeout($timeout);
+
+            try {
+                $process->run();
+            } catch (ProcessTimedOutException) {
+                return PdfTextResult::failure(
+                    'extraction_timeout',
+                    'La conversión del PDF escaneado tardó demasiado.',
+                );
+            }
+
+            if (! $process->isSuccessful()) {
+                return PdfTextResult::failure(
+                    'extraction_failed',
+                    'No se pudieron convertir las páginas del PDF escaneado.',
+                );
+            }
+
+            $files = glob($dir.'/pg*.jpg') ?: [];
+            sort($files, SORT_NATURAL);
+
+            if ($files === []) {
+                return PdfTextResult::failure(
+                    'no_text_layer',
+                    'El PDF no tiene texto seleccionable y no se pudo convertir a imágenes.',
+                );
+            }
+
+            // Cota de tamaño antes de codificar: base64 infla 4/3, y estimarlo
+            // desde el archivo evita gastar la conversión entera para
+            // descubrir recién al final que no entra.
+            $estimated = 0;
+            foreach ($files as $file) {
+                $estimated += (int) ceil((filesize($file) ?: 0) * 4 / 3);
+            }
+
+            if ($estimated > $maxTotal) {
+                return PdfTextResult::failure(
+                    'document_too_large',
+                    'El PDF escaneado es demasiado grande para procesarlo.',
+                );
+            }
+
+            $images = [];
+            $missing = [];
+
+            // pdftoppm numera los archivos por página (pg-01, pg-02...). Se usa
+            // ese número y no el índice del array: si una página falta, tomar
+            // el índice correría la numeración y el modelo recibiría la página
+            // 4 rotulada como 3.
+            $byPage = [];
+            foreach ($files as $file) {
+                if (preg_match('/-(\d+)\.jpg$/', $file, $m) === 1) {
+                    $byPage[(int) $m[1]] = $file;
+                }
+            }
+
+            for ($page = 1; $page <= $pageCount; $page++) {
+                $file = $byPage[$page] ?? null;
+                $binary = $file !== null ? file_get_contents($file) : false;
+
+                // Una página que no se pudo convertir se declara: si se
+                // descartara en silencio, el usuario vería "sin dato en el
+                // documento" para algo que sí está en el contrato.
+                if ($binary === false || $binary === '') {
+                    $missing[] = $page;
+
+                    continue;
+                }
+
+                $images[] = [
+                    'mime' => 'image/jpeg',
+                    'data' => base64_encode($binary),
+                    'page' => $page,
+                ];
+            }
+
+            if ($images === []) {
+                return PdfTextResult::failure(
+                    'no_text_layer',
+                    'El PDF no tiene texto seleccionable y no se pudo convertir a imágenes.',
+                );
+            }
+
+            return PdfTextResult::scanned($images, $pageCount, $missing, $hasForms);
+        } finally {
+            foreach (glob($dir.'/*') ?: [] as $leftover) {
+                @unlink($leftover);
+            }
+            @rmdir($dir);
+        }
     }
 
     private const TIMED_OUT = "\x00__TIMED_OUT__\x00";

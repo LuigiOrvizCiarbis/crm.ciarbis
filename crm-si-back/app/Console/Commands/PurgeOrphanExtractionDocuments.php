@@ -63,9 +63,35 @@ class PurgeOrphanExtractionDocuments extends Command
                 continue;
             }
 
-            Storage::disk('public')->delete($asset->path);
-            $asset->delete();
-            $deleted++;
+            // Entre la consulta de candidatos y este punto pudo crearse una
+            // extracción sobre el asset: el borrado se decide de nuevo con la
+            // fila bloqueada, para no dejar un job encolado sin su documento.
+            $removed = DB::transaction(function () use ($asset): bool {
+                $locked = MediaAsset::withoutGlobalScopes()
+                    ->lockForUpdate()
+                    ->find($asset->id);
+
+                if (! $locked || $locked->deleted_at !== null) {
+                    return false;
+                }
+
+                $referenced = DocumentExtraction::withoutGlobalScopes()
+                    ->where('media_asset_id', $locked->id)
+                    ->exists();
+
+                if ($referenced) {
+                    return false;
+                }
+
+                Storage::disk('public')->delete($locked->path);
+                $locked->delete();
+
+                return true;
+            });
+
+            if ($removed) {
+                $deleted++;
+            }
         }
 
         $this->info($dryRun

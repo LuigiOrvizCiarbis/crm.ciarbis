@@ -135,7 +135,9 @@ export async function confirmExtraction(
 /** Mensajes accionables por código de error del backend. */
 export const EXTRACTION_ERRORS: Record<string, string> = {
   no_text_layer:
-    "El PDF no tiene texto seleccionable: parece un documento escaneado. Probá con el archivo original.",
+    "El PDF es un escaneo y no se pudo convertir a imágenes para leerlo.",
+  too_many_scanned_pages:
+    "El documento escaneado tiene demasiadas páginas para leerlo como imágenes.",
   document_too_large: "El documento es demasiado grande para procesarlo.",
   too_many_pages: "El documento tiene demasiadas páginas.",
   not_a_pdf: "El archivo no es un PDF válido.",
