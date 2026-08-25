@@ -150,6 +150,7 @@ const COLUMN_SORT_FIELDS: Partial<Record<ColumnId, SortField>> = {
 
 function formatCustomValue(value: unknown, type: string | undefined): string {
   if (value === null || value === undefined || value === "") return "—"
+  if (type === "repeater" && Array.isArray(value)) return `${value.length} elementos`
   if (Array.isArray(value)) return value.length > 0 ? value.join(", ") : "—"
   if (typeof value === "boolean") return value ? "Sí" : "No"
   if (type === "date" && typeof value === "string") {
@@ -930,7 +931,7 @@ export function ContactsList({
           if (isEditingThis) {
             // Tipos que despliegan portales (Select/Radix) o múltiples controles no
             // deben cerrarse en blur, porque interactuar con el portal dispara blur.
-            const usesPortal = field.type === "select" || field.type === "multi_select"
+            const usesPortal = field.type === "select" || field.type === "multi_select" || field.type === "repeater"
             return (
               <div
                 onBlur={(e) => {
@@ -1002,7 +1003,7 @@ export function ContactsList({
             <button
               type="button"
               className="w-full text-left rounded px-1 py-0.5 hover:bg-muted/60 transition-colors truncate text-sm text-foreground"
-              onClick={() => setEditingCell({ contactId: contact.id, field: columnId })}
+              onClick={() => field.type === "repeater" ? openEditDialog(contact) : setEditingCell({ contactId: contact.id, field: columnId })}
             >
               {formatCustomValue(raw, field.type)}
             </button>

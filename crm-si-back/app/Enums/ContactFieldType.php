@@ -16,6 +16,7 @@ enum ContactFieldType: string
     case Url = 'url';
     case Phone = 'phone';
     case File = 'file';
+    case Repeater = 'repeater';
 
     /**
      * @return array<int, string>
@@ -27,7 +28,7 @@ enum ContactFieldType: string
 
     public function requiresOptions(): bool
     {
-        return in_array($this, [self::Select, self::MultiSelect], true);
+        return in_array($this, [self::Select, self::MultiSelect, self::Repeater], true);
     }
 
     /**
@@ -55,6 +56,9 @@ enum ContactFieldType: string
             // pertenencia al tenant la refuerza ValidContactCustomData, que sí
             // conoce el tenant en contexto.
             self::File => ['nullable', 'integer'],
+            // Repeater values are validated against their nested schema by
+            // ValidContactCustomData / ValidProductCustomData.
+            self::Repeater => ['nullable', 'array'],
         };
     }
 

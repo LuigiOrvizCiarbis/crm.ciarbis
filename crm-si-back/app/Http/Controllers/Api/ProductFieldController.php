@@ -8,6 +8,7 @@ use App\Http\Requests\StoreProductFieldRequest;
 use App\Http\Requests\UpdateProductFieldRequest;
 use App\Models\ProductField;
 use App\Support\ProductFieldRegistry;
+use App\Support\RepeaterFieldSchema;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -46,9 +47,11 @@ class ProductFieldController extends Controller
             'tenant_id' => $tenantId,
             'label' => $label,
             'type' => $type,
-            'options' => $type->requiresOptions() ? $request->input('options') : null,
+            'options' => $type === ContactFieldType::Repeater
+                ? RepeaterFieldSchema::normalize((array) $request->input('options', []))
+                : ($type->requiresOptions() ? $request->input('options') : null),
             'is_required' => (bool) $request->boolean('is_required'),
-            'is_unique' => (bool) $request->boolean('is_unique'),
+            'is_unique' => $type === ContactFieldType::Repeater ? false : (bool) $request->boolean('is_unique'),
             'display_order' => (int) ($request->input('display_order')
                 ?? ((int) ProductField::query()->max('display_order') + 1)),
         ];
@@ -65,7 +68,15 @@ class ProductFieldController extends Controller
     {
         $payload = $request->only(['label', 'options', 'is_required', 'is_unique', 'display_order']);
 
-        if (! $productField->type->requiresOptions()) {
+        if ($productField->type === ContactFieldType::Repeater) {
+            $payload['is_unique'] = false;
+            if (isset($payload['options'])) {
+                $payload['options'] = RepeaterFieldSchema::normalize(
+                    (array) $payload['options'],
+                    $productField->options,
+                );
+            }
+        } elseif (! $productField->type->requiresOptions()) {
             unset($payload['options']);
         }
 

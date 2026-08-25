@@ -1493,7 +1493,29 @@
       "email": "Email",
       "url": "URL",
       "phone": "Teléfono",
-      "file": "Archivo"
+      "file": "Archivo",
+      "repeater": "Repetidor"
+    },
+    "repeater": {
+      "title": "Filas repetibles",
+      "description": "Definí los subcampos y la cantidad de filas permitida.",
+      "addSubfield": "Agregar subcampo",
+      "subfieldLabel": "Nombre del subcampo",
+      "moveUp": "Mover subcampo arriba",
+      "moveDown": "Mover subcampo abajo",
+      "archiveSubfield": "Archivar subcampo",
+      "restoreSubfield": "Restaurar subcampo",
+      "noSubfields": "Agregá al menos un subcampo.",
+      "minItems": "Mínimo de filas",
+      "maxItems": "Máximo de filas",
+      "invalidLimits": "El mínimo no puede superar al máximo."
+      ,"addRow": "Agregar fila",
+      "row": "Fila {{index}}",
+      "moveRowUp": "Mover fila arriba",
+      "moveRowDown": "Mover fila abajo",
+      "removeRow": "Eliminar fila",
+      "minimumError": "Agregá al menos {{count}} fila(s).",
+      "emptyRows": "Todavía no hay filas."
     }
   },
   "trial": {

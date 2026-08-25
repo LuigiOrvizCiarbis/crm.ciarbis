@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils"
 import { uploadMediaAsset } from "@/lib/api/media-assets"
 import type { ContactField } from "@/lib/api/contact-fields"
 import type { ProductField } from "@/lib/api/product-fields"
+import { RepeaterFieldInput } from "@/components/RepeaterFieldInput"
 
 interface CustomFieldInputProps {
   /** Contact and product fields share the same shape; either works here. */
@@ -51,7 +52,7 @@ export function CustomFieldInput({ field, value, onChange, disabled, className, 
     onChange(raw === "" ? null : Number(raw))
   }
 
-  const labelNode = (
+  const labelNode = field.type === "repeater" ? null : (
     <Label htmlFor={id} className="text-sm">
       {field.label}
       {field.is_required ? <span className="text-destructive ml-1">*</span> : null}
@@ -171,6 +172,15 @@ export function CustomFieldInput({ field, value, onChange, disabled, className, 
             value={typeof value === "number" ? value : null}
             disabled={disabled}
             onChange={(assetId) => onChange(assetId)}
+          />
+        )
+      case "repeater":
+        return (
+          <RepeaterFieldInput
+            field={field}
+            value={value}
+            disabled={disabled}
+            onChange={onChange}
           />
         )
       default:
