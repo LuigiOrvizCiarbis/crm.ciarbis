@@ -21,3 +21,12 @@ Schedule::command('broadcasts:dispatch-due')->everyMinute()->withoutOverlapping(
 Schedule::command('mail:sync-channels')->everyMinute()->withoutOverlapping();
 Schedule::command('mail:purge-expired-intakes')->daily()->withoutOverlapping();
 Schedule::command('model:prune', ['--model' => [AutomationRun::class]])->dailyAt('02:15');
+
+// Un worker muerto a mitad de una extracción (OOM, deploy) deja la fila en
+// processing y el claim compare-and-set impide que otro job la retome: sin este
+// barrido el usuario ve un spinner eterno.
+Schedule::command('extractions:reclaim')->everyFiveMinutes()->withoutOverlapping();
+
+// El upload del PDF y el encolado son dos requests: si el usuario cierra el
+// diálogo entre medio, el archivo queda en disco sin que nada lo referencie.
+Schedule::command('extractions:purge-orphans')->dailyAt('03:30')->withoutOverlapping();

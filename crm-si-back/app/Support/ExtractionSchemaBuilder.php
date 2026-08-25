@@ -1,0 +1,159 @@
+<?php
+
+namespace App\Support;
+
+use App\Enums\ContactFieldType;
+use App\Models\ContactField;
+use Illuminate\Database\Eloquent\Collection;
+
+/**
+ * Arma el JSON Schema con el que se le pide al modelo que extraiga datos de un
+ * documento, derivado de los campos custom que definió el tenant.
+ *
+ * El schema viaja como input de una tool con strict, así que cada tipo debe
+ * declarar explícitamente que admite null: un schema estricto rechaza null si
+ * no está en la lista de tipos, y necesitamos que el modelo pueda decir "este
+ * dato no está en el documento" en vez de inventarlo.
+ */
+class ExtractionSchemaBuilder
+{
+    /**
+     * Campos que la IA nunca puede completar. Un File guarda el id de un
+     * MediaAsset del tenant: el modelo no tiene forma de conocerlo, y aunque
+     * devolviera un número sería un id ajeno o inexistente.
+     */
+    private const EXCLUDED_TYPES = [ContactFieldType::File];
+
+    /**
+     * Devuelve el schema para el modelo y un snapshot de los campos vigentes.
+     *
+     * El snapshot (key => tipo) se persiste junto a la extracción: si el tenant
+     * borra un campo mientras el usuario revisa, la confirmación descarta esa
+     * clave en vez de escribirla en custom_data sin validación.
+     *
+     * @return array{schema: array<string, mixed>, fields: array<string, string>}
+     */
+    public function build(int $tenantId): array
+    {
+        $fields = $this->fieldsForTenant($tenantId);
+
+        $properties = [];
+        $snapshot = [];
+
+        foreach ($fields as $field) {
+            if (in_array($field->type, self::EXCLUDED_TYPES, true)) {
+                continue;
+            }
+
+            $properties[$field->key] = $this->propertyFor($field);
+            $snapshot[$field->key] = $field->type->value;
+        }
+
+        return [
+            'schema' => [
+                'type' => 'object',
+                'properties' => $properties,
+                // Todas las claves son required, pero admiten null: así el modelo
+                // se ve obligado a pronunciarse sobre cada campo en vez de omitir
+                // silenciosamente los que no encontró.
+                'required' => array_keys($properties),
+                'additionalProperties' => false,
+            ],
+            'fields' => $snapshot,
+        ];
+    }
+
+    /**
+     * Query fresca, sin el cache estático de ContactField::forTenant().
+     *
+     * Ese cache vive por proceso y se invalida sólo en el proceso que hizo el
+     * cambio. Un worker de cola vive horas: si el tenant edita sus campos desde
+     * la app, el worker seguiría extrayendo contra el schema viejo.
+     *
+     * @return Collection<int, ContactField>
+     */
+    private function fieldsForTenant(int $tenantId): Collection
+    {
+        return ContactField::query()
+            ->withoutGlobalScopes()
+            ->where('tenant_id', $tenantId)
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->get();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function propertyFor(ContactField $field): array
+    {
+        $description = $this->describe($field);
+
+        return match ($field->type) {
+            ContactFieldType::Text => [
+                'type' => ['string', 'null'],
+                'maxLength' => 1000,
+                'description' => $description,
+            ],
+            ContactFieldType::Number => [
+                'type' => ['number', 'null'],
+                'description' => $description,
+            ],
+            ContactFieldType::Date => [
+                'type' => ['string', 'null'],
+                'format' => 'date',
+                'description' => $description.' Formato ISO 8601 (AAAA-MM-DD).',
+            ],
+            ContactFieldType::Boolean => [
+                'type' => ['boolean', 'null'],
+                'description' => $description,
+            ],
+            ContactFieldType::Select => [
+                'type' => ['string', 'null'],
+                'enum' => [...$this->choices($field), null],
+                'description' => $description,
+            ],
+            ContactFieldType::MultiSelect => [
+                'type' => ['array', 'null'],
+                'items' => ['type' => 'string', 'enum' => $this->choices($field)],
+                'description' => $description,
+            ],
+            ContactFieldType::Email => [
+                'type' => ['string', 'null'],
+                'format' => 'email',
+                'description' => $description,
+            ],
+            ContactFieldType::Url => [
+                'type' => ['string', 'null'],
+                'format' => 'uri',
+                'description' => $description,
+            ],
+            ContactFieldType::Phone => [
+                'type' => ['string', 'null'],
+                'maxLength' => 50,
+                'description' => $description,
+            ],
+            // File queda excluido antes de llegar acá.
+            ContactFieldType::File => [],
+        };
+    }
+
+    /**
+     * El label que le puso el tenant es la única pista de qué significa el
+     * campo, así que va como description del schema.
+     */
+    private function describe(ContactField $field): string
+    {
+        return $field->label.'.';
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function choices(ContactField $field): array
+    {
+        $choices = $field->options['choices'] ?? [];
+
+        return is_array($choices) ? array_values(array_filter($choices, 'is_string')) : [];
+    }
+}
