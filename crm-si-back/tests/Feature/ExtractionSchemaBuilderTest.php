@@ -24,6 +24,7 @@ class ExtractionSchemaBuilderTest extends TestCase
         $expected = [
             [ContactFieldType::Text, 'string'],
             [ContactFieldType::Number, 'number'],
+            [ContactFieldType::Currency, 'number'],
             [ContactFieldType::Date, 'string'],
             [ContactFieldType::Boolean, 'boolean'],
             [ContactFieldType::Email, 'string'],
@@ -47,6 +48,47 @@ class ExtractionSchemaBuilderTest extends TestCase
             $property = $properties['campo_'.$type->value];
             $this->assertSame([$jsonType, 'null'], $property['type'], "Falló el tipo {$type->value}");
         }
+    }
+
+    #[Test]
+    public function currency_asks_for_a_bare_amount_in_the_field_currency(): void
+    {
+        // Sin esta aclaración el modelo devuelve "$1.250.000" como string y el
+        // schema estricto rechaza la respuesta entera.
+        $tenant = $this->createTenantWithRoles();
+
+        ContactField::create([
+            'tenant_id' => $tenant->id,
+            'key' => 'alquiler_mensual',
+            'label' => 'Alquiler mensual',
+            'type' => ContactFieldType::Currency,
+            'options' => ['currency' => 'USD'],
+            'display_order' => 0,
+        ]);
+
+        $property = app(ExtractionSchemaBuilder::class)->build($tenant->id)['schema']['properties']['alquiler_mensual'];
+
+        $this->assertSame(['number', 'null'], $property['type']);
+        $this->assertStringContainsString('USD', $property['description']);
+        $this->assertStringContainsString('sin símbolo', $property['description']);
+    }
+
+    #[Test]
+    public function currency_without_an_explicit_option_falls_back_to_the_default(): void
+    {
+        $tenant = $this->createTenantWithRoles();
+
+        ContactField::create([
+            'tenant_id' => $tenant->id,
+            'key' => 'expensas',
+            'label' => 'Expensas',
+            'type' => ContactFieldType::Currency,
+            'display_order' => 0,
+        ]);
+
+        $property = app(ExtractionSchemaBuilder::class)->build($tenant->id)['schema']['properties']['expensas'];
+
+        $this->assertStringContainsString(ContactFieldType::DEFAULT_CURRENCY, $property['description']);
     }
 
     #[Test]
@@ -124,6 +166,36 @@ class ExtractionSchemaBuilderTest extends TestCase
 
         $this->assertSame(['array', 'null'], $property['type']);
         $this->assertSame(['Agua', 'Gas', 'Expensas'], $property['items']['enum']);
+    }
+
+    #[Test]
+    public function repeater_schema_avoids_anthropic_unsupported_array_constraints(): void
+    {
+        $tenant = $this->createTenantWithRoles();
+
+        ContactField::create([
+            'tenant_id' => $tenant->id,
+            'key' => 'garantes',
+            'label' => 'Garantes',
+            'type' => ContactFieldType::Repeater,
+            'options' => [
+                'min_items' => 1,
+                'max_items' => 3,
+                'fields' => [[
+                    'key' => 'nombre',
+                    'label' => 'Nombre',
+                    'type' => 'text',
+                    'is_active' => true,
+                ]],
+            ],
+        ]);
+
+        $property = app(ExtractionSchemaBuilder::class)->build($tenant->id)['schema']['properties']['garantes'];
+
+        $this->assertSame(['array', 'null'], $property['type']);
+        $this->assertArrayNotHasKey('minItems', $property);
+        $this->assertArrayNotHasKey('maxItems', $property);
+        $this->assertSame(['nombre'], $property['items']['required']);
     }
 
     #[Test]

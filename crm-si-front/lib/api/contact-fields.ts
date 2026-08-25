@@ -4,6 +4,7 @@ import { throwApiError } from "./api-error";
 export type ContactFieldType =
   | "text"
   | "number"
+  | "currency"
   | "date"
   | "boolean"
   | "select"
@@ -16,6 +17,8 @@ export type ContactFieldType =
 
 export interface ContactFieldOptions {
   choices?: string[];
+  /** Divisa de un campo tipo moneda (ARS | USD). El valor guardado es el importe pelado. */
+  currency?: string;
   fields?: RepeaterSubfield[];
   min_items?: number;
   max_items?: number;
@@ -27,7 +30,7 @@ export interface RepeaterSubfield {
   key?: string;
   label: string;
   type: RepeaterSubfieldType;
-  options?: { choices?: string[] } | null;
+  options?: { choices?: string[]; currency?: string } | null;
   is_required?: boolean;
   is_active?: boolean;
 }

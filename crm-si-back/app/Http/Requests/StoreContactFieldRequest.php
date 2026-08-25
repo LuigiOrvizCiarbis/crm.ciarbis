@@ -24,6 +24,7 @@ class StoreContactFieldRequest extends FormRequest
             'type' => ['required', 'string', Rule::in(ContactFieldType::values())],
             'options' => ['nullable', 'array'],
             'options.choices' => ['nullable', 'array'],
+            'options.currency' => ['nullable', 'string', Rule::in(ContactFieldType::currencies())],
             'options.choices.*' => ['string', 'max:120'],
             'options.fields' => ['nullable', 'array'],
             'options.min_items' => ['nullable', 'integer', 'between:0,100'],
@@ -49,6 +50,14 @@ class StoreContactFieldRequest extends FormRequest
                     if ($this->boolean('is_unique')) {
                         $v->errors()->add('is_unique', 'Un repeater no puede tener valores únicos.');
                     }
+
+                    return;
+                }
+                if ($type === ContactFieldType::Currency) {
+                    // La divisa es opcional en el request: si no viene, el
+                    // controller cae en DEFAULT_CURRENCY. Sólo se rechaza una
+                    // divisa presente y no soportada, cosa que ya cubre la regla
+                    // de options.currency.
                     return;
                 }
                 $choices = $this->input('options.choices');

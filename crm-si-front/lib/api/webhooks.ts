@@ -30,6 +30,7 @@ export interface WebhookEndpointUpdateInput {
 export type WebhookContactFieldType =
   | "text"
   | "number"
+  | "currency"
   | "date"
   | "boolean"
   | "select"

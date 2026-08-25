@@ -53,6 +53,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
+import { CURRENCIES, DEFAULT_CURRENCY, resolveCurrency, type CurrencyCode } from "@/lib/currency"
 
 // Contact and product fields are structurally identical; a single field shape
 // backs the whole card so the CRUD logic is written once.
@@ -62,6 +63,7 @@ type FieldType = ContactFieldType
 const TYPE_OPTIONS: FieldType[] = [
   "text",
   "number",
+  "currency",
   "date",
   "boolean",
   "select",
@@ -101,6 +103,7 @@ interface FormState {
   label: string
   type: FieldType
   choices: string
+  currency: CurrencyCode
   is_required: boolean
   is_unique: boolean
   repeaterFields: RepeaterSubfield[]
@@ -112,6 +115,7 @@ const emptyForm: FormState = {
   label: "",
   type: "text",
   choices: "",
+  currency: DEFAULT_CURRENCY,
   is_required: false,
   is_unique: false,
   repeaterFields: [],
@@ -125,6 +129,10 @@ function needsOptions(type: FieldType): boolean {
 
 function isRepeater(type: FieldType): boolean {
   return type === "repeater"
+}
+
+function isCurrency(type: FieldType): boolean {
+  return type === "currency"
 }
 
 export function FieldsCard() {
@@ -193,6 +201,7 @@ export function FieldsCard() {
       choices: (field.options?.choices ?? []).join("\n"),
       is_required: field.is_required,
       is_unique: field.is_unique,
+      currency: resolveCurrency(field.options?.currency),
       repeaterFields: field.type === "repeater" ? (field.options?.fields ?? []) : [],
       min_items: field.options?.min_items ?? 0,
       max_items: field.options?.max_items ?? 10,
@@ -229,6 +238,7 @@ export function FieldsCard() {
           label: form.label.trim(),
           options: editing.type === "repeater"
             ? { fields: form.repeaterFields, min_items: form.min_items, max_items: form.max_items }
+            : isCurrency(editing.type) ? { currency: form.currency }
             : needsOptions(editing.type) ? { choices } : null,
           is_required: form.is_required,
           is_unique: isRepeater(form.type) ? false : form.is_unique,
@@ -243,6 +253,7 @@ export function FieldsCard() {
           type: form.type,
           options: isRepeater(form.type)
             ? { fields: form.repeaterFields, min_items: form.min_items, max_items: form.max_items }
+            : isCurrency(form.type) ? { currency: form.currency }
             : needsOptions(form.type) ? { choices } : null,
           is_required: form.is_required,
           is_unique: isRepeater(form.type) ? false : form.is_unique,
@@ -446,6 +457,28 @@ export function FieldsCard() {
               </div>
             ) : null}
 
+            {isCurrency(form.type) ? (
+              <div className="space-y-2">
+                <Label htmlFor="cf-currency">{t("fields.currency")}</Label>
+                <Select
+                  value={form.currency}
+                  onValueChange={(next) => setForm((f) => ({ ...f, currency: resolveCurrency(next) }))}
+                >
+                  <SelectTrigger id="cf-currency">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CURRENCIES.map((code) => (
+                      <SelectItem key={code} value={code}>
+                        {t(`fields.currencies.${code}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">{t("fields.currencyHint")}</p>
+              </div>
+            ) : null}
+
             {isRepeater(form.type) ? (
               <RepeaterSchemaBuilder
                 fields={form.repeaterFields}
@@ -502,7 +535,7 @@ interface RepeaterSchemaBuilderProps {
 
 function RepeaterSchemaBuilder({ fields, minItems, maxItems, disabled, onChange, onLimitsChange }: RepeaterSchemaBuilderProps) {
   const { t } = useTranslation()
-  const activeTypes: RepeaterSubfieldType[] = ["text", "number", "date", "boolean", "select", "email", "url", "phone"]
+  const activeTypes: RepeaterSubfieldType[] = ["text", "number", "currency", "date", "boolean", "select", "email", "url", "phone"]
   const update = (index: number, patch: Partial<RepeaterSubfield>) => {
     onChange(fields.map((field, i) => (i === index ? { ...field, ...patch } : field)))
   }
@@ -537,7 +570,7 @@ function RepeaterSchemaBuilder({ fields, minItems, maxItems, disabled, onChange,
               disabled={disabled || field.is_active === false}
               aria-label={t("fields.repeater.subfieldLabel")}
             />
-            <Select value={field.type} onValueChange={(type) => update(index, { type: type as RepeaterSubfieldType, options: type === "select" ? field.options : null })} disabled={disabled || !!field.key || field.is_active === false}>
+            <Select value={field.type} onValueChange={(type) => update(index, { type: type as RepeaterSubfieldType, options: type === "select" ? field.options : type === "currency" ? { currency: resolveCurrency(field.options?.currency) } : null })} disabled={disabled || !!field.key || field.is_active === false}>
               <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {activeTypes.map((type) => <SelectItem key={type} value={type}>{t(`fields.typeLabels.${type}`)}</SelectItem>)}
@@ -546,6 +579,18 @@ function RepeaterSchemaBuilder({ fields, minItems, maxItems, disabled, onChange,
             <Button type="button" variant="ghost" size="icon" onClick={() => move(index, -1)} disabled={disabled || index === 0} aria-label={t("fields.repeater.moveUp")}><ChevronUp className="size-4" /></Button>
             <Button type="button" variant="ghost" size="icon" onClick={() => move(index, 1)} disabled={disabled || index === fields.length - 1} aria-label={t("fields.repeater.moveDown")}><ChevronDown className="size-4" /></Button>
           </div>
+          {field.type === "currency" && field.is_active !== false ? (
+            <Select
+              value={resolveCurrency(field.options?.currency)}
+              onValueChange={(next) => update(index, { options: { currency: resolveCurrency(next) } })}
+              disabled={disabled}
+            >
+              <SelectTrigger className="w-36" aria-label={t("fields.currency")}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {CURRENCIES.map((code) => <SelectItem key={code} value={code}>{t(`fields.currencies.${code}`)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          ) : null}
           {field.type === "select" && field.is_active !== false ? (
             <textarea
               className="w-full min-h-16 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm"

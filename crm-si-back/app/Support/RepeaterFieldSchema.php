@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Enums\ContactFieldType;
 use Illuminate\Support\Str;
 
 /**
@@ -10,14 +11,16 @@ use Illuminate\Support\Str;
 final class RepeaterFieldSchema
 {
     /** @var list<string> */
-    public const TYPES = ['text', 'number', 'date', 'boolean', 'select', 'email', 'url', 'phone'];
+    public const TYPES = ['text', 'number', 'currency', 'date', 'boolean', 'select', 'email', 'url', 'phone'];
 
     public const DEFAULT_MIN_ITEMS = 0;
+
     public const DEFAULT_MAX_ITEMS = 10;
+
     public const MAX_ITEMS = 100;
 
     /**
-     * @param array<string, mixed> $options
+     * @param  array<string, mixed>  $options
      * @return list<string>
      */
     public static function errors(array $options): array
@@ -66,6 +69,12 @@ final class RepeaterFieldSchema
             if (! in_array($field['type'] ?? null, self::TYPES, true)) {
                 $errors[] = "El tipo del subcampo {$index} no es válido.";
             }
+            if (($field['type'] ?? null) === 'currency') {
+                $currency = $field['options']['currency'] ?? null;
+                if ($currency !== null && ! in_array($currency, ContactFieldType::currencies(), true)) {
+                    $errors[] = "La divisa del subcampo {$index} no es válida.";
+                }
+            }
             if (($field['type'] ?? null) === 'select') {
                 $choices = $field['options']['choices'] ?? null;
                 if (! is_array($choices) || count($choices) === 0 || collect($choices)->contains(fn ($choice) => ! is_string($choice) || trim($choice) === '')) {
@@ -78,8 +87,7 @@ final class RepeaterFieldSchema
     }
 
     /**
-     * @param mixed $value
-     * @param array<string, mixed> $options
+     * @param  array<string, mixed>  $options
      * @return list<string>
      */
     public static function valueErrors(mixed $value, array $options): array
@@ -111,12 +119,14 @@ final class RepeaterFieldSchema
         foreach ($value as $rowIndex => $row) {
             if (! is_array($row)) {
                 $errors[] = "la fila {$rowIndex} debe ser un objeto.";
+
                 continue;
             }
             $hasValue = false;
             foreach ($row as $key => $raw) {
                 if (! isset($fields[$key])) {
                     $errors[] = "la fila {$rowIndex} contiene el subcampo desconocido {$key}.";
+
                     continue;
                 }
                 if ($raw !== null && $raw !== '' && $raw !== []) {
@@ -151,9 +161,10 @@ final class RepeaterFieldSchema
         }
         $type = $field['type'] ?? 'text';
         $choices = $field['options']['choices'] ?? [];
+
         return match ($type) {
             'text' => is_string($value) && mb_strlen($value) <= 1000 ? [] : ['debe ser texto.'],
-            'number' => is_int($value) || is_float($value) || (is_string($value) && is_numeric($value)) ? [] : ['debe ser numérico.'],
+            'number', 'currency' => is_int($value) || is_float($value) || (is_string($value) && is_numeric($value)) ? [] : ['debe ser numérico.'],
             'date' => is_string($value) && self::validDate($value) ? [] : ['debe ser una fecha válida.'],
             'boolean' => is_bool($value) ? [] : ['debe ser booleano.'],
             'select' => is_string($value) && in_array($value, $choices, true) ? [] : ['no es una opción válida.'],
@@ -174,8 +185,8 @@ final class RepeaterFieldSchema
     /**
      * Normalizes client input and preserves omitted existing subfields as archived.
      *
-     * @param array<string, mixed> $options
-     * @param array<string, mixed>|null $existing
+     * @param  array<string, mixed>  $options
+     * @param  array<string, mixed>|null  $existing
      * @return array<string, mixed>
      */
     public static function normalize(array $options, ?array $existing = null): array
@@ -212,10 +223,16 @@ final class RepeaterFieldSchema
                 'key' => $key,
                 'label' => trim((string) ($field['label'] ?? $key)),
                 'type' => $type,
-                'options' => $type === 'select' ? ['choices' => array_values(array_filter(
-                    is_array($field['options']['choices'] ?? null) ? $field['options']['choices'] : [],
-                    'is_string',
-                ))] : null,
+                'options' => match ($type) {
+                    'select' => ['choices' => array_values(array_filter(
+                        is_array($field['options']['choices'] ?? null) ? $field['options']['choices'] : [],
+                        'is_string',
+                    ))],
+                    'currency' => ['currency' => in_array($field['options']['currency'] ?? null, ContactFieldType::currencies(), true)
+                        ? $field['options']['currency']
+                        : ContactFieldType::DEFAULT_CURRENCY],
+                    default => null,
+                },
                 'is_required' => (bool) ($field['is_required'] ?? false),
                 'is_active' => (bool) ($field['is_active'] ?? true),
             ];

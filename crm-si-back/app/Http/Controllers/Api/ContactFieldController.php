@@ -50,9 +50,12 @@ class ContactFieldController extends Controller
             'key' => $key,
             'label' => (string) $request->string('label'),
             'type' => $type,
-            'options' => $type === ContactFieldType::Repeater
-                ? RepeaterFieldSchema::normalize((array) $request->input('options', []))
-                : ($type->requiresOptions() ? $request->input('options') : null),
+            'options' => match (true) {
+                $type === ContactFieldType::Repeater => RepeaterFieldSchema::normalize((array) $request->input('options', [])),
+                $type === ContactFieldType::Currency => ['currency' => $this->normalizeCurrency($request->input('options.currency'))],
+                $type->requiresOptions() => $request->input('options'),
+                default => null,
+            },
             'is_required' => (bool) $request->boolean('is_required'),
             'is_unique' => $type === ContactFieldType::Repeater ? false : (bool) $request->boolean('is_unique'),
             'display_order' => (int) ($request->input('display_order')
@@ -73,6 +76,12 @@ class ContactFieldController extends Controller
                     (array) $payload['options'],
                     $contactField->options,
                 );
+            }
+        } elseif ($contactField->type === ContactFieldType::Currency) {
+            if (array_key_exists('options', $payload)) {
+                $payload['options'] = ['currency' => $this->normalizeCurrency(
+                    $request->input('options.currency') ?? ($contactField->options['currency'] ?? null),
+                )];
             }
         } elseif (! $contactField->type->requiresOptions()) {
             unset($payload['options']);
@@ -175,6 +184,18 @@ class ContactFieldController extends Controller
         }
 
         return $candidate;
+    }
+
+    /**
+     * Una divisa ausente o no soportada cae en el default en vez de fallar: la
+     * validación ya rechazó lo inválido, y un campo sin divisa explícita es
+     * legítimo desde el importador o un cliente viejo.
+     */
+    private function normalizeCurrency(mixed $currency): string
+    {
+        return is_string($currency) && in_array($currency, ContactFieldType::currencies(), true)
+            ? $currency
+            : ContactFieldType::DEFAULT_CURRENCY;
     }
 
     /**

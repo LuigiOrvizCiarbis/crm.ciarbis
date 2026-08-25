@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use App\Enums\ContactFieldType;
 use App\Support\RepeaterFieldSchema;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateProductFieldRequest extends FormRequest
 {
@@ -23,6 +24,7 @@ class UpdateProductFieldRequest extends FormRequest
             'options' => ['sometimes', 'nullable', 'array'],
             'options.choices' => ['sometimes', 'nullable', 'array'],
             'options.choices.*' => ['string', 'max:120'],
+            'options.currency' => ['nullable', 'string', Rule::in(ContactFieldType::currencies())],
             'options.fields' => ['nullable', 'array'],
             'options.min_items' => ['nullable', 'integer', 'between:0,100'],
             'options.max_items' => ['nullable', 'integer', 'between:0,100'],
@@ -75,6 +77,10 @@ class UpdateProductFieldRequest extends FormRequest
                             $v->errors()->add('options.fields', 'No se puede cambiar el tipo de un subcampo existente.');
                         }
                     }
+
+                    return;
+                }
+                if ($field->type === ContactFieldType::Currency) {
                     return;
                 }
                 $choices = $this->input('options.choices');

@@ -4,7 +4,6 @@ namespace App\Support;
 
 use App\Enums\ContactFieldType;
 use App\Models\ContactField;
-use App\Support\RepeaterFieldSchema;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -100,6 +99,14 @@ class ExtractionSchemaBuilder
                 'type' => ['number', 'null'],
                 'description' => $description,
             ],
+            // El modelo devuelve el importe pelado: sin símbolo ni separadores
+            // de miles. Sin esta aclaración responde "$1.250.000" como string y
+            // el schema estricto rechaza la respuesta entera.
+            ContactFieldType::Currency => [
+                'type' => ['number', 'null'],
+                'description' => $description.' Importe en '.$this->currency($field)
+                    .', sólo el número, sin símbolo de moneda ni separadores de miles (ej: 1250000.50).',
+            ],
             // Sin 'format': con strict, declararlo empuja al modelo a producir
             // un string con esa forma aunque el dato no esté en el documento —
             // devolvía fechas inventadas ("5210-01-01") en vez de null. El
@@ -151,11 +158,21 @@ class ExtractionSchemaBuilder
                     'required' => $this->repeaterRequired($field),
                     'additionalProperties' => false,
                 ],
-                'minItems' => (int) ($field->options['min_items'] ?? RepeaterFieldSchema::DEFAULT_MIN_ITEMS),
-                'maxItems' => (int) ($field->options['max_items'] ?? RepeaterFieldSchema::DEFAULT_MAX_ITEMS),
+                // Anthropic's strict tool schema rejects array constraints such
+                // as minItems/maxItems. The same limits are enforced after the
+                // model response by RepeaterFieldSchema::valueErrors().
                 'description' => $description,
             ],
         };
+    }
+
+    private function currency(ContactField $field): string
+    {
+        $currency = $field->options['currency'] ?? null;
+
+        return is_string($currency) && $currency !== ''
+            ? $currency
+            : ContactFieldType::DEFAULT_CURRENCY;
     }
 
     /** @return array<string, mixed> */
@@ -163,7 +180,9 @@ class ExtractionSchemaBuilder
     {
         $properties = [];
         foreach (($field->options['fields'] ?? []) as $nested) {
-            if (! is_array($nested) || ($nested['is_active'] ?? true) === false || ! isset($nested['key'])) continue;
+            if (! is_array($nested) || ($nested['is_active'] ?? true) === false || ! isset($nested['key'])) {
+                continue;
+            }
             $properties[$nested['key']] = $this->nestedProperty($nested);
         }
 
@@ -180,7 +199,7 @@ class ExtractionSchemaBuilder
     private function nestedProperty(array $field): array
     {
         $type = match ($field['type'] ?? 'text') {
-            'number' => 'number',
+            'number', 'currency' => 'number',
             'boolean' => 'boolean',
             default => 'string',
         };
@@ -194,9 +213,17 @@ class ExtractionSchemaBuilder
             ];
         }
 
+        $description = (string) ($field['label'] ?? $field['key']);
+        if (($field['type'] ?? null) === 'currency') {
+            $currency = is_string($field['options']['currency'] ?? null) && $field['options']['currency'] !== ''
+                ? $field['options']['currency']
+                : ContactFieldType::DEFAULT_CURRENCY;
+            $description .= ' Importe en '.$currency.', sólo el número, sin símbolo ni separadores de miles.';
+        }
+
         return [
             'type' => [$type, 'null'],
-            'description' => (string) ($field['label'] ?? $field['key']),
+            'description' => $description,
         ];
     }
 

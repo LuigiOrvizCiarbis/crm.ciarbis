@@ -191,16 +191,18 @@ export function DocumentViewerSheet({
           </SheetTitle>
           {/* Alto fijo: la metadata llega después del primer render y sin esto
               la línea aparece de golpe y empuja el visor hacia abajo. */}
-          <SheetDescription className="flex h-4 items-center text-xs">
-            {meta === null && state.kind === "loading" ? (
-              <Skeleton className="h-3 w-48" />
-            ) : (
-              <span className="truncate">
-                {fieldLabel ? <span className="text-foreground/70">{fieldLabel}</span> : null}
-                {fieldLabel && details.length > 0 ? " · " : null}
-                {details.join(" · ")}
-              </span>
-            )}
+          <SheetDescription asChild>
+            <div className="flex h-4 items-center text-xs">
+              {meta === null && state.kind === "loading" ? (
+                <Skeleton className="h-3 w-48" />
+              ) : (
+                <span className="truncate">
+                  {fieldLabel ? <span className="text-foreground/70">{fieldLabel}</span> : null}
+                  {fieldLabel && details.length > 0 ? " · " : null}
+                  {details.join(" · ")}
+                </span>
+              )}
+            </div>
           </SheetDescription>
         </SheetHeader>
 

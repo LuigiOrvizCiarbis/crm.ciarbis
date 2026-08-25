@@ -7,6 +7,9 @@ function schemaForType(type: ContactFieldType, choices: string[]): ZodTypeAny {
     case "text":
       return z.string().max(1000).nullish();
     case "number":
+    // El valor de un campo moneda es el importe a secas: mismas reglas que un
+    // número. La divisa vive en la definición del campo, no en el valor.
+    case "currency":
       return z
         .union([z.number(), z.string().regex(/^-?\d+(\.\d+)?$/).transform(Number)])
         .nullish();

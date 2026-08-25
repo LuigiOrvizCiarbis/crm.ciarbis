@@ -12,9 +12,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip } from "lucide-react"
+import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw } from "lucide-react"
 import { ImportContactsDialog } from "./import-contacts-dialog"
 import { BulkTagsDialog } from "./contacts/bulk-tags-dialog"
 import { ExtractDocumentDialog } from "./contacts/ExtractDocumentDialog"
@@ -54,6 +55,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
+import { formatCurrency } from "@/lib/currency"
 
 interface Contact {
   id: number
@@ -123,6 +125,7 @@ const DEFAULT_COLUMNS: Column[] = [
 ]
 
 const COLUMN_ORDER_KEY = "contacts-column-order"
+const COLUMN_WIDTHS_KEY = "contacts-column-widths"
 const COLUMN_SORT_FIELDS: Partial<Record<ColumnId, SortField>> = {
   contact: "name",
   phone: "phone",
@@ -131,8 +134,9 @@ const COLUMN_SORT_FIELDS: Partial<Record<ColumnId, SortField>> = {
   lastContact: "updated_at",
 }
 
-function formatCustomValue(value: unknown, type: string | undefined): string {
+function formatCustomValue(value: unknown, type: string | undefined, currency?: unknown): string {
   if (value === null || value === undefined || value === "") return "—"
+  if (type === "currency") return formatCurrency(value, currency)
   if (type === "repeater" && Array.isArray(value)) return `${value.length} elementos`
   if (Array.isArray(value)) return value.length > 0 ? value.join(", ") : "—"
   if (typeof value === "boolean") return value ? "Sí" : "No"
@@ -172,18 +176,104 @@ function loadColumnOrder(): Column[] {
   }
 }
 
+function loadColumnWidths(): Record<string, string> {
+  if (typeof window === "undefined") return {}
+  try {
+    const saved = window.localStorage.getItem(COLUMN_WIDTHS_KEY)
+    return saved ? (JSON.parse(saved) as Record<string, string>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function widthInPixels(width: string): number {
+  const parsed = Number.parseFloat(width)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function widthWithMinimum(column: Column, width: number): string {
+  return `${Math.min(560, Math.max(widthInPixels(column.minWidth), Math.round(width)))}px`
+}
+
+function ColumnResizeHandle({
+  column,
+  onResize,
+  onAutoResize,
+}: {
+  column: Column
+  onResize: (columnId: ColumnId, delta: number) => void
+  onAutoResize: (columnId: ColumnId) => void
+}) {
+  const previousX = useRef<number | null>(null)
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    previousX.current = event.clientX
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (previousX.current === null) return
+    const delta = event.clientX - previousX.current
+    previousX.current = event.clientX
+    onResize(column.id, delta)
+  }
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
+    previousX.current = null
+    event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault()
+      event.stopPropagation()
+      const direction = event.key === "ArrowRight" ? 1 : -1
+      onResize(column.id, direction * (event.shiftKey ? 40 : 10))
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={`Ajustar ancho de ${column.labelKey || "columna"}`}
+      aria-valuemin={widthInPixels(column.minWidth)}
+      aria-valuenow={widthInPixels(column.width)}
+      aria-valuetext={`${widthInPixels(column.width)} píxeles`}
+      role="separator"
+      tabIndex={0}
+      className="absolute inset-y-0 right-0 z-10 w-3 cursor-col-resize touch-none rounded-sm outline-none transition-colors hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onDoubleClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onAutoResize(column.id)
+      }}
+      onKeyDown={handleKeyDown}
+      title="Arrastrar para ajustar. Doble clic para autoajustar."
+    />
+  )
+}
+
 function SortableHeader({
   column,
   label,
   sortField,
   sortDirection,
   onSort,
+  onResize,
+  onAutoResize,
 }: {
   column: Column
   label: string
   sortField: SortField
   sortDirection: SortDirection
   onSort: (columnId: ColumnId) => void
+  onResize: (columnId: ColumnId, delta: number) => void
+  onAutoResize: (columnId: ColumnId) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: column.id,
@@ -200,7 +290,7 @@ function SortableHeader({
 
   if (!column.draggable) {
     return (
-      <TableHead ref={setNodeRef} style={style} className={column.id === "actions" ? "text-right" : ""}>
+      <TableHead ref={setNodeRef} style={style} className={cn("relative", column.id === "actions" ? "text-right" : "")}>
         {label}
       </TableHead>
     )
@@ -215,7 +305,7 @@ function SortableHeader({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "select-none cursor-grab active:cursor-grabbing",
+        "relative select-none cursor-grab active:cursor-grabbing",
         column.id === "actions" ? "text-right" : "",
       )}
       {...attributes}
@@ -243,6 +333,7 @@ function SortableHeader({
           <span>{label}</span>
         )}
       </div>
+      <ColumnResizeHandle column={column} onResize={onResize} onAutoResize={onAutoResize} />
     </TableHead>
   )
 }
@@ -326,7 +417,7 @@ export function ContactsList({
       contactFields.map((f) => ({
         id: `custom:${f.key}` as ColumnId,
         labelKey: f.label,
-        width: "180px",
+        width: loadColumnWidths()[`custom:${f.key}`] ?? "180px",
         minWidth: "140px",
         draggable: true,
       })),
@@ -334,9 +425,16 @@ export function ContactsList({
   )
 
   const [columns, setColumns] = useState<Column[]>(DEFAULT_COLUMNS)
+  const [columnsHydrated, setColumnsHydrated] = useState(false)
+  const tableRef = useRef<HTMLTableElement | null>(null)
 
   useEffect(() => {
-    setColumns(loadColumnOrder())
+    const savedWidths = loadColumnWidths()
+    setColumns(loadColumnOrder().map((column) => ({
+      ...column,
+      width: savedWidths[column.id] ?? column.width,
+    })))
+    setColumnsHydrated(true)
   }, [])
 
   useEffect(() => {
@@ -358,9 +456,13 @@ export function ContactsList({
   }, [customFieldColumns])
 
   useEffect(() => {
-    if (typeof window === "undefined") return
+    if (typeof window === "undefined" || !columnsHydrated) return
     window.localStorage.setItem(COLUMN_ORDER_KEY, JSON.stringify(columns.map((c) => c.id)))
-  }, [columns])
+    window.localStorage.setItem(
+      COLUMN_WIDTHS_KEY,
+      JSON.stringify(Object.fromEntries(columns.map((column) => [column.id, column.width]))),
+    )
+  }, [columns, columnsHydrated])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -377,6 +479,37 @@ export function ContactsList({
       if (!items[oldIndex].draggable || !items[newIndex].draggable) return items
       return arrayMove(items, oldIndex, newIndex)
     })
+  }
+
+  const handleColumnResize = (columnId: ColumnId, delta: number): void => {
+    setColumns((current) => current.map((column) => {
+      if (column.id !== columnId) return column
+      return {
+        ...column,
+        width: widthWithMinimum(column, widthInPixels(column.width) + delta),
+      }
+    }))
+  }
+
+  const handleColumnAutoResize = (columnId: ColumnId): void => {
+    const column = columns.find((item) => item.id === columnId)
+    if (!column || !tableRef.current) return
+
+    const cells = Array.from(tableRef.current.querySelectorAll<HTMLElement>("[data-column-id]"))
+      .filter((cell) => cell.dataset.columnId === columnId)
+    const measuredWidth = cells.reduce((width, cell) => Math.max(width, cell.scrollWidth), 0)
+    const nextWidth = Math.min(560, Math.max(widthInPixels(column.minWidth), measuredWidth + 12))
+
+    setColumns((current) => current.map((item) => (
+      item.id === columnId ? { ...item, width: `${Math.round(nextWidth)}px` } : item
+    )))
+  }
+
+  const resetColumnWidths = (): void => {
+    setColumns((current) => current.map((column) => {
+      const defaultColumn = DEFAULT_COLUMNS.find((item) => item.id === column.id)
+      return defaultColumn ? { ...column, width: defaultColumn.width } : { ...column, width: "180px" }
+    }))
   }
 
   const handleSort = (columnId: ColumnId): void => {
@@ -911,9 +1044,39 @@ export function ContactsList({
           const isEditingThis = editingCell?.contactId === contact.id && editingCell.field === columnId
 
           if (isEditingThis) {
+            if (field.type === "repeater") {
+              return (
+                <Popover open onOpenChange={(open) => { if (!open) setEditingCell(null) }}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="w-full truncate rounded px-1 py-0.5 text-left text-sm text-foreground transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      aria-label={`Editar ${field.label}`}
+                    >
+                      {formatCustomValue(raw, field.type, field.options?.currency)}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    sideOffset={6}
+                    collisionPadding={24}
+                    sticky="always"
+                    className="w-auto max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+                  >
+                    <CustomFieldInput
+                      field={field}
+                      value={raw}
+                      compact
+                      onChange={(next) => handleCustomCellSave(contact, key, next)}
+                    />
+                  </PopoverContent>
+                </Popover>
+              )
+            }
+
             // Tipos que despliegan portales (Select/Radix) o múltiples controles no
             // deben cerrarse en blur, porque interactuar con el portal dispara blur.
-            const usesPortal = field.type === "select" || field.type === "multi_select" || field.type === "repeater"
+            const usesPortal = field.type === "select" || field.type === "multi_select"
             return (
               <div
                 onBlur={(e) => {
@@ -985,9 +1148,9 @@ export function ContactsList({
             <button
               type="button"
               className="w-full text-left rounded px-1 py-0.5 hover:bg-muted/60 transition-colors truncate text-sm text-foreground"
-              onClick={() => field.type === "repeater" ? openEditDialog(contact) : setEditingCell({ contactId: contact.id, field: columnId })}
+              onClick={() => setEditingCell({ contactId: contact.id, field: columnId })}
             >
-              {formatCustomValue(raw, field.type)}
+              {formatCustomValue(raw, field.type, field.options?.currency)}
             </button>
           )
         }
@@ -1044,6 +1207,16 @@ export function ContactsList({
               <SelectItem value="100">100</SelectItem>
             </SelectContent>
           </Select>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={resetColumnWidths}
+            title="Restablecer anchos de columnas"
+          >
+            <RotateCcw className="h-4 w-4" />
+            <span className="hidden lg:inline">Restablecer anchos</span>
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -1237,14 +1410,14 @@ export function ContactsList({
           <div className="hidden border rounded-lg overflow-hidden md:block">
             <div className="overflow-x-auto">
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
-                <Table className="min-w-[1100px]">
+                <Table ref={tableRef} className="min-w-[1100px] table-fixed">
                   <TableHeader className="sticky top-0 z-10 bg-background border-b">
                     <TableRow>
                       <SortableContext items={columns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
                         {columns.map((column) => {
                           if (column.id === "select") {
                             return (
-                              <TableHead key={column.id} style={{ width: column.width, minWidth: column.minWidth }} className="px-4">
+                              <TableHead key={column.id} data-column-id={column.id} style={{ width: column.width, minWidth: column.minWidth }} className="px-4">
                                 <Checkbox checked={allSelected} onCheckedChange={handleSelectAll} />
                               </TableHead>
                             )
@@ -1266,6 +1439,8 @@ export function ContactsList({
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={handleSort}
+                              onResize={handleColumnResize}
+                              onAutoResize={handleColumnAutoResize}
                             />
                           )
                         })}
@@ -1291,6 +1466,7 @@ export function ContactsList({
                           {columns.map((column) => (
                             <TableCell
                               key={column.id}
+                              data-column-id={column.id}
                               className={`py-3 ${column.id === "select" ? "px-4" : ""} ${column.id === "actions" ? "text-right" : ""}`}
                               style={{ width: column.width, minWidth: column.minWidth, maxWidth: column.width }}
                             >

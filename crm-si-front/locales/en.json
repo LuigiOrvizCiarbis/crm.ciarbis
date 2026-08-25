@@ -1488,9 +1488,16 @@
       "optionsRequired": "You must define at least one option.",
       "invalidPayload": "Invalid custom data."
     },
+    "currency": "Currency",
+    "currencyHint": "The amount is stored as a plain number; the currency only changes how it is displayed. There is no conversion between currencies.",
+    "currencies": {
+      "ARS": "Argentine peso (ARS)",
+      "USD": "US dollar (USD)"
+    },
     "typeLabels": {
       "text": "Text",
       "number": "Number",
+      "currency": "Currency",
       "date": "Date",
       "boolean": "Boolean",
       "select": "Select",
@@ -1513,8 +1520,8 @@
       "noSubfields": "Add at least one subfield.",
       "minItems": "Minimum rows",
       "maxItems": "Maximum rows",
-      "invalidLimits": "The minimum cannot be greater than the maximum."
-      ,"addRow": "Add row",
+      "invalidLimits": "The minimum cannot be greater than the maximum.",
+      "addRow": "Add row",
       "row": "Row {{index}}",
       "moveRowUp": "Move row up",
       "moveRowDown": "Move row down",

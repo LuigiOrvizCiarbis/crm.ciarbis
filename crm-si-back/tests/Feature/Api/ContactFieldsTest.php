@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\PermissionCatalog;
 use App\Support\RoleProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use App\Enums\ContactFieldType;
 use Illuminate\Http\UploadedFile;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
@@ -489,6 +490,131 @@ class ContactFieldsTest extends TestCase
         $list = $this->getJson('/api/contact-fields');
         $list->assertOk();
         $this->assertCount(0, $list->json('data'));
+    }
+
+    public function test_owner_can_create_currency_field_with_a_currency(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/contact-fields', [
+            'label' => 'Alquiler mensual',
+            'type' => 'currency',
+            'options' => ['currency' => 'USD'],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.type', 'currency')
+            ->assertJsonPath('data.options.currency', 'USD');
+
+        $this->postJson('/api/contacts', [
+            'name' => 'Inquilino',
+            'custom_data' => ['alquiler_mensual' => 1250000.5],
+        ])->assertCreated();
+    }
+
+    public function test_currency_field_without_options_falls_back_to_the_default(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/contact-fields', [
+            'label' => 'Expensas',
+            'type' => 'currency',
+        ])->assertCreated()->assertJsonPath('data.options.currency', ContactFieldType::DEFAULT_CURRENCY);
+    }
+
+    public function test_currency_field_rejects_an_unsupported_currency(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/contact-fields', [
+            'label' => 'Alquiler',
+            'type' => 'currency',
+            'options' => ['currency' => 'XYZ'],
+        ])->assertStatus(422)->assertJsonValidationErrors('options.currency');
+    }
+
+    public function test_currency_field_rejects_a_non_numeric_value(): void
+    {
+        [$user, $tenant] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        ContactField::create([
+            'tenant_id' => $tenant->id,
+            'key' => 'alquiler',
+            'label' => 'Alquiler',
+            'type' => 'currency',
+            'options' => ['currency' => 'ARS'],
+        ]);
+
+        $this->postJson('/api/contacts', [
+            'name' => 'Inquilino',
+            'custom_data' => ['alquiler' => 'mil pesos'],
+        ])->assertStatus(422);
+    }
+
+    public function test_currency_can_be_a_repeater_subfield(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/contact-fields', [
+            'label' => 'Unidades',
+            'type' => 'repeater',
+            'options' => [
+                'fields' => [
+                    ['label' => 'Unidad', 'type' => 'text', 'is_required' => true],
+                    ['label' => 'Precio', 'type' => 'currency', 'options' => ['currency' => 'USD']],
+                ],
+                'min_items' => 1,
+                'max_items' => 5,
+            ],
+        ])->assertCreated();
+
+        $field = ContactField::where('key', 'unidades')->firstOrFail();
+        $this->assertSame('USD', $field->options['fields'][1]['options']['currency']);
+
+        $this->postJson('/api/contacts', [
+            'name' => 'Edificio',
+            'custom_data' => ['unidades' => [['unidad' => '3B', 'precio' => 180000]]],
+        ])->assertCreated();
+
+        $this->postJson('/api/contacts', [
+            'name' => 'Otro',
+            'custom_data' => ['unidades' => [['unidad' => '4A', 'precio' => 'carísimo']]],
+        ])->assertStatus(422);
+    }
+
+    public function test_import_parses_currency_written_the_way_people_type_it(): void
+    {
+        [$user, $tenant] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        ContactField::create([
+            'tenant_id' => $tenant->id,
+            'key' => 'alquiler',
+            'label' => 'Alquiler',
+            'type' => 'currency',
+            'options' => ['currency' => 'ARS'],
+        ]);
+
+        // Un CSV real trae el importe formateado como se lo ve en pantalla.
+        $csv = "name,phone,alquiler\nJuan,+5491111,\"$ 1.250.000,50\"\nMaria,+5492222,900000\n";
+        $file = UploadedFile::fake()->createWithContent('contacts.csv', $csv);
+
+        $this->postJson('/api/contacts/import', [
+            'file' => $file,
+            'mapping' => json_encode([
+                'name' => 0,
+                'phone' => 1,
+                'custom' => ['alquiler' => 2],
+            ]),
+        ])->assertOk()->assertJsonPath('data.imported', 2);
+
+        $this->assertEquals(1250000.5, Contact::where('name', 'Juan')->first()->custom_data['alquiler']);
+        $this->assertEquals(900000, Contact::where('name', 'Maria')->first()->custom_data['alquiler']);
     }
 
     public function test_import_csv_with_custom_field(): void
