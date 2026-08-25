@@ -297,12 +297,15 @@ class AnthropicProvider implements AiProvider
         }
 
         // PDF escaneado: cada página va como imagen, numerada para que el modelo
-        // pueda ubicarse en un contrato largo.
-        $blocks = [['type' => 'text', 'text' => $warning."\n\nEl documento es un PDF escaneado de "
-            .count($images).' página(s):']];
+        // pueda ubicarse en un contrato largo. El número sale del extractor, no
+        // del índice del array: si alguna página no se pudo convertir, contar
+        // por posición rotularía mal a todas las siguientes.
+        $blocks = [['type' => 'text', 'text' => $warning."\n\nEl documento es un PDF escaneado. "
+            .'Se adjuntan '.count($images).' página(s):']];
 
         foreach ($images as $index => $image) {
-            $blocks[] = ['type' => 'text', 'text' => 'Página '.($index + 1).':'];
+            $page = $image['page'] ?? $index + 1;
+            $blocks[] = ['type' => 'text', 'text' => "Página {$page}:"];
             $blocks[] = [
                 'type' => 'image',
                 'source' => [

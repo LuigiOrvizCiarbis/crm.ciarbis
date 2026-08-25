@@ -69,13 +69,24 @@ class PdfTextResult
     /**
      * El PDF era un escaneo: no hay texto, van las páginas como imágenes.
      *
+     * La cobertura se deriva de qué páginas se pudieron convertir, igual que en
+     * el camino de texto. Afirmar full de entrada sería declarar algo que el
+     * rasterizado no puede saber: una página que salió en blanco o ilegible
+     * igual produce un JPEG.
+     *
      * @param  list<array{mime: string, data: string}>  $images
+     * @param  list<int>  $missingPages  Páginas que no se pudieron convertir.
      */
-    public static function scanned(array $images, int $pageCount, bool $hasForms = false): self
-    {
+    public static function scanned(
+        array $images,
+        int $pageCount,
+        array $missingPages = [],
+        bool $hasForms = false,
+    ): self {
         return new self(
             ok: true,
-            coverage: self::COVERAGE_FULL,
+            coverage: $missingPages === [] ? self::COVERAGE_FULL : self::COVERAGE_PARTIAL,
+            pagesWithoutText: $missingPages,
             pageCount: $pageCount,
             hasForms: $hasForms,
             images: $images,

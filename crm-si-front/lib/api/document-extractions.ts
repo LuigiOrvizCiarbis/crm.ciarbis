@@ -135,7 +135,9 @@ export async function confirmExtraction(
 /** Mensajes accionables por código de error del backend. */
 export const EXTRACTION_ERRORS: Record<string, string> = {
   no_text_layer:
-    "El PDF no tiene texto seleccionable y no se pudo convertir a imágenes.",
+    "El PDF es un escaneo y no se pudo convertir a imágenes para leerlo.",
+  too_many_scanned_pages:
+    "El documento escaneado tiene demasiadas páginas para leerlo como imágenes.",
   document_too_large: "El documento es demasiado grande para procesarlo.",
   too_many_pages: "El documento tiene demasiadas páginas.",
   not_a_pdf: "El archivo no es un PDF válido.",
@@ -143,7 +145,7 @@ export const EXTRACTION_ERRORS: Record<string, string> = {
   asset_missing: "El documento ya no está disponible.",
   ai_not_configured: "Configurá una API key de IA para usar la extracción.",
   ai_disabled: "La IA está desactivada para este espacio.",
-  unsupported: "El proveedor de IA configurado no admite este tipo de documento.",
+  unsupported: "La extracción de documentos requiere Claude como proveedor de IA.",
   no_fields: "Configurá campos personalizados de contacto antes de extraer datos.",
   invalid_key: "La API key de IA no es válida.",
   no_credit: "La cuenta de IA no tiene saldo disponible.",

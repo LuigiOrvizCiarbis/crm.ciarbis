@@ -110,6 +110,15 @@ return [
                 'max_pages' => env('AI_EXTRACTION_VISION_MAX_PAGES', 20),
                 // Cota del payload total en base64, por debajo del límite de la API.
                 'max_total_bytes' => env('AI_EXTRACTION_VISION_MAX_TOTAL_BYTES', 20971520),
+                // Memoria propia (KB): rasterizar es mucho más pesado que extraer
+                // texto — poppler reserva el bitmap RGB completo de la página más
+                // los buffers del encoder JPEG. Reusar el tope de pdftotext
+                // (128 MB) mata la conversión de escaneos con imágenes grandes.
+                'memory_kb' => env('AI_EXTRACTION_VISION_MEMORY_KB', 786432), // 768 MB
+                // Timeout total del rasterizado, sin escalar por página: el job
+                // tiene su propio timeout y el lease del watchdog corre en
+                // paralelo, así que esto no puede crecer sin control.
+                'timeout' => env('AI_EXTRACTION_VISION_TIMEOUT', 120),
             ],
         ],
     ],

@@ -133,8 +133,14 @@ export function ExtractDocumentDialog({
         }
 
         if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
-          setError("La extracción está tardando demasiado. Probá de nuevo en unos minutos.")
-          setStep("upload")
+          // No se vuelve al paso de subida: el job sigue encolado y va a
+          // llamar al proveedor igual, así que invitar a reintentar duplicaría
+          // el costo. Se deja de mirar y se explica que puede volver después.
+          setExtraction(current)
+          setError(
+            "La extracción sigue en curso y está tardando más de lo normal. Podés cerrar esta ventana: " +
+              "cuando termine, los datos van a estar disponibles volviendo a abrirla.",
+          )
           return
         }
 
@@ -197,7 +203,11 @@ export function ExtractDocumentDialog({
         )
       }
 
-      onConfirmed(result.contact?.custom_data ?? {})
+      // Sin payload de contacto no se toca la copia local: tratar la ausencia
+      // como {} borraría datos que en la base están bien.
+      if (result.contact) {
+        onConfirmed(result.contact.custom_data)
+      }
       if (result.discarded.length === 0) handleOpenChange(false)
     } catch (err) {
       if (err instanceof StaleContactError) {
@@ -225,7 +235,7 @@ export function ExtractDocumentDialog({
         <DialogHeader>
           <DialogTitle>Extraer datos de un documento</DialogTitle>
           <DialogDescription>
-            Los datos los sugiere la IA a partir del texto del PDF. Revisalos contra el documento
+            Los datos los sugiere la IA leyendo el PDF. Revisalos contra el documento
             antes de guardarlos.
           </DialogDescription>
         </DialogHeader>
@@ -248,7 +258,7 @@ export function ExtractDocumentDialog({
               onChange={(e) => void handleFile(e.target.files?.[0])}
             />
             <p className="text-xs text-muted-foreground">
-              El PDF tiene que tener texto seleccionable. Un documento escaneado no se puede leer.
+              Funciona con PDFs digitales y también con contratos escaneados.
             </p>
             {extractableFields.length === 0 && (
               <p className="text-xs text-destructive">

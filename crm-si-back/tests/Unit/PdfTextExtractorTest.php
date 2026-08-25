@@ -81,6 +81,10 @@ class PdfTextExtractorTest extends TestCase
         $this->assertSame('image/jpeg', $result->images[0]['mime']);
         $this->assertNotSame('', $result->images[0]['data']);
         $this->assertSame('', $result->text);
+        // La página se rotula por su número real, no por posición en el array:
+        // si una falta, contar por índice desplazaría a todas las siguientes.
+        $this->assertSame(1, $result->images[0]['page']);
+        $this->assertSame(2, $result->images[1]['page']);
     }
 
     #[Test]
@@ -105,7 +109,7 @@ class PdfTextExtractorTest extends TestCase
         $result = app(PdfTextExtractor::class)->extract($path);
 
         $this->assertFalse($result->ok);
-        $this->assertSame('too_many_pages', $result->errorCode);
+        $this->assertSame('too_many_scanned_pages', $result->errorCode);
     }
 
     #[Test]

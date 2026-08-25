@@ -220,6 +220,58 @@ class DocumentExtractionTest extends TestCase
     }
 
     #[Test]
+    public function an_ordinary_contact_edit_invalidates_a_pending_confirmation(): void
+    {
+        // El caso real de una edición concurrente: alguien toca el contacto por
+        // la vía normal mientras otro revisa una extracción. Si sólo la
+        // confirmación avanzara el contador, esa edición se pisaría en silencio.
+        ['user' => $user, 'contact' => $contact, 'tenant' => $tenant] = $this->setUpTenant();
+        $extraction = $this->makeExtraction($tenant, $contact, [
+            'status' => ExtractionStatus::Completed,
+            'result' => ['monto' => 150000],
+            'fields_snapshot' => ['monto' => 'number'],
+        ]);
+
+        $this->actingAs($user)
+            ->putJson("/api/contacts/{$contact->id}", ['custom_data' => ['monto' => 999]])
+            ->assertOk();
+
+        $this->assertSame(1, (int) $contact->fresh()->lock_version);
+
+        $this->actingAs($user)
+            ->postJson("/api/contacts/{$contact->id}/extractions/{$extraction->id}/confirm", [
+                'fields' => ['monto' => 150000],
+                'lock_version' => 0,
+            ])
+            ->assertStatus(409);
+
+        $this->assertSame(999, $contact->fresh()->custom_data['monto']);
+    }
+
+    #[Test]
+    public function a_confirmation_retry_returns_the_contact_instead_of_nothing(): void
+    {
+        // Si el reintento no devolviera el contacto, el front interpretaría la
+        // ausencia como custom_data vacío y borraría su copia local.
+        ['user' => $user, 'contact' => $contact, 'tenant' => $tenant] = $this->setUpTenant();
+        $extraction = $this->makeExtraction($tenant, $contact, [
+            'status' => ExtractionStatus::Completed,
+            'result' => ['monto' => 150000],
+            'fields_snapshot' => ['monto' => 'number'],
+        ]);
+
+        $url = "/api/contacts/{$contact->id}/extractions/{$extraction->id}/confirm";
+        $payload = ['fields' => ['monto' => 150000], 'lock_version' => 0];
+
+        $this->actingAs($user)->postJson($url, $payload)->assertOk();
+
+        $retry = $this->actingAs($user)->postJson($url, $payload);
+
+        $retry->assertOk();
+        $retry->assertJsonPath('contact.custom_data.monto', 150000);
+    }
+
+    #[Test]
     public function confirming_twice_does_not_apply_the_values_again(): void
     {
         ['user' => $user, 'contact' => $contact, 'tenant' => $tenant] = $this->setUpTenant();
