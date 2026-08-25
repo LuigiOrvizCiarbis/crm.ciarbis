@@ -99,18 +99,27 @@ class ExtractionSchemaBuilder
                 'type' => ['number', 'null'],
                 'description' => $description,
             ],
+            // Sin 'format': con strict, declararlo empuja al modelo a producir
+            // un string con esa forma aunque el dato no esté en el documento —
+            // devolvía fechas inventadas ("5210-01-01") en vez de null. El
+            // formato se pide por description, que no fuerza nada. Verificado
+            // contra la API.
             ContactFieldType::Date => [
                 'type' => ['string', 'null'],
-                'format' => 'date',
                 'description' => $description.' Formato ISO 8601 (AAAA-MM-DD).',
             ],
             ContactFieldType::Boolean => [
                 'type' => ['boolean', 'null'],
                 'description' => $description,
             ],
+            // anyOf en vez de type union + enum: con strict, el validador exige
+            // que cada valor del enum matchee el tipo declarado, y una opción
+            // como 'ARS' no matchea ['string','null'] (la API responde 400).
             ContactFieldType::Select => [
-                'type' => ['string', 'null'],
-                'enum' => [...$this->choices($field), null],
+                'anyOf' => [
+                    ['type' => 'string', 'enum' => $this->choices($field)],
+                    ['type' => 'null'],
+                ],
                 'description' => $description,
             ],
             ContactFieldType::MultiSelect => [
@@ -120,13 +129,11 @@ class ExtractionSchemaBuilder
             ],
             ContactFieldType::Email => [
                 'type' => ['string', 'null'],
-                'format' => 'email',
-                'description' => $description,
+                'description' => $description.' Dirección de email.',
             ],
             ContactFieldType::Url => [
                 'type' => ['string', 'null'],
-                'format' => 'uri',
-                'description' => $description,
+                'description' => $description.' URL completa.',
             ],
             ContactFieldType::Phone => [
                 'type' => ['string', 'null'],

@@ -64,8 +64,47 @@ class ExtractionSchemaBuilderTest extends TestCase
 
         $property = app(ExtractionSchemaBuilder::class)->build($tenant->id)['schema']['properties']['indice_ajuste'];
 
-        $this->assertSame(['IPC', 'ICL', 'Casa Propia', null], $property['enum']);
-        $this->assertSame(['string', 'null'], $property['type']);
+        // anyOf y no type union + enum: con strict, la API rechaza un enum cuyos
+        // valores no matcheen el tipo declarado ("'ARS' does not match
+        // '['string','null']'"). Verificado contra la API real.
+        $this->assertSame(
+            [
+                ['type' => 'string', 'enum' => ['IPC', 'ICL', 'Casa Propia']],
+                ['type' => 'null'],
+            ],
+            $property['anyOf'],
+        );
+        $this->assertArrayNotHasKey('type', $property);
+    }
+
+    #[Test]
+    public function no_property_declares_a_format_keyword(): void
+    {
+        // Con strict, declarar format empuja al modelo a producir un string con
+        // esa forma aunque el dato no esté en el documento: una fecha ausente
+        // volvía como "5210-01-01" en vez de null. Es la peor falla posible acá
+        // — un dato inventado que parece válido en un campo legal.
+        $tenant = $this->createTenantWithRoles();
+
+        foreach ([ContactFieldType::Date, ContactFieldType::Email, ContactFieldType::Url] as $index => $type) {
+            ContactField::create([
+                'tenant_id' => $tenant->id,
+                'key' => 'campo_'.$type->value,
+                'label' => 'Campo '.$type->value,
+                'type' => $type,
+                'display_order' => $index,
+            ]);
+        }
+
+        $properties = app(ExtractionSchemaBuilder::class)->build($tenant->id)['schema']['properties'];
+
+        foreach ($properties as $key => $property) {
+            $this->assertArrayNotHasKey('format', $property, "El campo {$key} declara format");
+        }
+
+        // El formato esperado se sigue pidiendo, pero por descripción: sugiere
+        // sin forzar.
+        $this->assertStringContainsString('AAAA-MM-DD', $properties['campo_date']['description']);
     }
 
     #[Test]
