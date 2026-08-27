@@ -25,7 +25,7 @@ export function resolveMessageStatus(message: Message): StatusKind {
 
 interface MessageStatusProps {
   message: Message
-  /** Sobre burbuja de acento el icono hereda el color del texto. */
+  /** Indica que el estado se muestra sobre la burbuja primaria. */
   onAccent?: boolean
 }
 
@@ -86,12 +86,10 @@ export function MessageStatus({ message, onAccent = false }: MessageStatusProps)
   // Igual que WhatsApp, sólo read/played reciben el celeste de confirmación.
   // Los estados anteriores permanecen neutros aun sobre la burbuja primaria.
   const isAcknowledged = status === "read" || status === "played"
-  const tone = onAccent
-    ? isAcknowledged
-      ? "text-sky-200"
-      : "text-primary-foreground/65"
-    : isAcknowledged
-      ? "text-sky-500 dark:text-sky-300"
+  const tone = isAcknowledged
+    ? "text-[#53bdeb]"
+    : onAccent
+      ? "text-[#667781]"
       : "text-muted-foreground"
 
   return (

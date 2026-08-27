@@ -325,12 +325,12 @@ export function MessageBubble({
         {showStatusRow && (timestamp || msg.failed_at) && (
           <div
             className={`mt-0.5 flex items-center justify-end gap-1 text-[11px] ${
-              isUser ? "opacity-70" : "text-muted-foreground"
+              isUser ? "" : "text-muted-foreground"
             }`}
           >
             {isEdited && <span className="opacity-80">{t("chats.edited")}</span>}
             {timestamp && (
-              <span className="tabular-nums">
+              <span className={`tabular-nums ${isUser ? "text-primary-foreground/70" : ""}`}>
                 {new Date(timestamp).toLocaleTimeString([], {
                   hour: "2-digit",
                   minute: "2-digit",
