@@ -30,9 +30,9 @@ interface MessageStatusProps {
 }
 
 /**
- * Indicador de entrega para mensajes salientes. Los equivalentes de icono siguen
- * la referencia de Meta: un check (sent), doble check (delivered), doble check
- * resaltado (read), micrófono (played) y alerta (failed).
+ * Indicador de entrega para mensajes salientes con la convención de WhatsApp:
+ * un check (sent), doble check neutro (delivered), doble check celeste (read),
+ * micrófono (played) y alerta (failed).
  */
 export function MessageStatus({ message, onAccent = false }: MessageStatusProps) {
   const { t } = useTranslation()
@@ -75,17 +75,23 @@ export function MessageStatus({ message, onAccent = false }: MessageStatusProps)
     )
   }
 
-  const Icon = status === "pending" ? Clock : status === "played" ? Mic : status === "sent" ? Check : CheckCheck
+  const Icon = status === "pending"
+    ? Clock
+    : status === "played"
+      ? Mic
+      : status === "sent"
+        ? Check
+        : CheckCheck
 
-  // El acento marca lectura. Sobre burbuja de acento no hay contraste posible,
-  // así que ahí se usa opacidad plena contra el resto atenuado.
+  // Igual que WhatsApp, sólo read/played reciben el celeste de confirmación.
+  // Los estados anteriores permanecen neutros aun sobre la burbuja primaria.
   const isAcknowledged = status === "read" || status === "played"
   const tone = onAccent
     ? isAcknowledged
-      ? "opacity-100"
-      : "opacity-60"
+      ? "text-sky-200"
+      : "text-primary-foreground/65"
     : isAcknowledged
-      ? "text-primary"
+      ? "text-sky-500 dark:text-sky-300"
       : "text-muted-foreground"
 
   return (
