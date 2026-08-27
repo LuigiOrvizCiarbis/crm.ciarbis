@@ -127,9 +127,12 @@ class AiAutoreplyTest extends TestCase
 
         [$user, $conversation] = $this->createConversationSetup(aiEnabled: true);
 
-        app(WhatsAppMessageService::class)->sendTextMessageFromCRM($conversation, 'Respuesta humana', $user);
+        $message = app(WhatsAppMessageService::class)
+            ->sendTextMessageFromCRM($conversation, 'Respuesta humana', $user);
 
         $this->assertFalse($conversation->fresh()->ai_autoreply_enabled);
+        $this->assertNull($message->delivered_at, 'La aceptación de Meta sólo confirma envío, no entrega.');
+        $this->assertNull($message->read_at, 'El mensaje no debe figurar leído antes del webhook read.');
     }
 
     public function test_template_message_disables_autoreply_handoff(): void
@@ -157,7 +160,7 @@ class AiAutoreplyTest extends TestCase
             'synced_at' => now(),
         ]);
 
-        app(WhatsAppTemplateService::class)->sendTemplateMessage(
+        $message = app(WhatsAppTemplateService::class)->sendTemplateMessage(
             $conversation,
             $template,
             [['type' => 'body', 'parameters' => [['type' => 'text', 'text' => 'Juan']]]],
@@ -165,6 +168,8 @@ class AiAutoreplyTest extends TestCase
         );
 
         $this->assertFalse($conversation->fresh()->ai_autoreply_enabled);
+        $this->assertNull($message->delivered_at, 'El template espera el webhook delivered de Meta.');
+        $this->assertNull($message->read_at, 'El template espera el webhook read de Meta.');
     }
 
     public function test_smb_echo_from_human_disables_autoreply_handoff(): void
