@@ -9,6 +9,7 @@ import {
   Check,
   Clock3,
   FileUp,
+  Info,
   Loader2,
   MessageCircle,
   Plus,
@@ -306,6 +307,20 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
                       Meta te permite {estimate.messaging_limit.limit.toLocaleString("es-AR")} destinatarios únicos cada 24 horas.
                       Los {(estimate.audience_count - estimate.messaging_limit.limit).toLocaleString("es-AR")} restantes van a fallar.
                       El límite se comparte con los demás números de tu cuenta.
+                    </p>
+                  </div>
+                )}
+
+                {estimate.excluded_us_count > 0 && (
+                  <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <p className="flex items-center gap-2 text-sm font-medium text-emerald-50">
+                      <Info className="h-4 w-4 shrink-0" />
+                      {estimate.excluded_us_count.toLocaleString("es-AR")} {estimate.excluded_us_count === 1 ? "contacto excluido" : "contactos excluidos"}
+                    </p>
+                    <p className="mt-1.5 text-xs leading-5 text-emerald-50/70">
+                      Meta no entrega plantillas de marketing a números de Estados Unidos, así que
+                      {estimate.excluded_us_count === 1 ? " ese contacto queda fuera" : " esos contactos quedan fuera"} de la difusión.
+                      Con plantillas de utilidad o autenticación sí los alcanzás.
                     </p>
                   </div>
                 )}

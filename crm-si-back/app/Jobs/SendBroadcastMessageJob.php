@@ -3,10 +3,12 @@
 namespace App\Jobs;
 
 use App\Enums\BroadcastRecipientStatus;
+use App\Enums\TemplateCategory;
 use App\Models\BroadcastRecipient;
 use App\Models\Conversation;
 use App\Models\User;
 use App\Models\WhatsAppTemplate;
+use App\Services\UnitedStatesPhoneDetector;
 use App\Services\WhatsAppTemplateService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -85,6 +87,17 @@ class SendBroadcastMessageJob implements ShouldQueue
             ]);
 
             $this->failRecipient($recipient, 'La plantilla ya no está aprobada para este canal.');
+
+            return;
+        }
+
+        // Una campaña programada pudo guardar destinatarios antes de que se
+        // filtraran los de EE.UU., o la plantilla pudo recategorizarse a
+        // marketing entre la creación y el envío. Meta aceptaría el mensaje sin
+        // entregarlo, consumiendo cupo del límite de 24h.
+        if ($template->category === TemplateCategory::Marketing
+            && app(UnitedStatesPhoneDetector::class)->isUnitedStates($conversation->contact?->phone)) {
+            $this->failRecipient($recipient, 'Meta no entrega plantillas de marketing a números de Estados Unidos.');
 
             return;
         }
