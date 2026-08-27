@@ -89,6 +89,8 @@ export interface BroadcastMessagingLimit {
 
 export interface BroadcastEstimate {
   audience_count: number
+  /** Contactos de EE.UU. descartados: Meta no entrega marketing a ese país. */
+  excluded_us_count: number
   estimated_cost_usd: number
   capped: boolean
   messaging_limit: BroadcastMessagingLimit

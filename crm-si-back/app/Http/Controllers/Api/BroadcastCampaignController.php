@@ -40,15 +40,24 @@ class BroadcastCampaignController extends Controller
 
     public function estimate(StoreBroadcastRequest $request): JsonResponse
     {
-        [$channel] = $this->validateChannelAndTemplate($request);
-        $audience = $this->audienceService->resolve($request->user(), $channel->id, $request->validated('filters', []));
-        $count = $audience->count();
+        [$channel, $template] = $this->validateChannelAndTemplate($request);
+        $resolved = $this->audienceService->resolveForCategory(
+            $request->user(),
+            $channel->id,
+            $request->validated('filters', []),
+            $template->category,
+        );
+        $count = $resolved['audience']->count();
 
         $messagingLimit = $this->messagingLimitService->forConfig($channel->whatsappConfig);
 
         return response()->json([
             'data' => [
                 'audience_count' => $count,
+                // Meta no entrega marketing a números de EE.UU. desde el
+                // 2025-04-01. Se informa para que el usuario entienda por qué
+                // la audiencia es menor que la que arrojan sus filtros.
+                'excluded_us_count' => $resolved['excluded_us_count'],
                 'estimated_cost_usd' => round($count * (float) config('broadcasts.cost_per_message_usd'), 2),
                 'capped' => $count >= (int) config('broadcasts.max_recipients'),
                 // Techo de Meta para envíos fuera de ventana en 24h. Compartido
@@ -71,9 +80,19 @@ class BroadcastCampaignController extends Controller
     {
         [$channel, $template] = $this->validateChannelAndTemplate($request);
         $filters = $request->validated('filters', []);
-        $audience = $this->audienceService->resolve($request->user(), $channel->id, $filters);
+        $resolved = $this->audienceService->resolveForCategory($request->user(), $channel->id, $filters, $template->category);
+        $audience = $resolved['audience'];
 
         if ($audience->isEmpty()) {
+            // Distinguir "no hay contactos" de "los había, pero eran todos de
+            // EE.UU.": el usuario ve contactos en sus filtros y sin este
+            // mensaje el rechazo parecería un error del sistema.
+            if ($resolved['excluded_us_count'] > 0) {
+                return response()->json([
+                    'message' => 'Todos los contactos de esta audiencia tienen números de Estados Unidos, y Meta no entrega plantillas de marketing a ese país.',
+                ], 422);
+            }
+
             return response()->json(['message' => 'No hay contactos que coincidan con la audiencia seleccionada.'], 422);
         }
 
