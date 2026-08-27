@@ -333,7 +333,6 @@ class WhatsAppMessageService
             'media_mime_type' => $mimeType,
             'media_filename' => basename($localMediaPath),
             'direction' => MessageDirection::OUTBOUND,
-            'delivered_at' => now(),
             'external_id' => $externalId,
         ]);
 
@@ -489,7 +488,6 @@ class WhatsAppMessageService
             'media_mime_type' => $mimeType,
             'media_filename' => basename($localMediaPath),
             'direction' => MessageDirection::OUTBOUND,
-            'delivered_at' => now(),
             'external_id' => $externalId,
         ]);
 
@@ -1345,7 +1343,6 @@ class WhatsAppMessageService
             'sender_id' => $user->id,
             'content' => $content,
             'direction' => MessageDirection::OUTBOUND,
-            'delivered_at' => now(),
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
         ]);
@@ -1405,7 +1402,6 @@ class WhatsAppMessageService
             'sender_type' => SenderType::SYSTEM,
             'content' => $content,
             'direction' => MessageDirection::OUTBOUND,
-            'delivered_at' => now(),
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
         ]);
