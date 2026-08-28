@@ -57,9 +57,10 @@ class AutomationRuleService
             if (isset($payload['actions'])) {
                 $this->syncActions($rule, $payload['actions']);
             }
+            // Bulk update: HasTimezoneAwareDates no aplica, ->utc() explícito.
             $rule->runs()->whereIn('status', [AutomationRunStatus::Scheduled, AutomationRunStatus::Queued])->update([
                 'status' => AutomationRunStatus::Cancelled,
-                'finished_at' => now(),
+                'finished_at' => now()->utc(),
                 'error' => 'rule_version_changed',
             ]);
 
@@ -90,11 +91,12 @@ class AutomationRuleService
 
     private function reviveCancelledPauseRuns(AutomationRule $rule): void
     {
+        // scheduled_for es timestamptz: comparar en UTC. Ver HasTimezoneAwareDates.
         $rule->runs()
             ->where('status', AutomationRunStatus::Cancelled)
             ->where('error', 'rule_paused')
             ->where('rule_version', $rule->version)
-            ->where('scheduled_for', '>', now())
+            ->where('scheduled_for', '>', now()->utc())
             ->update([
                 'status' => AutomationRunStatus::Scheduled,
                 'finished_at' => null,
@@ -105,7 +107,9 @@ class AutomationRuleService
     public function pause(AutomationRule $rule): AutomationRule
     {
         $rule->update(['status' => AutomationRuleStatus::Paused]);
-        $rule->runs()->whereIn('status', [AutomationRunStatus::Scheduled, AutomationRunStatus::Queued])->update(['status' => AutomationRunStatus::Cancelled, 'finished_at' => now(), 'error' => 'rule_paused']);
+        // Bulk update sobre la relación: no pasa por el modelo, así que
+        // HasTimezoneAwareDates no aplica. ->utc() explícito.
+        $rule->runs()->whereIn('status', [AutomationRunStatus::Scheduled, AutomationRunStatus::Queued])->update(['status' => AutomationRunStatus::Cancelled, 'finished_at' => now()->utc(), 'error' => 'rule_paused']);
 
         return $rule->fresh('actions');
     }

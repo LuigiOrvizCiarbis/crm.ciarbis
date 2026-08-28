@@ -3,11 +3,14 @@
 namespace App\Models;
 
 use App\Enums\BroadcastRecipientStatus;
+use App\Models\Concerns\HasTimezoneAwareDates;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class BroadcastRecipient extends Model
 {
+    use HasTimezoneAwareDates;
+
     protected $fillable = [
         'broadcast_campaign_id',
         'conversation_id',

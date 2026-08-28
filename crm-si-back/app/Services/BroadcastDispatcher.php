@@ -65,11 +65,14 @@ class BroadcastDispatcher
                 'started_at' => now(),
             ]);
 
+            // Bulk update vía query builder: no pasa por el modelo, así que
+            // getDateFormat() (HasTimezoneAwareDates) no aplica y now() se
+            // guarda sin offset. ->utc() explícito es obligatorio acá.
             $locked->recipients()
                 ->whereKey($recipients->modelKeys())
                 ->update([
                     'status' => BroadcastRecipientStatus::Queued,
-                    'queued_at' => now(),
+                    'queued_at' => now()->utc(),
                 ]);
 
             return $recipients->map(fn ($recipient): array => [

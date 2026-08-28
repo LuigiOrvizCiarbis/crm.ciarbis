@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\BroadcastRecipientStatus;
 use App\Enums\BroadcastStatus;
 use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\HasTimezoneAwareDates;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -12,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class BroadcastCampaign extends Model
 {
     use BelongsToTenant;
+    use HasTimezoneAwareDates;
 
     protected $fillable = [
         'tenant_id',
