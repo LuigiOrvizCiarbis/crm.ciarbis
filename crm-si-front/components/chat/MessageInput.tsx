@@ -7,7 +7,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { EmojiPicker } from "./EmojiPicker"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTranslation } from "@/hooks/useTranslation"
-import { Paperclip, Smile, Send, X, Pencil, Check, Music2, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles } from "lucide-react"
+import { Paperclip, Smile, Send, X, Pencil, Check, Music2, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound } from "lucide-react"
 import { KeyboardEvent, SyntheticEvent, useMemo, useRef, useState, useEffect } from "react"
 import dynamic from "next/dynamic"
 import Image from "next/image"
@@ -18,6 +18,7 @@ import { expandHotkey, parseSlashCommand, type HotkeyExpansionContext } from "@/
 import { HotkeyAutocomplete } from "./HotkeyAutocomplete"
 import type { ManualAiDraft } from "@/lib/api/manual-ai-drafts"
 import { VoiceRecorder } from "./VoiceRecorder"
+import { ContactShareDialog } from "./ContactShareDialog"
 
 const TemplatePicker = dynamic(
   () => import("./TemplatePicker").then(m => m.TemplatePicker),
@@ -46,6 +47,8 @@ interface MessageInputProps {
   onCancelAiDraft?: () => void
   onUseAiDraft?: () => void
   supportsVoice?: boolean
+  supportsContactSharing?: boolean
+  onShareContacts?: (ids: number[]) => void | Promise<void>
 }
 
 interface SlashState {
@@ -75,6 +78,8 @@ export function MessageInput({
   onCancelAiDraft,
   onUseAiDraft,
   supportsVoice = false,
+  supportsContactSharing = false,
+  onShareContacts,
 }: MessageInputProps) {
   const { t } = useTranslation()
   const resolvedPlaceholder = placeholder ?? t("chats.messagePlaceholder")
@@ -96,6 +101,7 @@ export function MessageInput({
   const [isTranslationSheetOpen, setIsTranslationSheetOpen] = useState(false)
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false)
   const [isVoiceComposerActive, setIsVoiceComposerActive] = useState(false)
+  const [isContactShareOpen, setIsContactShareOpen] = useState(false)
 
   const isEditing = !!editingMessage
   const isAudio = !!selectedMedia?.type.startsWith("audio/")
@@ -428,6 +434,14 @@ export function MessageInput({
           },
         }]
       : []),
+    ...(supportsContactSharing && onShareContacts ? [{
+      key: "contacts",
+      label: "Compartir contactos",
+      Icon: UserRound,
+      tone: "bg-primary/10 text-primary",
+      disabled,
+      onClick: () => { setIsActionsOpen(false); setIsContactShareOpen(true) },
+    }] : []),
     {
       key: "emoji",
       label: t("chats.emojiPickerTitle"),
@@ -767,6 +781,7 @@ export function MessageInput({
           </Button>}
         </div>
       </div>
+      {supportsContactSharing && onShareContacts && <ContactShareDialog open={isContactShareOpen} onOpenChange={setIsContactShareOpen} onSend={onShareContacts} disabled={disabled} />}
     </div>
   )
 }

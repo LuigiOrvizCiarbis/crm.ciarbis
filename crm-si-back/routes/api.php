@@ -481,6 +481,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('messages', [MessageController::class, 'index']);
     Route::post('messages', [MessageController::class, 'store']);
+    Route::post('messages/{message}/contacts/{index}/save', [MessageController::class, 'saveSharedContact']);
     Route::put('messages/{message}', [MessageController::class, 'update']);
     Route::delete('messages/{message}', [MessageController::class, 'destroy']);
     Route::post('messages/{message}/translation', [MessageTranslationController::class, 'store']);
