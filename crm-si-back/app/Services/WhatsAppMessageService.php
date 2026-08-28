@@ -20,6 +20,8 @@ use App\Models\Message;
 use App\Models\PipelineStage;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
+use App\Services\Concerns\ResolvesWhatsAppChannel;
+use App\Services\Concerns\ResolvesWhatsAppCredentials;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
@@ -27,14 +29,15 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Sentry\Severity;
-use Sentry\State\Scope;
 
 class WhatsAppMessageService
 {
+    use ResolvesWhatsAppChannel;
+    use ResolvesWhatsAppCredentials;
+
     private function graphVersion(): string
     {
-        return config('services.facebook.graph_version', 'v21.0');
+        return config('services.facebook.graph_version', 'v26.0');
     }
 
     public function processIncomingMessage(array $webhookData): ?Message
@@ -210,59 +213,6 @@ class WhatsAppMessageService
         return $conversation;
     }
 
-    private function resolveChannelFromWebhook(array $value, string $context): ?Channel
-    {
-        $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
-
-        if (! $phoneNumberId) {
-            Log::warning("{$context}: phone_number_id ausente en metadata");
-            $this->reportDroppedWebhook(
-                "{$context}: phone_number_id ausente en metadata",
-                ['context' => $context]
-            );
-
-            return null;
-        }
-
-        $whatsappConfig = WhatsAppConfig::with('channels')
-            ->where('phone_number_id', $phoneNumberId)
-            ->first();
-
-        if (! $whatsappConfig || $whatsappConfig->channels->isEmpty()) {
-            Log::warning("{$context}: canal no encontrado para phone_number_id: {$phoneNumberId}");
-            // Un mensaje de cliente que no matchea ningún canal se pierde en silencio.
-            // Lo reportamos como issue en Sentry para detectar config rota / tenant mal armado.
-            $this->reportDroppedWebhook(
-                "{$context}: canal no encontrado para phone_number_id",
-                ['context' => $context, 'phone_number_id' => $phoneNumberId]
-            );
-
-            return null;
-        }
-
-        return $whatsappConfig->channels->first();
-    }
-
-    /**
-     * Reporta a Sentry un webhook entrante descartado en una rama crítica
-     * (sin canal resoluble → mensaje de cliente que se pierde). Se emite como
-     * captureMessage 'warning' para que genere un issue agrupable y alertable,
-     * además del Log::warning que ya queda en los logs.
-     *
-     * @param  array<string, mixed>  $context
-     */
-    private function reportDroppedWebhook(string $message, array $context): void
-    {
-        if (! app()->bound('sentry')) {
-            return;
-        }
-
-        \Sentry\withScope(function (Scope $scope) use ($message, $context): void {
-            $scope->setContext('whatsapp_webhook', $context);
-            \Sentry\captureMessage($message, Severity::warning());
-        });
-    }
-
     private function parseWebhookTimestamp(?string $timestamp): Carbon
     {
         if ($timestamp) {
@@ -280,7 +230,7 @@ class WhatsAppMessageService
         ?string $caption,
         User $user
     ): Message {
-        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
 
         $uploadResponse = Http::withToken($businessToken)
@@ -299,7 +249,7 @@ class WhatsAppMessageService
 
         $messagePayload = [
             'messaging_product' => 'whatsapp',
-            'recipient_type' => 'individual',
+            'recipient_type' => $recipientType,
             'to' => $to,
             'type' => 'image',
             'image' => [
@@ -432,7 +382,7 @@ class WhatsAppMessageService
         User $user,
         bool $voice = false
     ): Message {
-        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
 
         [$uploadMediaPath, $uploadMimeType, $uploadFilename] =
@@ -463,7 +413,7 @@ class WhatsAppMessageService
             ->timeout(10)
             ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
-                'recipient_type' => 'individual',
+                'recipient_type' => $recipientType,
                 'to' => $to,
                 'type' => 'audio',
                 'audio' => [
@@ -716,7 +666,7 @@ class WhatsAppMessageService
     }
 
     /**
-     * @return array{to: string, business_phone_id: string, business_token: string}
+     * @return array{to: string, recipient_type: string, business_phone_id: string, business_token: string}
      */
     private function resolveOutboundWhatsAppContext(Conversation $conversation): array
     {
@@ -725,22 +675,19 @@ class WhatsAppMessageService
             throw new \InvalidArgumentException('La conversación no tiene un canal asociado.');
         }
 
-        if ($channel->type !== ChannelType::WHATSAPP) {
-            throw new \InvalidArgumentException('Solo se pueden enviar mensajes desde conversaciones de WhatsApp.');
-        }
+        $credentials = $this->resolveWhatsAppCredentials($channel);
 
-        if (! $channel->isActive()) {
-            throw new \InvalidArgumentException('El canal de WhatsApp está desconectado.');
-        }
+        if ($conversation->isGroup()) {
+            $group = $conversation->whatsappGroup;
+            if (! $group || ! $group->group_id || ! $group->isActive()) {
+                throw new \InvalidArgumentException('El grupo todavía se está creando en WhatsApp o ya no está activo.');
+            }
 
-        $waConfig = $channel->whatsappConfig;
-        if (! $waConfig || ! $waConfig->phone_number_id) {
-            throw new \InvalidArgumentException('El canal no tiene una configuración válida de WhatsApp.');
-        }
-
-        $businessToken = $waConfig->getDecryptedToken();
-        if (! $businessToken) {
-            throw new \InvalidArgumentException('No se pudo obtener el token de WhatsApp del canal.');
+            return [
+                'to' => $group->group_id,
+                'recipient_type' => 'group',
+                ...$credentials,
+            ];
         }
 
         $phone = $conversation->contact?->phone;
@@ -750,8 +697,8 @@ class WhatsAppMessageService
 
         return [
             'to' => $this->normalizePhoneForWhatsApp($phone),
-            'business_phone_id' => $waConfig->phone_number_id,
-            'business_token' => $businessToken,
+            'recipient_type' => 'individual',
+            ...$credentials,
         ];
     }
 
@@ -915,6 +862,13 @@ class WhatsAppMessageService
 
         $conversation = Conversation::find($message->conversation_id);
         if (! $conversation || ! $conversation->ai_autoreply_enabled) {
+            return;
+        }
+
+        // Guard duro: un bot respondiendo en un grupo de venta es un riesgo
+        // real. No alcanza con ai_autoreply_enabled=false al crear el grupo
+        // (alguien podría reactivarlo); se corta acá sin importar el flag.
+        if ($conversation->isGroup()) {
             return;
         }
 
@@ -1349,14 +1303,14 @@ class WhatsAppMessageService
 
     public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
     {
-        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
 
         $response = Http::withToken($businessToken)
             ->timeout(10)
             ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
-                'recipient_type' => 'individual',
+                'recipient_type' => $recipientType,
                 'to' => $to,
                 'type' => 'text',
                 'text' => [
@@ -1405,7 +1359,7 @@ class WhatsAppMessageService
      */
     public function sendSystemTextMessageFromCRM(Conversation $conversation, string $content): Message
     {
-        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
 
         // Timeout explícito: esta llamada corre en GenerateAiReplyJob (worker
@@ -1416,7 +1370,7 @@ class WhatsAppMessageService
             ->timeout(10)
             ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
-                'recipient_type' => 'individual',
+                'recipient_type' => $recipientType,
                 'to' => $to,
                 'type' => 'text',
                 'text' => [

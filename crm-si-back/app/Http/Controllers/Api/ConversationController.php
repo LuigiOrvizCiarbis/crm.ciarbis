@@ -255,7 +255,11 @@ class ConversationController extends Controller
             'pipeline_stage_id' => $stage->id,
         ]);
 
-        // Sincronizar la Opportunity vinculada: actualizar si existe, crear si no
+        // Sincronizar la Opportunity vinculada: actualizar si existe, crear si no.
+        // Una conversación de grupo no tiene contact_id (NOT NULL en
+        // opportunities), así que no se autocrea una oportunidad ahí; si el
+        // grupo nace desde una oportunidad existente, esa referencia vive en
+        // whatsapp_groups.opportunity_id, no acá.
         $opportunity = Opportunity::where('conversation_id', $conversation->id)->first();
 
         if ($opportunity) {
@@ -263,7 +267,7 @@ class ConversationController extends Controller
                 'pipeline_stage_id' => $stage->id,
                 'last_activity_at' => now(),
             ]);
-        } else {
+        } elseif (! $conversation->isGroup()) {
             Opportunity::create([
                 'conversation_id' => $conversation->id,
                 'contact_id' => $conversation->contact_id,
@@ -639,6 +643,10 @@ class ConversationController extends Controller
 
         $conversations = Conversation::query()
             ->whereIn('id', $validated['ids'])
+            // Las difusiones son 1:1 por contacto; un grupo de WhatsApp no
+            // tiene sentido acá (8 personas, no miles) y Meta ni siquiera
+            // reporta métricas de plantilla para mensajes de grupo.
+            ->where('kind', 'direct')
             ->with('channel.whatsappConfig')
             ->get();
 

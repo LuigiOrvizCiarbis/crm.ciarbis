@@ -539,7 +539,7 @@ class WhatsAppController extends Controller
      */
     private function fetchFirstPhoneNumber(string $wabaId, string $token): ?array
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($token)
@@ -582,7 +582,7 @@ class WhatsAppController extends Controller
             return false;
         }
 
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         // Flujo coexistencia (WhatsApp Business App / SMB): Meta registra el número
         // solo durante el Embedded Signup. La doc dice explícitamente "skip the phone
@@ -701,7 +701,7 @@ class WhatsAppController extends Controller
             return $this->isOnBusinessAppCache[$phoneNumberId];
         }
 
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($token)
@@ -867,7 +867,7 @@ class WhatsAppController extends Controller
             return false;
         }
 
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($token)
@@ -1102,7 +1102,7 @@ class WhatsAppController extends Controller
             return;
         }
 
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($token)

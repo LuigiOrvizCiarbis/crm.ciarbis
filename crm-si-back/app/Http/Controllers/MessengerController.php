@@ -169,7 +169,7 @@ class MessengerController extends Controller
      */
     private function fetchPages(string $userToken): array
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         $response = Http::withToken($userToken)
             ->timeout(15)
@@ -295,7 +295,7 @@ class MessengerController extends Controller
      */
     private function subscribeToWebhooks(string $pageId, string $pageToken): bool
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($pageToken)

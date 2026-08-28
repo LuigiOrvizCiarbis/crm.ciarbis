@@ -1,0 +1,26 @@
+# Override para correr este worktree (grupos) sin chocar con el stack del
+# checkout principal, que ya ocupa 8000/8080/5432/6379. !override reemplaza
+# la lista de puertos en vez de fusionarla (merge por defecto de Compose).
+# Uso:
+#   docker compose -p crm-grupos -f docker-compose.yml -f docker-compose.worktree.yml up -d
+services:
+  app:
+    ports: !override
+      - "8100:80"
+      - "8143:443"
+    environment:
+      # env_file define APP_KEY vacío en este worktree; una variable de
+      # entorno del proceso siempre gana sobre .env/.env.testing, así que
+      # sin esto ninguna key generada por artisan tiene efecto.
+      APP_KEY: ${APP_KEY}
+  reverb:
+    ports: !override
+      - "8180:8080"
+    environment:
+      APP_KEY: ${APP_KEY}
+  db:
+    ports: !override
+      - "127.0.0.1:5433:5432"
+  redis:
+    ports: !override
+      - "127.0.0.1:6380:6379"
