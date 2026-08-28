@@ -64,7 +64,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
-import { sendMessage, sendMailMessage, editMessage, deleteMessage, translateMessage, type SendMailMessageInput } from "@/lib/api/messages"
+import { sendMessage, sendContactsMessage, saveSharedContact, sendMailMessage, editMessage, deleteMessage, translateMessage, type SendMailMessageInput } from "@/lib/api/messages"
 import { ConversationHeader } from "@/components/chat/ConversationHeader"
 import { MessageList } from "@/components/chat/MessageList"
 import { MessageInput } from "@/components/chat/MessageInput"
@@ -1418,6 +1418,34 @@ export default function ChatsPage() {
     }
   };
 
+  const handleShareContacts = async (contactIds: number[]) => {
+    if (!selectedConversationId) return
+    try {
+      const savedMessage = await sendContactsMessage(selectedConversationId, contactIds)
+      setCurrentConversation((prev) => prev ? { ...prev, aiAutoreplyEnabled: false, messages: [...(prev.messages || []), savedMessage] } : prev)
+      setConversations((prev) => {
+        const index = prev.findIndex((conversation) => conversation.id === selectedConversationId)
+        if (index < 0) return prev
+        const next = [...prev]
+        const current = next[index]
+        next.splice(index, 1)
+        return [{ ...current, last_message: `👤 ${contactIds.length} contactos compartidos`, updated_at: savedMessage.created_at, aiAutoreplyEnabled: false }, ...next]
+      })
+      addToast({ type: "success", title: "Contactos enviados" })
+    } catch (error) {
+      addToast({ type: "error", title: "No se pudieron enviar los contactos", description: error instanceof Error ? error.message : undefined })
+    }
+  }
+
+  const handleSaveSharedContact = async (message: Message, index: number) => {
+    try {
+      await saveSharedContact(message.id, index)
+      addToast({ type: "success", title: "Contacto guardado" })
+    } catch (error) {
+      addToast({ type: "error", title: "No se pudo guardar el contacto", description: error instanceof Error ? error.message : undefined })
+    }
+  }
+
   const handleSendMail = async (input: SendMailMessageInput) => {
     if (!selectedConversationId) return
 
@@ -2102,6 +2130,7 @@ export default function ChatsPage() {
                 isLoadingMore={isLoadingMore}
                 onEditMessage={handleEditMessage}
                 onDeleteMessage={handleDeleteMessage}
+                onSaveContact={handleSaveSharedContact}
                 currentUserId={currentUserId}
                 isAdmin={isAdmin}
                 translationLanguage={language}
@@ -2134,6 +2163,8 @@ export default function ChatsPage() {
                   onSendTemplate={handleSendTemplate}
                   supportsTemplates={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   supportsVoice={activeConversation?.channel?.type === ChannelType.WHATSAPP}
+                  supportsContactSharing={activeConversation?.channel?.type === ChannelType.WHATSAPP}
+                  onShareContacts={handleShareContacts}
                   editingMessage={editingMessage}
                   onCancelEdit={handleCancelEdit}
                   expansionContext={hotkeyExpansionContext}

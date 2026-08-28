@@ -14,6 +14,7 @@ use App\Jobs\GenerateAiReplyJob;
 use App\Models\AiConfig;
 use App\Models\Channel;
 use App\Models\Contact;
+use App\Models\ContactField;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\PipelineStage;
@@ -137,6 +138,7 @@ class WhatsAppMessageService
                 'sender_id' => $contactId,
                 'content' => $extracted['content'],
                 'message_type' => $extracted['type'],
+                'contacts' => $extracted['contacts'] ?? null,
                 'media_url' => $mediaFields['url'] ?? null,
                 'media_mime_type' => $mediaFields['mime_type'] ?? null,
                 'media_filename' => $mediaFields['filename'] ?? null,
@@ -529,6 +531,75 @@ class WhatsAppMessageService
         ], true);
     }
 
+    /** Build the native WhatsApp contacts payload from CRM contacts. */
+    public function buildContactCards(iterable $contacts): array
+    {
+        $contacts = collect($contacts)->values();
+        $fields = ContactField::forTenant((int) ($contacts->first()?->tenant_id ?? 0));
+
+        return $contacts->map(function (Contact $contact) use ($fields): array {
+            $custom = is_array($contact->custom_data) ? $contact->custom_data : [];
+            $phones = [];
+            if ($contact->phone) {
+                $phones[] = ['phone' => $contact->phone];
+            }
+            $emails = [];
+            if ($contact->email) {
+                $emails[] = ['email' => $contact->email];
+            }
+            foreach ($fields as $field) {
+                $value = $custom[$field->key] ?? null;
+                if ($value === null || $value === '' || is_array($value)) {
+                    continue;
+                }
+                if ($field->type?->value === 'phone') $phones[] = ['phone' => (string) $value];
+                if ($field->type?->value === 'email') $emails[] = ['email' => (string) $value];
+            }
+            $dedupe = static fn (array $items, string $key): array => collect($items)->unique(fn ($item) => strtolower((string) ($item[$key] ?? '')))->values()->all();
+            $card = [
+                'name' => ['formatted_name' => (string) ($contact->name ?: $contact->phone ?: 'Sin nombre')],
+            ];
+            if ($phones !== []) $card['phones'] = $dedupe($phones, 'phone');
+            if ($emails !== []) $card['emails'] = $dedupe($emails, 'email');
+            $org = [];
+            foreach (['company' => 'company', 'department' => 'department', 'job_title' => 'title'] as $key => $target) {
+                if (($custom[$key] ?? null) !== null && $custom[$key] !== '') $org[$target] = (string) $custom[$key];
+            }
+            if ($org !== []) $card['org'] = $org;
+            if (($birthday = $custom['birthday'] ?? null) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $birthday)) {
+                $card['birthday'] = $birthday;
+            }
+            $urls = [];
+            foreach ($fields as $field) {
+                if ($field->type?->value === 'url' && ! empty($custom[$field->key]) && is_string($custom[$field->key])) {
+                    $urls[] = ['url' => $custom[$field->key]];
+                }
+            }
+            if ($urls !== []) $card['urls'] = $dedupe($urls, 'url');
+            return $card;
+        })->values()->all();
+    }
+
+    public function sendContactsMessageFromCRM(Conversation $conversation, array $cards, User $user): Message
+    {
+        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] = $this->resolveOutboundWhatsAppContext($conversation);
+        $response = Http::withToken($businessToken)->timeout(10)->post(
+            'https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages",
+            ['messaging_product' => 'whatsapp', 'recipient_type' => 'individual', 'to' => $to, 'type' => 'contacts', 'contacts' => $cards]
+        );
+        if (! $response->successful()) throw new \RuntimeException('Error enviando contactos a WhatsApp: '.$response->body());
+        $message = Message::create([
+            'tenant_id' => $conversation->tenant_id, 'conversation_id' => $conversation->id,
+            'sender_type' => SenderType::USER, 'sender_id' => $user->id,
+            'content' => count($cards).' contactos compartidos', 'message_type' => MessageType::Contacts,
+            'contacts' => $cards, 'direction' => MessageDirection::OUTBOUND,
+            'delivered_at' => now(), 'external_id' => $response->json('messages.0.id'),
+        ]);
+        $conversation->update(['last_message_at' => $message->created_at, 'last_message_content' => '👤 '.count($cards).' contactos compartidos', 'ai_autoreply_enabled' => false]);
+        try { broadcast(new MessageSent($message)); broadcast(new TenantMessageReceived($message, $conversation->tenant_id)); } catch (\Exception $e) { Log::error('Error broadcasting outbound contacts message: '.$e->getMessage()); }
+        return $message;
+    }
+
     /**
      * Detecta si un webhook entrante representa la eliminación de un mensaje
      * por parte del contacto desde su celular ("delete for everyone").
@@ -636,7 +707,7 @@ class WhatsAppMessageService
             'audio' => '',
             'video' => $messageData['video']['caption'] ?? '',
             'location' => 'Ubicación compartida',
-            'contacts' => 'Contacto compartido',
+            'contacts' => count($messageData['contacts'] ?? []) . ' contactos compartidos',
             default => '',
         };
 
@@ -657,6 +728,7 @@ class WhatsAppMessageService
             'document' => 'document',
             'audio' => 'audio',
             'video' => 'video',
+            'contacts' => 'contacts',
             default => 'text',
         };
 
@@ -664,6 +736,7 @@ class WhatsAppMessageService
             'content' => $content,
             'type' => $mappedType,
             'media_id' => $mediaId,
+            'contacts' => ($type === 'contacts' && is_array($messageData['contacts'] ?? null)) ? $messageData['contacts'] : null,
         ];
     }
 
@@ -831,6 +904,7 @@ class WhatsAppMessageService
                 'video' => '🎥 '.($messageData['content'] ?: 'Video'),
                 'audio' => '🎵 Audio',
                 'document' => '📄 '.($messageData['content'] ?: 'Documento'),
+                'contacts' => '👤 '.($messageData['content'] ?: 'Contactos compartidos'),
                 default => $messageData['content'] ?? '',
             };
 

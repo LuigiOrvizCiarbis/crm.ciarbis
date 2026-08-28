@@ -156,6 +156,34 @@ class WhatsAppVoiceMessageTest extends TestCase
         });
     }
 
+    public function test_whatsapp_can_send_native_contact_cards(): void
+    {
+        Http::fake([
+            'https://graph.facebook.com/v26.0/*/messages' => Http::response(['messages' => [['id' => 'wamid_contacts']]], 200),
+        ]);
+        [$user, $conversation] = $this->conversation(ChannelType::WHATSAPP);
+        $shared = Contact::create([
+            'tenant_id' => $conversation->tenant_id,
+            'name' => 'Ana Pérez',
+            'phone' => '+5491112345678',
+            'email' => 'ana@example.com',
+            'source' => 'manual',
+        ]);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/messages', [
+            'conversation_id' => $conversation->id,
+            'type' => 'contacts',
+            'contact_ids' => [$shared->id],
+        ])->assertCreated();
+
+        $message = \App\Models\Message::query()->where('external_id', 'wamid_contacts')->firstOrFail();
+        $this->assertSame('contacts', $message->message_type->value);
+        $this->assertSame('Ana Pérez', $message->contacts[0]['name']['formatted_name']);
+        Http::assertSent(fn ($request) => $request['type'] === 'contacts'
+            && $request['contacts'][0]['phones'][0]['phone'] === '+5491112345678');
+    }
+
     private function conversation(ChannelType $type): array
     {
         $tenant = $this->createTenantWithRoles('Acme '.uniqid());

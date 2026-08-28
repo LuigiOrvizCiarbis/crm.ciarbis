@@ -159,7 +159,8 @@ export interface Message {
   id: number
   conversation_id: number
   content: string
-  message_type?: "text" | "image" | "sticker" | "document" | "audio" | "video"
+  message_type?: "text" | "image" | "sticker" | "document" | "audio" | "video" | "contacts"
+  contacts?: SharedContact[] | null
   media_url?: string | null
   media_full_url?: string | null
   media_mime_type?: string | null
@@ -180,6 +181,16 @@ export interface Message {
   mail_parent_message_id?: number | null
   created_at: string
   updated_at?: string
+}
+
+export interface SharedContact {
+  name: { formatted_name: string; first_name?: string; last_name?: string; middle_name?: string; suffix?: string; prefix?: string }
+  phones?: Array<{ phone?: string; type?: string; wa_id?: string }>
+  emails?: Array<{ email?: string; type?: string }>
+  org?: { company?: string; department?: string; title?: string }
+  urls?: Array<{ url?: string; type?: string }>
+  addresses?: Array<{ street?: string; city?: string; state?: string; zip?: string; country?: string; country_code?: string; type?: string }>
+  birthday?: string
 }
 
 export interface MailAddress {
