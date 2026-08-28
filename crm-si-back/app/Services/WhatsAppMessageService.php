@@ -9,6 +9,7 @@ use App\Enums\SenderType;
 use App\Events\MessageDeleted;
 use App\Events\MessageEdited;
 use App\Events\MessageSent;
+use App\Events\MessageStatusUpdated;
 use App\Events\TenantMessageReceived;
 use App\Jobs\GenerateAiReplyJob;
 use App\Models\AiConfig;
@@ -821,6 +822,14 @@ class WhatsAppMessageService
     {
         $message = Message::create($messageData);
 
+        // Si el contacto responde después de un mensaje saliente, necesariamente
+        // abrió la conversación. Meta puede omitir el webhook `read` cuando el
+        // contacto desactiva las confirmaciones de lectura; la respuesta es una
+        // evidencia más fuerte y permite completar el estado sin inventarlo.
+        if ($message->direction === MessageDirection::INBOUND) {
+            $this->inferReadFromInboundReply($message);
+        }
+
         if (isset($messageData['conversation_id'])) {
             $type = $messageData['message_type'] ?? 'text';
             $lastContent = match ($type) {
@@ -860,6 +869,31 @@ class WhatsAppMessageService
         $this->maybeDispatchAiReply($message);
 
         return $message;
+    }
+
+    private function inferReadFromInboundReply(Message $inboundMessage): void
+    {
+        $readAt = $inboundMessage->delivered_at ?? $inboundMessage->created_at;
+
+        $unreadOutboundMessages = Message::query()
+            ->where('conversation_id', $inboundMessage->conversation_id)
+            ->where('direction', MessageDirection::OUTBOUND)
+            ->whereNull('read_at')
+            ->where('id', '<', $inboundMessage->id)
+            ->get();
+
+        foreach ($unreadOutboundMessages as $outboundMessage) {
+            $outboundMessage->update([
+                'delivered_at' => $outboundMessage->delivered_at ?? $readAt,
+                'read_at' => $readAt,
+            ]);
+
+            try {
+                broadcast(new MessageStatusUpdated($outboundMessage));
+            } catch (\Exception $e) {
+                Log::error('Error broadcasting inferred WhatsApp read status: '.$e->getMessage());
+            }
+        }
     }
 
     /**
