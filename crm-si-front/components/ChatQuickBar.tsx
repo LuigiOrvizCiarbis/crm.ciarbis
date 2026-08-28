@@ -210,18 +210,24 @@ export function ChatQuickBar({
     })
   }
 
+  /**
+   * Los hex fijos anteriores (#9AA4B2, #00E18C, #00F7FF) estaban elegidos sólo
+   * para el tema oscuro: sobre fondo claro daban 2.4:1, 1.7:1 y 1.28:1 de
+   * contraste, los tres por debajo del mínimo AA de 4.5:1 ("Alta" en cian sobre
+   * blanco era prácticamente invisible). Cada nivel lleva ahora un tono por
+   * tema: el oscuro para fondo claro, el claro para fondo oscuro.
+   */
   const getPriorityColor = (priority: Priority) => {
     switch (priority) {
-      case "baja":
-        return "text-[#9AA4B2]"
       case "media":
-        return "text-[#00E18C]"
+        return "text-emerald-700 dark:text-emerald-400"
       case "alta":
-        return "text-[#00F7FF]"
+        return "text-cyan-700 dark:text-cyan-300"
       case "hot":
-        return "text-red-500"
+        return "text-red-600 dark:text-red-400"
+      case "baja":
       default:
-        return "text-[#9AA4B2]"
+        return "text-slate-600 dark:text-slate-400"
     }
   }
 
@@ -250,7 +256,7 @@ export function ChatQuickBar({
       const selectedStageName = pipelineStages.find((s) => s.id === value.stageId)?.name || t("chats.select")
 
       return (
-    <div className="sticky top-0 z-10 bg-[#0F1117]/80 backdrop-blur rounded-xl border border-[#1e2533] p-2">
+    <div className="sticky top-0 z-10 rounded-xl border border-border bg-card/80 p-1.5 backdrop-blur sm:p-2">
       {/* Desktop Layout */}
       <div className="hidden md:flex items-center gap-2">
         {/* Stage Select */}
@@ -368,19 +374,26 @@ export function ChatQuickBar({
         </div>
       </div>
 
-      {/* Mobile Layout */}
-      <div className="md:hidden flex flex-col gap-2">
-        {/* Selects editables inline */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
-          <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[#1e2533] bg-[#131722] px-2.5 py-1.5 text-[12px] text-[#9AA4B2]">
-            <span>{t("chats.stageLabel")}:</span>
+      {/* Mobile Layout: una sola fila, sin scroll horizontal.
+          Los tres selects se reparten el ancho disponible (`flex-1 min-w-0`) y
+          las acciones quedan fijas a la derecha, siempre alcanzables.
+          Los prefijos ("Etapa:", "Prioridad:", "Derivar a:") existen sólo como
+          `aria-label`: gastaban ~200px repitiendo lo que el propio valor ya
+          dice, y ese exceso era justo lo que empujaba las acciones fuera de
+          pantalla. Se distinguen por posición, que es estable, y por el color
+          en el caso de prioridad. */}
+      <div className="flex items-center gap-1.5 md:hidden">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <div className="flex min-w-0 flex-1 items-center rounded-lg border border-border bg-muted/50 px-2 py-1">
             {isLoadingStages ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
             ) : (
               <select
                 value={String(value.stageId ?? "")}
                 onChange={(e) => handleStageChange(Number(e.target.value))}
-                className="max-w-[7.5rem] truncate bg-transparent text-sm text-[#D8DEE9] focus:outline-none"
+                className="w-full min-w-0 truncate bg-transparent text-xs text-foreground focus:outline-none"
+                aria-label={t("chats.stageLabel")}
+                title={t("chats.stageLabel")}
               >
                 {pipelineStages.map((stage) => (
                   <option key={stage.id} value={String(stage.id)}>
@@ -391,12 +404,13 @@ export function ChatQuickBar({
             )}
           </div>
 
-          <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[#1e2533] bg-[#131722] px-2.5 py-1.5 text-[12px] text-[#9AA4B2]">
-            <span>{t("chats.priorityLabel")}:</span>
+          <div className="flex min-w-0 shrink items-center rounded-lg border border-border bg-muted/50 px-2 py-1">
             <select
               value={value.priority || "baja"}
               onChange={(e) => handlePriorityChange(e.target.value as Priority)}
-              className={`bg-transparent text-sm focus:outline-none ${getPriorityColor(value.priority || "baja")}`}
+              className={`w-full min-w-0 truncate bg-transparent text-xs focus:outline-none ${getPriorityColor(value.priority || "baja")}`}
+              aria-label={t("chats.priorityLabel")}
+              title={t("chats.priorityLabel")}
             >
               <option value="baja">{t("chats.priorityLow")}</option>
               <option value="media">{t("chats.priorityMedium")}</option>
@@ -405,15 +419,16 @@ export function ChatQuickBar({
             </select>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[#1e2533] bg-[#131722] px-2.5 py-1.5 text-[12px] text-[#9AA4B2]">
-            <span>{t("chats.assignToLabel")}:</span>
+          <div className="flex min-w-0 flex-1 items-center rounded-lg border border-border bg-muted/50 px-2 py-1">
             {isLoadingUsers ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
             ) : (
               <select
                 value={String(selectedAssigneeId)}
                 onChange={(e) => handleAssigneeChange(Number(e.target.value))}
-                className="max-w-[7.5rem] truncate bg-transparent text-sm text-[#D8DEE9] focus:outline-none"
+                className="w-full min-w-0 truncate bg-transparent text-xs text-foreground focus:outline-none"
+                aria-label={t("chats.assignToLabel")}
+                title={t("chats.assignToLabel")}
               >
                 {effectiveTeam.map((member) => (
                   <option key={member.id} value={String(member.id)}>
@@ -425,30 +440,27 @@ export function ChatQuickBar({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-2">
-        <TagChips tags={tags} maxVisible={3} />
-
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-0.5">
           <Sheet open={isTagsSheetOpen} onOpenChange={setIsTagsSheetOpen}>
             <SheetTrigger asChild>
               <Button
                 variant="ghost"
                 size="sm"
-                className="relative p-2 rounded-lg border border-[#1e2533] hover:bg-[#1A1F2B] text-[#D8DEE9]"
-                title="Etiquetas"
-                aria-label="Etiquetas"
+                className="relative h-10 w-10 rounded-lg p-0"
+                title={t("chats.tagsLabel")}
+                aria-label={t("chats.tagsLabel")}
               >
-                <TagLucideIcon className="w-4 h-4" />
+                <TagLucideIcon className="h-4 w-4" />
                 {tags.length > 0 && (
-                  <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#00F7FF] px-1 text-[10px] font-semibold leading-none text-black">
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground">
                     {tags.length}
                   </span>
                 )}
               </Button>
             </SheetTrigger>
-            <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto bg-[#0F1117] border-[#1e2533]">
+            <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto">
               <SheetHeader>
-                <SheetTitle className="text-[#D8DEE9]">Etiquetas</SheetTitle>
+                <SheetTitle>{t("chats.tagsLabel")}</SheetTitle>
               </SheetHeader>
               <div className="mt-4">
                 <TagPicker
@@ -466,24 +478,24 @@ export function ChatQuickBar({
             <Button
               variant="ghost"
               size="sm"
-              className="p-2 rounded-lg border border-[#1e2533] hover:bg-[#1A1F2B] text-[#D8DEE9]"
+              className="h-10 w-10 rounded-lg p-0"
               onClick={onToggleReadStatus}
               title={isUnread ? t("chats.markAsRead") : t("chats.markAsUnread")}
               aria-label={isUnread ? t("chats.markAsRead") : t("chats.markAsUnread")}
             >
-              {isUnread ? <Mail className="w-4 h-4" /> : <MailOpen className="w-4 h-4" />}
+              {isUnread ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
             </Button>
           )}
           <Button
             variant="ghost"
             size="sm"
-            className="p-2 rounded-lg border border-[#1e2533] hover:bg-[#1A1F2B] text-[#D8DEE9]"
+            className="h-10 w-10 rounded-lg p-0"
             onClick={handleToggleArchive}
             title={value.archived ? t("chats.unarchiveShortcut") : t("chats.archiveShortcut")}
+            aria-label={value.archived ? t("chats.unarchiveShortcut") : t("chats.archiveShortcut")}
           >
-            <Archive className="w-4 h-4" />
+            <Archive className="h-4 w-4" />
           </Button>
-        </div>
         </div>
       </div>
     </div>

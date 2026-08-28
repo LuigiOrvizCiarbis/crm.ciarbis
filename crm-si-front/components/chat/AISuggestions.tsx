@@ -12,21 +12,25 @@ interface AISuggestionsProps {
 export function AISuggestions({ suggestions, onSuggestionClick }: AISuggestionsProps) {
   const { t } = useTranslation()
 
+  if (suggestions.length === 0) return null
+
   return (
-    <div className="p-4 border-b border-border bg-muted/30">
-      <div className="flex items-center gap-2 mb-2">
+    <div className="border-b border-border bg-muted/30 px-4 py-2 sm:py-3">
+      {/* El encabezado sólo aparece de sm en adelante: en móvil los chips ya se
+          identifican con su propio badge IA y la fila gana altura. */}
+      <div className="mb-2 hidden items-center gap-2 sm:flex">
         <Badge variant="ai" size="sm" icon>
           IA
         </Badge>
         <span className="text-xs text-muted-foreground">{t("chats.aiSmartSuggestions")}</span>
       </div>
-      <div className="flex gap-2 flex-wrap">
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
         {suggestions.map((suggestion, index) => (
           <Button
             key={index}
             variant="outline"
             size="sm"
-            className="text-xs h-7 gap-1 bg-transparent"
+            className="h-7 shrink-0 gap-1 bg-transparent text-xs"
             onClick={() => onSuggestionClick(suggestion)}
           >
             <Badge variant="ai" size="sm">

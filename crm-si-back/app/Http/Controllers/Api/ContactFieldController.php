@@ -8,10 +8,14 @@ use App\Http\Requests\StoreContactFieldRequest;
 use App\Http\Requests\UpdateContactFieldRequest;
 use App\Models\ContactField;
 use App\Support\ContactFieldRegistry;
+use App\Support\ExtractionPresetProvisioner;
+use App\Support\ExtractionPresetRegistry;
+use App\Support\RepeaterFieldSchema;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class ContactFieldController extends Controller
 {
@@ -46,9 +50,14 @@ class ContactFieldController extends Controller
             'key' => $key,
             'label' => (string) $request->string('label'),
             'type' => $type,
-            'options' => $type->requiresOptions() ? $request->input('options') : null,
+            'options' => match (true) {
+                $type === ContactFieldType::Repeater => RepeaterFieldSchema::normalize((array) $request->input('options', [])),
+                $type === ContactFieldType::Currency => ['currency' => $this->normalizeCurrency($request->input('options.currency'))],
+                $type->requiresOptions() => $request->input('options'),
+                default => null,
+            },
             'is_required' => (bool) $request->boolean('is_required'),
-            'is_unique' => (bool) $request->boolean('is_unique'),
+            'is_unique' => $type === ContactFieldType::Repeater ? false : (bool) $request->boolean('is_unique'),
             'display_order' => (int) ($request->input('display_order')
                 ?? ((int) ContactField::query()->max('display_order') + 1)),
         ]);
@@ -60,7 +69,21 @@ class ContactFieldController extends Controller
     {
         $payload = $request->only(['label', 'options', 'is_required', 'is_unique', 'display_order']);
 
-        if (! $contactField->type->requiresOptions()) {
+        if ($contactField->type === ContactFieldType::Repeater) {
+            $payload['is_unique'] = false;
+            if (isset($payload['options'])) {
+                $payload['options'] = RepeaterFieldSchema::normalize(
+                    (array) $payload['options'],
+                    $contactField->options,
+                );
+            }
+        } elseif ($contactField->type === ContactFieldType::Currency) {
+            if (array_key_exists('options', $payload)) {
+                $payload['options'] = ['currency' => $this->normalizeCurrency(
+                    $request->input('options.currency') ?? ($contactField->options['currency'] ?? null),
+                )];
+            }
+        } elseif (! $contactField->type->requiresOptions()) {
             unset($payload['options']);
         }
 
@@ -103,6 +126,40 @@ class ContactFieldController extends Controller
         return response()->json(['message' => 'Orden actualizado.']);
     }
 
+    /**
+     * Aplica una plantilla de campos (por ejemplo los de un contrato de
+     * alquiler) para no tener que crearlos de a uno.
+     *
+     * Los campos quedan como cualquier otro: editables, reordenables y
+     * borrables. Reaplicar el preset no duplica ni pisa lo que el tenant
+     * cambió; la respuesta dice qué se creó y qué ya estaba.
+     */
+    public function applyPreset(Request $request, ExtractionPresetProvisioner $provisioner): JsonResponse
+    {
+        if (! $request->user()?->can('contact_fields.manage')) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'preset' => ['required', 'string', Rule::in(ExtractionPresetRegistry::keys())],
+        ]);
+
+        $result = $provisioner->apply($request->user()->tenant_id, $validated['preset']);
+
+        $fields = ContactField::query()
+            ->orderBy('display_order')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (ContactField $f): array => $this->serialize($f))
+            ->all();
+
+        return response()->json([
+            'data' => $fields,
+            'created' => $result['created'],
+            'existing' => $result['existing'],
+        ]);
+    }
+
     private function generateUniqueKey(string $label, int $tenantId): string
     {
         $base = Str::slug($label, '_');
@@ -127,6 +184,18 @@ class ContactFieldController extends Controller
         }
 
         return $candidate;
+    }
+
+    /**
+     * Una divisa ausente o no soportada cae en el default en vez de fallar: la
+     * validación ya rechazó lo inválido, y un campo sin divisa explícita es
+     * legítimo desde el importador o un cliente viejo.
+     */
+    private function normalizeCurrency(mixed $currency): string
+    {
+        return is_string($currency) && in_array($currency, ContactFieldType::currencies(), true)
+            ? $currency
+            : ContactFieldType::DEFAULT_CURRENCY;
     }
 
     /**

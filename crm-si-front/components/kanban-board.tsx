@@ -1,14 +1,15 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge, LeadScoreBadge } from "@/components/Badges"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { ContactAvatar } from "@/components/contact-avatar"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/Toast"
 import { getPipelineStages } from "@/lib/api/pipeline"
 import { getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
-import { Phone, Mail, Calendar, GripVertical, Clock, Loader2, TrendingUp } from "lucide-react"
+import { Phone, Mail, Calendar, GripVertical, Clock, Loader2, TrendingUp, MessageSquare } from "lucide-react"
 import {
   DndContext,
   DragOverlay,
@@ -30,6 +31,7 @@ import { es } from "date-fns/locale"
 
 interface Opportunity {
   id: number
+  conversation_id?: number | string | null
   title: string
   status: "open" | "won" | "lost" | "archived"
   source_type: "manual" | "conversation"
@@ -197,16 +199,10 @@ function OpportunityCard({
   isDragging?: boolean
   isOverlay?: boolean
 }) {
+  const router = useRouter()
   const lastActivityText = opportunity.last_activity_at
     ? formatDistanceToNow(new Date(opportunity.last_activity_at), { locale: es, addSuffix: true })
     : "Sin actividad"
-
-  const initials = opportunity.contact.name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase()
 
   const { label: sourceLabel, className: sourceClassName } = getOpportunitySource(opportunity)
   const valueFormatted = opportunity.value
@@ -216,6 +212,11 @@ function OpportunityCard({
   const score = getOpportunityScore(opportunity)
   const referenceDate = opportunity.conversation?.last_message_at || opportunity.last_activity_at
   const activityOwner = opportunity.source_type === "conversation" ? "Conversación" : sourceLabel
+  const conversationId = opportunity.conversation?.id ?? opportunity.conversation_id
+
+  const openConversation = () => {
+    if (conversationId) router.push(`/chats?chat=${conversationId}`)
+  }
 
   return (
     <Card
@@ -225,19 +226,26 @@ function OpportunityCard({
     >
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <Avatar className="w-8 h-8 shrink-0">
-              <AvatarFallback className="text-xs bg-cyan-500/15 text-cyan-400 font-semibold">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 flex-1">
-              <h4 className="font-medium text-sm truncate">{opportunity.contact.name}</h4>
-              <p className="text-xs text-muted-foreground truncate">
-                {opportunity.title}
-              </p>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={openConversation}
+            disabled={!conversationId}
+            className={`flex items-center gap-2 flex-1 min-w-0 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+              conversationId ? "cursor-pointer hover:bg-muted/60 active:bg-muted" : "cursor-default"
+            }`}
+            title={conversationId ? "Abrir conversación" : "Sin conversación"}
+          >
+            <ContactAvatar
+              contactId={opportunity.contact.id}
+              name={opportunity.contact.name}
+              className="w-8 h-8 shrink-0"
+              fallbackClassName="text-xs bg-cyan-500/15 text-cyan-400 font-semibold"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium text-sm truncate">{opportunity.contact.name}</span>
+              <span className="block text-xs text-muted-foreground truncate">{opportunity.title}</span>
+            </span>
+          </button>
           <div className="flex items-center gap-1 shrink-0">
             <LeadScoreBadge score={score} />
             <Button
@@ -280,7 +288,18 @@ function OpportunityCard({
             <p className="line-clamp-2 text-xs text-muted-foreground">{opportunity.notes}</p>
           )}
 
-          <div className="flex gap-1">
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 min-h-10 gap-2 px-2 text-muted-foreground hover:text-foreground"
+              disabled={!conversationId}
+              onClick={openConversation}
+              title={conversationId ? "Abrir conversación" : "Sin conversación"}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span className="text-xs">{conversationId ? "Abrir chat" : "Sin chat"}</span>
+            </Button>
             {opportunity.contact.phone && (
               <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
                 <Phone className="w-3 h-3" />

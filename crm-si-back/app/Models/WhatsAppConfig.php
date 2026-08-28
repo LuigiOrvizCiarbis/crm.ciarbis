@@ -54,6 +54,14 @@ class WhatsAppConfig extends Model
         'contact_sync_request_id',
         'contact_sync_error',
         'contact_sync_retryable',
+        'contact_history_sync_status',
+        'contact_history_sync_requested_at',
+        'contact_history_sync_request_id',
+        'contact_history_sync_error',
+        'contact_history_sync_messages_count',
+        'contact_sync_error_code',
+        'meta_app_usage_pct',
+        'meta_app_usage_at',
     ];
 
     protected $casts = [
@@ -63,7 +71,25 @@ class WhatsAppConfig extends Model
         'contact_sync_last_webhook_at' => 'datetime',
         'contact_sync_contacts_count' => 'integer',
         'contact_sync_retryable' => 'boolean',
+        'contact_history_sync_requested_at' => 'datetime',
+        'contact_history_sync_messages_count' => 'integer',
+        'meta_app_usage_pct' => 'integer',
+        'meta_app_usage_at' => 'datetime',
     ];
+
+    /**
+     * Umbral desde el que se considera la cuota de Meta agotada (doc oficial:
+     * ≥90% es "critical"). No se dispara smb_app_data si la última lectura del
+     * header X-App-Usage está en o por encima de esto.
+     */
+    public const META_USAGE_CRITICAL_PCT = 90;
+
+    /**
+     * Ventana de vigencia de la última lectura de cuota. Pasado esto se
+     * considera obsoleta y no bloquea el disparo (evita quedar bloqueado por
+     * una lectura vieja si la cuota ya se liberó).
+     */
+    public const META_USAGE_STALE_MINUTES = 15;
 
     protected $hidden = [
         'bussines_token',
@@ -171,5 +197,26 @@ class WhatsAppConfig extends Model
     {
         return $this->contact_sync_status === self::SYNC_SYNCING
             && $this->contact_sync_contacts_count === 0;
+    }
+
+    /**
+     * ¿La última lectura conocida de la cuota de Meta (header X-App-Usage del
+     * business token del cliente) está en nivel crítico y sigue vigente?
+     *
+     * Se usa como guard antes de llamar a smb_app_data: esa cuota es distinta
+     * de la cuota de la app (visible en el dashboard de Meta) y sólo se puede
+     * ver leyendo este header en respuestas anteriores, nunca por sondeo.
+     */
+    public function hasCriticalMetaUsage(): bool
+    {
+        if ($this->meta_app_usage_pct === null || $this->meta_app_usage_at === null) {
+            return false;
+        }
+
+        if ($this->meta_app_usage_pct < self::META_USAGE_CRITICAL_PCT) {
+            return false;
+        }
+
+        return $this->meta_app_usage_at->isAfter(now()->subMinutes(self::META_USAGE_STALE_MINUTES));
     }
 }

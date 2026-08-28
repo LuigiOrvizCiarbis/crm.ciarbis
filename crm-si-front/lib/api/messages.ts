@@ -1,25 +1,53 @@
 import { Message, TranslationLanguage } from "@/data/types";
 import { getAuthToken } from "./auth-token";
 import { throwApiError } from "./api-error";
+import { audioExtensionForMime } from "@/lib/audio";
+
+// El grabador guarda el blob como "video/webm" en algunos navegadores (mismo
+// contenedor que un audio-only webm, pero el browser no distingue el track).
+// Sin esto, un audio grabado se clasificaría por defecto como "image" y el
+// backend lo rechazaría.
+const AUDIO_LIKE_MIME_PREFIXES = ["audio/", "video/webm", "video/mp4"];
 
 function resolveMediaType(file: File): "image" | "audio" {
-  if (file.type.startsWith("audio/")) {
+  if (AUDIO_LIKE_MIME_PREFIXES.some((prefix) => file.type.startsWith(prefix))) {
     return "audio";
   }
 
   return "image";
 }
 
-export async function sendMessage(conversationId: number, content: string, media?: File) {
+/**
+ * Nombra el File con una extensión coherente con su mime real antes de
+ * mandarlo. El backend usa basename() al subir a Meta (WhatsAppMessageService),
+ * y un blob grabado por MediaRecorder no trae nombre de archivo (File con
+ * nombre genérico o sin extensión reconocible).
+ */
+function withAudioFilename(file: File): File {
+  if (!file.type.startsWith("audio/") && !file.type.startsWith("video/webm") && !file.type.startsWith("video/mp4")) {
+    return file;
+  }
+
+  const hasExtension = /\.[a-z0-9]+$/i.test(file.name);
+  if (hasExtension) return file;
+
+  const extension = audioExtensionForMime(file.type);
+  const name = `nota-de-voz-${Date.now()}.${extension}`;
+  return new File([file], name, { type: file.type });
+}
+
+export async function sendMessage(conversationId: number, content: string, media?: File, voice = false) {
   const token = getAuthToken();
   if (!token) throw new Error("Token faltante");
 
   if (media) {
     const type = resolveMediaType(media);
+    const outgoingFile = type === "audio" ? withAudioFilename(media) : media;
     const formData = new FormData();
     formData.append("conversation_id", String(conversationId));
     formData.append("type", type);
-    formData.append(type, media);
+    formData.append(type, outgoingFile);
+    if (voice) formData.append("voice", "1");
     if (content && type === "image") formData.append("content", content);
 
     const res = await fetch("/api/messages", {

@@ -44,6 +44,9 @@ class PermissionCatalog
                 'contact_fields.view',
                 'contact_fields.manage',
             ],
+            'document_extraction' => [
+                'document_extraction.use',
+            ],
             'opportunities' => [
                 'opportunities.view_any',
                 'opportunities.view_assigned',
@@ -208,6 +211,7 @@ class PermissionCatalog
             'contacts.update',
             'contacts.view_history',
             'contact_fields.view',
+            'document_extraction.use',
             'opportunities.view_assigned',
             'opportunities.view',
             'opportunities.create',

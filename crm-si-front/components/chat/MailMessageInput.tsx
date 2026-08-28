@@ -15,8 +15,10 @@ import {
   Send,
   Underline,
   X,
+  Sparkles,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import type { ManualAiDraft } from "@/lib/api/manual-ai-drafts"
 
 interface MailMessageInputProps {
   value: string
@@ -24,6 +26,10 @@ interface MailMessageInputProps {
   onSend: (input: SendMailMessageInput) => void | Promise<void>
   disabled?: boolean
   subject?: string | null
+  aiDraft?: ManualAiDraft | null
+  onRequestAiDraft?: () => void
+  onCancelAiDraft?: () => void
+  onUseAiDraft?: () => void
 }
 
 function parseAddresses(value: string): string[] {
@@ -39,6 +45,10 @@ export function MailMessageInput({
   onSend,
   disabled = false,
   subject,
+  aiDraft,
+  onRequestAiDraft,
+  onCancelAiDraft,
+  onUseAiDraft,
 }: MailMessageInputProps) {
   const { t } = useTranslation()
   const editorRef = useRef<HTMLDivElement>(null)
@@ -237,6 +247,25 @@ export function MailMessageInput({
             >
               <Paperclip className="h-4 w-4" />
             </Button>
+            {onRequestAiDraft && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={`h-9 w-9 ${aiDraft?.content ? "bg-primary/10 text-primary hover:bg-primary/15" : ""}`}
+                aria-label={aiDraft?.status === "pending" ? t("chats.aiDraftCancel") : aiDraft?.content ? t("chats.aiDraftUse") : t("chats.aiDraftGenerate")}
+                title={aiDraft?.status === "pending" ? t("chats.aiDraftCancel") : aiDraft?.content ? t("chats.aiDraftUse") : t("chats.aiDraftGenerate")}
+                aria-busy={aiDraft?.status === "pending"}
+                onClick={() => {
+                  if (aiDraft?.status === "pending") onCancelAiDraft?.()
+                  else if (aiDraft?.content) onUseAiDraft?.()
+                  else onRequestAiDraft()
+                }}
+                disabled={disabled || isSending}
+              >
+                {aiDraft?.status === "pending" ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Sparkles className="h-4 w-4" />}
+              </Button>
+            )}
           </div>
 
           <Button

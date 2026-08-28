@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { ContactAvatar } from "@/components/contact-avatar"
 import { Badge } from "@/components/ui/badge"
 import { X, Phone, MessageSquare, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -62,12 +62,6 @@ export function ContactInfoPanel({ contactId, isOpen, onClose, className }: Cont
 
   if (!isOpen) return null
 
-  const initials = (contact?.name ?? "")
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-
   const customEntries = Object.entries(contact?.custom_data ?? {}).filter(
     ([key, value]) => !HIDDEN_CUSTOM_KEYS.has(key) && value !== null && value !== "",
   )
@@ -102,9 +96,12 @@ export function ContactInfoPanel({ contactId, isOpen, onClose, className }: Cont
         {contact && !isLoading && (
           <>
             <div className="flex flex-col items-center space-y-3">
-              <Avatar className="w-24 h-24">
-                <AvatarFallback className="text-2xl">{initials}</AvatarFallback>
-              </Avatar>
+              <ContactAvatar
+                contactId={contact.id}
+                name={contact.name}
+                className="w-24 h-24"
+                fallbackClassName="text-2xl"
+              />
               <div className="text-center">
                 <h3 className="text-xl font-semibold">{contact.name}</h3>
                 {contact.phone && <p className="text-sm text-muted-foreground">{contact.phone}</p>}

@@ -28,3 +28,12 @@ Schedule::command('model:prune', ['--model' => [AutomationRun::class]])->dailyAt
 // minutos en `queued`, algo está tapando el worker (ver retry_after en
 // config/queue.php) y hoy nadie se entera hasta que el cliente se queja.
 Schedule::command('broadcasts:check-stuck')->everyFifteenMinutes()->withoutOverlapping(10);
+
+// Un worker muerto a mitad de una extracción (OOM, deploy) deja la fila en
+// processing y el claim compare-and-set impide que otro job la retome: sin este
+// barrido el usuario ve un spinner eterno.
+Schedule::command('extractions:reclaim')->everyFiveMinutes()->withoutOverlapping();
+
+// El upload del PDF y el encolado son dos requests: si el usuario cierra el
+// diálogo entre medio, el archivo queda en disco sin que nada lo referencie.
+Schedule::command('extractions:purge-orphans')->dailyAt('03:30')->withoutOverlapping();

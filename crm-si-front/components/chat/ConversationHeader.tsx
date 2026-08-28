@@ -1,9 +1,15 @@
-import { Avatar, AvatarFallback } from "@radix-ui/react-avatar"
+import { ContactAvatar } from "@/components/contact-avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { LeadScoreBadge } from "@/components/Badges"
-import { ArrowLeft, Info, History, Pencil, Check, X, User, Plus, Bot } from "lucide-react"
+import { ArrowLeft, Info, History, Pencil, Check, X, User, Plus, Bot, MoreVertical } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Conversation } from "@/data/types"
 import { useEffect, useRef, useState } from "react"
 import { ContactHistoryDrawer } from "./ContactHistoryDrawer"
@@ -90,12 +96,6 @@ export function ConversationHeader({
     }
   }
 
-  const initials = conversation.contact.name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-
   return (
     <div className="border-b border-border bg-card px-3 py-2.5 sm:p-4">
       <div className="flex min-w-0 items-center justify-between gap-3">
@@ -109,11 +109,12 @@ export function ConversationHeader({
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>
-          <Avatar className="flex h-10 w-10 shrink-0 overflow-hidden rounded-full ring-1 ring-border">
-            <AvatarFallback className="flex h-full w-full items-center justify-center bg-muted text-sm font-semibold">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
+          <ContactAvatar
+            contactId={conversation.contact?.id}
+            name={conversation.contact?.name}
+            className="h-10 w-10 ring-1 ring-border"
+            fallbackClassName="text-sm font-semibold"
+          />
           <div className="flex-1 min-w-0">
             <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
               {isEditingName ? (
@@ -179,6 +180,57 @@ export function ConversationHeader({
             </p>
           </div>
         </div>
+        {/* Mobile: sólo el estado de la IA queda a la vista. Es lo único que
+            se mira mientras se lee (dice si el bot está contestando por vos);
+            el resto son acciones puntuales y viven en el menú. */}
+        <div className="flex shrink-0 items-center gap-0.5 sm:hidden">
+          {onToggleAiAutoreply && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`h-10 w-10 shrink-0 rounded-full p-0 ${
+                conversation.aiAutoreplyEnabled ? "bg-primary/10 text-primary" : "text-muted-foreground"
+              }`}
+              onClick={() => void onToggleAiAutoreply(!conversation.aiAutoreplyEnabled)}
+              aria-pressed={Boolean(conversation.aiAutoreplyEnabled)}
+              title={t("chats.aiAutoreplyHint")}
+              aria-label={t("chats.aiAutoreply")}
+            >
+              <Bot className="h-[18px] w-[18px]" />
+            </Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-10 w-10 shrink-0 rounded-full p-0"
+                aria-label={t("chats.moreActions")}
+              >
+                <MoreVertical className="h-[18px] w-[18px]" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem onSelect={() => setTaskModalOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                {t("chats.createTask")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setTimelineOpen(true)} disabled={!hasContactId}>
+                <User className="mr-2 h-4 w-4" />
+                {t("timeline.title")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+                <History className="mr-2 h-4 w-4" />
+                {t("chats.viewFullHistory")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onToggleContactInfo}>
+                <Info className="mr-2 h-4 w-4" />
+                {t("chats.contactInfo")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
         <div className="hidden items-center gap-2 sm:flex">
           {onToggleAiAutoreply && (
             <label
@@ -232,64 +284,6 @@ export function ConversationHeader({
             <Info className="w-4 h-4" />
           </Button>
         </div>
-      </div>
-
-      <div className={`mt-2 grid gap-1 rounded-xl bg-muted/60 p-1 sm:hidden ${onToggleAiAutoreply ? "grid-cols-5" : "grid-cols-4"}`}>
-        {onToggleAiAutoreply && (
-          <Button
-            variant={conversation.aiAutoreplyEnabled ? "secondary" : "ghost"}
-            size="sm"
-            className="h-10 rounded-lg p-0"
-            onClick={() => void onToggleAiAutoreply(!conversation.aiAutoreplyEnabled)}
-            aria-pressed={Boolean(conversation.aiAutoreplyEnabled)}
-            title={t("chats.aiAutoreply")}
-            aria-label={t("chats.aiAutoreply")}
-          >
-            <Bot className={`h-[18px] w-[18px] ${conversation.aiAutoreplyEnabled ? "text-primary" : ""}`} />
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-10 rounded-lg p-0"
-          onClick={() => setTaskModalOpen(true)}
-          title={t("chats.createTask")}
-          aria-label={t("chats.createTask")}
-        >
-          <Plus className="h-[18px] w-[18px]" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-10 rounded-lg p-0"
-          onClick={() => setTimelineOpen(true)}
-          disabled={!hasContactId}
-          title={t("timeline.title")}
-          aria-label={t("timeline.title")}
-        >
-          <User className="h-[18px] w-[18px]" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-10 rounded-lg p-0"
-          onClick={() => setHistoryOpen(true)}
-          title={t("chats.viewFullHistory")}
-          aria-label={t("chats.viewFullHistory")}
-        >
-          <History className="h-[18px] w-[18px]" />
-        </Button>
-        <Button
-          variant={isContactInfoOpen ? "secondary" : "ghost"}
-          size="sm"
-          className="h-10 rounded-lg p-0"
-          onClick={onToggleContactInfo}
-          aria-pressed={isContactInfoOpen}
-          title={t("chats.contactInfo")}
-          aria-label={t("chats.contactInfo")}
-        >
-          <Info className="h-[18px] w-[18px]" />
-        </Button>
       </div>
 
       <ContactHistoryDrawer

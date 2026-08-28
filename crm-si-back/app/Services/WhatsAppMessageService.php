@@ -9,6 +9,7 @@ use App\Enums\SenderType;
 use App\Events\MessageDeleted;
 use App\Events\MessageEdited;
 use App\Events\MessageSent;
+use App\Events\MessageStatusUpdated;
 use App\Events\TenantMessageReceived;
 use App\Jobs\GenerateAiReplyJob;
 use App\Models\AiConfig;
@@ -23,13 +24,18 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Sentry\Severity;
 use Sentry\State\Scope;
 
 class WhatsAppMessageService
 {
-    private const GRAPH_VERSION = 'v21.0';
+    private function graphVersion(): string
+    {
+        return config('services.facebook.graph_version', 'v21.0');
+    }
 
     public function processIncomingMessage(array $webhookData): ?Message
     {
@@ -280,7 +286,7 @@ class WhatsAppMessageService
         $uploadResponse = Http::withToken($businessToken)
             ->timeout(30)
             ->attach('file', Storage::disk('public')->get($localMediaPath), basename($localMediaPath), ['Content-Type' => $mimeType])
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/media", [
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/media", [
                 'messaging_product' => 'whatsapp',
                 'type' => $mimeType,
             ]);
@@ -307,7 +313,7 @@ class WhatsAppMessageService
 
         $sendResponse = Http::withToken($businessToken)
             ->timeout(10)
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/messages", $messagePayload);
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", $messagePayload);
 
         if (! $sendResponse->successful()) {
             throw new \RuntimeException('Error enviando imagen por WhatsApp: '.$sendResponse->body());
@@ -328,7 +334,6 @@ class WhatsAppMessageService
             'media_mime_type' => $mimeType,
             'media_filename' => basename($localMediaPath),
             'direction' => MessageDirection::OUTBOUND,
-            'delivered_at' => now(),
             'external_id' => $externalId,
         ]);
 
@@ -349,23 +354,104 @@ class WhatsAppMessageService
         return $message;
     }
 
+    /**
+     * WhatsApp Cloud API sólo acepta audio/aac, audio/mp4, audio/mpeg, audio/amr
+     * y audio/ogg (opus). webm y wav pasan la validación general del CRM (son
+     * lo que graba el navegador en mobile) pero Meta los rechaza en el upload
+     * a /media. Los convertimos acá a ogg/opus, el formato nativo de las notas
+     * de voz de WhatsApp, antes de subir.
+     *
+     * Devuelve [path local (posiblemente convertido), mime, nombre de archivo].
+     * Si el mime ya es compatible con Meta, no toca nada.
+     */
+    private function ensureWhatsAppCompatibleAudio(string $localMediaPath, string $mimeType): array
+    {
+        // PHP/fileinfo suele detectar los .m4a como audio/x-m4a, pero Meta sólo
+        // acepta ese contenedor con el MIME estándar audio/mp4.
+        if ($mimeType === 'audio/x-m4a') {
+            return [$localMediaPath, 'audio/mp4', basename($localMediaPath)];
+        }
+
+        $metaCompatible = ['audio/aac', 'audio/mp4', 'audio/mpeg', 'audio/mp3', 'audio/amr', 'audio/3gpp', 'audio/ogg'];
+        $needsTranscode = ! in_array($mimeType, $metaCompatible, true);
+
+        if (! $needsTranscode) {
+            return [$localMediaPath, $mimeType, basename($localMediaPath)];
+        }
+
+        if (! $this->ffmpegAvailable()) {
+            throw new \InvalidArgumentException(
+                'Este formato de audio no es compatible con WhatsApp y el servidor no puede convertirlo. Probá grabar de nuevo o adjuntar un MP3, OGG o M4A.'
+            );
+        }
+
+        $sourceAbsolutePath = Storage::disk('public')->path($localMediaPath);
+        // Guardamos el convertido junto al original (mismo directorio "messages/{tenant}")
+        // con nombre nuevo; si el path viniera plano, dirname() devuelve "." y el
+        // resultado queda igual de válido para Storage::disk('public').
+        $convertedRelativePath = ($dir = dirname($localMediaPath)) !== '.'
+            ? $dir.'/'.Str::uuid().'.ogg'
+            : Str::uuid().'.ogg';
+        $convertedAbsolutePath = Storage::disk('public')->path($convertedRelativePath);
+
+        $result = Process::timeout(30)->run([
+            'ffmpeg', '-y',
+            '-i', $sourceAbsolutePath,
+            '-c:a', 'libopus',
+            '-b:a', '64k',
+            '-vn',
+            $convertedAbsolutePath,
+        ]);
+
+        if ($result->failed() || ! is_file($convertedAbsolutePath)) {
+            Log::error('Error transcodificando audio a ogg/opus para WhatsApp', [
+                'source' => $localMediaPath,
+                'mime' => $mimeType,
+                'exit_code' => $result->exitCode(),
+                'stderr' => $result->errorOutput(),
+            ]);
+
+            throw new \InvalidArgumentException(
+                'No se pudo convertir el audio a un formato compatible con WhatsApp. Probá grabar de nuevo.'
+            );
+        }
+
+        return [$convertedRelativePath, 'audio/ogg', basename($convertedRelativePath)];
+    }
+
+    private function ffmpegAvailable(): bool
+    {
+        return Process::run(['which', 'ffmpeg'])->successful();
+    }
+
     public function sendAudioMessageFromCRM(
         Conversation $conversation,
         string $localMediaPath,
         string $mediaUrl,
         string $mimeType,
-        User $user
+        User $user,
+        bool $voice = false
     ): Message {
         ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
 
+        [$uploadMediaPath, $uploadMimeType, $uploadFilename] =
+            $this->ensureWhatsAppCompatibleAudio($localMediaPath, $mimeType);
+        $wasTranscoded = $uploadMediaPath !== $localMediaPath;
+
         $uploadResponse = Http::withToken($businessToken)
             ->timeout(30)
-            ->attach('file', Storage::disk('public')->get($localMediaPath), basename($localMediaPath), ['Content-Type' => $mimeType])
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/media", [
+            ->attach('file', Storage::disk('public')->get($uploadMediaPath), $uploadFilename, ['Content-Type' => $uploadMimeType])
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/media", [
                 'messaging_product' => 'whatsapp',
-                'type' => $mimeType,
+                'type' => $uploadMimeType,
             ]);
+
+        // El .ogg convertido es sólo para el upload a Meta; el CRM conserva y
+        // reproduce el archivo original. Lo borramos apenas termina el upload.
+        if ($wasTranscoded) {
+            Storage::disk('public')->delete($uploadMediaPath);
+        }
 
         if (! $uploadResponse->successful()) {
             throw new \RuntimeException('Error subiendo audio a WhatsApp: '.$uploadResponse->body());
@@ -375,13 +461,14 @@ class WhatsAppMessageService
 
         $sendResponse = Http::withToken($businessToken)
             ->timeout(10)
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/messages", [
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
                 'recipient_type' => 'individual',
                 'to' => $to,
                 'type' => 'audio',
                 'audio' => [
                     'id' => $whatsappMediaId,
+                    ...($voice ? ['voice' => true] : []),
                 ],
             ]);
 
@@ -402,7 +489,6 @@ class WhatsAppMessageService
             'media_mime_type' => $mimeType,
             'media_filename' => basename($localMediaPath),
             'direction' => MessageDirection::OUTBOUND,
-            'delivered_at' => now(),
             'external_id' => $externalId,
         ]);
 
@@ -588,7 +674,7 @@ class WhatsAppMessageService
 
         $metaResponse = Http::withToken($accessToken)
             ->timeout(10)
-            ->get("https://graph.facebook.com/v21.0/{$mediaId}");
+            ->get("https://graph.facebook.com/{$this->graphVersion()}/{$mediaId}");
 
         if (! $metaResponse->successful()) {
             Log::error("Error obteniendo URL de media WhatsApp: {$metaResponse->body()}");
@@ -693,7 +779,7 @@ class WhatsAppMessageService
 
             $response = Http::withToken($businessToken)
                 ->timeout(10)
-                ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$waConfig->phone_number_id}/messages", [
+                ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$waConfig->phone_number_id}/messages", [
                     'messaging_product' => 'whatsapp',
                     'status' => 'read',
                     'message_id' => $externalId,
@@ -736,6 +822,14 @@ class WhatsAppMessageService
     {
         $message = Message::create($messageData);
 
+        // Si el contacto responde después de un mensaje saliente, necesariamente
+        // abrió la conversación. Meta puede omitir el webhook `read` cuando el
+        // contacto desactiva las confirmaciones de lectura; la respuesta es una
+        // evidencia más fuerte y permite completar el estado sin inventarlo.
+        if ($message->direction === MessageDirection::INBOUND) {
+            $this->inferReadFromInboundReply($message);
+        }
+
         if (isset($messageData['conversation_id'])) {
             $type = $messageData['message_type'] ?? 'text';
             $lastContent = match ($type) {
@@ -775,6 +869,31 @@ class WhatsAppMessageService
         $this->maybeDispatchAiReply($message);
 
         return $message;
+    }
+
+    private function inferReadFromInboundReply(Message $inboundMessage): void
+    {
+        $readAt = $inboundMessage->delivered_at ?? $inboundMessage->created_at;
+
+        $unreadOutboundMessages = Message::query()
+            ->where('conversation_id', $inboundMessage->conversation_id)
+            ->where('direction', MessageDirection::OUTBOUND)
+            ->whereNull('read_at')
+            ->where('id', '<', $inboundMessage->id)
+            ->get();
+
+        foreach ($unreadOutboundMessages as $outboundMessage) {
+            $outboundMessage->update([
+                'delivered_at' => $outboundMessage->delivered_at ?? $readAt,
+                'read_at' => $readAt,
+            ]);
+
+            try {
+                broadcast(new MessageStatusUpdated($outboundMessage));
+            } catch (\Exception $e) {
+                Log::error('Error broadcasting inferred WhatsApp read status: '.$e->getMessage());
+            }
+        }
     }
 
     /**
@@ -848,6 +967,7 @@ class WhatsAppMessageService
             }
 
             $contactData = $syncItem['contact'] ?? [];
+            $this->logUnexpectedContactFields($contactData);
             $action = strtolower(trim($syncItem['action'] ?? 'add'));
             $phoneNumber = $contactData['phone_number'] ?? null;
             $bsuid = $contactData['user_id'] ?? null;
@@ -930,6 +1050,53 @@ class WhatsAppMessageService
     }
 
     /**
+     * Campos que Meta documenta para el objeto `contact` de smb_app_state_sync.
+     *
+     * `user_id` (BSUID) no figura en el ejemplo de la doc de coexistencia pero sí
+     * llega cuando el feature está habilitado, y ya lo consumimos más arriba.
+     *
+     * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
+     */
+    private const KNOWN_SMB_CONTACT_FIELDS = [
+        'full_name',
+        'first_name',
+        'phone_number',
+        'user_id',
+        'parent_user_id',
+        'username',
+    ];
+
+    /**
+     * Loguea los NOMBRES de campos no documentados que Meta mande en el objeto
+     * `contact`.
+     *
+     * Motivo: la doc de Meta no expone ninguna foto de perfil del contacto — el
+     * único `profile_picture_url` de la Graph API pertenece al perfil del NEGOCIO,
+     * no al del cliente. Esta sonda existe para verificar ese negativo contra
+     * tráfico real, porque Meta a veces agrega campos antes de documentarlos. Si
+     * algún día aparece algo con forma de imagen, queda registrado acá.
+     *
+     * Sólo se loguean las CLAVES, nunca los valores: el contenido son datos
+     * personales del contacto y no deben terminar en los logs.
+     */
+    private function logUnexpectedContactFields(array $contactData): void
+    {
+        if ($contactData === []) {
+            return;
+        }
+
+        $unexpected = array_diff(array_keys($contactData), self::KNOWN_SMB_CONTACT_FIELDS);
+
+        if ($unexpected === []) {
+            return;
+        }
+
+        Log::info('smb_app_state_sync: campos no documentados en el contacto', [
+            'fields' => array_values($unexpected),
+        ]);
+    }
+
+    /**
      * Procesa mensajes enviados desde la app de WhatsApp Business (coexistencia).
      * Estos llegan como smb_message_echoes y son mensajes OUTBOUND que el negocio
      * envió desde la app, no desde el CRM.
@@ -1009,6 +1176,177 @@ class WhatsAppMessageService
         }
     }
 
+    /**
+     * Procesa el webhook del paso 2 de coexistencia (sync_type=history).
+     *
+     * Shape real, confirmado contra la doc oficial de Meta (Onboard WhatsApp
+     * Business app users) y contra payloads de producción:
+     *   value.history[] = [{
+     *     metadata: { phase, chunk_order, progress },
+     *     threads: [{
+     *       id: "<wa_id del contacto, SIN 9 en AR>",
+     *       messages: [{ id, from, to?, timestamp, type, text: {...}, history_context: { status }, ... }],
+     *     }],
+     *   }]
+     *
+     * El teléfono del contacto sale de threads[].id, no de messages[].to: `to`
+     * sólo viene poblado cuando el mensaje representa un smb_message_echo, no en
+     * el resto del historial (documentado explícitamente por Meta).
+     *
+     * La dirección se determina comparando `from` contra el número del negocio
+     * (metadata.display_phone_number del propio webhook, más phone_number/
+     * display_phone_number de la config) normalizados a dígitos puros vía
+     * normalizePhoneForWhatsApp, porque display_phone_number en DB puede venir
+     * formateado ("+54 9 223 436-3047") mientras que `from` siempre llega en
+     * dígitos puros sin el 9 argentino.
+     *
+     * media_placeholder no se descarta: se persiste como mensaje de texto
+     * provisorio. Meta promete un webhook posterior con el mismo wamid y el
+     * contenido real "only if the message was sent within the last two weeks";
+     * ese caso se resuelve con un updateOrCreate por external_id (ver más abajo),
+     * nunca con un create nuevo, porque external_id es unique global en messages.
+     *
+     * @return array{imported: int, progress: int, phase: int|null, error_code: int|null}
+     */
+    public function processHistorySync(array $value, Channel $channel): array
+    {
+        $historyChunks = $value['history'] ?? [];
+
+        // "Messaging history not shared": Meta entrega un chunk sin threads y con
+        // un error explícito en vez de contenido. No es un fallo de nuestro lado.
+        $errorCode = data_get($value, 'history.0.error.code') ?? data_get($value, 'errors.0.code');
+
+        if (empty($historyChunks)) {
+            return ['imported' => 0, 'progress' => 0, 'phase' => null, 'error_code' => $errorCode];
+        }
+
+        $tenantId = $channel->tenant_id;
+        $waConfig = $channel->whatsappConfig;
+        $businessNumbers = array_filter(array_map(
+            fn (?string $n) => $n ? $this->normalizePhoneForWhatsApp(preg_replace('/\D/', '', $n)) : null,
+            [
+                $waConfig?->phone_number,
+                $waConfig?->display_phone_number,
+                data_get($value, 'metadata.display_phone_number'),
+            ]
+        ));
+
+        $imported = 0;
+        $progress = 0;
+        $phase = null;
+
+        foreach ($historyChunks as $chunk) {
+            $progress = max($progress, (int) ($chunk['metadata']['progress'] ?? 0));
+            $phase = $chunk['metadata']['phase'] ?? $phase;
+
+            foreach ($chunk['threads'] ?? [] as $thread) {
+                $threadPhone = $thread['id'] ?? null;
+
+                foreach ($thread['messages'] ?? [] as $historyMessage) {
+                    // Sólo se cuenta el `create`: un `update` es un placeholder
+                    // resuelto por un webhook posterior con el mismo wamid, y
+                    // Meta reentrega contenido duplicado entre chunks del mismo
+                    // sync. Contar ambos infla el número muy por encima de los
+                    // mensajes que realmente terminan en el chat.
+                    if ($this->importHistoryMessage($historyMessage, $threadPhone, $businessNumbers, $channel, $tenantId) === 'created') {
+                        $imported++;
+                    }
+                }
+            }
+        }
+
+        return ['imported' => $imported, 'progress' => $progress, 'phase' => $phase, 'error_code' => $errorCode];
+    }
+
+    /**
+     * @return 'created'|'updated'|'skipped'
+     */
+    private function importHistoryMessage(
+        array $historyMessage,
+        ?string $threadPhone,
+        array $businessNumbers,
+        Channel $channel,
+        int $tenantId
+    ): string {
+        $externalId = $historyMessage['id'] ?? null;
+        $type = $historyMessage['type'] ?? 'unknown';
+
+        $isPlaceholder = $type === 'media_placeholder';
+        if (! $isPlaceholder && ! $this->isSupportedMessageType($type)) {
+            // reaction/edit/revoke/button/errors: mismo criterio que
+            // processIncomingMessage, se ignoran sin frenar el resto del batch.
+            return 'skipped';
+        }
+
+        $from = $historyMessage['from'] ?? null;
+        $fromNormalized = $from ? $this->normalizePhoneForWhatsApp(preg_replace('/\D/', '', $from)) : null;
+        $isOutbound = $fromNormalized && in_array($fromNormalized, $businessNumbers, true);
+
+        // El contacto siempre es el otro extremo del thread, nunca el negocio.
+        $customerPhone = $isOutbound
+            ? ($threadPhone ?? $historyMessage['to'] ?? null)
+            : ($from ?? $threadPhone);
+
+        if (! $customerPhone) {
+            return 'skipped';
+        }
+
+        $existing = $externalId ? Message::where('external_id', $externalId)->first() : null;
+
+        $contact = $this->findOrCreateContact(null, $customerPhone, $channel);
+        $conversation = $this->findOrCreateConversation($contact, $channel);
+
+        if ($isPlaceholder) {
+            if ($existing) {
+                // Ya se resolvió por un webhook de contenido posterior; nada que hacer.
+                return 'skipped';
+            }
+
+            $this->createMessage([
+                'tenant_id' => $tenantId,
+                'conversation_id' => $conversation->id,
+                'sender_type' => $isOutbound ? SenderType::USER : SenderType::CONTACT,
+                'sender_id' => $isOutbound ? $channel->user_id : $contact->id,
+                'content' => 'Multimedia no disponible',
+                'message_type' => MessageType::Text,
+                'direction' => $isOutbound ? MessageDirection::OUTBOUND : MessageDirection::INBOUND,
+                'external_id' => $externalId,
+                'delivered_at' => $this->parseWebhookTimestamp($historyMessage['timestamp'] ?? null),
+            ]);
+
+            return 'created';
+        }
+
+        $extracted = $this->extractMessageData($historyMessage);
+        $status = strtoupper((string) ($historyMessage['history_context']['status'] ?? ''));
+
+        $attributes = [
+            'tenant_id' => $tenantId,
+            'conversation_id' => $conversation->id,
+            'sender_type' => $isOutbound ? SenderType::USER : SenderType::CONTACT,
+            'sender_id' => $isOutbound ? $channel->user_id : $contact->id,
+            'content' => $extracted['content'],
+            'message_type' => $extracted['type'],
+            'direction' => $isOutbound ? MessageDirection::OUTBOUND : MessageDirection::INBOUND,
+            'external_id' => $externalId,
+            'delivered_at' => $this->parseWebhookTimestamp($historyMessage['timestamp'] ?? null),
+            'read_at' => $status === 'READ' ? $this->parseWebhookTimestamp($historyMessage['timestamp'] ?? null) : null,
+        ];
+
+        if ($existing) {
+            // Resuelve un media_placeholder previo (mismo wamid) con el contenido
+            // real que llega en un webhook history separado, dentro de las 2
+            // semanas. external_id es unique global: nunca un create nuevo acá.
+            $existing->update($attributes);
+
+            return 'updated';
+        }
+
+        $this->createMessage($attributes);
+
+        return 'created';
+    }
+
     public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
     {
         ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
@@ -1016,7 +1354,7 @@ class WhatsAppMessageService
 
         $response = Http::withToken($businessToken)
             ->timeout(10)
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/messages", [
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
                 'recipient_type' => 'individual',
                 'to' => $to,
@@ -1039,7 +1377,6 @@ class WhatsAppMessageService
             'sender_id' => $user->id,
             'content' => $content,
             'direction' => MessageDirection::OUTBOUND,
-            'delivered_at' => now(),
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
         ]);
@@ -1077,7 +1414,7 @@ class WhatsAppMessageService
         // conversaciones/tenants. tries=1 en el job evita duplicar el envío.
         $response = Http::withToken($businessToken)
             ->timeout(10)
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/messages", [
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
                 'recipient_type' => 'individual',
                 'to' => $to,
@@ -1099,7 +1436,6 @@ class WhatsAppMessageService
             'sender_type' => SenderType::SYSTEM,
             'content' => $content,
             'direction' => MessageDirection::OUTBOUND,
-            'delivered_at' => now(),
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
         ]);

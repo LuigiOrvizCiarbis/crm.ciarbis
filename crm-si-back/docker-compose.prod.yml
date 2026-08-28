@@ -126,6 +126,10 @@ services:
       target: production
     restart: always
     user: www-data
+    # timeout 180 cubre la extracción de documentos (provider 120s + pdftotext).
+    # Invariante: REDIS_QUEUE_RETRY_AFTER (300) > --timeout (180) > provider (120).
+    # Si retry_after quedara por debajo del timeout, Redis liberaría el job a otro
+    # worker mientras el primero sigue llamando al proveedor: doble costo.
     command: php artisan queue:work redis --queue=broadcasts,default --tries=1 --timeout=180 --sleep=3 --max-time=3600
     environment:
       APP_ENV: production
@@ -140,6 +144,7 @@ services:
       REDIS_HOST: redis
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDIS_PORT: "6379"
+      REDIS_QUEUE_RETRY_AFTER: "300"
       BROADCAST_CONNECTION: reverb
       REVERB_HOST: reverb
       REVERB_PORT: "8080"

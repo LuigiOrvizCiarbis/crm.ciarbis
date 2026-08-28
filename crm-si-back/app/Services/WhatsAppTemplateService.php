@@ -386,7 +386,6 @@ class WhatsAppTemplateService
             // Sin el wamid los webhooks de estado (sent/delivered/failed) no
             // matchean este mensaje y los fallos quedan invisibles.
             'external_id' => $response->json('messages.0.id'),
-            'delivered_at' => now(),
         ]);
 
         $conversation->update([

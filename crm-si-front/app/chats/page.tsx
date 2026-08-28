@@ -81,6 +81,8 @@ import { TagFilterMenu } from "@/components/tags/TagFilterMenu"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useSSEMessages, type MessageStatusUpdate } from "@/hooks/useSSEMessages"
 import { useTenantSSE } from "@/hooks/useTenantSSE"
+import { getPusher } from "@/lib/pusher"
+import { cancelManualAiDraft, getManualAiDraft, requestManualAiDraft, type ManualAiDraft } from "@/lib/api/manual-ai-drafts"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useAuthStore } from "@/store/useAuthStore"
 import { useFacebookSDK } from "@/hooks/useFacebookSDK"
@@ -105,7 +107,6 @@ import {
   Megaphone,
   Menu,
   MoreHorizontal,
-  Plus,
   Search,
   Sparkles,
   Tags,
@@ -143,21 +144,31 @@ const CONNECTABLE_CHANNELS: {
 interface ChatsCompactHeaderProps {
   searchQuery: string
   onSearchChange: (query: string) => void
-  onNewConversation: () => void
   onConnectChannel: (channelType?: ConnectableChannel) => void
   onOpenChannels: () => void
+  /**
+   * En mobile la vista es una pila: al abrir un hilo, la lista de
+   * conversaciones deja de estar en pantalla y este encabezado pierde sentido
+   * (su buscador filtra una lista invisible). Se oculta por CSS, no
+   * desmontando, para que el texto tipeado siga ahí al volver.
+   */
+  hideOnMobile?: boolean
 }
 
 function ChatsCompactHeader({
   searchQuery,
   onSearchChange,
-  onNewConversation,
   onConnectChannel,
   onOpenChannels,
+  hideOnMobile = false,
 }: ChatsCompactHeaderProps) {
   const { t } = useTranslation()
   return (
-    <div className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-xl supports-[backdrop-filter]:bg-background/90">
+    <div
+      className={`sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-xl supports-[backdrop-filter]:bg-background/90 ${
+        hideOnMobile ? "hidden md:block" : ""
+      }`}
+    >
       <div className="flex h-18.75 items-center gap-3 px-4 md:px-6">
         <Button
           variant="ghost"
@@ -223,11 +234,6 @@ function ChatsCompactHeader({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-
-          <Button size="sm" onClick={onNewConversation} className="gap-2">
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Nueva conversación</span>
-          </Button>
         </div>
       </div>
 
@@ -368,6 +374,7 @@ export default function ChatsPage() {
   const [hasMore, setHasMore] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
+  const [aiDraft, setAiDraft] = useState<ManualAiDraft | null>(null)
 
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedConversationIds, setSelectedConversationIds] = useState<Set<number>>(new Set())
@@ -423,6 +430,9 @@ export default function ChatsPage() {
 
 
   const handleRealTimeMessage = useCallback((newMessage: Message) => {
+    if (newMessage.direction === "inbound" && selectedConversationId === newMessage.conversation_id) {
+      setAiDraft(null)
+    }
     // 1. Actualizar el chat abierto (si coincide el ID)
     if (selectedConversationId === newMessage.conversation_id) {
       setCurrentConversation((prev) => {
@@ -524,11 +534,12 @@ export default function ChatsPage() {
       return {
         ...prev,
         messages: messages.map((m: Message) =>
-          m.id === status.id
+          String(m.id) === String(status.id)
             ? {
                 ...m,
                 delivered_at: status.delivered_at ?? m.delivered_at,
                 read_at: status.read_at ?? m.read_at,
+                played_at: status.played_at ?? m.played_at,
                 failed_at: status.failed_at ?? m.failed_at,
                 error_message: status.error_message ?? m.error_message,
               }
@@ -846,6 +857,7 @@ export default function ChatsPage() {
   useEffect(() => {
     if (!selectedConversationId) {
       setCurrentConversation(null);
+      setAiDraft(null);
       return;
     }
 
@@ -855,8 +867,11 @@ export default function ChatsPage() {
     let cancelled = false;
     (async () => {
       try {
-        const data = await getConversationWithMessages(selectedConversationId);
-        if (!cancelled) setCurrentConversation(data);
+        const [data, draft] = await Promise.all([
+          getConversationWithMessages(selectedConversationId),
+          getManualAiDraft(selectedConversationId).catch(() => null),
+        ]);
+        if (!cancelled) { setCurrentConversation(data); setAiDraft(draft); }
       } catch (error) {
         if (cancelled) return;
         setCurrentConversation(null);
@@ -869,6 +884,48 @@ export default function ChatsPage() {
     })();
     return () => { cancelled = true };
   }, [selectedConversationId]);
+
+  useEffect(() => {
+    const userId = user?.id;
+    if (!userId) return;
+    const pusher = getPusher();
+    const channel = pusher.subscribe(`private-App.Models.User.${userId}`);
+    const onDraft = (event: { draft: ManualAiDraft }) => {
+      if (event.draft.conversation_id === selectedConversationId) setAiDraft(event.draft.status === "cancelled" ? null : event.draft);
+    };
+    channel.bind("manual-ai-draft.updated", onDraft);
+    return () => { channel.unbind("manual-ai-draft.updated", onDraft); pusher.unsubscribe(`private-App.Models.User.${userId}`); };
+  }, [user?.id, selectedConversationId]);
+
+  useEffect(() => {
+    if (!selectedConversationId || aiDraft?.status !== "pending") return;
+    const timer = window.setInterval(() => {
+      getManualAiDraft(selectedConversationId).then(setAiDraft).catch(() => {});
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [selectedConversationId, aiDraft?.status]);
+
+  const latestInboundMessage = useMemo(() => {
+    const latest = [...(currentConversation?.messages ?? [])].filter((item) => !item.deleted_at).reverse()[0]
+    return latest?.direction === "inbound" && (latest.message_type === "text" || latest.message_type === "image") ? latest : undefined
+  }, [currentConversation?.messages]);
+  const handleRequestAiDraft = useCallback(async () => {
+    if (!selectedConversationId || !latestInboundMessage) return;
+    try {
+      const draft = await requestManualAiDraft(selectedConversationId, latestInboundMessage.id);
+      setAiDraft(draft);
+    } catch (error) {
+      addToast({ type: "error", title: t("chats.aiDraftError"), description: error instanceof Error ? error.message : undefined });
+    }
+  }, [selectedConversationId, latestInboundMessage, addToast, t]);
+  const handleCancelAiDraft = useCallback(async () => {
+    if (!selectedConversationId) return;
+    await cancelManualAiDraft(selectedConversationId).catch(() => {});
+    setAiDraft(null);
+  }, [selectedConversationId]);
+  const handleUseAiDraft = useCallback(() => {
+    if (aiDraft?.content && !message.trim()) setMessage(aiDraft.content);
+  }, [aiDraft?.content, message]);
 
 
   const handleConnectChannel = (channelType: ConnectableChannel = "whatsapp") => {
@@ -898,14 +955,6 @@ export default function ChatsPage() {
     } else {
       launchWhatsAppSignup()
     }
-  }
-
-  const handleNewConversation = () => {
-    addToast({
-      type: "info",
-      title: "Nueva conversación",
-      description: "Selecciona un canal conectado para iniciar o continuar un chat.",
-    })
   }
 
   const handleFilterChange = (filter: FilterType) => {
@@ -1235,7 +1284,7 @@ export default function ChatsPage() {
     }
   };
 
-  const handleSendMessage = async (content: string, media?: File) => {
+  const handleSendMessage = async (content: string, media?: File, voice = false) => {
     if (!content && !media) return;
     if (!selectedConversationId) return;
 
@@ -1285,7 +1334,7 @@ export default function ChatsPage() {
     });
 
     try {
-      const savedMessage = await sendMessage(selectedConversationId, textToSend, media);
+      const savedMessage = await sendMessage(selectedConversationId, textToSend, media, voice);
 
       setCurrentConversation((prev) => {
         if (!prev) return prev;
@@ -1680,16 +1729,14 @@ export default function ChatsPage() {
               aria-selected={isActive}
               onClick={() => setViewType(item.key)}
               title={item.label}
-              className={`group relative flex min-w-0 flex-1 items-center justify-center gap-1.5 px-2 text-sm font-medium tracking-[-0.01em] transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
+              className={`group relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 text-xs font-medium tracking-[-0.01em] transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
                 isActive
                   ? "text-primary"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <span className="truncate">{item.label}</span>
               <span
-                aria-hidden={item.count === 0}
-                className={`inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border px-1.5 text-xs font-medium tabular-nums transition-colors ${
+                className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full border px-1.5 text-xs font-semibold tabular-nums transition-colors ${
                   isActive
                     ? "border-primary/35 bg-primary/10 text-primary"
                     : hasUnreadCount
@@ -1699,6 +1746,7 @@ export default function ChatsPage() {
               >
                 {item.count > 99 ? "99+" : item.count}
               </span>
+              <span className="max-w-full truncate leading-none">{item.label}</span>
               <span
                 className={`absolute inset-x-0 bottom-0 h-0.5 origin-left transition-transform duration-200 ease-out ${
                   isActive ? "scale-x-100 bg-primary" : "scale-x-0 bg-transparent"
@@ -1773,9 +1821,9 @@ export default function ChatsPage() {
       <ChatsCompactHeader
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        onNewConversation={handleNewConversation}
         onConnectChannel={handleConnectChannel}
         onOpenChannels={() => setIsChannelsSheetOpen(true)}
+        hideOnMobile={Boolean(selectedConversationId)}
       />
 
       <Sheet open={isChannelsSheetOpen} onOpenChange={setIsChannelsSheetOpen}>
@@ -1788,7 +1836,12 @@ export default function ChatsPage() {
         </SheetContent>
       </Sheet>
 
-      <div className="flex h-[calc(100vh-75px)] flex-1 overflow-hidden bg-background">
+      {/* `flex-1 min-h-0` en vez de `h-[calc(100vh-75px)]`: el 75px era un
+          número mágico que sólo valía para el encabezado de escritorio. En
+          mobile el encabezado mide 125px (trae el buscador) y desaparece del
+          todo con un hilo abierto, así que ninguna constante sirve para los
+          tres casos. El flex mide lo que sobra, siempre. */}
+      <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
         <div className="hidden w-[360px] flex-col border-r border-border bg-card md:flex lg:w-[380px]">
           {renderChannelsSidebar(handleChannelSelect, handleConnectChannel)}
         </div>
@@ -2065,6 +2118,10 @@ export default function ChatsPage() {
                     .reverse()
                     .find((item) => item.mail_details?.subject)
                     ?.mail_details?.subject}
+                  aiDraft={aiDraft}
+                  onRequestAiDraft={latestInboundMessage ? handleRequestAiDraft : undefined}
+                  onCancelAiDraft={handleCancelAiDraft}
+                  onUseAiDraft={handleUseAiDraft}
                 />
               ) : (
                 <MessageInput
@@ -2076,12 +2133,17 @@ export default function ChatsPage() {
                   conversationId={selectedConversationId}
                   onSendTemplate={handleSendTemplate}
                   supportsTemplates={activeConversation?.channel?.type === ChannelType.WHATSAPP}
+                  supportsVoice={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   editingMessage={editingMessage}
                   onCancelEdit={handleCancelEdit}
                   expansionContext={hotkeyExpansionContext}
                   contactLanguage={(currentConversation ?? activeConversation)?.contactLanguage ?? "es"}
                   onContactLanguageChange={handleTranslationLanguageChange}
                   onTranslateDraft={handleTranslateDraft}
+                  aiDraft={aiDraft}
+                  onRequestAiDraft={latestInboundMessage ? handleRequestAiDraft : undefined}
+                  onCancelAiDraft={handleCancelAiDraft}
+                  onUseAiDraft={handleUseAiDraft}
                 />
               )}
             </>
