@@ -534,7 +534,7 @@ export default function ChatsPage() {
       return {
         ...prev,
         messages: messages.map((m: Message) =>
-          m.id === status.id
+          String(m.id) === String(status.id)
             ? {
                 ...m,
                 delivered_at: status.delivered_at ?? m.delivered_at,
