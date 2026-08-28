@@ -38,7 +38,12 @@ class SendBroadcastMessageJob implements ShouldQueue
         public ?int $senderId,
         public int $tenantId,
         public ?int $broadcastRecipientId = null,
-    ) {}
+    ) {
+        // Cola propia: sin esto compite con SyncMailChannelJob (corre cada
+        // minuto, timeout de 180s) en la cola default, y una difusión puede
+        // quedar detrás de un mail sync lento sin ningún aviso.
+        $this->onQueue('broadcasts');
+    }
 
     public function handle(WhatsAppTemplateService $templateService): void
     {

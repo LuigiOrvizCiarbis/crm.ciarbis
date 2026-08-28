@@ -126,7 +126,7 @@ services:
       target: production
     restart: always
     user: www-data
-    command: php artisan queue:work redis --tries=1 --timeout=130 --sleep=3
+    command: php artisan queue:work redis --queue=broadcasts,default --tries=1 --timeout=180 --sleep=3 --max-time=3600
     environment:
       APP_ENV: production
       APP_DEBUG: "false"

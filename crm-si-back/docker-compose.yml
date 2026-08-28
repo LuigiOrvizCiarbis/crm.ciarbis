@@ -134,7 +134,7 @@ services:
       - ./:/var/www/html
       - vendor:/var/www/html/vendor
       - node_modules:/var/www/html/node_modules
-    command: php artisan queue:work redis --tries=5 --timeout=130 --sleep=3
+    command: php artisan queue:work redis --queue=broadcasts,default --tries=5 --timeout=180 --sleep=3 --max-time=3600
     environment:
       APP_ENV: ${APP_ENV:-local}
       APP_DEBUG: ${APP_DEBUG:-true}
