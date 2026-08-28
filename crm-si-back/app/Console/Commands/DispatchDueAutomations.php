@@ -27,8 +27,10 @@ class DispatchDueAutomations extends Command
 
         do {
             $ids = DB::transaction(function (): array {
+                // scheduled_for y queued_at son timestamptz: comparar en UTC.
+                // Ver HasTimezoneAwareDates.
                 $runs = AutomationRun::withoutGlobalScopes()->where('status', AutomationRunStatus::Scheduled)
-                    ->where('scheduled_for', '<=', now())
+                    ->where('scheduled_for', '<=', now()->utc())
                     ->orderBy('scheduled_for')
                     ->limit(100)
                     ->lock('for update skip locked')
@@ -37,7 +39,9 @@ class DispatchDueAutomations extends Command
                     return [];
                 }
                 $ids = $runs->modelKeys();
-                AutomationRun::withoutGlobalScopes()->whereKey($ids)->update(['status' => AutomationRunStatus::Queued, 'queued_at' => now()]);
+                // Bulk update: no pasa por el modelo, HasTimezoneAwareDates no
+                // aplica. ->utc() explícito, igual que en las comparaciones de arriba.
+                AutomationRun::withoutGlobalScopes()->whereKey($ids)->update(['status' => AutomationRunStatus::Queued, 'queued_at' => now()->utc()]);
 
                 return $ids;
             });
@@ -52,8 +56,9 @@ class DispatchDueAutomations extends Command
     private function reclaimStaleQueued(): void
     {
         do {
+            // queued_at es timestamptz: comparar en UTC. Ver HasTimezoneAwareDates.
             $ids = AutomationRun::withoutGlobalScopes()->where('status', AutomationRunStatus::Queued)
-                ->where('queued_at', '<=', now()->subMinutes(self::STALE_QUEUED_MINUTES))
+                ->where('queued_at', '<=', now()->utc()->subMinutes(self::STALE_QUEUED_MINUTES))
                 ->orderBy('queued_at')->limit(100)->pluck('id');
             foreach ($ids as $id) {
                 ExecuteAutomationRunJob::dispatch($id);
