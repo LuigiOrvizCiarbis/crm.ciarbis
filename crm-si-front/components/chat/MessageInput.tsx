@@ -668,6 +668,20 @@ export function MessageInput({
                   </span>
                 </>
               )}
+              {supportsContactSharing && onShareContacts && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="hidden shrink-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5"
+                  disabled={disabled}
+                  onClick={() => setIsContactShareOpen(true)}
+                  aria-label="Compartir contactos"
+                  title="Compartir contactos"
+                >
+                  <UserRound className="w-4 h-4" />
+                </Button>
+              )}
               <Popover open={isTranslationOpen} onOpenChange={setIsTranslationOpen}>
                 <PopoverTrigger asChild>
                   <Button
