@@ -24,6 +24,7 @@ class Message extends Model
         'sender_id',
         'content',
         'message_type',
+        'contacts',
         'media_url',
         'media_mime_type',
         'media_filename',
@@ -44,6 +45,7 @@ class Message extends Model
         'sender_type' => SenderType::class,
         'direction' => MessageDirection::class,
         'message_type' => MessageType::class,
+        'contacts' => 'array',
         'delivered_at' => 'datetime',
         'read_at' => 'datetime',
         'played_at' => 'datetime',
@@ -241,6 +243,7 @@ class Message extends Model
             MessageType::Video => '🎥 '.($this->content ?: 'Video'),
             MessageType::Audio => '🎵 Audio',
             MessageType::Document => '📄 '.($this->content ?: 'Documento'),
+            MessageType::Contacts => '👤 '.($this->content ?: 'Contactos compartidos'),
             default => $this->content ?? '',
         };
     }

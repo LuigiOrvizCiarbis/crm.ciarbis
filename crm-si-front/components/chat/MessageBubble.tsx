@@ -1,6 +1,6 @@
 "use client"
 
-import { Message, TranslationLanguage } from "@/data/types"
+import { Message, TranslationLanguage, SharedContact } from "@/data/types"
 import { MessageStatus } from "./MessageStatus"
 import { MoreHorizontal, Pencil, Trash2, Bot, Languages, EyeOff } from "lucide-react"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -49,6 +49,7 @@ interface MessageBubbleProps {
   onTranslate: (message: Message) => void
   onEdit?: (message: Message) => void
   onDelete?: (message: Message) => void
+  onSaveContact?: (message: Message, index: number) => void
   canEdit: boolean
   canDelete: boolean
   canTranslate: boolean
@@ -68,6 +69,7 @@ export function MessageBubble({
   canEdit,
   canDelete,
   canTranslate,
+  onSaveContact,
 }: MessageBubbleProps) {
   const { t } = useTranslation()
 
@@ -83,8 +85,9 @@ export function MessageBubble({
   const isImage = msg.message_type === "image" && mediaUrl
   const isSticker = msg.message_type === "sticker" && mediaUrl
   const isAudio = msg.message_type === "audio" && mediaUrl
+  const isContacts = msg.message_type === "contacts" && Array.isArray(msg.contacts)
 
-  const parsed = !isImage && !isSticker && !isAudio && !isDeleted
+  const parsed = !isImage && !isSticker && !isAudio && !isContacts && !isDeleted
     ? parseTemplateContent(msg.content || "")
     : { isTemplate: false, title: "", body: "" }
 
@@ -238,6 +241,18 @@ export function MessageBubble({
     </div>
   ) : isAudio && mediaUrl ? (
     <MessageBubbleAudio mediaUrl={mediaUrl} filename={msg.media_filename} />
+  ) : isContacts ? (
+    <div className="space-y-2">
+      {(msg.contacts as SharedContact[]).map((contact, index) => (
+        <div key={`${contact.name.formatted_name}-${index}`} className="min-w-56 rounded-lg border border-current/15 bg-background/40 p-2.5">
+          <p className="text-sm font-semibold">{contact.name.formatted_name}</p>
+          {contact.phones?.map((phone, phoneIndex) => phone.phone && <p key={`p-${phoneIndex}`} className="text-xs opacity-80">📞 {phone.phone}</p>)}
+          {contact.emails?.map((email, emailIndex) => email.email && <p key={`e-${emailIndex}`} className="truncate text-xs opacity-80">✉️ {email.email}</p>)}
+          {contact.org?.company && <p className="text-xs opacity-70">{contact.org.company}{contact.org.title ? ` · ${contact.org.title}` : ""}</p>}
+          {msg.direction === "inbound" && onSaveContact && <button type="button" className="mt-2 text-xs font-medium underline underline-offset-2" onClick={() => onSaveContact(msg, index)}>Guardar en contactos</button>}
+        </div>
+      ))}
+    </div>
   ) : parsed.isTemplate ? (
     <div className="space-y-1">
       <span className="text-xs font-medium opacity-75">{parsed.title}</span>

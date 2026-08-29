@@ -8,8 +8,10 @@ use App\Events\MessageDeleted;
 use App\Events\MessageEdited;
 use App\Exceptions\MetaApiException;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\ContactResource;
 use App\Http\Requests\UpdateMessageRequest;
 use App\Models\Conversation;
+use App\Models\Contact;
 use App\Models\Message;
 use App\Services\InstagramMessageService;
 use App\Services\MailMessageService;
@@ -85,9 +87,11 @@ class MessageController extends Controller
     {
         $data = $request->validate([
             'conversation_id' => 'required|exists:conversations,id',
-            'content' => 'required_unless:type,image,audio,mail|nullable|string',
+            'content' => 'required_unless:type,image,audio,mail,contacts|nullable|string',
             'content_html' => 'nullable|string|max:200000',
-            'type' => 'required|string|in:text,image,audio,mail',
+            'type' => 'required|string|in:text,image,audio,mail,contacts',
+            'contact_ids' => 'required_if:type,contacts|array|min:1|max:10',
+            'contact_ids.*' => 'integer|distinct',
             'image' => 'required_if:type,image|image|max:10240',
             'audio' => 'required_if:type,audio|file|mimetypes:'.implode(',', self::ALLOWED_AUDIO_MIMES).'|max:16384',
             'voice' => 'sometimes|boolean',
@@ -125,6 +129,32 @@ class MessageController extends Controller
         // no caer silenciosamente a WhatsApp.
         if ($type === 'mail' && $channelType !== ChannelType::MAIL) {
             return response()->json(['message' => 'El formato email sólo está disponible en canales de correo.'], 422);
+        }
+
+        if ($type === 'contacts') {
+            if ($channelType !== ChannelType::WHATSAPP) {
+                return response()->json(['message' => 'Compartir contactos sólo está disponible en canales de WhatsApp.'], 422);
+            }
+            $contacts = Contact::query()
+                ->visibleTo($request->user())
+                ->whereIn('id', $data['contact_ids'] ?? [])
+                ->get();
+            if ($contacts->count() !== count($data['contact_ids'] ?? [])) {
+                return response()->json(['message' => 'Uno o más contactos no están disponibles para compartir.'], 422);
+            }
+            try {
+                $message = $this->messageService->sendContactsMessageFromCRM(
+                    $conversation,
+                    $this->messageService->buildContactCards($contacts),
+                    $request->user(),
+                );
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            } catch (\RuntimeException $e) {
+                Log::warning('Error enviando contactos por WhatsApp', ['conversation_id' => $conversation->id, 'error' => $e->getMessage()]);
+                return response()->json(['message' => 'No se pudieron enviar los contactos por WhatsApp.'], 422);
+            }
+            return response()->json(['data' => $message], 201);
         }
 
         if ($type === 'mail'
@@ -302,6 +332,47 @@ class MessageController extends Controller
         }
 
         return response()->json(['data' => $message], 201);
+    }
+
+    public function saveSharedContact(Request $request, Message $message, int $index): JsonResponse
+    {
+        $this->authorize('view', $message);
+        $cards = is_array($message->contacts) ? $message->contacts : [];
+        $card = $cards[$index] ?? null;
+        if ($message->message_type !== MessageType::Contacts || ! is_array($card)) {
+            return response()->json(['message' => 'La tarjeta de contacto no existe.'], 404);
+        }
+
+        $validated = $request->validate(['contact_id' => ['nullable', 'integer']]);
+        $user = $request->user();
+        $contact = null;
+        if (! empty($validated['contact_id'])) {
+            $contact = Contact::query()->whereKey($validated['contact_id'])->where('tenant_id', $user->tenant_id)->firstOrFail();
+            $this->authorize('update', $contact);
+        } else {
+            $this->authorize('create', Contact::class);
+        }
+
+        $phone = $card['phones'][0]['phone'] ?? null;
+        $email = $card['emails'][0]['email'] ?? null;
+        $attributes = array_filter([
+            'name' => $card['name']['formatted_name'] ?? 'Sin nombre',
+            'phone' => $phone,
+            'email' => $email,
+        ], static fn ($value) => $value !== null && $value !== '');
+
+        if ($contact) {
+            $contact->update($attributes);
+        } else {
+            $contact = Contact::create([
+                'tenant_id' => $user->tenant_id,
+                'branch_id' => $message->conversation?->branch_id,
+                'source' => 'whatsapp',
+                ...$attributes,
+            ]);
+        }
+
+        return response()->json(['data' => new ContactResource($contact->refresh())]);
     }
 
     public function update(UpdateMessageRequest $request, Message $message): JsonResponse

@@ -1,4 +1,4 @@
-import { Message, TranslationLanguage } from "@/data/types";
+import { Message, TranslationLanguage, SharedContact } from "@/data/types";
 import { getAuthToken } from "./auth-token";
 import { throwApiError } from "./api-error";
 import { audioExtensionForMime } from "@/lib/audio";
@@ -91,6 +91,34 @@ export async function sendMessage(conversationId: number, content: string, media
 
   return data.data;
 }
+
+export async function sendContactsMessage(conversationId: number, contactIds: number[]): Promise<Message> {
+  const token = getAuthToken();
+  if (!token) throw new Error("Token faltante");
+  const response = await fetch("/api/messages", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ conversation_id: conversationId, type: "contacts", contact_ids: contactIds }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throwApiError(response.status, payload, "No se pudieron enviar los contactos");
+  return payload.data as Message;
+}
+
+export async function saveSharedContact(messageId: number, index: number, contactId?: number): Promise<unknown> {
+  const token = getAuthToken();
+  if (!token) throw new Error("Token faltante");
+  const response = await fetch(`/api/messages/${messageId}/contacts/${index}/save`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(contactId ? { contact_id: contactId } : {}),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throwApiError(response.status, payload, "No se pudo guardar el contacto");
+  return payload.data;
+}
+
+export type { SharedContact };
 
 export interface SendMailMessageInput {
   content: string;
