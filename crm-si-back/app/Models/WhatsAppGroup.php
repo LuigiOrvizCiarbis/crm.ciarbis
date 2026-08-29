@@ -76,7 +76,9 @@ class WhatsAppGroup extends Model
 
     public function participants(): HasMany
     {
-        return $this->hasMany(WhatsAppGroupParticipant::class);
+        // FK explícita: la inferida por defecto sería whats_app_group_id
+        // (mismo problema que el nombre de tabla, ver WhatsAppGroup::$table).
+        return $this->hasMany(WhatsAppGroupParticipant::class, 'whatsapp_group_id');
     }
 
     public function activeParticipants(): HasMany

@@ -57,7 +57,8 @@ class WhatsAppController extends Controller
     private array $isOnBusinessAppCache = [];
 
     public function __construct(
-        private WhatsAppMessageService $messageService
+        private WhatsAppMessageService $messageService,
+        private \App\Services\WhatsAppGroupWebhookService $groupWebhookService,
     ) {}
 
     /**
@@ -1204,6 +1205,18 @@ class WhatsAppController extends Controller
 
                     } elseif ($field === 'history') {
                         $this->handleHistorySync($entry['id'] ?? null, $value);
+
+                    } elseif ($field === 'group_lifecycle_update') {
+                        $this->groupWebhookService->handleLifecycleUpdate($value);
+
+                    } elseif ($field === 'group_participants_update') {
+                        $this->groupWebhookService->handleParticipantsUpdate($value);
+
+                    } elseif ($field === 'group_settings_update') {
+                        $this->groupWebhookService->handleSettingsUpdate($value);
+
+                    } elseif ($field === 'group_status_update') {
+                        $this->groupWebhookService->handleStatusUpdate($value);
                     }
                 }
             }

@@ -110,10 +110,36 @@ class WhatsAppMessageService
                 return null;
             }
 
+            // Mensaje de grupo: el `from` sigue siendo el teléfono de quien
+            // escribió (misma forma que un 1:1), pero la conversación es la
+            // del grupo, no una nueva 1:1 por participante. Si el grupo no
+            // existe localmente (creado fuera del CRM) se dropea: auto-crearlo
+            // dejaría un grupo sin dueño ni permisos en la bandeja.
+            $groupWaId = $messageData['group_id'] ?? $value['group_id'] ?? null;
+
             /** @var Contact $contact */
             $contact = $this->findOrCreateContact($contactData, $messageData['from'] ?? '', $channel);
-            /** @var Conversation $conversation */
-            $conversation = $this->findOrCreateConversation($contact, $channel);
+
+            if ($groupWaId !== null) {
+                $conversation = $this->resolveGroupConversation((string) $groupWaId, $channel);
+                if (! $conversation) {
+                    Log::warning('processIncomingMessage: grupo no encontrado localmente', [
+                        'group_id' => $groupWaId,
+                        'channel_id' => $channel->id,
+                    ]);
+                    $this->reportDroppedWebhook(
+                        'processIncomingMessage: grupo no encontrado localmente',
+                        ['group_id' => $groupWaId, 'channel_id' => $channel->id]
+                    );
+
+                    return null;
+                }
+
+                $this->touchGroupParticipantFromMessage($conversation, $contact, $messageData);
+            } else {
+                $conversation = $this->findOrCreateConversation($contact, $channel);
+            }
+
             /** @var int $conversationId */
             $conversationId = $conversation->getKey();
             /** @var int $contactId */
@@ -211,6 +237,41 @@ class WhatsAppMessageService
         }
 
         return $conversation;
+    }
+
+    private function resolveGroupConversation(string $groupWaId, Channel $channel): ?Conversation
+    {
+        $group = \App\Models\WhatsAppGroup::query()
+            ->where('group_id', $groupWaId)
+            ->where('channel_id', $channel->id)
+            ->first();
+
+        return $group?->conversation;
+    }
+
+    /**
+     * Mantiene fresco el panel de participantes aunque no llegue (o llegue
+     * tarde) el webhook group_participants_update: defensa en profundidad,
+     * no la única fuente de verdad de la membresía.
+     */
+    private function touchGroupParticipantFromMessage(Conversation $conversation, Contact $contact, array $messageData): void
+    {
+        $group = $conversation->whatsappGroup;
+        if (! $group) {
+            return;
+        }
+
+        \App\Models\WhatsAppGroupParticipant::updateOrCreate(
+            [
+                'whatsapp_group_id' => $group->id,
+                'wa_id' => $messageData['from'] ?? '',
+            ],
+            [
+                'contact_id' => $contact->id,
+                'status' => 'active',
+                'display_name' => $contact->name,
+            ]
+        );
     }
 
     private function parseWebhookTimestamp(?string $timestamp): Carbon
