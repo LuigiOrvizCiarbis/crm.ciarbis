@@ -83,13 +83,15 @@ export function MessageStatus({ message, onAccent = false }: MessageStatusProps)
         ? Check
         : CheckCheck
 
-  // Igual que WhatsApp, sólo read/played reciben el celeste de confirmación.
-  // Los estados anteriores permanecen neutros aun sobre la burbuja primaria.
+  // Leído/reproducido usan el rol semántico Logrado. Sobre la burbuja primaria
+  // cada estado tiene un token propio con contraste no-textual WCAG AA (>= 3:1).
   const isAcknowledged = status === "read" || status === "played"
-  const tone = isAcknowledged
-    ? "text-[#53bdeb]"
-    : onAccent
-      ? "text-[#667781]"
+  const tone = onAccent
+    ? isAcknowledged
+      ? "text-message-read-on-primary"
+      : "text-message-status-on-primary"
+    : isAcknowledged
+      ? "text-success"
       : "text-muted-foreground"
 
   return (
