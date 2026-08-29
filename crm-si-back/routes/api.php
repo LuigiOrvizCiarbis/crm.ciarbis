@@ -334,6 +334,9 @@ Route::post('reset-password', function (Request $request) {
 Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('broadcasts', [BroadcastCampaignController::class, 'index']);
+    Route::get('broadcasts/{id}/results', [BroadcastCampaignController::class, 'results']);
+    Route::get('broadcasts/{id}/recipients', [BroadcastCampaignController::class, 'recipients']);
+    Route::get('broadcasts/{id}/recipients/{recipientId}', [BroadcastCampaignController::class, 'recipient']);
     Route::post('broadcasts/estimate', [BroadcastCampaignController::class, 'estimate']);
     Route::post('broadcasts', [BroadcastCampaignController::class, 'store']);
 

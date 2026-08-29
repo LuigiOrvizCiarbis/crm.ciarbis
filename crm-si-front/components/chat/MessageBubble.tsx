@@ -276,6 +276,8 @@ export function MessageBubble({
   // Los mensajes fallidos siempre conservan su estado visible, aunque otro
   // mensaje del mismo emisor los siga dentro de la ventana de agrupación.
   const showStatusRow = isLastOfGroup || (msg.direction === "outbound" && !!msg.failed_at)
+  const latestReaction = msg.interactions?.filter((item) => item.type === "reaction" || item.type === "reaction_removed").at(-1)
+  const currentReaction = latestReaction?.type === "reaction" ? latestReaction.value : null
 
   return (
     <div
@@ -286,7 +288,7 @@ export function MessageBubble({
       {isUser && actionsMenu}
 
       <div
-        className={`relative max-w-[80%] overflow-hidden break-words px-3 py-2 sm:max-w-[75%] ${corner} ${surface} ${
+        className={`relative max-w-[80%] overflow-visible break-words px-3 py-2 sm:max-w-[75%] ${corner} ${surface} ${
           hasActions ? "[-webkit-touch-callout:none]" : ""
         }`}
         {...(hasActions ? longPress : {})}
@@ -299,6 +301,12 @@ export function MessageBubble({
         )}
 
         {body}
+
+        {currentReaction && (
+          <span className="absolute -bottom-3 right-2 rounded-full border bg-background px-1.5 text-sm shadow-sm" aria-label={`Reacción ${currentReaction}`}>
+            {currentReaction}
+          </span>
+        )}
 
         {translationState?.visible && isCurrentTranslation && (
           <div className="mt-2 border-t border-current/15 pt-2" aria-live="polite">

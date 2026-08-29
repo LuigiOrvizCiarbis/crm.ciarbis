@@ -6,6 +6,7 @@ use App\Enums\BroadcastRecipientStatus;
 use App\Models\Concerns\HasTimezoneAwareDates;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class BroadcastRecipient extends Model
 {
@@ -18,6 +19,8 @@ class BroadcastRecipient extends Model
         'message_id',
         'status',
         'error',
+        'failure_code',
+        'failure_details',
         'queued_at',
         'sent_at',
     ];
@@ -28,6 +31,7 @@ class BroadcastRecipient extends Model
             'status' => BroadcastRecipientStatus::class,
             'queued_at' => 'immutable_datetime',
             'sent_at' => 'immutable_datetime',
+            'failure_details' => 'array',
         ];
     }
 
@@ -49,5 +53,10 @@ class BroadcastRecipient extends Model
     public function message(): BelongsTo
     {
         return $this->belongsTo(Message::class);
+    }
+
+    public function interactions(): HasMany
+    {
+        return $this->hasMany(MessageInteraction::class);
     }
 }

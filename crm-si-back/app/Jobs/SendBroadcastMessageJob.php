@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\BroadcastRecipientStatus;
+use App\Events\BroadcastResultsUpdated;
 use App\Enums\TemplateCategory;
 use App\Models\BroadcastRecipient;
 use App\Models\Conversation;
@@ -117,6 +118,7 @@ class SendBroadcastMessageJob implements ShouldQueue
                     'error' => null,
                 ]);
                 $recipient->campaign->refreshDeliveryStatus();
+                broadcast(new BroadcastResultsUpdated($recipient->broadcast_campaign_id, $recipient->id));
             }
         } catch (\Throwable $e) {
             // Fallo aislado: no rompe el resto del lote de la difusión.
@@ -141,6 +143,7 @@ class SendBroadcastMessageJob implements ShouldQueue
             'error' => mb_substr($error, 0, 2000),
         ]);
         $recipient->campaign->refreshDeliveryStatus();
+        broadcast(new BroadcastResultsUpdated($recipient->broadcast_campaign_id, $recipient->id));
     }
 
     public function failed(\Throwable $exception): void

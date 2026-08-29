@@ -181,6 +181,7 @@ export interface Message {
   mail_parent_message_id?: number | null
   created_at: string
   updated_at?: string
+  interactions?: Array<{ type: string; value?: string | null; content?: string | null; occurred_at: string }>
 }
 
 export interface SharedContact {

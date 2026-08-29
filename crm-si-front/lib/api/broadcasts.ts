@@ -33,6 +33,38 @@ export interface BroadcastCampaign {
   started_at: string | null
   completed_at: string | null
   created_at: string
+  results_tracking_version?: number | null
+}
+
+export type BroadcastRecipientResultStatus = "pending" | "accepted_unconfirmed" | "delivered" | "read" | "failed"
+export interface BroadcastRecipientResult {
+  id: number
+  conversation_id: number
+  contact: { id: number; name: string; phone: string }
+  status: BroadcastRecipientResultStatus
+  status_label: string
+  queued_at: string | null
+  sent_at: string | null
+  delivered_at: string | null
+  read_at: string | null
+  failure: { message: string; code: string | null; details: unknown } | null
+  interaction: { type: string; value: string | null; content: string | null; occurred_at: string } | null
+}
+export interface BroadcastResultsSummary {
+  audience_count: number
+  accepted_count: number
+  delivered_count: number
+  read_count: number
+  failed_count: number
+  pending_count: number
+  unconfirmed_count: number
+  interacted_count: number
+}
+export interface BroadcastResults {
+  results_available: boolean
+  campaign_id?: number
+  campaign?: BroadcastCampaign
+  summary?: BroadcastResultsSummary
 }
 
 export interface BroadcastPayload {
@@ -110,4 +142,19 @@ export async function createBroadcast(payload: BroadcastPayload): Promise<Broadc
     body: JSON.stringify(payload),
   })
   return result.data
+}
+
+export async function getBroadcastResults(id: number): Promise<BroadcastResults> {
+  const result = await request<{ data: BroadcastResults }>(`/api/broadcasts/${id}/results`)
+  return result.data
+}
+
+export async function getBroadcastRecipients(id: number, params: { page?: number; status?: string; search?: string; interaction?: boolean } = {}) {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => value !== undefined && query.set(key, String(value)))
+  return request<{ data: BroadcastRecipientResult[]; meta: { current_page: number; last_page: number; total: number } }>(`/api/broadcasts/${id}/recipients?${query}`)
+}
+
+export async function getBroadcastRecipient(id: number, recipientId: number) {
+  return request<{ data: BroadcastRecipientResult; history: Array<{ type: string; value: string | null; content: string | null; occurred_at: string }> }>(`/api/broadcasts/${id}/recipients/${recipientId}`)
 }
