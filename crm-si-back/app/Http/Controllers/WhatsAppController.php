@@ -59,6 +59,7 @@ class WhatsAppController extends Controller
     public function __construct(
         private WhatsAppMessageService $messageService,
         private \App\Services\WhatsAppGroupWebhookService $groupWebhookService,
+        private \App\Services\WhatsAppGroupEligibilityService $groupEligibilityService,
     ) {}
 
     /**
@@ -334,6 +335,16 @@ class WhatsAppController extends Controller
                 if (! $syncOk) {
                     $warnings[] = 'No se pudo iniciar la sincronización de contactos. Contactá a soporte.';
                 }
+            }
+
+            // Fail-safe: la elegibilidad de grupos no debe bloquear ni fallar el
+            // onboarding. Se resuelve acá para que ya esté cacheada (6h) cuando
+            // el usuario abra Chats, en vez de esperar la primera consulta a
+            // pedido desde el front.
+            try {
+                $this->groupEligibilityService->statusFor($config, force: true);
+            } catch (\Throwable $e) {
+                Log::warning('handleAuth: no se pudo resolver la elegibilidad de grupos', $this->describeException($e));
             }
 
             return response()->json([
