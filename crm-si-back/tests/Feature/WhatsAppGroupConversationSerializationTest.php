@@ -89,6 +89,21 @@ class WhatsAppGroupConversationSerializationTest extends TestCase
         $response->assertJsonPath('data.0.sender.name', 'Ana');
     }
 
+    public function test_index_exposes_kind_and_group_summary_without_opening_the_chat(): void
+    {
+        [$user, , $group, $conversation] = $this->context();
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson('/api/conversations');
+
+        $response->assertOk();
+        $row = collect($response->json('data'))->firstWhere('id', $conversation->id);
+        $this->assertNotNull($row);
+        $this->assertSame('group', $row['kind']);
+        $this->assertSame('Grupo activo', $row['group']['subject']);
+        $this->assertNull($row['contact']);
+    }
+
     public function test_show_does_not_attach_sender_for_direct_conversations(): void
     {
         [$user, $channel] = $this->context();

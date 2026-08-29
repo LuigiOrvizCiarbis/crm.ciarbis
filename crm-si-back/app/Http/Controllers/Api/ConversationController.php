@@ -38,7 +38,13 @@ class ConversationController extends Controller
         $canViewAny = $user->can('conversations.view_any');
 
         $q = Conversation::query()
-            ->with(['contact:id,name,phone', 'channel:id,name,type', 'messages:id', 'tags'])
+            ->with([
+                'contact:id,name,phone',
+                'channel:id,name,type',
+                'messages:id',
+                'tags',
+                'whatsappGroup:id,conversation_id,subject,status,group_id,total_participant_count,invite_link',
+            ])
             ->withCount(['messages as unread_count' => function ($query) {
                 $query->where('direction', MessageDirection::INBOUND)
                     ->whereNull('mail_parent_message_id')
@@ -159,6 +165,8 @@ class ConversationController extends Controller
                 'channel_id' => $conversation->channel_id,
                 'contact_id' => $conversation->contact_id,
                 'contact' => $conversation->contact,
+                'kind' => $conversation->kind,
+                'group' => $conversation->whatsappGroup,
                 'channel' => $conversation->channel,
                 'last_message_at' => $conversation->last_message_at,
                 'last_message' => $conversation->last_message_content ?? 'Sin mensajes',
