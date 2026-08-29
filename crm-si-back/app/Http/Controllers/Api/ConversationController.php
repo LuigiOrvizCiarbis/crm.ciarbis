@@ -206,18 +206,55 @@ class ConversationController extends Controller
             'contact:id,name,phone',
             'channel:id,name,type',
             'tags',
+            'whatsappGroup:id,conversation_id,subject,status,group_id,total_participant_count,invite_link',
         ])
             ->findOrFail($id);
 
         $this->authorize('view', $conversation);
 
         $conversation->setRelation('messages', $conversation->messages->sortBy('created_at')->values());
+        if ($conversation->isGroup()) {
+            $this->attachSenderNames($conversation->messages);
+        }
 
         // Agregar assigned_to explícitamente
         $data = $conversation->toArray();
         $data['assigned_to'] = $conversation->assigned_to;
+        if ($conversation->relationLoaded('whatsappGroup') && $conversation->whatsappGroup) {
+            $data['group'] = $conversation->whatsappGroup;
+        }
 
         return response()->json(['data' => $data]);
+    }
+
+    /**
+     * Adjunta `sender: {id, name}` a cada mensaje inbound de una conversación
+     * de grupo. Message::sender() es un morphTo sin morph map registrado (el
+     * valor guardado es el string plano 'contact', no una clase), así que no
+     * se puede hacer ->load('sender'): se resuelve a mano en batch por
+     * sender_id contra Contact.
+     *
+     * @param  \Illuminate\Support\Collection<int, Message>  $messages
+     */
+    private function attachSenderNames(\Illuminate\Support\Collection $messages): void
+    {
+        $contactIds = $messages
+            ->where('sender_type', \App\Enums\SenderType::CONTACT)
+            ->pluck('sender_id')
+            ->filter()
+            ->unique();
+
+        if ($contactIds->isEmpty()) {
+            return;
+        }
+
+        $names = \App\Models\Contact::whereIn('id', $contactIds)->pluck('name', 'id');
+
+        $messages->each(function ($message) use ($names) {
+            if ($message->sender_type === \App\Enums\SenderType::CONTACT && $names->has($message->sender_id)) {
+                $message->setAttribute('sender', ['id' => $message->sender_id, 'name' => $names->get($message->sender_id)]);
+            }
+        });
     }
 
     // NUEVO MÉTODO: Obtener mensajes paginados (Infinite Scroll)
@@ -235,6 +272,10 @@ class ConversationController extends Controller
             ->whereNull('mail_parent_message_id')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
+
+        if ($conversation->isGroup()) {
+            $this->attachSenderNames($messages->getCollection());
+        }
 
         return response()->json($messages);
     }
