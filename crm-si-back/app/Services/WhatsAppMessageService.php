@@ -6,21 +6,21 @@ use App\Enums\ChannelType;
 use App\Enums\MessageDirection;
 use App\Enums\MessageType;
 use App\Enums\SenderType;
+use App\Events\BroadcastResultsUpdated;
 use App\Events\MessageDeleted;
 use App\Events\MessageEdited;
 use App\Events\MessageSent;
 use App\Events\MessageStatusUpdated;
 use App\Events\TenantMessageReceived;
-use App\Events\BroadcastResultsUpdated;
 use App\Jobs\GenerateAiReplyJob;
 use App\Models\AiConfig;
+use App\Models\BroadcastRecipient;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\ContactField;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageInteraction;
-use App\Models\BroadcastRecipient;
 use App\Models\PipelineStage;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
@@ -103,6 +103,7 @@ class WhatsAppMessageService
 
             if ($messageType === 'reaction') {
                 $this->recordReactionInteraction($messageData, $tenantId);
+
                 return null;
             }
 
@@ -568,6 +569,7 @@ class WhatsAppMessageService
         }
         if ($type === 'interactive' && isset($messageData['interactive']['button_reply'])) {
             $reply = $messageData['interactive']['button_reply'];
+
             return [
                 'type' => 'quick_reply',
                 'value' => $reply['id'] ?? $reply['title'] ?? null,
@@ -575,6 +577,7 @@ class WhatsAppMessageService
                 'target_external_id' => $messageData['context']['id'] ?? null,
             ];
         }
+
         return null;
     }
 
@@ -610,11 +613,16 @@ class WhatsAppMessageService
         $target = $contextId ? Message::query()->where('external_id', $contextId)->first() : null;
         $recipient = $target?->broadcastRecipient;
         if (! $recipient) {
+            // broadcast_recipients.sent_at es timestamptz, mientras messages.created_at
+            // es timestamp local. Usar el timestamp UTC de Meta evita comparar una
+            // hora local contra UTC y descartar respuestas válidas como si la
+            // difusión se hubiera enviado tres horas en el futuro.
+            $receivedAt = $this->parseWebhookTimestamp($messageData['timestamp'] ?? null)->utc();
             $recipient = BroadcastRecipient::query()
                 ->where('contact_id', $source->sender_id)
                 ->whereHas('campaign', fn ($q) => $q->where('results_tracking_version', 1))
                 ->whereNotNull('sent_at')
-                ->whereBetween('sent_at', [$source->created_at?->copy()->subDay() ?? now()->subDay(), $source->created_at ?? now()])
+                ->whereBetween('sent_at', [$receivedAt->copy()->subDay(), $receivedAt])
                 ->whereDoesntHave('interactions', fn ($q) => $q->where('type', 'reply'))
                 ->latest('sent_at')->first();
             $target = $recipient?->message;
@@ -641,10 +649,14 @@ class WhatsAppMessageService
     private function recordReactionInteraction(array $messageData, int $tenantId): void
     {
         $targetExternalId = $messageData['reaction']['message_id'] ?? null;
-        if (! $targetExternalId) return;
+        if (! $targetExternalId) {
+            return;
+        }
         $target = Message::query()->where('external_id', $targetExternalId)->first();
         $recipient = $target?->broadcastRecipient;
-        if (! $target || ! $recipient || ! $recipient->campaign->resultsEnabled()) return;
+        if (! $target || ! $recipient || ! $recipient->campaign->resultsEnabled()) {
+            return;
+        }
         $emoji = $messageData['reaction']['emoji'] ?? null;
         MessageInteraction::firstOrCreate(
             ['deduplication_key' => 'reaction:'.($messageData['id'] ?? sha1(json_encode($messageData)))],
@@ -682,20 +694,32 @@ class WhatsAppMessageService
                 if ($value === null || $value === '' || is_array($value)) {
                     continue;
                 }
-                if ($field->type?->value === 'phone') $phones[] = ['phone' => (string) $value];
-                if ($field->type?->value === 'email') $emails[] = ['email' => (string) $value];
+                if ($field->type?->value === 'phone') {
+                    $phones[] = ['phone' => (string) $value];
+                }
+                if ($field->type?->value === 'email') {
+                    $emails[] = ['email' => (string) $value];
+                }
             }
             $dedupe = static fn (array $items, string $key): array => collect($items)->unique(fn ($item) => strtolower((string) ($item[$key] ?? '')))->values()->all();
             $card = [
                 'name' => ['formatted_name' => (string) ($contact->name ?: $contact->phone ?: 'Sin nombre')],
             ];
-            if ($phones !== []) $card['phones'] = $dedupe($phones, 'phone');
-            if ($emails !== []) $card['emails'] = $dedupe($emails, 'email');
+            if ($phones !== []) {
+                $card['phones'] = $dedupe($phones, 'phone');
+            }
+            if ($emails !== []) {
+                $card['emails'] = $dedupe($emails, 'email');
+            }
             $org = [];
             foreach (['company' => 'company', 'department' => 'department', 'job_title' => 'title'] as $key => $target) {
-                if (($custom[$key] ?? null) !== null && $custom[$key] !== '') $org[$target] = (string) $custom[$key];
+                if (($custom[$key] ?? null) !== null && $custom[$key] !== '') {
+                    $org[$target] = (string) $custom[$key];
+                }
             }
-            if ($org !== []) $card['org'] = $org;
+            if ($org !== []) {
+                $card['org'] = $org;
+            }
             if (($birthday = $custom['birthday'] ?? null) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $birthday)) {
                 $card['birthday'] = $birthday;
             }
@@ -705,7 +729,10 @@ class WhatsAppMessageService
                     $urls[] = ['url' => $custom[$field->key]];
                 }
             }
-            if ($urls !== []) $card['urls'] = $dedupe($urls, 'url');
+            if ($urls !== []) {
+                $card['urls'] = $dedupe($urls, 'url');
+            }
+
             return $card;
         })->values()->all();
     }
@@ -717,7 +744,9 @@ class WhatsAppMessageService
             'https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages",
             ['messaging_product' => 'whatsapp', 'recipient_type' => 'individual', 'to' => $to, 'type' => 'contacts', 'contacts' => $cards]
         );
-        if (! $response->successful()) throw new \RuntimeException('Error enviando contactos a WhatsApp: '.$response->body());
+        if (! $response->successful()) {
+            throw new \RuntimeException('Error enviando contactos a WhatsApp: '.$response->body());
+        }
         $message = Message::create([
             'tenant_id' => $conversation->tenant_id, 'conversation_id' => $conversation->id,
             'sender_type' => SenderType::USER, 'sender_id' => $user->id,
@@ -726,7 +755,13 @@ class WhatsAppMessageService
             'delivered_at' => now(), 'external_id' => $response->json('messages.0.id'),
         ]);
         $conversation->update(['last_message_at' => $message->created_at, 'last_message_content' => '👤 '.count($cards).' contactos compartidos', 'ai_autoreply_enabled' => false]);
-        try { broadcast(new MessageSent($message)); broadcast(new TenantMessageReceived($message, $conversation->tenant_id)); } catch (\Exception $e) { Log::error('Error broadcasting outbound contacts message: '.$e->getMessage()); }
+        try {
+            broadcast(new MessageSent($message));
+            broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
+        } catch (\Exception $e) {
+            Log::error('Error broadcasting outbound contacts message: '.$e->getMessage());
+        }
+
         return $message;
     }
 
@@ -839,7 +874,7 @@ class WhatsAppMessageService
             'audio' => '',
             'video' => $messageData['video']['caption'] ?? '',
             'location' => 'Ubicación compartida',
-            'contacts' => count($messageData['contacts'] ?? []) . ' contactos compartidos',
+            'contacts' => count($messageData['contacts'] ?? []).' contactos compartidos',
             default => '',
         };
 
