@@ -17,6 +17,10 @@ class WhatsAppGroup extends Model
     use HasBranch;
     use HasTimezoneAwareDates;
 
+    // Str::snake('WhatsAppGroup') da 'whats_app_group' (separa "Whats"+"App"),
+    // no 'whatsapp_group'. Explícito para que coincida con la migración.
+    protected $table = 'whatsapp_groups';
+
     protected $fillable = [
         'tenant_id',
         'branch_id',

@@ -11,6 +11,10 @@ class WhatsAppGroupParticipant extends Model
 {
     use HasTimezoneAwareDates;
 
+    // Str::snake('WhatsAppGroupParticipant') separa "Whats"+"App", no coincide
+    // con el nombre de la migración. Ver WhatsAppGroup::$table.
+    protected $table = 'whatsapp_group_participants';
+
     protected $fillable = [
         'whatsapp_group_id',
         'contact_id',

@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\WebhookEndpointController;
+use App\Http\Controllers\Api\WhatsAppGroupController;
 use App\Http\Controllers\Api\WhatsAppTemplateController;
 use App\Http\Controllers\Api\WooCommerceConfigController;
 use App\Http\Controllers\FacebookDataDeletionController;
@@ -497,6 +498,20 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('channels/{id}/users/{userId}', [ChannelController::class, 'removeUser']);
     Route::put('channels/{id}/users', [ChannelController::class, 'syncUsers']);
     Route::patch('channels/{id}/branch', [ChannelController::class, 'assignBranch']);
+    Route::get('channels/{channel}/groups-eligibility', [WhatsAppGroupController::class, 'eligibility']);
+
+    Route::get('whatsapp-groups', [WhatsAppGroupController::class, 'index']);
+    Route::post('whatsapp-groups', [WhatsAppGroupController::class, 'store']);
+    Route::get('whatsapp-groups/{group}', [WhatsAppGroupController::class, 'show']);
+    Route::patch('whatsapp-groups/{group}', [WhatsAppGroupController::class, 'update']);
+    Route::delete('whatsapp-groups/{group}', [WhatsAppGroupController::class, 'destroy']);
+    Route::post('whatsapp-groups/{group}/sync', [WhatsAppGroupController::class, 'sync']);
+    Route::get('whatsapp-groups/{group}/invite-link', [WhatsAppGroupController::class, 'inviteLink']);
+    Route::post('whatsapp-groups/{group}/invite-link', [WhatsAppGroupController::class, 'resetInviteLink']);
+    Route::get('whatsapp-groups/{group}/join-requests', [WhatsAppGroupController::class, 'joinRequests']);
+    Route::post('whatsapp-groups/{group}/join-requests/approve', [WhatsAppGroupController::class, 'approveJoinRequests']);
+    Route::post('whatsapp-groups/{group}/join-requests/reject', [WhatsAppGroupController::class, 'rejectJoinRequests']);
+    Route::post('whatsapp-groups/{group}/participants/remove', [WhatsAppGroupController::class, 'removeParticipants']);
 
     Route::post('admin/channels/whatsapp-auth', [WhatsAppController::class, 'handleAuth']);
     Route::post('admin/channels/instagram-auth', [InstagramController::class, 'handleAuth']);
