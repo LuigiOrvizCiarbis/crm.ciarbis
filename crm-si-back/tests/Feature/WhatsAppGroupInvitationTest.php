@@ -7,6 +7,7 @@ use App\Enums\TemplateCategory;
 use App\Enums\TemplateStatus;
 use App\Enums\UserRole;
 use App\Models\Channel;
+use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Tenant;
 use App\Models\User;
@@ -77,6 +78,32 @@ class WhatsAppGroupInvitationTest extends TestCase
         ]);
 
         $response->assertStatus(422);
+    }
+
+    public function test_invitation_by_contact_id_from_another_tenant_is_rejected(): void
+    {
+        [$user, $channel, $group, $template] = $this->context();
+
+        $otherTenant = Tenant::create(['name' => 'Otro tenant '.uniqid()]);
+        $foreignContact = Contact::withoutGlobalScopes()->create([
+            'tenant_id' => $otherTenant->id,
+            'name' => 'Contacto ajeno',
+            'phone' => '5599988877766',
+            'source' => 'manual',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson("/api/whatsapp-groups/{$group->id}/invitations", [
+            'template_id' => $template->id,
+            'invitees' => [['contact_id' => $foreignContact->id]],
+        ]);
+
+        $response->assertStatus(404);
+        $this->assertDatabaseMissing('whatsapp_group_participants', [
+            'whatsapp_group_id' => $group->id,
+            'contact_id' => $foreignContact->id,
+        ]);
     }
 
     public function test_invitation_rejects_more_than_seven_invitees(): void

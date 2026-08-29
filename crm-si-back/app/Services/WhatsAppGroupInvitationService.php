@@ -80,7 +80,10 @@ class WhatsAppGroupInvitationService
     private function resolveContact(array $invitee, int $tenantId, ?int $branchId): Contact
     {
         if (isset($invitee['contact_id'])) {
-            return Contact::findOrFail($invitee['contact_id']);
+            // Explícito por tenant_id, sin depender de que el TenantScope
+            // global esté activo en este contexto: un contact_id de otro
+            // tenant no debe ser invitable a este grupo.
+            return Contact::where('tenant_id', $tenantId)->findOrFail($invitee['contact_id']);
         }
 
         if (! isset($invitee['phone'])) {

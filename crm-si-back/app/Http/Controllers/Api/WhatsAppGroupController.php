@@ -224,6 +224,10 @@ class WhatsAppGroupController extends Controller
             return $action();
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            // ModelNotFoundException extiende RuntimeException: sin este
+            // catch antes, caería al 502 genérico en vez del 404 nativo.
+            throw $e;
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 502);
         }

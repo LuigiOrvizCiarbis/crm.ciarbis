@@ -61,6 +61,11 @@ class WhatsAppGroupInvitationController extends Controller
             );
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            // ModelNotFoundException extiende RuntimeException: sin este catch
+            // antes, un contact_id inexistente o de otro tenant caía al 502
+            // genérico de abajo en vez del 404 nativo de Laravel.
+            throw $e;
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 502);
         }
