@@ -11,6 +11,7 @@ use App\Events\MessageEdited;
 use App\Events\MessageSent;
 use App\Events\MessageStatusUpdated;
 use App\Events\TenantMessageReceived;
+use App\Events\BroadcastResultsUpdated;
 use App\Jobs\GenerateAiReplyJob;
 use App\Models\AiConfig;
 use App\Models\Channel;
@@ -18,6 +19,8 @@ use App\Models\Contact;
 use App\Models\ContactField;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\MessageInteraction;
+use App\Models\BroadcastRecipient;
 use App\Models\PipelineStage;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
@@ -98,6 +101,19 @@ class WhatsAppMessageService
                 return $this->handleIncomingMessageEdited($messageData, $originalEditedId, $tenantId);
             }
 
+            if ($messageType === 'reaction') {
+                $this->recordReactionInteraction($messageData, $tenantId);
+                return null;
+            }
+
+            // WhatsApp entrega respuestas rápidas como `button` o como
+            // `interactive.button_reply`. Se guardan como texto entrante para
+            // que sigan apareciendo en el chat, y además como interacción.
+            $interaction = $this->extractReplyInteraction($messageData);
+            if ($interaction !== null) {
+                $messageType = 'text';
+            }
+
             if (! $this->isSupportedMessageType($messageType)) {
                 Log::warning('WhatsApp message type no soportado, payload ignorado', [
                     'type' => $messageType,
@@ -132,7 +148,7 @@ class WhatsAppMessageService
                 }
             }
 
-            return $this->createMessage([
+            $message = $this->createMessage([
                 'tenant_id' => $tenantId,
                 'conversation_id' => $conversationId,
                 'sender_type' => SenderType::CONTACT,
@@ -147,6 +163,14 @@ class WhatsAppMessageService
                 'external_id' => $messageData['id'] ?? null,
                 'delivered_at' => $this->parseWebhookTimestamp($messageData['timestamp'] ?? null),
             ]);
+
+            if ($interaction !== null) {
+                $this->recordReplyInteraction($message, $interaction);
+            } else {
+                $this->recordGenericReplyInteraction($message, $messageData);
+            }
+
+            return $message;
         } catch (\Exception $e) {
             Log::error('Error procesando mensaje de WhatsApp: '.$e->getMessage(), [
                 'exception' => $e->getTraceAsString(),
@@ -530,6 +554,113 @@ class WhatsAppMessageService
         ], true);
     }
 
+    /** @return array{type: string, value: ?string, content: string, target_external_id: ?string}|null */
+    private function extractReplyInteraction(array $messageData): ?array
+    {
+        $type = $messageData['type'] ?? null;
+        if ($type === 'button') {
+            return [
+                'type' => 'quick_reply',
+                'value' => $messageData['button']['payload'] ?? $messageData['button']['text'] ?? null,
+                'content' => (string) ($messageData['button']['text'] ?? ''),
+                'target_external_id' => $messageData['context']['id'] ?? null,
+            ];
+        }
+        if ($type === 'interactive' && isset($messageData['interactive']['button_reply'])) {
+            $reply = $messageData['interactive']['button_reply'];
+            return [
+                'type' => 'quick_reply',
+                'value' => $reply['id'] ?? $reply['title'] ?? null,
+                'content' => (string) ($reply['title'] ?? ''),
+                'target_external_id' => $messageData['context']['id'] ?? null,
+            ];
+        }
+        return null;
+    }
+
+    private function recordReplyInteraction(Message $source, array $interaction): void
+    {
+        $target = $interaction['target_external_id']
+            ? Message::query()->where('external_id', $interaction['target_external_id'])->first()
+            : null;
+        $recipient = $target?->broadcastRecipient;
+        if (! $recipient || ! $recipient->campaign->resultsEnabled()) {
+            return;
+        }
+        MessageInteraction::firstOrCreate(
+            ['deduplication_key' => 'reply:'.$source->external_id],
+            [
+                'broadcast_recipient_id' => $recipient->id,
+                'target_message_id' => $target->id,
+                'source_message_id' => $source->id,
+                'contact_id' => $source->sender_id,
+                'type' => $interaction['type'],
+                'value' => $interaction['value'],
+                'content' => $interaction['content'],
+                'payload' => $interaction,
+                'occurred_at' => $source->created_at ?? now(),
+            ],
+        );
+        broadcast(new BroadcastResultsUpdated($recipient->campaign->id, $recipient->id));
+    }
+
+    private function recordGenericReplyInteraction(Message $source, array $messageData): void
+    {
+        $contextId = $messageData['context']['id'] ?? null;
+        $target = $contextId ? Message::query()->where('external_id', $contextId)->first() : null;
+        $recipient = $target?->broadcastRecipient;
+        if (! $recipient) {
+            $recipient = BroadcastRecipient::query()
+                ->where('contact_id', $source->sender_id)
+                ->whereHas('campaign', fn ($q) => $q->where('results_tracking_version', 1))
+                ->whereNotNull('sent_at')
+                ->whereBetween('sent_at', [$source->created_at?->copy()->subDay() ?? now()->subDay(), $source->created_at ?? now()])
+                ->whereDoesntHave('interactions', fn ($q) => $q->where('type', 'reply'))
+                ->latest('sent_at')->first();
+            $target = $recipient?->message;
+        }
+        if (! $recipient || ! $recipient->campaign->resultsEnabled()) {
+            return;
+        }
+        MessageInteraction::firstOrCreate(
+            ['deduplication_key' => 'generic-reply:'.$source->external_id],
+            [
+                'broadcast_recipient_id' => $recipient->id,
+                'target_message_id' => $target?->id,
+                'source_message_id' => $source->id,
+                'contact_id' => $source->sender_id,
+                'type' => 'reply',
+                'content' => $source->content,
+                'payload' => ['inferred' => ! $contextId],
+                'occurred_at' => $source->created_at ?? now(),
+            ],
+        );
+        broadcast(new BroadcastResultsUpdated($recipient->campaign->id, $recipient->id));
+    }
+
+    private function recordReactionInteraction(array $messageData, int $tenantId): void
+    {
+        $targetExternalId = $messageData['reaction']['message_id'] ?? null;
+        if (! $targetExternalId) return;
+        $target = Message::query()->where('external_id', $targetExternalId)->first();
+        $recipient = $target?->broadcastRecipient;
+        if (! $target || ! $recipient || ! $recipient->campaign->resultsEnabled()) return;
+        $emoji = $messageData['reaction']['emoji'] ?? null;
+        MessageInteraction::firstOrCreate(
+            ['deduplication_key' => 'reaction:'.($messageData['id'] ?? sha1(json_encode($messageData)))],
+            [
+                'broadcast_recipient_id' => $recipient->id,
+                'target_message_id' => $target->id,
+                'contact_id' => $target->conversation?->contact_id,
+                'type' => $emoji ? 'reaction' : 'reaction_removed',
+                'value' => $emoji,
+                'payload' => $messageData['reaction'],
+                'occurred_at' => $this->parseWebhookTimestamp($messageData['timestamp'] ?? null),
+            ],
+        );
+        broadcast(new BroadcastResultsUpdated($recipient->campaign->id, $recipient->id));
+    }
+
     /** Build the native WhatsApp contacts payload from CRM contacts. */
     public function buildContactCards(iterable $contacts): array
     {
@@ -697,6 +828,8 @@ class WhatsAppMessageService
 
         $content = match ($type) {
             'text' => $messageData['text']['body'] ?? '',
+            'button' => $messageData['button']['text'] ?? '',
+            'interactive' => $messageData['interactive']['button_reply']['title'] ?? $messageData['interactive']['list_reply']['title'] ?? '',
             'edit' => $messageData['edit']['message']['text']['body']
                 ?? $messageData['edit']['text']['body']
                 ?? '',
