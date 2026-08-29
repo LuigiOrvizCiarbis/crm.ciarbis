@@ -71,11 +71,24 @@ export interface Channel {
 
 }
 
+export interface WhatsAppGroupSummary {
+  id: number
+  subject: string
+  status: "pending" | "active" | "suspended" | "deleted" | "failed"
+  group_id: string | null
+  total_participant_count: number
+  invite_link: string | null
+}
+
 export interface Conversation {
   id: number
   channelId: number
   contact_id?: number
-  contact: {id: string, name: string, phone?: string}
+  // null en conversaciones de grupo (kind === "group"): un grupo no tiene un
+  // contacto único, ver whatsapp-group-panel / conversation-header.
+  contact: {id: string, name: string, phone?: string} | null
+  kind?: "direct" | "group"
+  group?: WhatsAppGroupSummary
   last_message: string
   timestamp: string
   unread: boolean
@@ -166,6 +179,10 @@ export interface Message {
   media_filename?: string | null
   sender_type: "user" | "contact" | "system"
   sender_id?: number
+  // Autoría dentro de un grupo: quién de los participantes escribió. No
+  // viene de un morphTo (sin morph map registrado en el back), se carga en
+  // batch y se adjunta al serializar.
+  sender?: { id: number; name: string } | null
   direction: "inbound" | "outbound"
   delivered_at?: string | null
   read_at?: string | null

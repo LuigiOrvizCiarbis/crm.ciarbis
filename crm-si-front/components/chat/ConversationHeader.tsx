@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { LeadScoreBadge } from "@/components/Badges"
-import { ArrowLeft, Info, History, Pencil, Check, X, User, Plus, Bot, MoreVertical } from "lucide-react"
+import { ArrowLeft, Info, History, Pencil, Check, X, User, Users, Plus, Bot, MoreVertical } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,6 +24,7 @@ interface ConversationHeaderProps {
   onBack: () => void
   onToggleContactInfo: () => void
   onRenameContact?: (name: string) => Promise<void> | void
+  onRenameGroup?: (subject: string) => Promise<void> | void
   onToggleAiAutoreply?: (enabled: boolean) => Promise<void> | void
 }
 
@@ -33,15 +34,21 @@ export function ConversationHeader({
   onBack,
   onToggleContactInfo,
   onRenameContact,
+  onRenameGroup,
   onToggleAiAutoreply,
 }: ConversationHeaderProps) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [timelineOpen, setTimelineOpen] = useState(false)
   const [taskModalOpen, setTaskModalOpen] = useState(false)
+  const isGroup = conversation.kind === "group"
   const contactId = conversation.contact_id ?? Number(conversation.contact?.id)
-  const hasContactId = Boolean(contactId) && !Number.isNaN(contactId)
+  const hasContactId = !isGroup && Boolean(contactId) && !Number.isNaN(contactId)
+  const displayName = isGroup
+    ? conversation.group?.subject ?? "Grupo"
+    : conversation.contact?.name ?? ""
+  const onRename = isGroup ? onRenameGroup : onRenameContact
   const [isEditingName, setIsEditingName] = useState(false)
-  const [nameDraft, setNameDraft] = useState(conversation.contact.name)
+  const [nameDraft, setNameDraft] = useState(displayName)
   const [isSavingName, setIsSavingName] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const currentUser = useAuthStore((state) => state.user)
@@ -50,9 +57,9 @@ export function ConversationHeader({
 
   useEffect(() => {
     if (!isEditingName) {
-      setNameDraft(conversation.contact.name)
+      setNameDraft(displayName)
     }
-  }, [conversation.contact.name, isEditingName])
+  }, [displayName, isEditingName])
 
   useEffect(() => {
     if (isEditingName) {
@@ -62,24 +69,24 @@ export function ConversationHeader({
   }, [isEditingName])
 
   const startEditingName = () => {
-    setNameDraft(conversation.contact.name)
+    setNameDraft(displayName)
     setIsEditingName(true)
   }
 
   const cancelEditingName = () => {
     setIsEditingName(false)
-    setNameDraft(conversation.contact.name)
+    setNameDraft(displayName)
   }
 
   const saveName = async () => {
     const trimmed = nameDraft.trim()
-    if (!trimmed || trimmed === conversation.contact.name) {
+    if (!trimmed || trimmed === displayName) {
       cancelEditingName()
       return
     }
     try {
       setIsSavingName(true)
-      await onRenameContact?.(trimmed)
+      await onRename?.(trimmed)
       setIsEditingName(false)
     } finally {
       setIsSavingName(false)
@@ -109,12 +116,18 @@ export function ConversationHeader({
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>
-          <ContactAvatar
-            contactId={conversation.contact?.id}
-            name={conversation.contact?.name}
-            className="h-10 w-10 ring-1 ring-border"
-            fallbackClassName="text-sm font-semibold"
-          />
+          {isGroup ? (
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted ring-1 ring-border">
+              <Users className="h-5 w-5 text-muted-foreground" />
+            </div>
+          ) : (
+            <ContactAvatar
+              contactId={conversation.contact?.id}
+              name={conversation.contact?.name}
+              className="h-10 w-10 ring-1 ring-border"
+              fallbackClassName="text-sm font-semibold"
+            />
+          )}
           <div className="flex-1 min-w-0">
             <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
               {isEditingName ? (
@@ -153,9 +166,9 @@ export function ConversationHeader({
               ) : (
                 <div className="group flex min-w-0 items-center gap-0.5">
                   <h3 className="truncate text-sm font-semibold leading-tight sm:text-base sm:font-medium">
-                    {conversation.contact.name}
+                    {displayName}
                   </h3>
-                  {onRenameContact && (
+                  {onRename && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -176,7 +189,9 @@ export function ConversationHeader({
               />
             </div>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {conversation.contact.phone || t("chats.online")}
+              {isGroup
+                ? `${conversation.group?.total_participant_count ?? 0} participantes`
+                : conversation.contact?.phone || t("chats.online")}
             </p>
           </div>
         </div>
@@ -219,7 +234,7 @@ export function ConversationHeader({
                 <User className="mr-2 h-4 w-4" />
                 {t("timeline.title")}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+              <DropdownMenuItem onSelect={() => setHistoryOpen(true)} disabled={!hasContactId}>
                 <History className="mr-2 h-4 w-4" />
                 {t("chats.viewFullHistory")}
               </DropdownMenuItem>
@@ -266,14 +281,16 @@ export function ConversationHeader({
               <User className="w-4 h-4" />
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setHistoryOpen(true)}
-            title={t("chats.viewFullHistory")}
-          >
-            <History className="w-4 h-4" />
-          </Button>
+          {hasContactId && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setHistoryOpen(true)}
+              title={t("chats.viewFullHistory")}
+            >
+              <History className="w-4 h-4" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -286,12 +303,14 @@ export function ConversationHeader({
         </div>
       </div>
 
-      <ContactHistoryDrawer
-        open={historyOpen}
-        onOpenChange={setHistoryOpen}
-        contactId={conversation.contact.id}
-        contactName={conversation.contact.name}
-      />
+      {hasContactId && conversation.contact && (
+        <ContactHistoryDrawer
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          contactId={conversation.contact.id}
+          contactName={conversation.contact.name}
+        />
+      )}
 
       {hasContactId && (
         <ContactTimeline
@@ -299,7 +318,7 @@ export function ConversationHeader({
           onOpenChange={setTimelineOpen}
           contactId={contactId}
           conversationId={conversation.id}
-          contactName={conversation.contact.name}
+          contactName={conversation.contact?.name ?? ""}
         />
       )}
 
@@ -310,7 +329,7 @@ export function ConversationHeader({
         prefilledData={{
           relationType: "chat",
           relationId: String(conversation.id),
-          relationLabel: conversation.contact.name,
+          relationLabel: displayName,
           lockRelation: true,
           ...(currentUser ? { assigneeId: String(currentUser.id) } : {}),
         }}

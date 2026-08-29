@@ -42,6 +42,7 @@ interface MessageListProps {
   translationLanguage: TranslationLanguage
   onTranslateMessage: (message: Message, targetLanguage: TranslationLanguage) => Promise<MessageTranslationResponse>
   channelType?: ChannelType
+  isGroupConversation?: boolean
 }
 
 interface TranslationState {
@@ -65,6 +66,7 @@ export function MessageList({
   translationLanguage,
   onTranslateMessage,
   channelType,
+  isGroupConversation = false,
 }: MessageListProps) {
   const { t, language } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -501,6 +503,7 @@ export function MessageList({
                   canEdit={!!canEdit(msg) && !!onEditMessage}
                   canDelete={!!canDelete(msg) && !!onDeleteMessage}
                   canTranslate={!!canTranslate(msg)}
+                  isGroupConversation={isGroupConversation}
                 />
               </Fragment>
             )

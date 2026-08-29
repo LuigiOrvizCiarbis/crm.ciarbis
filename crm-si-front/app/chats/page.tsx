@@ -342,10 +342,10 @@ export default function ChatsPage() {
     )
 
     setConversations((prev) => prev.map((c) => (
-      belongsToContact(c) ? { ...c, contact: { ...c.contact, name } } : c
+      belongsToContact(c) && c.contact ? { ...c, contact: { ...c.contact, name } } : c
     )))
     setCurrentConversation((prev) => (
-      prev && belongsToContact(prev) ? { ...prev, contact: { ...prev.contact, name } } : prev
+      prev && belongsToContact(prev) && prev.contact ? { ...prev, contact: { ...prev.contact, name } } : prev
     ))
 
     try {
@@ -353,10 +353,10 @@ export default function ChatsPage() {
       addToast({ type: "success", title: t("chats.renameContactSuccess") })
     } catch (error) {
       setConversations((prev) => prev.map((c) => (
-        previousNames.has(c.id) ? { ...c, contact: { ...c.contact, name: previousNames.get(c.id)! } } : c
+        previousNames.has(c.id) && c.contact ? { ...c, contact: { ...c.contact, name: previousNames.get(c.id)! } } : c
       )))
       setCurrentConversation((prev) => (
-        prev && previousNames.has(prev.id)
+        prev && previousNames.has(prev.id) && prev.contact
           ? { ...prev, contact: { ...prev.contact, name: previousNames.get(prev.id)! } }
           : prev
       ))
@@ -2107,6 +2107,7 @@ export default function ChatsPage() {
                 translationLanguage={language}
                 onTranslateMessage={handleTranslateMessage}
                 channelType={activeConversation?.channel?.type}
+                isGroupConversation={activeConversation?.kind === "group"}
               />
               {activeConversation?.channel?.type === ChannelType.MAIL ? (
                 <MailMessageInput
