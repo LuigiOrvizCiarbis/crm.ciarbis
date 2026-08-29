@@ -335,8 +335,17 @@ export function BroadcastsDashboard() {
                   return (
                     <TableRow key={campaign.id}>
                       <TableCell>
-                        <p className="font-medium">{campaign.name}</p>
-                        <p className="text-xs text-muted-foreground">{campaign.template.name} · {campaign.channel.name}</p>
+                        {campaign.results_tracking_version === 1 ? (
+                          <Link href={`/difusiones/${campaign.id}`} className="block hover:underline">
+                            <p className="font-medium">{campaign.name}</p>
+                            <p className="text-xs text-muted-foreground">{campaign.template.name} · {campaign.channel.name}</p>
+                          </Link>
+                        ) : (
+                          <>
+                            <p className="font-medium">{campaign.name}</p>
+                            <p className="text-xs text-muted-foreground">{campaign.template.name} · {campaign.channel.name}</p>
+                          </>
+                        )}
                       </TableCell>
                       <TableCell><Badge className={cn("border-0", state.className)}>{state.label}</Badge></TableCell>
                       <TableCell>

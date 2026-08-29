@@ -31,6 +31,7 @@ class BroadcastCampaign extends Model
         'scheduled_at',
         'started_at',
         'completed_at',
+        'results_tracking_version',
     ];
 
     protected function casts(): array
@@ -44,6 +45,7 @@ class BroadcastCampaign extends Model
             'scheduled_at' => 'immutable_datetime',
             'started_at' => 'immutable_datetime',
             'completed_at' => 'immutable_datetime',
+            'results_tracking_version' => 'integer',
         ];
     }
 
@@ -65,6 +67,11 @@ class BroadcastCampaign extends Model
     public function recipients(): HasMany
     {
         return $this->hasMany(BroadcastRecipient::class);
+    }
+
+    public function resultsEnabled(): bool
+    {
+        return (int) $this->results_tracking_version === 1;
     }
 
     public function refreshDeliveryStatus(): void

@@ -64,7 +64,7 @@ class MessageController extends Controller
         $this->authorize('view', $conversation);
 
         $messages = Message::query()
-            ->with(['mailDetails', 'mailAttachments'])
+            ->with(['mailDetails', 'mailAttachments', 'interactions'])
             ->withTrashed()
             ->where('conversation_id', $conversation->id)
             ->whereNull('mail_parent_message_id')

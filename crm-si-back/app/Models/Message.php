@@ -8,8 +8,8 @@ use App\Enums\MessageType;
 use App\Enums\SenderType;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -112,6 +112,11 @@ class Message extends Model
     public function broadcastRecipient(): HasOne
     {
         return $this->hasOne(BroadcastRecipient::class);
+    }
+
+    public function interactions(): HasMany
+    {
+        return $this->hasMany(MessageInteraction::class, 'target_message_id');
     }
 
     /**
