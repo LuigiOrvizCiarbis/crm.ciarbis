@@ -37,6 +37,7 @@ use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\WebhookEndpointController;
 use App\Http\Controllers\Api\WhatsAppGroupController;
+use App\Http\Controllers\Api\WhatsAppGroupInvitationController;
 use App\Http\Controllers\Api\WhatsAppTemplateController;
 use App\Http\Controllers\Api\WooCommerceConfigController;
 use App\Http\Controllers\FacebookDataDeletionController;
@@ -506,6 +507,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('whatsapp-groups/{group}', [WhatsAppGroupController::class, 'update']);
     Route::delete('whatsapp-groups/{group}', [WhatsAppGroupController::class, 'destroy']);
     Route::post('whatsapp-groups/{group}/sync', [WhatsAppGroupController::class, 'sync']);
+    Route::get('whatsapp-groups/{group}/invite-templates', [WhatsAppGroupInvitationController::class, 'templates']);
+    Route::post('whatsapp-groups/{group}/invitations', [WhatsAppGroupInvitationController::class, 'store']);
     Route::get('whatsapp-groups/{group}/invite-link', [WhatsAppGroupController::class, 'inviteLink']);
     Route::post('whatsapp-groups/{group}/invite-link', [WhatsAppGroupController::class, 'resetInviteLink']);
     Route::get('whatsapp-groups/{group}/join-requests', [WhatsAppGroupController::class, 'joinRequests']);

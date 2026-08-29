@@ -424,6 +424,33 @@ class WhatsAppTemplateService
     }
 
     /**
+     * Detecta las plantillas de "Group invite link" ya sincronizadas: no se
+     * crean por API (createTemplate() fuerza parameter_format=named, y la
+     * Template Library las gestiona por su propio flujo, vía
+     * GET /message_template_library con topic=group_invite_link — un
+     * endpoint distinto al que usa syncTemplates()).
+     *
+     * NOTA: no hay confirmación de qué campo persiste el vínculo con
+     * "group_invite_link" en la respuesta de GET /{waba_id}/message_templates
+     * (que es lo que syncTemplates() guarda en `components`). La heurística
+     * acá es buscar el literal "group_id" en cualquier parte del array
+     * serializado de components; hay que verificarla contra una plantilla
+     * real sincronizada antes de confiar en ella en producción.
+     *
+     * @return \Illuminate\Support\Collection<int, WhatsAppTemplate>
+     */
+    public function findGroupInviteTemplates(int $whatsappConfigId): \Illuminate\Support\Collection
+    {
+        return WhatsAppTemplate::where('whatsapp_config_id', $whatsappConfigId)
+            ->where('status', TemplateStatus::Approved)
+            ->get()
+            ->filter(fn (WhatsAppTemplate $template) => str_contains(
+                json_encode($template->components ?? []),
+                'group_id'
+            ));
+    }
+
+    /**
      * Construir resumen legible del contenido del template.
      *
      * Intenta resolver el body text real del template reemplazando los

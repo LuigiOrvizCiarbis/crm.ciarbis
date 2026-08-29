@@ -203,7 +203,7 @@ class WhatsAppMessageService
         );
     }
 
-    private function findOrCreateConversation(Contact $contact, Channel $channel): Conversation
+    public function findOrCreateConversation(Contact $contact, Channel $channel): Conversation
     {
         $conversation = Conversation::firstOrCreate(
             [
