@@ -5,22 +5,30 @@ namespace Tests\Feature;
 use App\Enums\BroadcastRecipientStatus;
 use App\Enums\BroadcastStatus;
 use App\Enums\ChannelType;
+use App\Enums\MessageDirection;
+use App\Enums\MessageType;
+use App\Enums\SenderType;
 use App\Enums\TemplateCategory;
 use App\Enums\TemplateStatus;
 use App\Enums\UserRole;
 use App\Jobs\SendBroadcastMessageJob;
 use App\Models\BroadcastCampaign;
+use App\Models\BroadcastRecipient;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
+use App\Models\Message;
+use App\Models\MessageInteraction;
 use App\Models\PipelineStage;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
+use App\Services\WhatsAppMessageService;
 use App\Services\WhatsAppTemplateService;
 use App\Support\PermissionCatalog;
 use App\Support\RoleProvisioner;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
@@ -351,6 +359,63 @@ class BroadcastCampaignTest extends TestCase
         $this->assertSame(BroadcastRecipientStatus::Failed, $recipient->fresh()->status);
         $this->assertSame(BroadcastStatus::Failed, $campaign->fresh()->status);
         $this->assertSame('0.00', $campaign->fresh()->actual_cost_usd);
+    }
+
+    public function test_text_reply_matches_recent_broadcast_across_local_and_utc_timestamps(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-08-28 21:38:34', 'America/Argentina/Buenos_Aires'));
+        [$user, $channel, $template] = $this->createSetup();
+        $conversation = $this->createConversation($user, $channel, phone: '5492235112208');
+        $contact = $conversation->contact;
+
+        $campaign = BroadcastCampaign::create([
+            'tenant_id' => $user->tenant_id,
+            'channel_id' => $channel->id,
+            'whatsapp_template_id' => $template->id,
+            'created_by' => $user->id,
+            'name' => 'Prueba de interacción',
+            'status' => BroadcastStatus::Completed,
+            'audience_count' => 1,
+            'scheduled_at' => now(),
+            'results_tracking_version' => 1,
+        ]);
+        $outbound = Message::create([
+            'tenant_id' => $user->tenant_id,
+            'conversation_id' => $conversation->id,
+            'sender_type' => SenderType::USER,
+            'sender_id' => $user->id,
+            'content' => 'Hola desde la difusión',
+            'message_type' => MessageType::Text,
+            'direction' => MessageDirection::OUTBOUND,
+            'external_id' => 'wamid.broadcast-timezone',
+        ]);
+        $recipient = BroadcastRecipient::create([
+            'broadcast_campaign_id' => $campaign->id,
+            'conversation_id' => $conversation->id,
+            'contact_id' => $contact->id,
+            'message_id' => $outbound->id,
+            'status' => BroadcastRecipientStatus::Sent,
+            'sent_at' => CarbonImmutable::parse('2026-08-29 00:37:48', 'UTC'),
+        ]);
+
+        app(WhatsAppMessageService::class)->processIncomingMessage([
+            'value' => [
+                'metadata' => ['phone_number_id' => $channel->whatsappConfig->phone_number_id],
+                'contacts' => [['profile' => ['name' => $contact->name]]],
+                'messages' => [[
+                    'from' => $contact->phone,
+                    'id' => 'wamid.generic-reply-timezone',
+                    'timestamp' => (string) CarbonImmutable::parse('2026-08-29 00:38:34', 'UTC')->timestamp,
+                    'type' => 'text',
+                    'text' => ['body' => 'Hola cómo estás?'],
+                ]],
+            ],
+        ]);
+
+        $interaction = MessageInteraction::where('broadcast_recipient_id', $recipient->id)->first();
+        $this->assertNotNull($interaction);
+        $this->assertSame('reply', $interaction->type);
+        $this->assertSame('Hola cómo estás?', $interaction->content);
     }
 
     /** @return array{0: User, 1: Channel, 2: WhatsAppTemplate} */
