@@ -339,7 +339,17 @@ class MessageController extends Controller
         $this->authorize('view', $message);
         $cards = is_array($message->contacts) ? $message->contacts : [];
         $card = $cards[$index] ?? null;
-        if ($message->message_type !== MessageType::Contacts || ! is_array($card)) {
+        $messageType = $message->message_type instanceof MessageType
+            ? $message->message_type->value
+            : (string) $message->message_type;
+        if ($messageType !== MessageType::Contacts->value || ! is_array($card)) {
+            Log::warning('Tarjeta de contacto de WhatsApp no encontrada', [
+                'message_id' => $message->id,
+                'tenant_id' => $message->tenant_id,
+                'index' => $index,
+                'message_type' => $messageType,
+                'contacts_count' => count($cards),
+            ]);
             return response()->json(['message' => 'La tarjeta de contacto no existe.'], 404);
         }
 
@@ -350,7 +360,9 @@ class MessageController extends Controller
             $contact = Contact::query()->whereKey($validated['contact_id'])->where('tenant_id', $user->tenant_id)->firstOrFail();
             $this->authorize('update', $contact);
         } else {
-            $this->authorize('create', Contact::class);
+            if (! $user->can('contacts.create')) {
+                return response()->json(['message' => 'Tu usuario no tiene permiso para crear contactos. Pedí habilitar contacts.create en el tenant.'], 403);
+            }
         }
 
         $phone = $card['phones'][0]['phone'] ?? null;
@@ -361,15 +373,25 @@ class MessageController extends Controller
             'email' => $email,
         ], static fn ($value) => $value !== null && $value !== '');
 
-        if ($contact) {
-            $contact->update($attributes);
-        } else {
-            $contact = Contact::create([
+        try {
+            if ($contact) {
+                $contact->update($attributes);
+            } else {
+                $contact = Contact::create([
+                    'tenant_id' => $user->tenant_id,
+                    'branch_id' => $message->conversation?->branch_id,
+                    'source' => 'whatsapp',
+                    ...$attributes,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('No se pudo guardar tarjeta de contacto de WhatsApp', [
                 'tenant_id' => $user->tenant_id,
-                'branch_id' => $message->conversation?->branch_id,
-                'source' => 'whatsapp',
-                ...$attributes,
+                'message_id' => $message->id,
+                'index' => $index,
+                'error' => $e->getMessage(),
             ]);
+            return response()->json(['message' => 'No se pudo guardar el contacto recibido. Verificá los permisos y los datos del contacto.'], 422);
         }
 
         return response()->json(['data' => new ContactResource($contact->refresh())]);
