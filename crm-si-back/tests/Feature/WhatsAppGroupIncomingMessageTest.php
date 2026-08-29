@@ -12,8 +12,10 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppGroup;
+use App\Events\MessageSent;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -39,6 +41,21 @@ class WhatsAppGroupIncomingMessageTest extends TestCase
         $contact = Contact::withoutGlobalScopes()->where('phone', '5491122334455')->first();
         $this->assertNotNull($contact);
         $this->assertSame($contact->id, $message->sender_id);
+    }
+
+    public function test_incoming_group_message_broadcast_carries_sender_name_in_realtime(): void
+    {
+        Event::fake([MessageSent::class]);
+        [$channel, $group] = $this->makeActiveGroupWithConversation();
+
+        $this->postJson('/api/whatsapp-webhook', $this->groupMessagePayload($channel, $group->group_id, [
+            'from' => '5491122334455',
+            'name' => 'Juan Pérez',
+        ]));
+
+        Event::assertDispatched(MessageSent::class, function (MessageSent $event) {
+            return $event->message->sender['name'] === 'Juan Pérez';
+        });
     }
 
     public function test_incoming_group_message_creates_contact_for_unknown_participant(): void

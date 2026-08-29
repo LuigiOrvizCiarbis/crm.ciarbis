@@ -868,6 +868,7 @@ class WhatsAppMessageService
         }
 
         try {
+            $this->attachSenderNameForGroupBroadcast($message);
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $messageData['tenant_id']));
         } catch (\Exception $e) {
@@ -877,6 +878,29 @@ class WhatsAppMessageService
         $this->maybeDispatchAiReply($message);
 
         return $message;
+    }
+
+    /**
+     * Igual que ConversationController::attachSenderNames() pero para el
+     * mensaje único que se está por emitir por WebSocket: sin esto, un
+     * inbound de grupo llega en vivo sin nombre de autor y sólo lo recupera
+     * al recargar la conversación (show()/fetchMessages() sí lo adjuntan).
+     */
+    private function attachSenderNameForGroupBroadcast(Message $message): void
+    {
+        if ($message->sender_type !== SenderType::CONTACT || ! $message->sender_id) {
+            return;
+        }
+
+        $conversation = Conversation::withoutGlobalScopes()->find($message->conversation_id);
+        if (! $conversation || ! $conversation->isGroup()) {
+            return;
+        }
+
+        $name = Contact::withoutGlobalScopes()->where('id', $message->sender_id)->value('name');
+        if ($name) {
+            $message->setAttribute('sender', ['id' => $message->sender_id, 'name' => $name]);
+        }
     }
 
     private function inferReadFromInboundReply(Message $inboundMessage): void
