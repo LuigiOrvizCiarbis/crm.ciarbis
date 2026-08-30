@@ -6,6 +6,7 @@ use App\Enums\ChannelType;
 use App\Enums\MessageDirection;
 use App\Enums\MessageType;
 use App\Enums\SenderType;
+use App\Events\BroadcastResultsUpdated;
 use App\Events\MessageDeleted;
 use App\Events\MessageEdited;
 use App\Events\MessageSent;
@@ -13,10 +14,13 @@ use App\Events\MessageStatusUpdated;
 use App\Events\TenantMessageReceived;
 use App\Jobs\GenerateAiReplyJob;
 use App\Models\AiConfig;
+use App\Models\BroadcastRecipient;
 use App\Models\Channel;
 use App\Models\Contact;
+use App\Models\ContactField;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\MessageInteraction;
 use App\Models\PipelineStage;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
@@ -100,6 +104,20 @@ class WhatsAppMessageService
                 return $this->handleIncomingMessageEdited($messageData, $originalEditedId, $tenantId);
             }
 
+            if ($messageType === 'reaction') {
+                $this->recordReactionInteraction($messageData, $tenantId);
+
+                return null;
+            }
+
+            // WhatsApp entrega respuestas rápidas como `button` o como
+            // `interactive.button_reply`. Se guardan como texto entrante para
+            // que sigan apareciendo en el chat, y además como interacción.
+            $interaction = $this->extractReplyInteraction($messageData);
+            if ($interaction !== null) {
+                $messageType = 'text';
+            }
+
             if (! $this->isSupportedMessageType($messageType)) {
                 Log::warning('WhatsApp message type no soportado, payload ignorado', [
                     'type' => $messageType,
@@ -160,13 +178,14 @@ class WhatsAppMessageService
                 }
             }
 
-            return $this->createMessage([
+            $message = $this->createMessage([
                 'tenant_id' => $tenantId,
                 'conversation_id' => $conversationId,
                 'sender_type' => SenderType::CONTACT,
                 'sender_id' => $contactId,
                 'content' => $extracted['content'],
                 'message_type' => $extracted['type'],
+                'contacts' => $extracted['contacts'] ?? null,
                 'media_url' => $mediaFields['url'] ?? null,
                 'media_mime_type' => $mediaFields['mime_type'] ?? null,
                 'media_filename' => $mediaFields['filename'] ?? null,
@@ -174,6 +193,14 @@ class WhatsAppMessageService
                 'external_id' => $messageData['id'] ?? null,
                 'delivered_at' => $this->parseWebhookTimestamp($messageData['timestamp'] ?? null),
             ]);
+
+            if ($interaction !== null) {
+                $this->recordReplyInteraction($message, $interaction);
+            } else {
+                $this->recordGenericReplyInteraction($message, $messageData);
+            }
+
+            return $message;
         } catch (\Exception $e) {
             Log::error('Error procesando mensaje de WhatsApp: '.$e->getMessage(), [
                 'exception' => $e->getTraceAsString(),
@@ -539,6 +566,216 @@ class WhatsAppMessageService
         ], true);
     }
 
+    /** @return array{type: string, value: ?string, content: string, target_external_id: ?string}|null */
+    private function extractReplyInteraction(array $messageData): ?array
+    {
+        $type = $messageData['type'] ?? null;
+        if ($type === 'button') {
+            return [
+                'type' => 'quick_reply',
+                'value' => $messageData['button']['payload'] ?? $messageData['button']['text'] ?? null,
+                'content' => (string) ($messageData['button']['text'] ?? ''),
+                'target_external_id' => $messageData['context']['id'] ?? null,
+            ];
+        }
+        if ($type === 'interactive' && isset($messageData['interactive']['button_reply'])) {
+            $reply = $messageData['interactive']['button_reply'];
+
+            return [
+                'type' => 'quick_reply',
+                'value' => $reply['id'] ?? $reply['title'] ?? null,
+                'content' => (string) ($reply['title'] ?? ''),
+                'target_external_id' => $messageData['context']['id'] ?? null,
+            ];
+        }
+
+        return null;
+    }
+
+    private function recordReplyInteraction(Message $source, array $interaction): void
+    {
+        $target = $interaction['target_external_id']
+            ? Message::query()->where('external_id', $interaction['target_external_id'])->first()
+            : null;
+        $recipient = $target?->broadcastRecipient;
+        if (! $recipient || ! $recipient->campaign->resultsEnabled()) {
+            return;
+        }
+        MessageInteraction::firstOrCreate(
+            ['deduplication_key' => 'reply:'.$source->external_id],
+            [
+                'broadcast_recipient_id' => $recipient->id,
+                'target_message_id' => $target->id,
+                'source_message_id' => $source->id,
+                'contact_id' => $source->sender_id,
+                'type' => $interaction['type'],
+                'value' => $interaction['value'],
+                'content' => $interaction['content'],
+                'payload' => $interaction,
+                'occurred_at' => $source->created_at ?? now(),
+            ],
+        );
+        broadcast(new BroadcastResultsUpdated($recipient->campaign->id, $recipient->id));
+    }
+
+    private function recordGenericReplyInteraction(Message $source, array $messageData): void
+    {
+        $contextId = $messageData['context']['id'] ?? null;
+        $target = $contextId ? Message::query()->where('external_id', $contextId)->first() : null;
+        $recipient = $target?->broadcastRecipient;
+        if (! $recipient) {
+            // broadcast_recipients.sent_at es timestamptz, mientras messages.created_at
+            // es timestamp local. Usar el timestamp UTC de Meta evita comparar una
+            // hora local contra UTC y descartar respuestas válidas como si la
+            // difusión se hubiera enviado tres horas en el futuro.
+            $receivedAt = $this->parseWebhookTimestamp($messageData['timestamp'] ?? null)->utc();
+            $recipient = BroadcastRecipient::query()
+                ->where('contact_id', $source->sender_id)
+                ->whereHas('campaign', fn ($q) => $q->where('results_tracking_version', 1))
+                ->whereNotNull('sent_at')
+                ->whereBetween('sent_at', [$receivedAt->copy()->subDay(), $receivedAt])
+                ->whereDoesntHave('interactions', fn ($q) => $q->where('type', 'reply'))
+                ->latest('sent_at')->first();
+            $target = $recipient?->message;
+        }
+        if (! $recipient || ! $recipient->campaign->resultsEnabled()) {
+            return;
+        }
+        MessageInteraction::firstOrCreate(
+            ['deduplication_key' => 'generic-reply:'.$source->external_id],
+            [
+                'broadcast_recipient_id' => $recipient->id,
+                'target_message_id' => $target?->id,
+                'source_message_id' => $source->id,
+                'contact_id' => $source->sender_id,
+                'type' => 'reply',
+                'content' => $source->content,
+                'payload' => ['inferred' => ! $contextId],
+                'occurred_at' => $source->created_at ?? now(),
+            ],
+        );
+        broadcast(new BroadcastResultsUpdated($recipient->campaign->id, $recipient->id));
+    }
+
+    private function recordReactionInteraction(array $messageData, int $tenantId): void
+    {
+        $targetExternalId = $messageData['reaction']['message_id'] ?? null;
+        if (! $targetExternalId) {
+            return;
+        }
+        $target = Message::query()->where('external_id', $targetExternalId)->first();
+        $recipient = $target?->broadcastRecipient;
+        if (! $target || ! $recipient || ! $recipient->campaign->resultsEnabled()) {
+            return;
+        }
+        $emoji = $messageData['reaction']['emoji'] ?? null;
+        MessageInteraction::firstOrCreate(
+            ['deduplication_key' => 'reaction:'.($messageData['id'] ?? sha1(json_encode($messageData)))],
+            [
+                'broadcast_recipient_id' => $recipient->id,
+                'target_message_id' => $target->id,
+                'contact_id' => $target->conversation?->contact_id,
+                'type' => $emoji ? 'reaction' : 'reaction_removed',
+                'value' => $emoji,
+                'payload' => $messageData['reaction'],
+                'occurred_at' => $this->parseWebhookTimestamp($messageData['timestamp'] ?? null),
+            ],
+        );
+        broadcast(new BroadcastResultsUpdated($recipient->campaign->id, $recipient->id));
+    }
+
+    /** Build the native WhatsApp contacts payload from CRM contacts. */
+    public function buildContactCards(iterable $contacts): array
+    {
+        $contacts = collect($contacts)->values();
+        $fields = ContactField::forTenant((int) ($contacts->first()?->tenant_id ?? 0));
+
+        return $contacts->map(function (Contact $contact) use ($fields): array {
+            $custom = is_array($contact->custom_data) ? $contact->custom_data : [];
+            $phones = [];
+            if ($contact->phone) {
+                $phones[] = ['phone' => $contact->phone];
+            }
+            $emails = [];
+            if ($contact->email) {
+                $emails[] = ['email' => $contact->email];
+            }
+            foreach ($fields as $field) {
+                $value = $custom[$field->key] ?? null;
+                if ($value === null || $value === '' || is_array($value)) {
+                    continue;
+                }
+                if ($field->type?->value === 'phone') {
+                    $phones[] = ['phone' => (string) $value];
+                }
+                if ($field->type?->value === 'email') {
+                    $emails[] = ['email' => (string) $value];
+                }
+            }
+            $dedupe = static fn (array $items, string $key): array => collect($items)->unique(fn ($item) => strtolower((string) ($item[$key] ?? '')))->values()->all();
+            $card = [
+                'name' => ['formatted_name' => (string) ($contact->name ?: $contact->phone ?: 'Sin nombre')],
+            ];
+            if ($phones !== []) {
+                $card['phones'] = $dedupe($phones, 'phone');
+            }
+            if ($emails !== []) {
+                $card['emails'] = $dedupe($emails, 'email');
+            }
+            $org = [];
+            foreach (['company' => 'company', 'department' => 'department', 'job_title' => 'title'] as $key => $target) {
+                if (($custom[$key] ?? null) !== null && $custom[$key] !== '') {
+                    $org[$target] = (string) $custom[$key];
+                }
+            }
+            if ($org !== []) {
+                $card['org'] = $org;
+            }
+            if (($birthday = $custom['birthday'] ?? null) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $birthday)) {
+                $card['birthday'] = $birthday;
+            }
+            $urls = [];
+            foreach ($fields as $field) {
+                if ($field->type?->value === 'url' && ! empty($custom[$field->key]) && is_string($custom[$field->key])) {
+                    $urls[] = ['url' => $custom[$field->key]];
+                }
+            }
+            if ($urls !== []) {
+                $card['urls'] = $dedupe($urls, 'url');
+            }
+
+            return $card;
+        })->values()->all();
+    }
+
+    public function sendContactsMessageFromCRM(Conversation $conversation, array $cards, User $user): Message
+    {
+        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] = $this->resolveOutboundWhatsAppContext($conversation);
+        $response = Http::withToken($businessToken)->timeout(10)->post(
+            'https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages",
+            ['messaging_product' => 'whatsapp', 'recipient_type' => 'individual', 'to' => $to, 'type' => 'contacts', 'contacts' => $cards]
+        );
+        if (! $response->successful()) {
+            throw new \RuntimeException('Error enviando contactos a WhatsApp: '.$response->body());
+        }
+        $message = Message::create([
+            'tenant_id' => $conversation->tenant_id, 'conversation_id' => $conversation->id,
+            'sender_type' => SenderType::USER, 'sender_id' => $user->id,
+            'content' => count($cards).' contactos compartidos', 'message_type' => MessageType::Contacts,
+            'contacts' => $cards, 'direction' => MessageDirection::OUTBOUND,
+            'delivered_at' => now(), 'external_id' => $response->json('messages.0.id'),
+        ]);
+        $conversation->update(['last_message_at' => $message->created_at, 'last_message_content' => '👤 '.count($cards).' contactos compartidos', 'ai_autoreply_enabled' => false]);
+        try {
+            broadcast(new MessageSent($message));
+            broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
+        } catch (\Exception $e) {
+            Log::error('Error broadcasting outbound contacts message: '.$e->getMessage());
+        }
+
+        return $message;
+    }
+
     /**
      * Detecta si un webhook entrante representa la eliminación de un mensaje
      * por parte del contacto desde su celular ("delete for everyone").
@@ -637,6 +874,8 @@ class WhatsAppMessageService
 
         $content = match ($type) {
             'text' => $messageData['text']['body'] ?? '',
+            'button' => $messageData['button']['text'] ?? '',
+            'interactive' => $messageData['interactive']['button_reply']['title'] ?? $messageData['interactive']['list_reply']['title'] ?? '',
             'edit' => $messageData['edit']['message']['text']['body']
                 ?? $messageData['edit']['text']['body']
                 ?? '',
@@ -646,7 +885,7 @@ class WhatsAppMessageService
             'audio' => '',
             'video' => $messageData['video']['caption'] ?? '',
             'location' => 'Ubicación compartida',
-            'contacts' => 'Contacto compartido',
+            'contacts' => count($messageData['contacts'] ?? []).' contactos compartidos',
             default => '',
         };
 
@@ -667,6 +906,7 @@ class WhatsAppMessageService
             'document' => 'document',
             'audio' => 'audio',
             'video' => 'video',
+            'contacts' => 'contacts',
             default => 'text',
         };
 
@@ -674,6 +914,7 @@ class WhatsAppMessageService
             'content' => $content,
             'type' => $mappedType,
             'media_id' => $mediaId,
+            'contacts' => ($type === 'contacts' && is_array($messageData['contacts'] ?? null)) ? $messageData['contacts'] : null,
         ];
     }
 
@@ -846,6 +1087,7 @@ class WhatsAppMessageService
                 'video' => '🎥 '.($messageData['content'] ?: 'Video'),
                 'audio' => '🎵 Audio',
                 'document' => '📄 '.($messageData['content'] ?: 'Documento'),
+                'contacts' => '👤 '.($messageData['content'] ?: 'Contactos compartidos'),
                 default => $messageData['content'] ?? '',
             };
 

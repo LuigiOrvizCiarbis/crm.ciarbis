@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\ChannelType;
 use App\Events\MessageStatusUpdated;
+use App\Events\BroadcastResultsUpdated;
 use App\Exceptions\ChannelAlreadyConnectedException;
 use App\Http\Requests\ChannelStoreRequest;
 use App\Jobs\VerifyContactSyncJob;
@@ -1311,6 +1312,13 @@ class WhatsAppController extends Controller
                     if (! $message->isFailed()) {
                         $error = $this->describeStatusError($status['errors'] ?? []);
                         $message->markAsFailed($error);
+                        if ($recipient = $message->broadcastRecipient()->first()) {
+                            $errors = $status['errors'] ?? [];
+                            $recipient->update([
+                                'failure_code' => isset($errors[0]['code']) ? (string) $errors[0]['code'] : null,
+                                'failure_details' => is_array($errors) ? $errors : null,
+                            ]);
+                        }
                         $changed = true;
 
                         Log::warning('WhatsApp message failed', [
@@ -1330,6 +1338,9 @@ class WhatsAppController extends Controller
             // duplicados y no queremos spamear el canal ni re-renderizar el front.
             if ($changed && $message->conversation_id) {
                 broadcast(new MessageStatusUpdated($message));
+                if ($recipient = $message->broadcastRecipient()->first()) {
+                    broadcast(new BroadcastResultsUpdated($recipient->broadcast_campaign_id, $recipient->id));
+                }
             }
         }
     }

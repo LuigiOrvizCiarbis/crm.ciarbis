@@ -8,7 +8,9 @@ use App\Enums\TemplateStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreBroadcastRequest;
 use App\Http\Resources\BroadcastCampaignResource;
+use App\Http\Resources\BroadcastRecipientResultResource;
 use App\Models\BroadcastCampaign;
+use App\Models\BroadcastRecipient;
 use App\Models\Channel;
 use App\Models\WhatsAppTemplate;
 use App\Services\BroadcastAudienceService;
@@ -36,6 +38,77 @@ class BroadcastCampaignController extends Controller
             ->paginate(min((int) $request->query('per_page', 20), 100));
 
         return BroadcastCampaignResource::collection($campaigns);
+    }
+
+    public function results(Request $request, int $id): JsonResponse
+    {
+        abort_unless($request->user()?->can('templates.view'), 403);
+        $campaign = BroadcastCampaign::query()->with(['channel:id,name,type', 'template:id,name,language'])->findOrFail($id);
+        if (! $campaign->resultsEnabled()) {
+            return response()->json(['data' => ['results_available' => false, 'campaign_id' => $campaign->id]]);
+        }
+
+        $recipients = $campaign->recipients();
+        $summary = [
+            'audience_count' => (int) $campaign->audience_count,
+            'accepted_count' => (clone $recipients)->whereNotNull('sent_at')->count(),
+            'delivered_count' => (clone $recipients)->whereHas('message', fn ($q) => $q->whereNotNull('delivered_at'))->count(),
+            'read_count' => (clone $recipients)->whereHas('message', fn ($q) => $q->whereNotNull('read_at'))->count(),
+            'failed_count' => (clone $recipients)->where('status', BroadcastRecipientStatus::Failed)
+                ->whereDoesntHave('message', fn ($q) => $q->where(function ($q) { $q->whereNotNull('delivered_at')->orWhereNotNull('read_at'); }))->count(),
+            'pending_count' => (clone $recipients)->whereNull('sent_at')->whereIn('status', [BroadcastRecipientStatus::Pending, BroadcastRecipientStatus::Queued])->count(),
+            'unconfirmed_count' => (clone $recipients)->whereNotNull('sent_at')->where('status', '!=', BroadcastRecipientStatus::Failed)
+                ->whereDoesntHave('message', fn ($q) => $q->where(function ($q) { $q->whereNotNull('delivered_at')->orWhereNotNull('read_at'); }))->count(),
+            'interacted_count' => (clone $recipients)->whereHas('interactions')->distinct('broadcast_recipients.id')->count('broadcast_recipients.id'),
+        ];
+
+        return response()->json(['data' => [
+            'results_available' => true,
+            'campaign' => new BroadcastCampaignResource($campaign),
+            'summary' => $summary,
+        ]]);
+    }
+
+    public function recipients(Request $request, int $id)
+    {
+        abort_unless($request->user()?->can('templates.view'), 403);
+        $campaign = BroadcastCampaign::query()->findOrFail($id);
+        abort_unless($campaign->resultsEnabled(), 404);
+        $query = $campaign->recipients()->with(['contact:id,name,phone', 'message:id,delivered_at,read_at', 'interactions']);
+        if ($search = trim((string) $request->query('search', ''))) {
+            $query->whereHas('contact', fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%"));
+        }
+        if ($request->filled('status')) {
+            $status = (string) $request->query('status');
+            $query = $this->applyResultStatusFilter($query, $status);
+        }
+        if ($request->query('interaction') === 'true') {
+            $query->whereHas('interactions');
+        }
+        return BroadcastRecipientResultResource::collection($query->orderBy('id')->paginate(min((int) $request->query('per_page', 25), 100)));
+    }
+
+    public function recipient(Request $request, int $id, int $recipientId): JsonResponse
+    {
+        abort_unless($request->user()?->can('templates.view'), 403);
+        $campaign = BroadcastCampaign::query()->findOrFail($id);
+        abort_unless($campaign->resultsEnabled(), 404);
+        $recipient = $campaign->recipients()->with(['contact:id,name,phone', 'message:id,delivered_at,read_at', 'interactions' => fn ($q) => $q->orderBy('occurred_at')])->findOrFail($recipientId);
+        return response()->json(['data' => new BroadcastRecipientResultResource($recipient), 'history' => $recipient->interactions->map(fn ($item) => [
+            'type' => $item->type, 'value' => $item->value, 'content' => $item->content, 'occurred_at' => $item->occurred_at?->toIso8601String(),
+        ])->values()]);
+    }
+
+    private function applyResultStatusFilter($query, string $status)
+    {
+        return match ($status) {
+            'failed' => $query->where('status', BroadcastRecipientStatus::Failed),
+            'pending' => $query->whereNull('sent_at')->whereIn('status', [BroadcastRecipientStatus::Pending, BroadcastRecipientStatus::Queued]),
+            'accepted_unconfirmed' => $query->whereNotNull('sent_at')->where('status', '!=', BroadcastRecipientStatus::Failed)->whereDoesntHave('message', fn ($q) => $q->whereNotNull('delivered_at')),
+            'delivered' => $query->whereHas('message', fn ($q) => $q->whereNotNull('delivered_at')->whereNull('read_at')),
+            'read' => $query->whereHas('message', fn ($q) => $q->whereNotNull('read_at')),
+            default => $query,
+        };
     }
 
     public function estimate(StoreBroadcastRequest $request): JsonResponse
@@ -113,6 +186,7 @@ class BroadcastCampaignController extends Controller
                 'estimated_cost_usd' => round($audience->count() * (float) config('broadcasts.cost_per_message_usd'), 2),
                 'interval_seconds' => $request->validated('interval_seconds'),
                 'scheduled_at' => $scheduledAt,
+                'results_tracking_version' => 1,
             ]);
 
             $campaign->recipients()->createMany($audience->map(fn ($conversation): array => [
