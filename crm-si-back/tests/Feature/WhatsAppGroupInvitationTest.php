@@ -53,6 +53,46 @@ class WhatsAppGroupInvitationTest extends TestCase
         ]);
     }
 
+    public function test_invitation_rejects_template_belonging_to_another_whatsapp_config(): void
+    {
+        [$user, $channel, $group] = $this->context();
+
+        // Segunda WABA del mismo tenant, con su propia plantilla.
+        $otherConfig = WhatsAppConfig::create([
+            'phone_number_id' => 'phone-'.uniqid(),
+            'display_phone_number' => '+54 9 11 0000-0001',
+            'waba_id' => 'waba-other',
+            'bussines_token' => Crypt::encryptString('other-token'),
+        ]);
+        $foreignTemplate = WhatsAppTemplate::create([
+            'tenant_id' => $channel->tenant_id,
+            'whatsapp_config_id' => $otherConfig->id,
+            'external_id' => 'meta-group-invite-other',
+            'name' => 'group_invite_link',
+            'language' => 'en_US',
+            'category' => TemplateCategory::Utility,
+            'status' => TemplateStatus::Approved,
+            'components' => [[
+                'type' => 'BODY',
+                'text' => 'Te invitamos a sumarte al grupo.',
+                'example' => ['body_text_named_params' => [['param_name' => 'group_id', 'example' => 'group_id']]],
+            ]],
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson("/api/whatsapp-groups/{$group->id}/invitations", [
+            'template_id' => $foreignTemplate->id,
+            'invitees' => [['phone' => '5511122233344']],
+        ]);
+
+        $response->assertStatus(422);
+        $this->assertDatabaseMissing('whatsapp_group_participants', [
+            'whatsapp_group_id' => $group->id,
+            'wa_id' => '5511122233344',
+        ]);
+    }
+
     public function test_invitation_fails_when_group_still_pending(): void
     {
         [$user, $channel, , $template] = $this->context();

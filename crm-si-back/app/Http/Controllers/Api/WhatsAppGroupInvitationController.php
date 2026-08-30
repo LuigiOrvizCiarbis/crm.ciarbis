@@ -37,12 +37,20 @@ class WhatsAppGroupInvitationController extends Controller
         $this->authorize('invite', $group);
 
         $tenantId = $request->user()->tenant_id;
+        $whatsappConfigId = $group->channel->whatsapp_config_id;
 
         $validated = $request->validate([
             'template_id' => [
                 'required',
                 'integer',
-                Rule::exists('whatsapp_templates', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId)),
+                // No alcanza con tenant_id: un tenant puede tener varias WABAs
+                // (whatsapp_configs), y una plantilla sólo existe en la suya.
+                // Sin este filtro, se podía elegir/enviar una plantilla de otra
+                // WABA — Meta la rechaza, o peor, existe otra con el mismo
+                // nombre ahí y se manda contenido equivocado.
+                Rule::exists('whatsapp_templates', 'id')->where(fn ($query) => $query
+                    ->where('tenant_id', $tenantId)
+                    ->where('whatsapp_config_id', $whatsappConfigId)),
             ],
             'invitees' => ['required', 'array', 'min:1', 'max:7'],
             'invitees.*.contact_id' => ['required_without:invitees.*.phone', 'integer'],
