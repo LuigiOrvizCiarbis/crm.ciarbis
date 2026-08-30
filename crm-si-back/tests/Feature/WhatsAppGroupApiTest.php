@@ -105,6 +105,42 @@ class WhatsAppGroupApiTest extends TestCase
         $response->assertStatus(422);
     }
 
+    public function test_update_clears_description_with_explicit_null(): void
+    {
+        [$user, $channel] = $this->context();
+        $group = $this->createActiveGroup($channel, description: 'Descripción original');
+        Http::fake(['https://graph.facebook.com/*/*' => Http::response(['success' => true], 200)]);
+        Sanctum::actingAs($user);
+
+        $response = $this->patchJson("/api/whatsapp-groups/{$group->id}", [
+            'description' => null,
+        ]);
+
+        $response->assertOk();
+        $this->assertNull($group->fresh()->description);
+
+        Http::assertSent(fn ($request) => str_contains((string) $request->url(), $group->group_id)
+            && array_key_exists('description', $request->data())
+            && $request->data()['description'] === '');
+    }
+
+    public function test_update_without_description_key_leaves_it_untouched(): void
+    {
+        [$user, $channel] = $this->context();
+        $group = $this->createActiveGroup($channel, description: 'Descripción original');
+        Http::fake(['https://graph.facebook.com/*/*' => Http::response(['success' => true], 200)]);
+        Sanctum::actingAs($user);
+
+        $response = $this->patchJson("/api/whatsapp-groups/{$group->id}", [
+            'subject' => 'Nuevo nombre',
+        ]);
+
+        $response->assertOk();
+        $this->assertSame('Descripción original', $group->fresh()->description);
+
+        Http::assertSent(fn ($request) => ! array_key_exists('description', $request->data()));
+    }
+
     public function test_remove_participants_rejects_more_than_eight(): void
     {
         [$user, $channel] = $this->context();
@@ -190,13 +226,14 @@ class WhatsAppGroupApiTest extends TestCase
         $this->assertFalse($ids->contains($foreignGroup->id));
     }
 
-    private function createActiveGroup(Channel $channel): WhatsAppGroup
+    private function createActiveGroup(Channel $channel, ?string $description = null): WhatsAppGroup
     {
         return WhatsAppGroup::create([
             'tenant_id' => $channel->tenant_id,
             'channel_id' => $channel->id,
             'group_id' => 'group-test-'.uniqid().'@g.us',
             'subject' => 'Grupo activo',
+            'description' => $description,
             'status' => 'active',
         ]);
     }

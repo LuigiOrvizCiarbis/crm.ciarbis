@@ -121,12 +121,20 @@ class WhatsAppGroupService
         $credentials = $this->resolveWhatsAppCredentials($group->channel);
         $this->assertHasGroupId($group);
 
-        $payload = array_filter([
-            'messaging_product' => 'whatsapp',
-            'subject' => $attributes['subject'] ?? null,
-            'description' => $attributes['description'] ?? null,
-            'profile_picture_file' => $attributes['profile_picture_file'] ?? null,
-        ], fn ($value) => $value !== null);
+        // array_filter($value !== null) descartaría description => null, que
+        // es justamente cómo se pide "borrar la descripción" (distinto de no
+        // haber mandado la clave). Meta no documenta null para vaciar un
+        // string; se envía '' explícito cuando la clave está presente y es null.
+        $payload = ['messaging_product' => 'whatsapp'];
+        if (array_key_exists('subject', $attributes) && $attributes['subject'] !== null) {
+            $payload['subject'] = $attributes['subject'];
+        }
+        if (array_key_exists('description', $attributes)) {
+            $payload['description'] = $attributes['description'] ?? '';
+        }
+        if (array_key_exists('profile_picture_file', $attributes) && $attributes['profile_picture_file'] !== null) {
+            $payload['profile_picture_file'] = $attributes['profile_picture_file'];
+        }
 
         $response = Http::withToken($credentials['business_token'])
             ->timeout(15)
@@ -136,10 +144,16 @@ class WhatsAppGroupService
             throw new \RuntimeException('Meta rechazó la actualización del grupo: '.$response->json('error.message', $response->body()));
         }
 
-        $group->update(array_filter([
-            'subject' => $attributes['subject'] ?? null,
-            'description' => array_key_exists('description', $attributes) ? $attributes['description'] : null,
-        ], fn ($value) => $value !== null));
+        $localUpdates = [];
+        if (array_key_exists('subject', $attributes) && $attributes['subject'] !== null) {
+            $localUpdates['subject'] = $attributes['subject'];
+        }
+        if (array_key_exists('description', $attributes)) {
+            $localUpdates['description'] = $attributes['description'];
+        }
+        if ($localUpdates !== []) {
+            $group->update($localUpdates);
+        }
     }
 
     public function deleteGroup(WhatsAppGroup $group): void
