@@ -160,12 +160,42 @@ class WhatsAppGroupApiTest extends TestCase
         $response->assertCreated();
     }
 
+    public function test_index_hides_groups_from_channels_the_member_cannot_access(): void
+    {
+        [$owner, $channel] = $this->context();
+        $tenant = $owner->tenant;
+        $member = User::factory()->create(['tenant_id' => $tenant->id, 'role' => UserRole::EMPLOYEE]);
+        $member->assignRole('Member');
+        $member->channels()->attach($channel->id);
+
+        $ownGroup = $this->createActiveGroup($channel);
+
+        $otherChannel = Channel::create([
+            'tenant_id' => $tenant->id,
+            'user_id' => $owner->id,
+            'type' => ChannelType::WHATSAPP,
+            'name' => 'Otro canal',
+            'status' => 'active',
+            'whatsapp_config_id' => $channel->whatsapp_config_id,
+        ]);
+        $foreignGroup = $this->createActiveGroup($otherChannel);
+
+        Sanctum::actingAs($member);
+
+        $response = $this->getJson('/api/whatsapp-groups');
+
+        $response->assertOk();
+        $ids = collect($response->json('data'))->pluck('id');
+        $this->assertTrue($ids->contains($ownGroup->id));
+        $this->assertFalse($ids->contains($foreignGroup->id));
+    }
+
     private function createActiveGroup(Channel $channel): WhatsAppGroup
     {
         return WhatsAppGroup::create([
             'tenant_id' => $channel->tenant_id,
             'channel_id' => $channel->id,
-            'group_id' => 'group-test-123@g.us',
+            'group_id' => 'group-test-'.uniqid().'@g.us',
             'subject' => 'Grupo activo',
             'status' => 'active',
         ]);

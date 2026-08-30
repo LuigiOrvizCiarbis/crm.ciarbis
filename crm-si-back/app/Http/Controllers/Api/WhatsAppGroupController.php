@@ -26,6 +26,15 @@ class WhatsAppGroupController extends Controller
 
         $query = WhatsAppGroup::query()->with(['channel:id,name,type']);
 
+        // viewAny sólo valida el permiso genérico whatsapp_groups.view, no el
+        // acceso por canal (eso lo hace la policy por-grupo en show/update/...).
+        // Sin este filtro, un Member con el permiso pero sin channels.view_any
+        // vería nombres, estados e invite links de grupos en canales ajenos.
+        // whereIn con [] ya resuelve correctamente a "sin resultados".
+        if (! $request->user()->can('channels.view_any')) {
+            $query->whereIn('channel_id', $request->user()->accessibleChannelIds());
+        }
+
         if ($request->filled('channel_id')) {
             $query->where('channel_id', $request->integer('channel_id'));
         }
