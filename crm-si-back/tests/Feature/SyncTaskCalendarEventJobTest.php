@@ -230,6 +230,30 @@ class SyncTaskCalendarEventJobTest extends TestCase
         $this->assertMatchesRegularExpression('/^[0-9a-f-]{36}$/', $requestId);
     }
 
+    public function test_utc_meeting_instant_is_sent_to_google_at_the_selected_local_time(): void
+    {
+        [$tenant, $user] = $this->makeConnectedUser();
+        $task = Task::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Reunión a las 17',
+            'type' => 'reunion',
+            'assigned_to' => $user->id,
+            // El navegador convierte 17:00 de Buenos Aires a este instante.
+            'starts_at' => '2026-08-31T20:00:00.000Z',
+            'ends_at' => '2026-08-31T20:30:00.000Z',
+            'meeting_timezone' => 'America/Argentina/Buenos_Aires',
+        ]);
+
+        $sync = new TaskCalendarSync(['task_id' => $task->id, 'tenant_id' => $tenant->id]);
+        $method = new \ReflectionMethod(SyncTaskCalendarEventJob::class, 'buildEvent');
+        $method->setAccessible(true);
+        $event = $method->invoke(new SyncTaskCalendarEventJob($task->id, 'upsert'), $task->fresh(), $sync);
+
+        $this->assertSame('2026-08-31T17:00:00-03:00', $event->getStart()->getDateTime());
+        $this->assertSame('2026-08-31T17:30:00-03:00', $event->getEnd()->getDateTime());
+        $this->assertSame('America/Argentina/Buenos_Aires', $event->getStart()->getTimeZone());
+    }
+
     public function test_pending_meet_creation_is_polled_and_event_becomes_synced(): void
     {
         [$tenant, $user] = $this->makeConnectedUser();
