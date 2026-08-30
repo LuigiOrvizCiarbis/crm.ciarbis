@@ -178,7 +178,7 @@ class MessengerMessageService
                 return;
             }
 
-            $version = config('services.facebook.graph_version', 'v21.0');
+            $version = config('services.facebook.graph_version', 'v26.0');
             $response = Http::withToken($token)
                 ->timeout(10)
                 ->get("https://graph.facebook.com/{$version}/{$psid}", [
@@ -600,7 +600,7 @@ class MessengerMessageService
      */
     private function postMessage(string $pageId, string $token, array $payload, ?string $tag = null): ?string
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         // messaging_type y tag son mutuamente excluyentes: con una tag el tipo
         // pasa a ser MESSAGE_TAG.

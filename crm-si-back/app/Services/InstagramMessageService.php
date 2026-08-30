@@ -182,7 +182,7 @@ class InstagramMessageService
                 return;
             }
 
-            $version = config('services.facebook.graph_version', 'v21.0');
+            $version = config('services.facebook.graph_version', 'v26.0');
             $response = Http::withToken($token)
                 ->timeout(10)
                 ->get("https://graph.facebook.com/{$version}/{$igsid}", [
@@ -575,7 +575,7 @@ class InstagramMessageService
      */
     private function postMessage(string $pageId, string $token, array $payload): ?string
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         $response = Http::withToken($token)
             ->timeout(15)

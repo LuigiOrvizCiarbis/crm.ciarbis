@@ -17,6 +17,7 @@ use App\Models\PipelineStage;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Models\User;
+use App\Models\WhatsAppGroup;
 use App\Models\WhatsAppTemplate;
 use App\Observers\ContactAutomationObserver;
 use App\Observers\ConversationAutomationObserver;
@@ -33,6 +34,7 @@ use App\Policies\RolePolicy;
 use App\Policies\TagPolicy;
 use App\Policies\TaskPolicy;
 use App\Policies\UserPolicy;
+use App\Policies\WhatsAppGroupPolicy;
 use App\Policies\WhatsAppTemplatePolicy;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -97,6 +99,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Tag::class, TagPolicy::class);
         Gate::policy(Task::class, TaskPolicy::class);
         Gate::policy(User::class, UserPolicy::class);
+        Gate::policy(WhatsAppGroup::class, WhatsAppGroupPolicy::class);
         Gate::policy(WhatsAppTemplate::class, WhatsAppTemplatePolicy::class);
 
         // Owner bypasses every gate within their tenant.

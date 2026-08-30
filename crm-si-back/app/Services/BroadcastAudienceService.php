@@ -97,6 +97,10 @@ class BroadcastAudienceService
             ->select(['id', 'contact_id', 'channel_id', 'assigned_to', 'branch_id'])
             ->visibleTo($user)
             ->where('channel_id', $channelId)
+            // Los grupos ya quedan afuera por whereHas('contact'), pero el
+            // filtro explícito no depende de ese efecto lateral: una difusión
+            // masiva no tiene sentido sobre un grupo de 8 personas.
+            ->where('kind', 'direct')
             ->whereHas('contact', fn (Builder $contact): Builder => $contact
                 ->whereNotNull('phone')
                 ->where('phone', '!=', ''));

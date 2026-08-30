@@ -16,6 +16,14 @@ const ContactInfoPanel = dynamic(
   () => import("@/components/ContactInfoPanel").then(m => m.ContactInfoPanel),
   { loading: () => null }
 )
+const GroupPanel = dynamic(
+  () => import("@/components/groups/GroupPanel").then(m => m.GroupPanel),
+  { loading: () => null }
+)
+const NewGroupDialog = dynamic(
+  () => import("@/components/groups/NewGroupDialog").then(m => m.NewGroupDialog),
+  { loading: () => null }
+)
 import { useChatState } from "@/hooks/useChatState"
 import { useToast } from "@/components/Toast"
 import { ChannelError, ChannelErrorDetail } from "@/lib/channel-error"
@@ -74,6 +82,7 @@ import { FilteredConversationsHeader } from "@/components/chat/FilteredConversat
 import { ChannelsList } from "@/components/chat/ChannelsList"
 import { getChannels, updateChannelName, syncMailChannel } from "@/lib/api/channels"
 import { updateContact } from "@/lib/api/contacts"
+import { updateWhatsAppGroup } from "@/lib/api/whatsapp-groups"
 import { isExpectedBusinessErrorMessage } from "@/lib/observability/sentry"
 import { ChannelHeader } from "@/components/chat/AccountHeader"
 import { useConversationFilters } from "@/hooks/useConversationFilters"
@@ -112,6 +121,7 @@ import {
   Tags,
   Trash2,
   UserPlus,
+  Users,
   X,
   Zap,
 } from "lucide-react"
@@ -276,6 +286,7 @@ export default function ChatsPage() {
   const currentUserId = user?.id
   const isAdmin = (permissions ?? []).includes("conversations.view_any")
   const canUpdateChannels = (permissions ?? []).includes("channels.update")
+  const canCreateGroups = (permissions ?? []).includes("whatsapp_groups.create")
 
   const chatIdFromUrl = searchParams.get("chat")
 
@@ -342,10 +353,10 @@ export default function ChatsPage() {
     )
 
     setConversations((prev) => prev.map((c) => (
-      belongsToContact(c) ? { ...c, contact: { ...c.contact, name } } : c
+      belongsToContact(c) && c.contact ? { ...c, contact: { ...c.contact, name } } : c
     )))
     setCurrentConversation((prev) => (
-      prev && belongsToContact(prev) ? { ...prev, contact: { ...prev.contact, name } } : prev
+      prev && belongsToContact(prev) && prev.contact ? { ...prev, contact: { ...prev.contact, name } } : prev
     ))
 
     try {
@@ -353,10 +364,10 @@ export default function ChatsPage() {
       addToast({ type: "success", title: t("chats.renameContactSuccess") })
     } catch (error) {
       setConversations((prev) => prev.map((c) => (
-        previousNames.has(c.id) ? { ...c, contact: { ...c.contact, name: previousNames.get(c.id)! } } : c
+        previousNames.has(c.id) && c.contact ? { ...c, contact: { ...c.contact, name: previousNames.get(c.id)! } } : c
       )))
       setCurrentConversation((prev) => (
-        prev && previousNames.has(prev.id)
+        prev && previousNames.has(prev.id) && prev.contact
           ? { ...prev, contact: { ...prev.contact, name: previousNames.get(prev.id)! } }
           : prev
       ))
@@ -367,6 +378,39 @@ export default function ChatsPage() {
       })
     }
   }, [selectedConversationId, addToast, t])
+
+  const handleRenameGroup = useCallback(async (subject: string) => {
+    if (!selectedConversationId) return
+
+    const previous = conversationsRef.current.find((c) => c.id === selectedConversationId)?.group?.subject
+    setConversations((prev) => prev.map((c) => (
+      c.id === selectedConversationId && c.group ? { ...c, group: { ...c.group, subject } } : c
+    )))
+    setCurrentConversation((prev) => (
+      prev && prev.id === selectedConversationId && prev.group ? { ...prev, group: { ...prev.group, subject } } : prev
+    ))
+
+    try {
+      const groupId = conversationsRef.current.find((c) => c.id === selectedConversationId)?.group?.id
+      if (!groupId) return
+      await updateWhatsAppGroup(groupId, { subject })
+      addToast({ type: "success", title: "Nombre del grupo actualizado" })
+    } catch (error) {
+      if (previous !== undefined) {
+        setConversations((prev) => prev.map((c) => (
+          c.id === selectedConversationId && c.group ? { ...c, group: { ...c.group, subject: previous } } : c
+        )))
+        setCurrentConversation((prev) => (
+          prev && prev.id === selectedConversationId && prev.group ? { ...prev, group: { ...prev.group, subject: previous } } : prev
+        ))
+      }
+      addToast({
+        type: "error",
+        title: "No se pudo renombrar el grupo",
+        description: error instanceof Error ? error.message : undefined,
+      })
+    }
+  }, [selectedConversationId, addToast])
 
   const activeChannel = useMemo(() => channels.find((channel) => channel.id === selectedChannelId), [channels, selectedChannelId])
 
@@ -383,6 +427,8 @@ export default function ChatsPage() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [broadcastOpen, setBroadcastOpen] = useState(false)
   const [bulkSubmitting, setBulkSubmitting] = useState(false)
+  const [newGroupOpen, setNewGroupOpen] = useState(false)
+  const [groupsOnly, setGroupsOnly] = useState(false)
 
   const conversationsRef = useRef(conversations);
   useEffect(() => {
@@ -1919,6 +1965,24 @@ export default function ChatsPage() {
                       {allVisibleSelected ? t("chats.bulk.deselectAll") : t("chats.bulk.selectAll")}
                     </Button>
                   )}
+                  {!selectionMode && canCreateGroups && (
+                    <Button variant="outline" size="sm" className="gap-2" onClick={() => setNewGroupOpen(true)}>
+                      <Users className="h-4 w-4" />
+                      Nuevo grupo
+                    </Button>
+                  )}
+                  {!selectionMode && (
+                    <Button
+                      variant={groupsOnly ? "default" : "ghost"}
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => setGroupsOnly((prev) => !prev)}
+                      title="Mostrar solo grupos"
+                    >
+                      <Users className="h-4 w-4" />
+                      Grupos
+                    </Button>
+                  )}
                 </div>
                 {selectionMode && selectedConversationIds.size > 0 && (
                   <span className="text-xs text-muted-foreground">
@@ -2060,7 +2124,7 @@ export default function ChatsPage() {
               )}
 
               <ConversationList
-                conversations={visibleConversations}
+                conversations={groupsOnly ? visibleConversations.filter((c) => c.kind === "group") : visibleConversations}
                 channels={channels}
                 isLoading={isLoading}
                 selectedConversationId={selectedConversationId}
@@ -2091,6 +2155,7 @@ export default function ChatsPage() {
                 onBack={handleBackToConversations}
                 onToggleContactInfo={() => setIsContactInfoOpen(!isContactInfoOpen)}
                 onRenameContact={handleRenameContact}
+                onRenameGroup={handleRenameGroup}
                 onToggleAiAutoreply={handleToggleAiAutoreply}
               />
               {/* Quick Bar */}
@@ -2136,6 +2201,7 @@ export default function ChatsPage() {
                 translationLanguage={language}
                 onTranslateMessage={handleTranslateMessage}
                 channelType={activeConversation?.channel?.type}
+                isGroupConversation={activeConversation?.kind === "group"}
               />
               {activeConversation?.channel?.type === ChannelType.MAIL ? (
                 <MailMessageInput
@@ -2184,8 +2250,23 @@ export default function ChatsPage() {
 
         </div>
 
-        {/* Panel de información de contacto */}
+        {/* Panel de información de contacto o de grupo */}
         {selectedConversationId && activeConversation && (() => {
+          if (activeConversation.kind === "group") {
+            if (!activeConversation.group) return null
+            return (
+              <GroupPanel
+                groupId={activeConversation.group.id}
+                isOpen={isContactInfoOpen}
+                onClose={() => setIsContactInfoOpen(false)}
+                onDeleted={() => {
+                  setIsContactInfoOpen(false)
+                  handleBackToConversations()
+                }}
+              />
+            )
+          }
+
           const contactId = activeConversation.contact_id ?? Number(activeConversation.contact?.id)
           if (!contactId || Number.isNaN(contactId)) return null
           return (
@@ -2226,6 +2307,16 @@ export default function ChatsPage() {
         onSuccess={() => {
           refreshConversations()
           handleExitSelectionMode()
+        }}
+      />
+
+      <NewGroupDialog
+        open={newGroupOpen}
+        onOpenChange={setNewGroupOpen}
+        channels={channels}
+        defaultChannelId={selectedChannelId ?? undefined}
+        onCreated={async () => {
+          await refreshConversations()
         }}
       />
 

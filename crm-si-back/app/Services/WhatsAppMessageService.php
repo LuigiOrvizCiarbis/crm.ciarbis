@@ -24,6 +24,8 @@ use App\Models\MessageInteraction;
 use App\Models\PipelineStage;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
+use App\Services\Concerns\ResolvesWhatsAppChannel;
+use App\Services\Concerns\ResolvesWhatsAppCredentials;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
@@ -31,14 +33,15 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Sentry\Severity;
-use Sentry\State\Scope;
 
 class WhatsAppMessageService
 {
+    use ResolvesWhatsAppChannel;
+    use ResolvesWhatsAppCredentials;
+
     private function graphVersion(): string
     {
-        return config('services.facebook.graph_version', 'v21.0');
+        return config('services.facebook.graph_version', 'v26.0');
     }
 
     public function processIncomingMessage(array $webhookData): ?Message
@@ -125,10 +128,36 @@ class WhatsAppMessageService
                 return null;
             }
 
+            // Mensaje de grupo: el `from` sigue siendo el teléfono de quien
+            // escribió (misma forma que un 1:1), pero la conversación es la
+            // del grupo, no una nueva 1:1 por participante. Si el grupo no
+            // existe localmente (creado fuera del CRM) se dropea: auto-crearlo
+            // dejaría un grupo sin dueño ni permisos en la bandeja.
+            $groupWaId = $messageData['group_id'] ?? $value['group_id'] ?? null;
+
             /** @var Contact $contact */
             $contact = $this->findOrCreateContact($contactData, $messageData['from'] ?? '', $channel);
-            /** @var Conversation $conversation */
-            $conversation = $this->findOrCreateConversation($contact, $channel);
+
+            if ($groupWaId !== null) {
+                $conversation = $this->resolveGroupConversation((string) $groupWaId, $channel);
+                if (! $conversation) {
+                    Log::warning('processIncomingMessage: grupo no encontrado localmente', [
+                        'group_id' => $groupWaId,
+                        'channel_id' => $channel->id,
+                    ]);
+                    $this->reportDroppedWebhook(
+                        'processIncomingMessage: grupo no encontrado localmente',
+                        ['group_id' => $groupWaId, 'channel_id' => $channel->id]
+                    );
+
+                    return null;
+                }
+
+                $this->touchGroupParticipantFromMessage($conversation, $contact, $messageData);
+            } else {
+                $conversation = $this->findOrCreateConversation($contact, $channel);
+            }
+
             /** @var int $conversationId */
             $conversationId = $conversation->getKey();
             /** @var int $contactId */
@@ -201,7 +230,7 @@ class WhatsAppMessageService
         );
     }
 
-    private function findOrCreateConversation(Contact $contact, Channel $channel): Conversation
+    public function findOrCreateConversation(Contact $contact, Channel $channel): Conversation
     {
         $conversation = Conversation::firstOrCreate(
             [
@@ -237,57 +266,39 @@ class WhatsAppMessageService
         return $conversation;
     }
 
-    private function resolveChannelFromWebhook(array $value, string $context): ?Channel
+    private function resolveGroupConversation(string $groupWaId, Channel $channel): ?Conversation
     {
-        $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
-
-        if (! $phoneNumberId) {
-            Log::warning("{$context}: phone_number_id ausente en metadata");
-            $this->reportDroppedWebhook(
-                "{$context}: phone_number_id ausente en metadata",
-                ['context' => $context]
-            );
-
-            return null;
-        }
-
-        $whatsappConfig = WhatsAppConfig::with('channels')
-            ->where('phone_number_id', $phoneNumberId)
+        $group = \App\Models\WhatsAppGroup::query()
+            ->where('group_id', $groupWaId)
+            ->where('channel_id', $channel->id)
             ->first();
 
-        if (! $whatsappConfig || $whatsappConfig->channels->isEmpty()) {
-            Log::warning("{$context}: canal no encontrado para phone_number_id: {$phoneNumberId}");
-            // Un mensaje de cliente que no matchea ningún canal se pierde en silencio.
-            // Lo reportamos como issue en Sentry para detectar config rota / tenant mal armado.
-            $this->reportDroppedWebhook(
-                "{$context}: canal no encontrado para phone_number_id",
-                ['context' => $context, 'phone_number_id' => $phoneNumberId]
-            );
-
-            return null;
-        }
-
-        return $whatsappConfig->channels->first();
+        return $group?->conversation;
     }
 
     /**
-     * Reporta a Sentry un webhook entrante descartado en una rama crítica
-     * (sin canal resoluble → mensaje de cliente que se pierde). Se emite como
-     * captureMessage 'warning' para que genere un issue agrupable y alertable,
-     * además del Log::warning que ya queda en los logs.
-     *
-     * @param  array<string, mixed>  $context
+     * Mantiene fresco el panel de participantes aunque no llegue (o llegue
+     * tarde) el webhook group_participants_update: defensa en profundidad,
+     * no la única fuente de verdad de la membresía.
      */
-    private function reportDroppedWebhook(string $message, array $context): void
+    private function touchGroupParticipantFromMessage(Conversation $conversation, Contact $contact, array $messageData): void
     {
-        if (! app()->bound('sentry')) {
+        $group = $conversation->whatsappGroup;
+        if (! $group) {
             return;
         }
 
-        \Sentry\withScope(function (Scope $scope) use ($message, $context): void {
-            $scope->setContext('whatsapp_webhook', $context);
-            \Sentry\captureMessage($message, Severity::warning());
-        });
+        \App\Models\WhatsAppGroupParticipant::updateOrCreate(
+            [
+                'whatsapp_group_id' => $group->id,
+                'wa_id' => $messageData['from'] ?? '',
+            ],
+            [
+                'contact_id' => $contact->id,
+                'status' => 'active',
+                'display_name' => $contact->name,
+            ]
+        );
     }
 
     private function parseWebhookTimestamp(?string $timestamp): Carbon
@@ -307,7 +318,7 @@ class WhatsAppMessageService
         ?string $caption,
         User $user
     ): Message {
-        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
 
         $uploadResponse = Http::withToken($businessToken)
@@ -326,7 +337,7 @@ class WhatsAppMessageService
 
         $messagePayload = [
             'messaging_product' => 'whatsapp',
-            'recipient_type' => 'individual',
+            'recipient_type' => $recipientType,
             'to' => $to,
             'type' => 'image',
             'image' => [
@@ -459,7 +470,7 @@ class WhatsAppMessageService
         User $user,
         bool $voice = false
     ): Message {
-        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
 
         [$uploadMediaPath, $uploadMimeType, $uploadFilename] =
@@ -490,7 +501,7 @@ class WhatsAppMessageService
             ->timeout(10)
             ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
-                'recipient_type' => 'individual',
+                'recipient_type' => $recipientType,
                 'to' => $to,
                 'type' => 'audio',
                 'audio' => [
@@ -957,7 +968,7 @@ class WhatsAppMessageService
     }
 
     /**
-     * @return array{to: string, business_phone_id: string, business_token: string}
+     * @return array{to: string, recipient_type: string, business_phone_id: string, business_token: string}
      */
     private function resolveOutboundWhatsAppContext(Conversation $conversation): array
     {
@@ -966,22 +977,19 @@ class WhatsAppMessageService
             throw new \InvalidArgumentException('La conversación no tiene un canal asociado.');
         }
 
-        if ($channel->type !== ChannelType::WHATSAPP) {
-            throw new \InvalidArgumentException('Solo se pueden enviar mensajes desde conversaciones de WhatsApp.');
-        }
+        $credentials = $this->resolveWhatsAppCredentials($channel);
 
-        if (! $channel->isActive()) {
-            throw new \InvalidArgumentException('El canal de WhatsApp está desconectado.');
-        }
+        if ($conversation->isGroup()) {
+            $group = $conversation->whatsappGroup;
+            if (! $group || ! $group->group_id || ! $group->isActive()) {
+                throw new \InvalidArgumentException('El grupo todavía se está creando en WhatsApp o ya no está activo.');
+            }
 
-        $waConfig = $channel->whatsappConfig;
-        if (! $waConfig || ! $waConfig->phone_number_id) {
-            throw new \InvalidArgumentException('El canal no tiene una configuración válida de WhatsApp.');
-        }
-
-        $businessToken = $waConfig->getDecryptedToken();
-        if (! $businessToken) {
-            throw new \InvalidArgumentException('No se pudo obtener el token de WhatsApp del canal.');
+            return [
+                'to' => $group->group_id,
+                'recipient_type' => 'group',
+                ...$credentials,
+            ];
         }
 
         $phone = $conversation->contact?->phone;
@@ -991,8 +999,8 @@ class WhatsAppMessageService
 
         return [
             'to' => $this->normalizePhoneForWhatsApp($phone),
-            'business_phone_id' => $waConfig->phone_number_id,
-            'business_token' => $businessToken,
+            'recipient_type' => 'individual',
+            ...$credentials,
         ];
     }
 
@@ -1102,6 +1110,7 @@ class WhatsAppMessageService
         }
 
         try {
+            $this->attachSenderNameForGroupBroadcast($message);
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $messageData['tenant_id']));
         } catch (\Exception $e) {
@@ -1111,6 +1120,29 @@ class WhatsAppMessageService
         $this->maybeDispatchAiReply($message);
 
         return $message;
+    }
+
+    /**
+     * Igual que ConversationController::attachSenderNames() pero para el
+     * mensaje único que se está por emitir por WebSocket: sin esto, un
+     * inbound de grupo llega en vivo sin nombre de autor y sólo lo recupera
+     * al recargar la conversación (show()/fetchMessages() sí lo adjuntan).
+     */
+    private function attachSenderNameForGroupBroadcast(Message $message): void
+    {
+        if ($message->sender_type !== SenderType::CONTACT || ! $message->sender_id) {
+            return;
+        }
+
+        $conversation = Conversation::withoutGlobalScopes()->find($message->conversation_id);
+        if (! $conversation || ! $conversation->isGroup()) {
+            return;
+        }
+
+        $name = Contact::withoutGlobalScopes()->where('id', $message->sender_id)->value('name');
+        if ($name) {
+            $message->setAttribute('sender', ['id' => $message->sender_id, 'name' => $name]);
+        }
     }
 
     private function inferReadFromInboundReply(Message $inboundMessage): void
@@ -1157,6 +1189,13 @@ class WhatsAppMessageService
 
         $conversation = Conversation::find($message->conversation_id);
         if (! $conversation || ! $conversation->ai_autoreply_enabled) {
+            return;
+        }
+
+        // Guard duro: un bot respondiendo en un grupo de venta es un riesgo
+        // real. No alcanza con ai_autoreply_enabled=false al crear el grupo
+        // (alguien podría reactivarlo); se corta acá sin importar el flag.
+        if ($conversation->isGroup()) {
             return;
         }
 
@@ -1591,14 +1630,14 @@ class WhatsAppMessageService
 
     public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
     {
-        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
 
         $response = Http::withToken($businessToken)
             ->timeout(10)
             ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
-                'recipient_type' => 'individual',
+                'recipient_type' => $recipientType,
                 'to' => $to,
                 'type' => 'text',
                 'text' => [
@@ -1647,7 +1686,7 @@ class WhatsAppMessageService
      */
     public function sendSystemTextMessageFromCRM(Conversation $conversation, string $content): Message
     {
-        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
 
         // Timeout explícito: esta llamada corre en GenerateAiReplyJob (worker
@@ -1658,7 +1697,7 @@ class WhatsAppMessageService
             ->timeout(10)
             ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
-                'recipient_type' => 'individual',
+                'recipient_type' => $recipientType,
                 'to' => $to,
                 'type' => 'text',
                 'text' => [

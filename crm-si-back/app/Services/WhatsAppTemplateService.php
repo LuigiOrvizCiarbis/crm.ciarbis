@@ -14,17 +14,19 @@ use App\Models\User;
 use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
+use App\Services\Concerns\ResolvesWhatsAppCredentials;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class WhatsAppTemplateService
 {
+    use ResolvesWhatsAppCredentials;
+
     private function graphVersion(): string
     {
-        return (string) config('services.facebook.graph_version', 'v21.0');
+        return (string) config('services.facebook.graph_version', 'v26.0');
     }
 
     /**
@@ -267,8 +269,8 @@ class WhatsAppTemplateService
     private function resolvePersonalizationTokens(array $components, Conversation $conversation): array
     {
         $replacements = [
-            '{{nombre}}' => $conversation->contact->name ?? '',
-            '{{telefono}}' => $conversation->contact->phone ?? '',
+            '{{nombre}}' => $conversation->contact?->name ?? '',
+            '{{telefono}}' => $conversation->contact?->phone ?? '',
         ];
 
         foreach ($components as &$component) {
@@ -341,10 +343,17 @@ class WhatsAppTemplateService
         $components = $this->ensureDocumentFilename($components, $template);
 
         $channel = $conversation->channel;
-        $waConfig = $channel->whatsappConfig;
-        $to = $conversation->contact->phone;
-        $businessPhoneId = $waConfig->phone_number_id;
-        $businessToken = Crypt::decryptString($waConfig->bussines_token);
+        if (! $channel) {
+            throw new \InvalidArgumentException('La conversación no tiene un canal asociado.');
+        }
+
+        ['business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+            $this->resolveWhatsAppCredentials($channel);
+
+        $to = $conversation->contact?->phone;
+        if (! $to) {
+            throw new \InvalidArgumentException('La conversación no tiene un teléfono de contacto válido.');
+        }
 
         // Normalización de teléfono argentino (mismo patrón que sendTextMessageFromCRM)
         if (strpos($to, '549') === 0) {
@@ -412,6 +421,33 @@ class WhatsAppTemplateService
         array $components,
     ): Message {
         return $this->sendTemplateMessage($conversation, $template, $components, null);
+    }
+
+    /**
+     * Detecta las plantillas de "Group invite link" ya sincronizadas: no se
+     * crean por API (createTemplate() fuerza parameter_format=named, y la
+     * Template Library las gestiona por su propio flujo, vía
+     * GET /message_template_library con topic=group_invite_link — un
+     * endpoint distinto al que usa syncTemplates()).
+     *
+     * NOTA: no hay confirmación de qué campo persiste el vínculo con
+     * "group_invite_link" en la respuesta de GET /{waba_id}/message_templates
+     * (que es lo que syncTemplates() guarda en `components`). La heurística
+     * acá es buscar el literal "group_id" en cualquier parte del array
+     * serializado de components; hay que verificarla contra una plantilla
+     * real sincronizada antes de confiar en ella en producción.
+     *
+     * @return \Illuminate\Support\Collection<int, WhatsAppTemplate>
+     */
+    public function findGroupInviteTemplates(int $whatsappConfigId): \Illuminate\Support\Collection
+    {
+        return WhatsAppTemplate::where('whatsapp_config_id', $whatsappConfigId)
+            ->where('status', TemplateStatus::Approved)
+            ->get()
+            ->filter(fn (WhatsAppTemplate $template) => str_contains(
+                json_encode($template->components ?? []),
+                'group_id'
+            ));
     }
 
     /**

@@ -28,6 +28,9 @@ Schedule::command('model:prune', ['--model' => [AutomationRun::class]])->dailyAt
 // minutos en `queued`, algo está tapando el worker (ver retry_after en
 // config/queue.php) y hoy nadie se entera hasta que el cliente se queja.
 Schedule::command('broadcasts:check-stuck')->everyFifteenMinutes()->withoutOverlapping(10);
+// La creación de un grupo de WhatsApp es asíncrona (Meta confirma por
+// webhook); si nunca llega, el grupo queda "creando…" para siempre sin esto.
+Schedule::command('whatsapp-groups:expire-stale')->everyFifteenMinutes()->withoutOverlapping(10);
 
 // Un worker muerto a mitad de una extracción (OOM, deploy) deja la fila en
 // processing y el claim compare-and-set impide que otro job la retome: sin este

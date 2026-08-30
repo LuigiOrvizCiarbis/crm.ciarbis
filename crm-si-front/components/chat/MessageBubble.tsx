@@ -53,6 +53,8 @@ interface MessageBubbleProps {
   canEdit: boolean
   canDelete: boolean
   canTranslate: boolean
+  /** Muestra el nombre de quien escribió sobre las burbujas inbound de un grupo. */
+  isGroupConversation?: boolean
 }
 
 export function MessageBubble({
@@ -69,6 +71,7 @@ export function MessageBubble({
   canEdit,
   canDelete,
   canTranslate,
+  isGroupConversation = false,
   onSaveContact,
 }: MessageBubbleProps) {
   const { t } = useTranslation()
@@ -297,6 +300,12 @@ export function MessageBubble({
           <div className="mb-1 flex items-center gap-1 text-[11px] font-medium text-primary">
             <Bot className="h-3 w-3" />
             {t("chats.aiBadge")}
+          </div>
+        )}
+
+        {isGroupConversation && !isOwn && isFirstOfGroup && msg.sender?.name && (
+          <div className="mb-0.5 text-[11px] font-semibold text-primary">
+            {msg.sender.name}
           </div>
         )}
 

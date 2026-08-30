@@ -20,7 +20,7 @@ class MetaOAuth
      */
     public static function exchangeCodeForToken(string $code, ?string $redirectUri = null): ?string
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             // El canje debe usar el MISMO redirect_uri que el SDK usó al pedir el
@@ -64,7 +64,7 @@ class MetaOAuth
      */
     public static function extendTokenToPermanent(string $token): string
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::timeout(10)->get("https://graph.facebook.com/{$version}/oauth/access_token", [
