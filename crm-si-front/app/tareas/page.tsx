@@ -51,6 +51,33 @@ export default function TareasPage() {
     fetchTasks()
   }, [fetchTasks])
 
+  const hasCalendarSyncInFlight = tasks.some((task) => {
+    if (task.type !== "reunion") return false
+
+    if (!task.calendarSync) {
+      const updatedAt = task.updatedAt ? new Date(task.updatedAt).getTime() : 0
+      return updatedAt > 0 && Date.now() - updatedAt < 120_000
+    }
+
+    return task.calendarSync.status === "pending" &&
+      ["retrying", "conference_pending"].includes(task.calendarSync.lastError ?? "")
+  })
+
+  useEffect(() => {
+    if (!hasCalendarSyncInFlight) return
+
+    let inFlight = false
+    const interval = window.setInterval(() => {
+      if (inFlight) return
+      inFlight = true
+      void fetchTasks().finally(() => {
+        inFlight = false
+      })
+    }, 10_000)
+
+    return () => window.clearInterval(interval)
+  }, [fetchTasks, hasCalendarSyncInFlight])
+
   useEffect(() => {
     let filtered = tasks
 

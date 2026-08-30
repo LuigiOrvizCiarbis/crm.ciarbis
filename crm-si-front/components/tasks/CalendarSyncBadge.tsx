@@ -30,8 +30,21 @@ interface CalendarSyncBadgeProps {
 
 export function CalendarSyncBadge({ taskId, sync, onRetried }: CalendarSyncBadgeProps) {
   const [retrying, setRetrying] = useState(false)
+  const effectiveSync = sync ?? {
+    status: "pending" as const,
+    htmlLink: null,
+    meetLink: null,
+    lastError: "not_connected",
+    syncedAt: null,
+  }
 
-  if (!sync) return null
+  const statusHint = effectiveSync.lastError === "not_connected"
+    ? "El responsable todavía no conectó Google Calendar"
+    : effectiveSync.lastError === "needs_reauth"
+      ? "El responsable debe volver a autorizar Google Calendar"
+      : effectiveSync.lastError === "conference_pending"
+        ? "Google Meet todavía se está generando"
+        : effectiveSync.lastError ?? undefined
 
   const handleRetry = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -52,16 +65,16 @@ export function CalendarSyncBadge({ taskId, sync, onRetried }: CalendarSyncBadge
     <div className="flex flex-wrap items-center gap-1.5">
       <Badge
         variant="outline"
-        className={`gap-1 text-xs font-medium ${STATUS_STYLES[sync.status]}`}
-        title={sync.lastError ?? undefined}
+        className={`gap-1 text-xs font-medium ${STATUS_STYLES[effectiveSync.status]}`}
+        title={statusHint}
       >
         <CalendarClock className="size-3" />
-        {STATUS_LABELS[sync.status]}
+        {STATUS_LABELS[effectiveSync.status]}
       </Badge>
 
-      {sync.meetLink && (
+      {effectiveSync.meetLink && (
         <a
-          href={sync.meetLink}
+          href={effectiveSync.meetLink}
           target="_blank"
           rel="noreferrer"
           onClick={(e) => e.stopPropagation()}
@@ -72,7 +85,7 @@ export function CalendarSyncBadge({ taskId, sync, onRetried }: CalendarSyncBadge
         </a>
       )}
 
-      {sync.status === "error" && (
+      {effectiveSync.status === "error" && (
         <Button
           size="sm"
           variant="ghost"
