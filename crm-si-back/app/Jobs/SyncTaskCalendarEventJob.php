@@ -16,9 +16,11 @@ use Google\Service\Calendar\EventAttendee;
 use Google\Service\Calendar\EventDateTime;
 use Google\Service\Calendar\EventExtendedProperties;
 use Google\Service\Exception as GoogleServiceException;
+use GuzzleHttp\Exception\TransferException;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * Inserta, actualiza o cancela el evento de Google Calendar de una tarea
@@ -39,14 +41,21 @@ class SyncTaskCalendarEventJob implements ShouldQueue
 
     public int $tries = 5;
 
-    public array $backoff = [30, 60, 300, 900, 1800];
+    public function backoff(): int
+    {
+        $schedule = [30, 60, 300, 900];
+        $index = max(0, min($this->attempts() - 1, count($schedule) - 1));
+
+        return $schedule[$index] + random_int(0, 10);
+    }
 
     public function __construct(
         public int $taskId,
-        public string $action, // 'upsert' | 'cancel'
+        public string $action, // 'upsert' | 'cancel' | 'cancel_previous' | 'refresh_conference'
         public ?int $cancelOwnerUserId = null,
         public ?string $cancelCalendarId = null,
         public ?string $cancelEventId = null,
+        public int $conferencePoll = 0,
     ) {}
 
     /**
@@ -73,6 +82,12 @@ class SyncTaskCalendarEventJob implements ShouldQueue
         $task = Task::withoutGlobalScope(TenantScope::class)->find($this->taskId);
 
         if (! $task || $task->type?->value !== 'reunion') {
+            return;
+        }
+
+        if ($this->action === 'refresh_conference') {
+            $this->refreshConference($task);
+
             return;
         }
 
@@ -151,7 +166,21 @@ class SyncTaskCalendarEventJob implements ShouldQueue
      */
     private function isRetryable(GoogleServiceException $e): bool
     {
-        return $e->getCode() === 429 || $e->getCode() >= 500;
+        if ($e->getCode() === 429 || $e->getCode() >= 500) {
+            return true;
+        }
+
+        if ($e->getCode() !== 403) {
+            return false;
+        }
+
+        $reasons = collect($e->getErrors())->pluck('reason');
+
+        return $reasons->intersect([
+            'rateLimitExceeded',
+            'userRateLimitExceeded',
+            'quotaExceeded',
+        ])->isNotEmpty();
     }
 
     private function upsert(Task $task, TaskCalendarSync $sync): void
@@ -190,7 +219,7 @@ class SyncTaskCalendarEventJob implements ShouldQueue
         $event = $this->buildEvent($task, $sync);
 
         try {
-            $created = $service->events->insert('primary', $event, [
+            $created = $service->events->insert($sync->google_calendar_id, $event, [
                 'sendUpdates' => 'all',
                 'conferenceDataVersion' => 1,
             ]);
@@ -210,7 +239,17 @@ class SyncTaskCalendarEventJob implements ShouldQueue
                 return;
             }
 
+            if ($this->isRetryable($e)) {
+                $this->markPending($sync, 'retrying');
+
+                throw $e;
+            }
+
             $this->markError($sync, $e->getMessage());
+        } catch (TransferException $e) {
+            $this->markPending($sync, 'retrying');
+
+            throw $e;
         } catch (\Exception $e) {
             $this->markError($sync, $e->getMessage());
         }
@@ -219,15 +258,95 @@ class SyncTaskCalendarEventJob implements ShouldQueue
     private function retryAsUpdate(GoogleCalendarService $service, Task $task, TaskCalendarSync $sync, Event $event): void
     {
         try {
+            $calendarId = $sync->google_calendar_id ?: 'primary';
+            // Reuse the current conference data on updates. Google requires a
+            // new requestId for every new conference creation request.
+            $existing = $service->events->get($calendarId, $sync->external_event_id);
+            if ($existing->getConferenceData()) {
+                $event->setConferenceData($existing->getConferenceData());
+            }
+
             $event->setStatus('confirmed');
-            $updated = $service->events->update('primary', $sync->external_event_id, $event, [
+            $updated = $service->events->update($calendarId, $sync->external_event_id, $event, [
                 'sendUpdates' => 'all',
                 'conferenceDataVersion' => 1,
             ]);
 
             $this->markSynced($sync, $updated);
+        } catch (GoogleServiceException $e) {
+            if ($this->isRetryable($e)) {
+                $this->markPending($sync, 'retrying');
+
+                throw $e;
+            }
+
+            $this->markError($sync, $e->getMessage());
+        } catch (TransferException $e) {
+            $this->markPending($sync, 'retrying');
+
+            throw $e;
         } catch (\Exception $e) {
             $this->markError($sync, $e->getMessage());
+        }
+    }
+
+    private function refreshConference(Task $task): void
+    {
+        $sync = TaskCalendarSync::withoutGlobalScope(TenantScope::class)
+            ->where('task_id', $task->id)
+            ->first();
+
+        if (! $sync || ! $sync->external_event_id) {
+            return;
+        }
+
+        $connection = $task->assignedUser?->googleCalendarConnection;
+        $service = $connection ? GoogleCalendarClient::serviceFor($connection) : null;
+
+        if (! $service) {
+            $this->markPending($sync, 'needs_reauth');
+
+            return;
+        }
+
+        try {
+            $event = $service->events->get($sync->google_calendar_id ?: 'primary', $sync->external_event_id);
+            $meetLink = $this->extractMeetLink($event);
+
+            if ($meetLink) {
+                $this->markSynced($sync, $event);
+
+                return;
+            }
+
+            $status = $event->getConferenceData()?->getCreateRequest()?->getStatus()?->getStatusCode();
+            if ($status === 'failure') {
+                $this->markError($sync, 'conference_creation_failed');
+
+                return;
+            }
+
+            if ($this->conferencePoll < 4) {
+                $this->markPending($sync, 'conference_pending');
+                self::dispatch($task->id, 'refresh_conference', null, null, null, $this->conferencePoll + 1)
+                    ->delay(now()->addSeconds(10));
+
+                return;
+            }
+
+            $this->markError($sync, 'conference_creation_timeout');
+        } catch (GoogleServiceException $e) {
+            if ($this->isRetryable($e)) {
+                $this->markPending($sync, 'retrying');
+
+                throw $e;
+            }
+
+            $this->markError($sync, $e->getMessage());
+        } catch (TransferException $e) {
+            $this->markPending($sync, 'retrying');
+
+            throw $e;
         }
     }
 
@@ -291,7 +410,10 @@ class SyncTaskCalendarEventJob implements ShouldQueue
         ]);
 
         if ($task->recurrence) {
-            $event->setRecurrence([$task->recurrence]);
+            $recurrence = str_starts_with($task->recurrence, 'RRULE:')
+                ? $task->recurrence
+                : 'RRULE:'.$task->recurrence;
+            $event->setRecurrence([$recurrence]);
         }
 
         $guestEmail = $task->meeting_guest_email ?: $task->contact?->email;
@@ -302,7 +424,7 @@ class SyncTaskCalendarEventJob implements ShouldQueue
 
         $event->setConferenceData(new ConferenceData([
             'createRequest' => new CreateConferenceRequest([
-                'requestId' => "task-{$task->id}-gen{$sync->event_generation}",
+                'requestId' => Str::uuid()->toString(),
                 'conferenceSolutionKey' => new ConferenceSolutionKey(['type' => 'hangoutsMeet']),
             ]),
         ]));
@@ -334,10 +456,14 @@ class SyncTaskCalendarEventJob implements ShouldQueue
     {
         $sync->html_link = $event->getHtmlLink();
         $sync->meet_link = $this->extractMeetLink($event);
-        $sync->status = 'synced';
-        $sync->last_error = null;
+        $sync->status = $sync->meet_link ? 'synced' : 'pending';
+        $sync->last_error = $sync->status === 'pending' ? 'conference_pending' : null;
         $sync->synced_at = now();
         $sync->save();
+
+        if ($sync->status === 'pending' && $this->conferencePoll === 0) {
+            self::dispatch($sync->task_id, 'refresh_conference')->delay(now()->addSeconds(10));
+        }
     }
 
     private function markPending(TaskCalendarSync $sync, string $reason): void
