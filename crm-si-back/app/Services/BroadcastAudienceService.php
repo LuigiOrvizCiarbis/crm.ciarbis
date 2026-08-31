@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Enums\MarketingConsentStatus;
 use App\Enums\TemplateCategory;
-use App\Models\Conversation;
+use App\Models\Contact;
 use App\Models\User;
+use App\Support\PhoneNumberNormalizer;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -15,32 +17,58 @@ class BroadcastAudienceService
     ) {}
 
     /**
-     * Resuelve la audiencia y descarta los destinos a los que Meta no va a
-     * entregar la plantilla, para no consumir cupo del límite de 24h en
-     * mensajes que nacen muertos.
+     * Resuelve la audiencia de una difusión, separada en dos conjuntos:
+     * `consented` (puede recibir marketing sin más) y `without_consent`
+     * (requiere que el usuario reconozca el riesgo, ver StoreBroadcastRequest).
+     *
+     * `denied` nunca entra en ninguno de los dos: es un opt-out explícito
+     * (incluye el error 131050 de Meta, "do not retry") y no hay casilla que
+     * lo habilite.
+     *
+     * Para plantillas utility/authentication el consentimiento no aplica como
+     * filtro —el cap por usuario y las restricciones de marketing son solo
+     * para esa categoría— así que todo lo no-`denied` cae en `consented`.
+     *
+     * $includeWithoutConsent determina QUÉ cuenta contra el tope de
+     * destinatarios. Si es false (el caso por defecto, y el único que conoce
+     * estimate()), el cap se aplica solo sobre `consented`: un lote inicial
+     * de contactos `unknown` no debe consumir el cupo ni cortar la paginación
+     * antes de llegar a los contactos que sí importan para esta request. Si
+     * es true, el cap se aplica sobre la suma de ambos, porque ambos van a
+     * crearse como recipients.
      *
      * @param  array{pipeline_stage_id?: int|null, tag_ids?: list<int>, custom_filters?: list<array{field: string, operator: string, value: mixed}>}  $filters
-     * @return array{audience: Collection<int, Conversation>, excluded_us_count: int}
+     * @return array{
+     *   consented: Collection<int, Contact>,
+     *   without_consent: Collection<int, Contact>,
+     *   total_contacts_with_phone: int,
+     *   excluded_us_count: int,
+     *   excluded_duplicate_count: int,
+     * }
      */
-    public function resolveForCategory(User $user, int $channelId, array $filters, ?TemplateCategory $category): array
+    public function resolveForCategory(User $user, int $channelId, array $filters, ?TemplateCategory $category, bool $includeWithoutConsent = false): array
     {
-        // Solo marketing está bloqueado hacia EE.UU.; utility y authentication
-        // se entregan con normalidad, así que no se toca la audiencia.
-        if ($category !== TemplateCategory::Marketing) {
-            return ['audience' => $this->resolve($user, $channelId, $filters), 'excluded_us_count' => 0];
-        }
-
         $max = (int) config('broadcasts.max_recipients');
+        $isMarketing = $category === TemplateCategory::Marketing;
         $query = $this->buildQuery($user, $channelId, $filters);
 
+        // Sin los filtros de audiencia (pipeline_stage_id, tag_ids,
+        // custom_filters): es "cuántos contactos tiene el tenant en total",
+        // no "cuántos matchean los filtros" — eso último ya lo da
+        // audience_count. Sirve para que el front explique un audience_count
+        // chico cuando el filtro de etapa dejó fuera a los sin conversación.
+        $totalContactsWithPhone = $this->buildQuery($user, $channelId, [])->count();
+
         // El tope de destinatarios se aplica sobre los que SÍ pueden recibir el
-        // mensaje. Limitar antes de descartar los de EE.UU. desperdiciaría el
-        // cupo — con suficientes números estadounidenses en las primeras filas
-        // la campaña saldría corta, o vacía, aun habiendo elegibles después.
-        // La detección depende del código de área, que no se puede resolver en
-        // SQL, así que se pagina hasta llenar el cupo.
-        $audience = new Collection;
-        $excluded = 0;
+        // mensaje. Limitar antes de descartar duplicados/EE.UU. desperdiciaría
+        // el cupo. La detección de EE.UU. depende del código de área (no se
+        // puede resolver en SQL) y la deduplicación necesita ver todas las
+        // filas para decidir quién gana, así que se pagina hasta llenar el cupo.
+        $consented = new Collection;
+        $withoutConsent = new Collection;
+        $seenPhones = [];
+        $excludedUs = 0;
+        $excludedDuplicate = 0;
         $lastId = 0;
 
         do {
@@ -52,71 +80,123 @@ class BroadcastAudienceService
 
             $lastId = (int) $page->last()->id;
 
-            foreach ($page as $conversation) {
-                if ($this->usPhoneDetector->isUnitedStates($conversation->contact?->phone)) {
-                    $excluded++;
+            foreach ($page as $contact) {
+                $key = PhoneNumberNormalizer::dedupeKey($contact->phone);
+
+                if ($key === null) {
+                    continue;
+                }
+
+                if ($isMarketing && $this->usPhoneDetector->isUnitedStates($contact->phone)) {
+                    $excludedUs++;
 
                     continue;
                 }
 
-                $audience->push($conversation);
+                // Gana el contact_id más bajo: es el registro más antiguo, el
+                // que suele tener el historial. Determinístico porque la
+                // query va ordenada por id.
+                if (isset($seenPhones[$key])) {
+                    $excludedDuplicate++;
 
-                if ($audience->count() >= $max) {
+                    continue;
+                }
+                $seenPhones[$key] = true;
+
+                if (! $isMarketing || $contact->marketing_consent_status === MarketingConsentStatus::Granted) {
+                    if ($consented->count() < $max) {
+                        $consented->push($contact);
+                    }
+                } elseif ($withoutConsent->count() < $max) {
+                    // Tope propio aunque no cuente para el corte: sin él, un
+                    // tenant con pocos `granted` entre muchos miles de
+                    // `unknown` haría que esta colección creciera sin límite
+                    // escaneando toda la tabla, para datos que ni siquiera se
+                    // usan si include_without_consent sigue en false.
+                    $withoutConsent->push($contact);
+                }
+
+                // El cap se mide sobre la audiencia que esta request va a
+                // usar, no sobre todo lo visto: si without_consent no se va a
+                // incluir, no debe poder agotar el cupo ni cortar la
+                // paginación antes de encontrar suficientes `consented`.
+                $selectedCount = $includeWithoutConsent
+                    ? $consented->count() + $withoutConsent->count()
+                    : $consented->count();
+
+                if ($selectedCount >= $max) {
                     break 2;
                 }
             }
         } while ($page->count() === $max);
 
         return [
-            'audience' => $audience->values(),
-            'excluded_us_count' => $excluded,
+            'consented' => $consented->values(),
+            'without_consent' => $withoutConsent->values(),
+            'total_contacts_with_phone' => $totalContactsWithPhone,
+            'excluded_us_count' => $excludedUs,
+            'excluded_duplicate_count' => $excludedDuplicate,
         ];
     }
 
     /**
      * @param  array{pipeline_stage_id?: int|null, tag_ids?: list<int>, custom_filters?: list<array{field: string, operator: string, value: mixed}>}  $filters
-     * @return Collection<int, Conversation>
+     * @return Collection<int, Contact>
      */
     public function resolve(User $user, int $channelId, array $filters): Collection
     {
-        return $this->buildQuery($user, $channelId, $filters)
-            ->limit((int) config('broadcasts.max_recipients'))
-            ->get();
+        return $this->resolveForCategory($user, $channelId, $filters, null)['consented'];
     }
 
     /**
      * Query base de la audiencia, sin tope: los llamadores deciden cuántas
      * filas traer según necesiten filtrar después en PHP.
      *
+     * $channelId no filtra la audiencia (a diferencia del modelo anterior):
+     * la difusión ahora alcanza a todos los contactos del tenant. Se recibe
+     * igual porque queda reservado para el filtro de canal emisor en el
+     * llamador (estimate/store) y para mantener la firma estable.
+     *
      * @param  array{pipeline_stage_id?: int|null, tag_ids?: list<int>, custom_filters?: list<array{field: string, operator: string, value: mixed}>}  $filters
-     * @return Builder<Conversation>
+     * @return Builder<Contact>
      */
     private function buildQuery(User $user, int $channelId, array $filters): Builder
     {
-        $query = Conversation::query()
-            ->select(['id', 'contact_id', 'channel_id', 'assigned_to', 'branch_id'])
-            ->visibleTo($user)
-            ->where('channel_id', $channelId)
-            ->whereHas('contact', fn (Builder $contact): Builder => $contact
-                ->whereNotNull('phone')
-                ->where('phone', '!=', ''));
+        $query = Contact::query()
+            ->select(['id', 'name', 'phone', 'custom_data', 'marketing_consent_status'])
+            ->visibleForBroadcast($user)
+            ->whereNotNull('phone')
+            ->where('phone', '!=', '')
+            ->where(fn (Builder $q): Builder => $q
+                ->whereNull('marketing_consent_status')
+                ->orWhere('marketing_consent_status', '!=', 'denied'));
 
+        // pipeline_stage_id vive en Conversation, no en Contact: pasa a
+        // significar "contactos con al menos una conversación en esa etapa",
+        // lo que excluye implícitamente a quienes no tienen conversación. Es
+        // coherente —filtrar por etapa es pedir gente que ya está en el
+        // pipeline— pero hay que anunciarlo (ver BroadcastCampaignController).
         if (! empty($filters['pipeline_stage_id'])) {
-            $query->where('pipeline_stage_id', $filters['pipeline_stage_id']);
+            $query->whereHas('conversations', fn (Builder $conversations): Builder => $conversations
+                ->where('pipeline_stage_id', $filters['pipeline_stage_id']));
         }
 
         if (! empty($filters['tag_ids'])) {
             $tagIds = array_values(array_unique(array_map('intval', $filters['tag_ids'])));
-            $query->whereHas('contact.tags', fn (Builder $tags): Builder => $tags->whereIn('tags.id', $tagIds));
+
+            // Los tags están mayoritariamente en Conversation, no en Contact
+            // (270 vs 86 en un tenant medido): mirar solo Contact dejaría
+            // fuera casi todo el alcance del filtro.
+            $query->where(fn (Builder $q) => $q
+                ->whereHas('tags', fn (Builder $tags): Builder => $tags->whereIn('tags.id', $tagIds))
+                ->orWhereHas('conversations.tags', fn (Builder $tags): Builder => $tags->whereIn('tags.id', $tagIds)));
         }
 
         foreach ($filters['custom_filters'] ?? [] as $filter) {
             $this->applyContactFilter($query, $filter);
         }
 
-        return $query
-            ->with('contact:id,name,phone')
-            ->orderBy('id');
+        return $query->orderBy('id');
     }
 
     /** @param array{field: string, operator: string, value: mixed} $filter */
@@ -127,16 +207,14 @@ class BroadcastAudienceService
         $value = $filter['value'];
         $standardFields = ['name', 'phone', 'email', 'source'];
 
-        $query->whereHas('contact', function (Builder $contact) use ($field, $operator, $value, $standardFields): void {
-            $column = in_array($field, $standardFields, true)
-                ? $field
-                : 'custom_data->'.$field;
+        $column = in_array($field, $standardFields, true)
+            ? $field
+            : 'custom_data->'.$field;
 
-            match ($operator) {
-                'contains' => $contact->where($column, 'like', '%'.$value.'%'),
-                'not_equals' => $contact->where($column, '!=', $value),
-                default => $contact->where($column, $value),
-            };
-        });
+        match ($operator) {
+            'contains' => $query->where($column, 'like', '%'.$value.'%'),
+            'not_equals' => $query->where($column, '!=', $value),
+            default => $query->where($column, $value),
+        };
     }
 }
