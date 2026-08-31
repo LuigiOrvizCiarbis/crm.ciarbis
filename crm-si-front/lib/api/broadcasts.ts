@@ -12,6 +12,7 @@ export interface BroadcastFilter {
 export interface BroadcastAudienceFilters {
   pipeline_stage_id?: number
   tag_ids?: number[]
+  excluded_tag_ids?: number[]
   custom_filters?: BroadcastFilter[]
 }
 
