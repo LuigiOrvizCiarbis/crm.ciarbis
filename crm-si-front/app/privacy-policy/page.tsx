@@ -17,7 +17,8 @@ const content = {
               Social Impulse (&quot;we&quot;, &quot;our&quot;, or &quot;us&quot;) operates the Social Impulse CRM platform
               (the &quot;Service&quot;). This Privacy Policy explains how we collect, use, disclose, and
               safeguard your information when you use our Service, including our integration with
-              third-party messaging platforms such as WhatsApp, Instagram, and Facebook.
+              third-party messaging platforms such as WhatsApp, Instagram, and Facebook, and with Google
+              Calendar when you choose to connect that account.
             </p>
             <p className="mt-2">
               By using Social Impulse, you agree to the collection and use of information in
@@ -53,6 +54,11 @@ const content = {
               <li>Message delivery and read status</li>
               <li>Media files shared in conversations (images, documents, audio)</li>
             </ul>
+            <p className="mt-3">When you connect Google Calendar, we receive only the data needed to manage CRM meetings:</p>
+            <ul className="list-disc pl-6 space-y-1">
+              <li>The email address of the connected Google account</li>
+              <li>The Calendar event created or managed for a CRM meeting, including its Calendar and Google Meet links</li>
+            </ul>
           </>
         ),
       },
@@ -65,6 +71,7 @@ const content = {
               <li>Provide, maintain, and improve our CRM Service</li>
               <li>Enable multi-channel messaging (WhatsApp, Instagram, Facebook) on your behalf</li>
               <li>Manage your contacts, conversations, and sales pipeline</li>
+              <li>Create, update, and cancel meeting events in the Google calendar of the responsible user you select</li>
               <li>Provide AI-powered features such as conversation analysis and automated responses</li>
               <li>Send you service-related notifications</li>
               <li>Monitor and analyze usage patterns to improve user experience</li>
@@ -81,6 +88,7 @@ const content = {
             <p>We do not sell your personal information. We may share your data with:</p>
             <ul className="list-disc pl-6 space-y-1">
               <li><strong>Third-party messaging platforms</strong> (Meta/WhatsApp, Instagram, Facebook) as necessary to deliver messages on your behalf</li>
+              <li><strong>Google Calendar</strong> when you connect the integration, to create and manage meetings requested from the CRM</li>
               <li><strong>Service providers</strong> who assist us in operating our platform (hosting, analytics, payment processing)</li>
               <li><strong>Legal authorities</strong> when required by law, regulation, or legal process</li>
               <li><strong>Business transfers</strong> in connection with a merger, acquisition, or sale of assets</li>
@@ -135,10 +143,11 @@ const content = {
         title: "8. Third-Party Services",
         content: (
           <>
-            <p>Our Service integrates with third-party platforms including Meta (WhatsApp, Instagram, Facebook). Your use of these platforms is subject to their respective privacy policies:</p>
+            <p>Our Service integrates with third-party platforms including Meta (WhatsApp, Instagram, Facebook) and Google Calendar. Your use of these platforms is subject to their respective privacy policies:</p>
             <ul className="list-disc pl-6 space-y-1">
               <li>Meta Privacy Policy: <a href="https://www.facebook.com/privacy/policy/" target="_blank" rel="noopener noreferrer" className="text-primary underline">https://www.facebook.com/privacy/policy/</a></li>
               <li>WhatsApp Privacy Policy: <a href="https://www.whatsapp.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary underline">https://www.whatsapp.com/legal/privacy-policy</a></li>
+              <li>Google Privacy Policy: <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">https://policies.google.com/privacy</a></li>
             </ul>
           </>
         ),
@@ -200,7 +209,8 @@ const content = {
               Social Impulse (&quot;nosotros&quot;, &quot;nuestro&quot; o &quot;nos&quot;) opera la plataforma Social Impulse CRM
               (el &quot;Servicio&quot;). Esta Política de Privacidad explica cómo recopilamos, usamos, divulgamos
               y protegemos su información cuando utiliza nuestro Servicio, incluyendo nuestra integración
-              con plataformas de mensajería de terceros como WhatsApp, Instagram y Facebook.
+              con plataformas de mensajería de terceros como WhatsApp, Instagram y Facebook, y con Google
+              Calendar cuando usted decide conectar esa cuenta.
             </p>
             <p className="mt-2">
               Al utilizar Social Impulse, usted acepta la recopilación y el uso de información de
@@ -236,6 +246,11 @@ const content = {
               <li>Estado de entrega y lectura de mensajes</li>
               <li>Archivos multimedia compartidos en conversaciones (imágenes, documentos, audio)</li>
             </ul>
+            <p className="mt-3">Cuando conecta Google Calendar, recibimos únicamente los datos necesarios para gestionar reuniones del CRM:</p>
+            <ul className="list-disc pl-6 space-y-1">
+              <li>La dirección de correo de la cuenta Google conectada</li>
+              <li>El evento de Calendar creado o administrado por una reunión del CRM, incluido su enlace de Calendar y Google Meet</li>
+            </ul>
           </>
         ),
       },
@@ -248,6 +263,7 @@ const content = {
               <li>Proporcionar, mantener y mejorar nuestro Servicio CRM</li>
               <li>Habilitar mensajería multicanal (WhatsApp, Instagram, Facebook) en su nombre</li>
               <li>Gestionar sus contactos, conversaciones y pipeline de ventas</li>
+              <li>Crear, actualizar y cancelar eventos de reuniones en el calendario de Google del responsable que usted elija</li>
               <li>Proporcionar funciones impulsadas por IA como análisis de conversaciones y respuestas automatizadas</li>
               <li>Enviarle notificaciones relacionadas con el servicio</li>
               <li>Monitorear y analizar patrones de uso para mejorar la experiencia</li>
@@ -264,6 +280,7 @@ const content = {
             <p>No vendemos su información personal. Podemos compartir sus datos con:</p>
             <ul className="list-disc pl-6 space-y-1">
               <li><strong>Plataformas de mensajería de terceros</strong> (Meta/WhatsApp, Instagram, Facebook) según sea necesario para enviar mensajes en su nombre</li>
+              <li><strong>Google Calendar</strong> cuando usted conecta la integración, para crear y administrar las reuniones solicitadas desde el CRM</li>
               <li><strong>Proveedores de servicios</strong> que nos asisten en la operación de nuestra plataforma (hosting, analítica, procesamiento de pagos)</li>
               <li><strong>Autoridades legales</strong> cuando lo requiera la ley, regulación o proceso legal</li>
               <li><strong>Transferencias comerciales</strong> en conexión con una fusión, adquisición o venta de activos</li>
@@ -317,10 +334,11 @@ const content = {
         title: "8. Servicios de Terceros",
         content: (
           <>
-            <p>Nuestro Servicio se integra con plataformas de terceros incluyendo Meta (WhatsApp, Instagram, Facebook). Su uso de estas plataformas está sujeto a sus respectivas políticas de privacidad:</p>
+            <p>Nuestro Servicio se integra con plataformas de terceros incluyendo Meta (WhatsApp, Instagram, Facebook) y Google Calendar. Su uso de estas plataformas está sujeto a sus respectivas políticas de privacidad:</p>
             <ul className="list-disc pl-6 space-y-1">
               <li>Política de Privacidad de Meta: <a href="https://www.facebook.com/privacy/policy/" target="_blank" rel="noopener noreferrer" className="text-primary underline">https://www.facebook.com/privacy/policy/</a></li>
               <li>Política de Privacidad de WhatsApp: <a href="https://www.whatsapp.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary underline">https://www.whatsapp.com/legal/privacy-policy</a></li>
+              <li>Política de Privacidad de Google: <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">https://policies.google.com/privacy</a></li>
             </ul>
           </>
         ),

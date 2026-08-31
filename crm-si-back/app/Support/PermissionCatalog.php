@@ -120,6 +120,14 @@ class PermissionCatalog
                 'templates.delete',
                 'templates.send',
             ],
+            'whatsapp_groups' => [
+                'whatsapp_groups.view',
+                'whatsapp_groups.create',
+                'whatsapp_groups.update',
+                'whatsapp_groups.delete',
+                'whatsapp_groups.invite',
+                'whatsapp_groups.manage_participants',
+            ],
             'analytics' => [
                 'analytics.view',
                 'analytics.view_team',
@@ -231,6 +239,11 @@ class PermissionCatalog
             'analytics.view',
             'branches.view_any',
             'branches.view',
+            // Un vendedor puede armar el grupo de su propia venta e invitar;
+            // editar, quitar participantes y eliminar quedan para admin.
+            'whatsapp_groups.view',
+            'whatsapp_groups.create',
+            'whatsapp_groups.invite',
         ];
     }
 }

@@ -119,6 +119,13 @@ class MessageController extends Controller
         if ($voice && ($type !== 'audio' || $channelType !== ChannelType::WHATSAPP)) {
             return response()->json(['message' => 'voice sólo está disponible para audios de WhatsApp.'], 422);
         }
+
+        // Meta no soporta mensajes de voz (grabaciones con transcripción/
+        // waveform) en grupos, solo audio normal.
+        if ($voice && $conversation->isGroup()) {
+            return response()->json(['message' => 'Los mensajes de voz no están disponibles en grupos.'], 422);
+        }
+
         $tenantId = $request->user()->tenant_id;
 
         // El servicio de transporte se elige por el tipo de canal. Las firmas de

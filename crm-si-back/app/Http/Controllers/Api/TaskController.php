@@ -153,6 +153,13 @@ class TaskController extends Controller
             return response()->json(['message' => 'La tarea no es una reunión'], 422);
         }
 
+        // Reflejamos el reintento en la API antes de que el worker procese el
+        // job, así la UI deja de mostrar el error y puede refrescar el estado.
+        TaskCalendarSync::where('task_id', $task->id)->update([
+            'status' => 'pending',
+            'last_error' => 'retrying',
+        ]);
+
         DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatch($task->id, 'upsert'));
 
         return response()->json(['message' => 'Reintento encolado']);
