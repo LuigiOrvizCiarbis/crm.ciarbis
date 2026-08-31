@@ -16,6 +16,7 @@ class BroadcastRecipient extends Model
         'broadcast_campaign_id',
         'conversation_id',
         'contact_id',
+        'phone_normalized',
         'message_id',
         'status',
         'error',

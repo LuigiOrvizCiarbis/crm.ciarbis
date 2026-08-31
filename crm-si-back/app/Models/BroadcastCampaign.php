@@ -25,6 +25,10 @@ class BroadcastCampaign extends Model
         'audience_filters',
         'components',
         'audience_count',
+        'duplicate_phone_count',
+        'without_consent_count',
+        'consent_warning_accepted_by',
+        'consent_warning_accepted_at',
         'estimated_cost_usd',
         'actual_cost_usd',
         'interval_seconds',
@@ -45,6 +49,7 @@ class BroadcastCampaign extends Model
             'scheduled_at' => 'immutable_datetime',
             'started_at' => 'immutable_datetime',
             'completed_at' => 'immutable_datetime',
+            'consent_warning_accepted_at' => 'immutable_datetime',
             'results_tracking_version' => 'integer',
         ];
     }
@@ -62,6 +67,11 @@ class BroadcastCampaign extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function consentWarningAcceptedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'consent_warning_accepted_by');
     }
 
     public function recipients(): HasMany

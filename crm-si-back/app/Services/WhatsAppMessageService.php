@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\ChannelType;
+use App\Enums\MarketingConsentStatus;
 use App\Enums\MessageDirection;
 use App\Enums\MessageType;
 use App\Enums\SenderType;
@@ -21,7 +22,6 @@ use App\Models\ContactField;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageInteraction;
-use App\Models\PipelineStage;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Services\Concerns\ResolvesWhatsAppChannel;
@@ -230,40 +230,14 @@ class WhatsAppMessageService
         );
     }
 
+    /**
+     * Delega en BroadcastConversationResolver, que centraliza cómo nace una
+     * conversación (también lo usa el job de difusiones). El nombre se
+     * mantiene para no tocar los call sites del webhook.
+     */
     public function findOrCreateConversation(Contact $contact, Channel $channel): Conversation
     {
-        $conversation = Conversation::firstOrCreate(
-            [
-                'tenant_id' => $channel->tenant_id,
-                'contact_id' => $contact->id,
-                'channel_id' => $channel->id,
-            ],
-            [
-                'status' => 'open',
-                'last_message_at' => now(),
-                'branch_id' => $contact->branch_id ?? $channel->branch_id,
-                // El default de auto-respuesta IA se hereda de la config del canal.
-                'ai_autoreply_enabled' => (bool) $channel->whatsappConfig?->ai_autoreply_default,
-            ]
-        );
-
-        // Si es una conversación nueva sin stage, asignar el stage por defecto
-        if (! $conversation->pipeline_stage_id) {
-            $defaultStage = PipelineStage::where('tenant_id', $channel->tenant_id)
-                ->where(function ($query) {
-                    $query->where('is_default', true)
-                        ->orWhereNotNull('id');
-                })
-                ->orderByDesc('is_default')
-                ->orderBy('sort_order', 'asc')
-                ->first();
-
-            if ($defaultStage) {
-                $conversation->update(['pipeline_stage_id' => $defaultStage->id]);
-            }
-        }
-
-        return $conversation;
+        return app(BroadcastConversationResolver::class)->findOrCreate($contact, $channel);
     }
 
     private function resolveGroupConversation(string $groupWaId, Channel $channel): ?Conversation
@@ -1076,6 +1050,7 @@ class WhatsAppMessageService
         // contacto desactiva las confirmaciones de lectura; la respuesta es una
         // evidencia más fuerte y permite completar el estado sin inventarlo.
         if ($message->direction === MessageDirection::INBOUND) {
+            $this->grantConsentFromInboundMessage($message);
             $this->inferReadFromInboundReply($message);
         }
 
@@ -1120,6 +1095,33 @@ class WhatsAppMessageService
         $this->maybeDispatchAiReply($message);
 
         return $message;
+    }
+
+    /**
+     * Escribir un mensaje INBOUND es la misma evidencia de consentimiento que
+     * usa el backfill de la migración 2026_08_30_090000: si la persona inició
+     * o continuó la conversación, dio su opt-in. Sin esto, un contacto nuevo
+     * que escribe después del deploy —o uno existente que recién ahora
+     * inicia contacto— quedaría en `unknown` para siempre y una difusión de
+     * marketing normal lo excluiría igual que a alguien que nunca escribió.
+     *
+     * No pisa `denied`: es un opt-out explícito (incluye el que deja el
+     * error 131050 de Meta) y no se revierte por seguir recibiendo mensajes
+     * del mismo contacto. Tampoco reescribe un `granted` ya existente.
+     */
+    private function grantConsentFromInboundMessage(Message $message): void
+    {
+        if ($message->sender_type !== SenderType::CONTACT || $message->sender_id === null) {
+            return;
+        }
+
+        Contact::whereKey($message->sender_id)
+            ->whereNull('marketing_consent_status')
+            ->update([
+                'marketing_consent_status' => MarketingConsentStatus::Granted->value,
+                'marketing_consent_source' => 'inbound_message',
+                'marketing_consent_at' => $message->created_at,
+            ]);
     }
 
     /**
