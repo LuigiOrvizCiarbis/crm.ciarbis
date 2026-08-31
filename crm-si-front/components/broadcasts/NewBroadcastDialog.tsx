@@ -98,6 +98,9 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
   const [audienceSizeConfirmationRequired, setAudienceSizeConfirmationRequired] = useState(false)
 
   const selectedTemplate = approvedTemplates.find((template) => template.id === templateId) ?? null
+  const allTagIds = useMemo(() => tags.map((tag) => tag.id), [tags])
+  const allIncludedTagsSelected = tags.length > 0 && tagIds.length === tags.length
+  const allExcludedTagsSelected = tags.length > 0 && excludedTagIds.length === tags.length
   const bodyParams = useMemo(() => selectedTemplate ? extractBodyParams(selectedTemplate.components) : { names: [], named: false }, [selectedTemplate])
   const mediaFormat = selectedTemplate ? getHeaderMediaFormat(selectedTemplate.components) : null
 
@@ -250,6 +253,18 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
     setEstimate(null)
   }
 
+  const toggleAllIncludedTags = () => {
+    setTagIds(allIncludedTagsSelected ? [] : allTagIds)
+    if (!allIncludedTagsSelected) setExcludedTagIds([])
+    setEstimate(null)
+  }
+
+  const toggleAllExcludedTags = () => {
+    setExcludedTagIds(allExcludedTagsSelected ? [] : allTagIds)
+    if (!allExcludedTagsSelected) setTagIds([])
+    setEstimate(null)
+  }
+
   const durationSeconds = (estimate?.audience_count ?? 0) * intervalSeconds
   const durationLabel = intervalSeconds === 0
     ? "Envío inmediato"
@@ -322,9 +337,12 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
                 </div>
                 <div className="grid gap-4 rounded-2xl border p-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <div>
-                      <p className="text-sm font-medium">Incluir</p>
-                      <p className="text-xs text-muted-foreground">Coincide con cualquiera de estas etiquetas.</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">Incluir</p>
+                        <p className="text-xs text-muted-foreground">Coincide con cualquiera de estas etiquetas.</p>
+                      </div>
+                      {tags.length > 0 ? <Button type="button" size="sm" variant="ghost" aria-pressed={allIncludedTagsSelected} onClick={toggleAllIncludedTags} className="h-7 shrink-0 px-2 text-xs">{allIncludedTagsSelected ? "Quitar todas" : "Todas"}</Button> : null}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {tags.map((tag) => {
@@ -335,9 +353,12 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
                     </div>
                   </div>
                   <div className="space-y-2 sm:border-l sm:pl-4">
-                    <div>
-                      <p className="text-sm font-medium">Excluir</p>
-                      <p className="text-xs text-muted-foreground">Estos contactos quedan fuera aunque coincidan con otros filtros.</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">Excluir</p>
+                        <p className="text-xs text-muted-foreground">Estos contactos quedan fuera aunque coincidan con otros filtros.</p>
+                      </div>
+                      {tags.length > 0 ? <Button type="button" size="sm" variant="ghost" aria-pressed={allExcludedTagsSelected} onClick={toggleAllExcludedTags} className="h-7 shrink-0 px-2 text-xs">{allExcludedTagsSelected ? "Quitar todas" : "Todas"}</Button> : null}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {tags.map((tag) => {
