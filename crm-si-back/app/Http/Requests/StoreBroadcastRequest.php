@@ -47,6 +47,12 @@ class StoreBroadcastRequest extends FormRequest
             'launch' => ['required', Rule::in(['now', 'scheduled'])],
             'scheduled_at' => ['nullable', 'required_if:launch,scheduled', 'date', 'after:now'],
             'interval_seconds' => ['required', 'integer', Rule::in([0, 15, 30, 60, 120])],
+            // Confirmaciones explícitas para envíos de riesgo o escala; ver
+            // BroadcastCampaignController::store().
+            'include_without_consent' => ['nullable', 'boolean'],
+            'acknowledge_consent_risk' => ['nullable', 'boolean'],
+            'acknowledge_audience_size' => ['nullable', 'boolean'],
+            'acknowledge_messaging_limit' => ['nullable', 'boolean'],
         ];
     }
 }
