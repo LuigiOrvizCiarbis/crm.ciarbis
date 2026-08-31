@@ -658,6 +658,34 @@ class BroadcastCampaignTest extends TestCase
             ->assertJsonPath('data.audience_count', 1);
     }
 
+    public function test_excluded_tags_take_priority_across_contacts_and_conversations(): void
+    {
+        [$user, $channel, $template] = $this->createSetup();
+        $includedTag = Tag::create(['tenant_id' => $user->tenant_id, 'name' => 'Clientes', 'slug' => 'clientes']);
+        $excludedTag = Tag::create(['tenant_id' => $user->tenant_id, 'name' => 'No contactar', 'slug' => 'no-contactar']);
+
+        $included = $this->createContactWithoutConsent($user);
+        $included->update(['marketing_consent_status' => MarketingConsentStatus::Granted]);
+        $included->tags()->attach($includedTag->id, ['tenant_id' => $user->tenant_id]);
+
+        $excludedDirectly = $this->createContactWithoutConsent($user);
+        $excludedDirectly->update(['marketing_consent_status' => MarketingConsentStatus::Granted]);
+        $excludedDirectly->tags()->attach([$includedTag->id, $excludedTag->id], ['tenant_id' => $user->tenant_id]);
+
+        $excludedByConversation = $this->createConversation($user, $channel);
+        $excludedByConversation->contact->tags()->attach($includedTag->id, ['tenant_id' => $user->tenant_id]);
+        $excludedByConversation->tags()->attach($excludedTag->id, ['tenant_id' => $user->tenant_id]);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/broadcasts/estimate', $this->payload($channel, $template, [
+            'tag_ids' => [$includedTag->id],
+            'excluded_tag_ids' => [$excludedTag->id],
+        ]))
+            ->assertOk()
+            ->assertJsonPath('data.audience_count', 1);
+    }
+
     /**
      * El backfill de la migración solo cubre mensajes inbound que ya
      * existían al migrar. Sin esto, un contacto nuevo que escribe por primera

@@ -40,6 +40,11 @@ class StoreBroadcastRequest extends FormRequest
                 'integer',
                 Rule::exists('tags', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId)),
             ],
+            'filters.excluded_tag_ids' => ['nullable', 'array'],
+            'filters.excluded_tag_ids.*' => [
+                'integer',
+                Rule::exists('tags', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId)),
+            ],
             'filters.custom_filters' => ['nullable', 'array', 'max:10'],
             'filters.custom_filters.*.field' => ['required', 'string', 'max:100', 'regex:/^[a-zA-Z0-9_]+$/'],
             'filters.custom_filters.*.operator' => ['required', Rule::in(['equals', 'not_equals', 'contains'])],

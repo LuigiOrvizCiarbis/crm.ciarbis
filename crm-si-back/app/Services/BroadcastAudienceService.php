@@ -37,7 +37,7 @@ class BroadcastAudienceService
      * es true, el cap se aplica sobre la suma de ambos, porque ambos van a
      * crearse como recipients.
      *
-     * @param  array{pipeline_stage_id?: int|null, tag_ids?: list<int>, custom_filters?: list<array{field: string, operator: string, value: mixed}>}  $filters
+     * @param  array{pipeline_stage_id?: int|null, tag_ids?: list<int>, excluded_tag_ids?: list<int>, custom_filters?: list<array{field: string, operator: string, value: mixed}>}  $filters
      * @return array{
      *   consented: Collection<int, Contact>,
      *   without_consent: Collection<int, Contact>,
@@ -53,7 +53,8 @@ class BroadcastAudienceService
         $query = $this->buildQuery($user, $channelId, $filters);
 
         // Sin los filtros de audiencia (pipeline_stage_id, tag_ids,
-        // custom_filters): es "cuántos contactos tiene el tenant en total",
+        // excluded_tag_ids, custom_filters): es "cuántos contactos tiene el
+        // tenant en total",
         // no "cuántos matchean los filtros" — eso último ya lo da
         // audience_count. Sirve para que el front explique un audience_count
         // chico cuando el filtro de etapa dejó fuera a los sin conversación.
@@ -140,7 +141,7 @@ class BroadcastAudienceService
     }
 
     /**
-     * @param  array{pipeline_stage_id?: int|null, tag_ids?: list<int>, custom_filters?: list<array{field: string, operator: string, value: mixed}>}  $filters
+     * @param  array{pipeline_stage_id?: int|null, tag_ids?: list<int>, excluded_tag_ids?: list<int>, custom_filters?: list<array{field: string, operator: string, value: mixed}>}  $filters
      * @return Collection<int, Contact>
      */
     public function resolve(User $user, int $channelId, array $filters): Collection
@@ -157,7 +158,7 @@ class BroadcastAudienceService
      * igual porque queda reservado para el filtro de canal emisor en el
      * llamador (estimate/store) y para mantener la firma estable.
      *
-     * @param  array{pipeline_stage_id?: int|null, tag_ids?: list<int>, custom_filters?: list<array{field: string, operator: string, value: mixed}>}  $filters
+     * @param  array{pipeline_stage_id?: int|null, tag_ids?: list<int>, excluded_tag_ids?: list<int>, custom_filters?: list<array{field: string, operator: string, value: mixed}>}  $filters
      * @return Builder<Contact>
      */
     private function buildQuery(User $user, int $channelId, array $filters): Builder
@@ -190,6 +191,16 @@ class BroadcastAudienceService
             $query->where(fn (Builder $q) => $q
                 ->whereHas('tags', fn (Builder $tags): Builder => $tags->whereIn('tags.id', $tagIds))
                 ->orWhereHas('conversations.tags', fn (Builder $tags): Builder => $tags->whereIn('tags.id', $tagIds)));
+        }
+
+        if (! empty($filters['excluded_tag_ids'])) {
+            $excludedTagIds = array_values(array_unique(array_map('intval', $filters['excluded_tag_ids'])));
+
+            // La exclusión tiene prioridad sobre cualquier filtro inclusivo y
+            // contempla las dos ubicaciones donde se asignan tags en el CRM.
+            $query
+                ->whereDoesntHave('tags', fn (Builder $tags): Builder => $tags->whereIn('tags.id', $excludedTagIds))
+                ->whereDoesntHave('conversations.tags', fn (Builder $tags): Builder => $tags->whereIn('tags.id', $excludedTagIds));
         }
 
         foreach ($filters['custom_filters'] ?? [] as $filter) {
