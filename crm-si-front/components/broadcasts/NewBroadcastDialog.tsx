@@ -82,6 +82,7 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
   const [mediaUrl, setMediaUrl] = useState("")
   const [stageId, setStageId] = useState<string>("all")
   const [tagIds, setTagIds] = useState<number[]>([])
+  const [excludedTagIds, setExcludedTagIds] = useState<number[]>([])
   const [customFilters, setCustomFilters] = useState<BroadcastFilter[]>([])
   const [launch, setLaunch] = useState<"now" | "scheduled">("now")
   const [scheduledAt, setScheduledAt] = useState("")
@@ -110,6 +111,7 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
     setName("")
     setStageId("all")
     setTagIds([])
+    setExcludedTagIds([])
     setCustomFilters([])
     setLaunch("now")
     setScheduledAt("")
@@ -135,8 +137,9 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
   const filters = useMemo(() => ({
     ...(stageId !== "all" ? { pipeline_stage_id: Number(stageId) } : {}),
     ...(tagIds.length ? { tag_ids: tagIds } : {}),
+    ...(excludedTagIds.length ? { excluded_tag_ids: excludedTagIds } : {}),
     ...(customFilters.length ? { custom_filters: customFilters } : {}),
-  }), [customFilters, stageId, tagIds])
+  }), [customFilters, excludedTagIds, stageId, tagIds])
 
   const basePayload = (): BroadcastPayload => ({
     name: name.trim() || "Nueva difusión",
@@ -235,6 +238,18 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
     setEstimate(null)
   }
 
+  const toggleIncludedTag = (tagId: number) => {
+    setTagIds((current) => current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId])
+    setExcludedTagIds((current) => current.filter((id) => id !== tagId))
+    setEstimate(null)
+  }
+
+  const toggleExcludedTag = (tagId: number) => {
+    setExcludedTagIds((current) => current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId])
+    setTagIds((current) => current.filter((id) => id !== tagId))
+    setEstimate(null)
+  }
+
   const durationSeconds = (estimate?.audience_count ?? 0) * intervalSeconds
   const durationLabel = intervalSeconds === 0
     ? "Envío inmediato"
@@ -300,7 +315,40 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
                 <div className="space-y-2"><Label>Etapa del pipeline</Label><Select value={stageId} onValueChange={(value) => { setStageId(value); setEstimate(null) }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todas las etapas</SelectItem>{stages.map((stage) => <SelectItem key={stage.id} value={String(stage.id)}>{stage.name}</SelectItem>)}</SelectContent></Select></div>
               </div>
 
-              <div className="space-y-3"><div><Label>Etiquetas CRM</Label><p className="text-xs text-muted-foreground">Si elegís varias, se incluyen contactos que tengan cualquiera de ellas.</p></div><div className="flex flex-wrap gap-2">{tags.map((tag) => { const selected = tagIds.includes(tag.id); return <button key={tag.id} type="button" onClick={() => { setTagIds((current) => selected ? current.filter((id) => id !== tag.id) : [...current, tag.id]); setEstimate(null) }} className={cn("rounded-full border px-3 py-1.5 text-xs font-medium transition-colors", selected ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "hover:bg-muted")}>{selected && <Check className="mr-1 inline h-3 w-3" />}{tag.name}</button> })}{tags.length === 0 && <span className="text-sm text-muted-foreground">No hay etiquetas creadas.</span>}</div></div>
+              <div className="space-y-4">
+                <div>
+                  <Label>Etiquetas CRM</Label>
+                  <p className="text-xs text-muted-foreground">Incluí segmentos relevantes y excluí los que no deben recibir esta difusión.</p>
+                </div>
+                <div className="grid gap-4 rounded-2xl border p-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <div>
+                      <p className="text-sm font-medium">Incluir</p>
+                      <p className="text-xs text-muted-foreground">Coincide con cualquiera de estas etiquetas.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {tags.map((tag) => {
+                        const selected = tagIds.includes(tag.id)
+                        return <button key={tag.id} type="button" aria-pressed={selected} onClick={() => toggleIncludedTag(tag.id)} className={cn("rounded-full border px-3 py-1.5 text-xs font-medium transition-colors", selected ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "hover:bg-muted")}>{selected ? <Check className="mr-1 inline h-3 w-3" /> : null}{tag.name}</button>
+                      })}
+                      {tags.length === 0 ? <span className="text-sm text-muted-foreground">No hay etiquetas creadas.</span> : null}
+                    </div>
+                  </div>
+                  <div className="space-y-2 sm:border-l sm:pl-4">
+                    <div>
+                      <p className="text-sm font-medium">Excluir</p>
+                      <p className="text-xs text-muted-foreground">Estos contactos quedan fuera aunque coincidan con otros filtros.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {tags.map((tag) => {
+                        const selected = excludedTagIds.includes(tag.id)
+                        return <button key={tag.id} type="button" aria-pressed={selected} onClick={() => toggleExcludedTag(tag.id)} className={cn("rounded-full border px-3 py-1.5 text-xs font-medium transition-colors", selected ? "border-red-500 bg-red-500/10 text-red-700 dark:text-red-300" : "hover:bg-muted")}>{selected ? <Trash2 className="mr-1 inline h-3 w-3" /> : null}{tag.name}</button>
+                      })}
+                      {tags.length === 0 ? <span className="text-sm text-muted-foreground">No hay etiquetas creadas.</span> : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               <div className="space-y-3 rounded-2xl border p-4">
                 <div className="flex items-center justify-between"><div><Label>Campos del contacto</Label><p className="text-xs text-muted-foreground">Filtrá por ciudad, empresa u otro dato guardado.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setCustomFilters((current) => [...current, { field: "name", operator: "contains", value: "" }])}><Plus className="mr-1 h-3.5 w-3.5" />Agregar filtro</Button></div>
