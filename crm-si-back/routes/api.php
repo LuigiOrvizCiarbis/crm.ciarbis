@@ -503,6 +503,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('channels/{id}/users/{userId}', [ChannelController::class, 'removeUser']);
     Route::put('channels/{id}/users', [ChannelController::class, 'syncUsers']);
     Route::patch('channels/{id}/branch', [ChannelController::class, 'assignBranch']);
+    Route::post('channels/{id}/disconnect', [ChannelController::class, 'disconnect']);
     Route::get('channels/{channel}/groups-eligibility', [WhatsAppGroupController::class, 'eligibility']);
 
     Route::get('whatsapp-groups', [WhatsAppGroupController::class, 'index']);

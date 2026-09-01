@@ -80,7 +80,7 @@ import { MailMessageInput } from "@/components/chat/MailMessageInput"
 import { ConversationList } from "@/components/chat/ConversationList"
 import { FilteredConversationsHeader } from "@/components/chat/FilteredConversationsHeader"
 import { ChannelsList } from "@/components/chat/ChannelsList"
-import { getChannels, updateChannelName, syncMailChannel } from "@/lib/api/channels"
+import { getChannels, updateChannelName, syncMailChannel, disconnectChannel } from "@/lib/api/channels"
 import { updateContact } from "@/lib/api/contacts"
 import { updateWhatsAppGroup } from "@/lib/api/whatsapp-groups"
 import { isExpectedBusinessErrorMessage } from "@/lib/observability/sentry"
@@ -286,6 +286,7 @@ export default function ChatsPage() {
   const currentUserId = user?.id
   const isAdmin = (permissions ?? []).includes("conversations.view_any")
   const canUpdateChannels = (permissions ?? []).includes("channels.update")
+  const canDisconnectChannels = (permissions ?? []).includes("channels.disconnect")
   const canCreateGroups = (permissions ?? []).includes("whatsapp_groups.create")
 
   const chatIdFromUrl = searchParams.get("chat")
@@ -1131,6 +1132,29 @@ export default function ChatsPage() {
     }
   }, [addToast, t])
 
+  // Desconexión "blanda": el canal pasa a la sección "Desconectados" pero
+  // conserva su historial. Si era el canal seleccionado, hay que volver al
+  // listado — si no, la bandeja queda filtrada por un canal ya no clickeable.
+  const handleDisconnectChannel = useCallback(async (channelId: number) => {
+    try {
+      const { warnings } = await disconnectChannel(channelId)
+      setChannels((prev) => prev.map((c) => (c.id === channelId ? { ...c, status: "disconnected" } : c)))
+      if (selectedChannelIdRef.current === channelId) {
+        setSelectedChannel(null)
+        setSelectedChannelId(null)
+        setSelectedConversationId(null)
+      }
+      if (warnings.length > 0) {
+        addToast({ type: "info", title: t("chats.disconnectChannelWarning"), description: warnings.join(" ") })
+      } else {
+        addToast({ type: "success", title: t("chats.disconnectChannelSuccess") })
+      }
+    } catch (err) {
+      const title = err instanceof Error && err.message ? err.message : t("chats.disconnectChannelError")
+      addToast({ type: "error", title })
+    }
+  }, [addToast, t])
+
   const handleSendTemplate = (content: string) => {
     if (!selectedConversationId) return;
 
@@ -1856,6 +1880,7 @@ export default function ChatsPage() {
           onChannelSelect={onChannelSelect}
           onRenameChannel={canUpdateChannels ? handleRenameChannel : undefined}
           onSyncMailChannel={canUpdateChannels ? handleSyncMailChannel : undefined}
+          onDisconnectChannel={canDisconnectChannels ? handleDisconnectChannel : undefined}
         />
       </div>
 
