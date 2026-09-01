@@ -257,7 +257,7 @@ class MessengerController extends Controller
                 ->first();
 
             if ($existing) {
-                $existing->fill(['status' => 'active'])->save();
+                $existing->activate();
 
                 return $existing;
             }

@@ -160,7 +160,7 @@ class MailChannelTest extends TestCase
         [$tenant, $user] = $this->createTenantAndUser();
         Sanctum::actingAs($user);
 
-        MailConfig::create([
+        $config = MailConfig::create([
             'tenant_id' => $tenant->id,
             'email_address' => 'soporte@acme.com',
             'imap_host' => 'imap.acme.com',
@@ -170,6 +170,19 @@ class MailChannelTest extends TestCase
             'smtp_port' => 465,
             'smtp_encryption' => 'ssl',
             'password' => Crypt::encryptString('x'),
+        ]);
+
+        // El 409 solo bloquea cuando hay un canal ACTIVO sobre la config: una
+        // MailConfig sin canal (o con el canal desconectado) debe poder
+        // reconectarse — ver test_disconnected_mailbox_can_be_reconnected.
+        Channel::create([
+            'tenant_id' => $tenant->id,
+            'user_id' => $user->id,
+            'mail_config_id' => $config->id,
+            'type' => ChannelType::MAIL,
+            'external_id' => 'soporte@acme.com',
+            'name' => 'soporte@acme.com',
+            'status' => 'active',
         ]);
 
         $response = $this->postJson(self::ENDPOINT, $this->payload());

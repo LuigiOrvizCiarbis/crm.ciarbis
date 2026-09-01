@@ -93,6 +93,7 @@ class PermissionCatalog
                 'channels.create',
                 'channels.update',
                 'channels.delete',
+                'channels.disconnect',
                 'channels.manage_users',
                 'channels.connect_whatsapp',
                 'channels.connect_mail',

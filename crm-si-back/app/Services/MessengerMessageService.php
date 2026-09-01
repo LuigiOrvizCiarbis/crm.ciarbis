@@ -142,7 +142,16 @@ class MessengerMessageService
             ->with('channels')
             ->first();
 
-        return $config?->channels->first();
+        $channel = $config?->channels->firstWhere('status', 'active');
+
+        if ($config && ! $channel) {
+            Log::info('Messenger webhook ignorado: no hay canal activo para la página', [
+                'messenger_config_id' => $config->id,
+                'page_id' => $config->page_id,
+            ]);
+        }
+
+        return $channel;
     }
 
     private function findOrCreateContact(Channel $channel, string $psid): Contact

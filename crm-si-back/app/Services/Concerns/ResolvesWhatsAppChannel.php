@@ -33,19 +33,31 @@ trait ResolvesWhatsAppChannel
             ->where('phone_number_id', $phoneNumberId)
             ->first();
 
-        if (! $whatsappConfig || $whatsappConfig->channels->isEmpty()) {
-            Log::warning("{$context}: canal no encontrado para phone_number_id: {$phoneNumberId}");
-            // Un mensaje de cliente que no matchea ningún canal se pierde en silencio.
+        if (! $whatsappConfig) {
+            Log::warning("{$context}: config no encontrada para phone_number_id: {$phoneNumberId}");
+            // Un mensaje de cliente que no matchea ninguna config se pierde en silencio.
             // Lo reportamos como issue en Sentry para detectar config rota / tenant mal armado.
             $this->reportDroppedWebhook(
-                "{$context}: canal no encontrado para phone_number_id",
+                "{$context}: config no encontrada para phone_number_id",
                 ['context' => $context, 'phone_number_id' => $phoneNumberId]
             );
 
             return null;
         }
 
-        return $whatsappConfig->channels->first();
+        $channel = $whatsappConfig->channels->firstWhere('status', 'active');
+
+        if (! $channel) {
+            // A diferencia del caso anterior, acá la config existe: el canal fue
+            // desconectado a propósito. No es una anomalía de infraestructura,
+            // así que NO se reporta a Sentry — si lo hiciéramos, cada cliente
+            // que desconecte un canal inundaría Sentry de falsos positivos.
+            Log::info("{$context}: webhook ignorado, no hay canal activo para phone_number_id: {$phoneNumberId}");
+
+            return null;
+        }
+
+        return $channel;
     }
 
     /**
