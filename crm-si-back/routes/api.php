@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MessageHotkeyController;
 use App\Http\Controllers\Api\MessageTranslationController;
 use App\Http\Controllers\Api\NoteController;
+use App\Http\Controllers\Api\NavigationLabelController;
 use App\Http\Controllers\Api\OpportunityController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\PipelineStageController;
@@ -90,7 +91,7 @@ Route::post('login', function (Request $request): JsonResponse {
 
     return response()->json([
         'token' => $token,
-        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at', 'tenant.plan:id,key,name']),
+        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name']),
         'role' => RolePayload::transform($role, $user->tenant),
         'permissions' => $user->getAllPermissions()->pluck('name')->values(),
         'email_verified' => $user->hasVerifiedEmail(),
@@ -180,7 +181,7 @@ Route::post('register', function (Request $request): JsonResponse {
 
     return response()->json([
         'token' => $token,
-        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at', 'tenant.plan:id,key,name']),
+        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name']),
         'role' => RolePayload::transform($role, $tenant->fresh()),
         'permissions' => $user->getAllPermissions()->pluck('name')->values(),
         'email_verified' => false,
@@ -343,7 +344,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('broadcasts', [BroadcastCampaignController::class, 'store']);
 
     Route::get('user', function (Request $request): JsonResponse {
-        $user = $request->user()->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at', 'tenant.plan:id,key,name']);
+        $user = $request->user()->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name']);
         $role = $user->roles()->where('roles.tenant_id', $user->tenant_id)->first();
 
         return response()->json([
@@ -358,6 +359,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
         return response()->json(['message' => 'Sesión cerrada']);
     });
+
+    Route::put('navigation-labels', [NavigationLabelController::class, 'update']);
 
     Route::get('dashboard/metrics', [DashboardController::class, 'metrics']);
     Route::get('dashboard/branches', [DashboardController::class, 'branches']);

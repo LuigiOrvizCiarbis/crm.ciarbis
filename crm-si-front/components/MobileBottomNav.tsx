@@ -7,11 +7,12 @@ import { Badge } from "@/components/ui/badge"
 import { getConversationUnreadCount } from "@/lib/api/conversations"
 import { useAuthStore } from "@/store/useAuthStore"
 import { useTaskStore } from "@/store/useTaskStore"
-import { MessageSquare, Users, Target, CheckSquare, BarChart3, Menu, Settings, LogOut, Megaphone } from "lucide-react"
+import { Menu, LogOut } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "@/hooks/useTranslation"
+import { NAVIGATION_ITEMS, resolveNavigationLabel } from "@/data/navigation"
 
 interface MobileBottomNavProps {
   className?: string
@@ -27,6 +28,7 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
   const hasRequestedTasks = useRef(false)
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const token = useAuthStore((state) => state.token)
+  const navigationLabels = useAuthStore((state) => state.user?.tenant?.navigation_labels)
   const logoutStore = useAuthStore((state) => state.logout)
   const tasks = useTaskStore((state) => state.tasks)
   const isTasksLoading = useTaskStore((state) => state.isLoading)
@@ -109,53 +111,18 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
 
   const formatBadgeCount = (count: number) => (count > 99 ? "99+" : String(count))
 
-  const mainNavItems = [
-    {
-      href: "/dashboard",
-      icon: BarChart3,
-      label: "Panel",
-      isActive: pathname === "/dashboard",
-    },
-    {
-      href: "/chats",
-      icon: MessageSquare,
-      label: "Chats",
-      isActive: pathname === "/chats",
-      badge: unreadChats,
-    },
-    {
-      href: "/contactos",
-      icon: Users,
-      label: "Contactos",
-      isActive: pathname === "/contactos",
-    },
-    {
-      href: "/oportunidades",
-      icon: Target,
-      label: "Pipeline",
-      isActive: pathname === "/oportunidades",
-    },
-    {
-      href: "/tareas",
-      icon: CheckSquare,
-      label: "Tareas",
-      isActive: pathname === "/tareas",
-      badge: pendingTasks,
-    },
-  ]
+  const mainNavItems = NAVIGATION_ITEMS
+    .filter((item) => ["dashboard", "chats", "contacts", "pipeline", "tasks"].includes(item.key))
+    .map((item) => ({
+      ...item,
+      label: resolveNavigationLabel(item, navigationLabels, t),
+      isActive: pathname === item.href,
+      badge: item.key === "chats" ? unreadChats : item.key === "tasks" ? pendingTasks : 0,
+    }))
 
-  const menuItems: { href: string; icon: typeof Settings; label: string; onClick?: () => void }[] = [
-    {
-      href: "/difusiones",
-      icon: Megaphone,
-      label: "Difusiones",
-    },
-    {
-      href: "/configuracion",
-      icon: Settings,
-      label: "Configuración",
-    },
-  ]
+  const menuItems = NAVIGATION_ITEMS
+    .filter((item) => ["catalog", "broadcasts", "settings"].includes(item.key))
+    .map((item) => ({ ...item, label: resolveNavigationLabel(item, navigationLabels, t) }))
 
   return (
     <div
@@ -175,9 +142,10 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
                 "flex flex-col items-center gap-1 h-auto py-2 px-1 relative min-h-11",
                 item.isActive ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground",
               )}
+              title={item.label}
             >
               <item.icon className="w-5 h-5" />
-              <span className="text-xs font-medium">{item.label}</span>
+              <span className="w-full truncate text-xs font-medium">{item.label}</span>
               {item.badge ? (
                 <Badge
                   variant="destructive"
@@ -212,15 +180,12 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
                     key={item.href}
                     href={item.href}
                     onClick={() => {
-                      if (item.onClick) {
-                        item.onClick()
-                      }
                       setIsMenuOpen(false)
                     }}
                   >
-                    <Button variant="outline" className="w-full justify-start gap-3 h-12 bg-transparent">
-                      <item.icon className="w-5 h-5" />
-                      {item.label}
+                    <Button variant="outline" className="w-full justify-start gap-3 h-12 bg-transparent" title={item.label}>
+                      <item.icon className="w-5 h-5 shrink-0" />
+                      <span className="truncate">{item.label}</span>
                     </Button>
                   </Link>
                 ))}

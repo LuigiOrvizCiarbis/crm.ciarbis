@@ -157,6 +157,9 @@ class PermissionCatalog
                 'branches.manage',
                 'branches.view_all',
             ],
+            'navigation_labels' => [
+                'navigation_labels.manage',
+            ],
         ];
     }
 
@@ -191,6 +194,7 @@ class PermissionCatalog
             'roles.manage',
             'channels.delete',
             'users.deactivate',
+            'navigation_labels.manage',
         ];
 
         return array_values(array_diff(self::all(), $excluded));

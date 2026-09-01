@@ -6,6 +6,7 @@
     "catalog": "Catálogo",
     "pipeline": "Pipeline de ventas",
     "tasks": "Tareas",
+    "broadcasts": "Difusiones",
     "automation": "Automatización & IA",
     "admin": "Administración",
     "settings": "Configuración",
@@ -761,6 +762,17 @@
         "description": "Tu usuario no tiene permisos para ver o modificar esta sección."
       }
     },
+    "navigationLabels": {
+      "title": "Nombres de navegación",
+      "description": "Usá el vocabulario de tu equipo en el menú principal. Los cambios se comparten con todo el espacio.",
+      "defaultHint": "Predeterminado: {{label}}",
+      "mobileHint": "En pantallas chicas, los nombres largos se mostrarán recortados.",
+      "reset": "Restaurar predeterminado",
+      "resetAll": "Restaurar todos",
+      "resetAllConfirm": "¿Restaurar todos los nombres de navegación predeterminados?",
+      "tooLong": "Cada nombre puede tener hasta 30 caracteres.",
+      "saved": "Nombres de navegación guardados"
+    },
     "automations": {
       "title": "Automatizaciones",
       "description": "Convertí eventos del CRM en secuencias auditables, con condiciones, fechas y templates de WhatsApp.",
@@ -1240,6 +1252,7 @@
   },
   "common": {
     "save": "Guardar",
+    "saving": "Guardando...",
     "cancel": "Cancelar",
     "close": "Cerrar",
     "loading": "Cargando...",
