@@ -41,6 +41,11 @@ class ChannelPolicy
         return $user->can('channels.delete') && $this->canTouch($user, $channel);
     }
 
+    public function disconnect(User $user, Channel $channel): bool
+    {
+        return $user->can('channels.disconnect') && $this->canTouch($user, $channel);
+    }
+
     public function manageUsers(User $user, Channel $channel): bool
     {
         return $user->can('channels.manage_users') && $this->canTouch($user, $channel);

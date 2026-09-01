@@ -216,6 +216,40 @@ export async function updateChannelName(id: number, name: string): Promise<Chann
   return json.data;
 }
 
+export interface DisconnectChannelResult {
+  data: Channel;
+  warnings: string[];
+}
+
+/**
+ * Desconexión "blanda": revoca la suscripción de webhooks en Meta
+ * (best-effort del lado del backend) y purga credenciales, pero conserva
+ * conversaciones, mensajes y difusiones. `warnings` no vacío indica, por
+ * ejemplo, que las credenciales se conservaron por config compartida con
+ * otro canal, o que la revocación remota no se pudo confirmar.
+ */
+export async function disconnectChannel(id: number): Promise<DisconnectChannelResult> {
+  const token = getAuthToken();
+  if (!token) throw new Error("No authentication token found");
+
+  const response = await fetch(`/api/channels/${id}/disconnect`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throwApiError(response.status, error, "No se pudo desconectar el canal");
+  }
+
+  const json = await response.json();
+
+  return { data: json.data, warnings: json.warnings ?? [] };
+}
+
 export type BusinessVerificationStatus =
   | "verified"
   | "pending"

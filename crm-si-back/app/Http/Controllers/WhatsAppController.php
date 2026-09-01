@@ -528,7 +528,7 @@ class WhatsAppController extends Controller
 
         // Paso 6: resolver el Channel del tenant para esa config.
         if ($existingChannel) {
-            $existingChannel->fill(['status' => 'active'])->save();
+            $existingChannel->activate();
 
             return $existingChannel;
         }

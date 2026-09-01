@@ -198,7 +198,10 @@ export function AutomationsSettings() {
         getContactFields().catch(() => ({ data: [], standard: [] }) as ContactFieldsResponse),
       ])
       setRules(automationData)
-      setChannels(channelData.filter((channel) => Number(channel.type) === 1))
+      // Solo canales de WhatsApp ACTIVOS: un canal desconectado en el selector
+      // dejaría automatizaciones nuevas apuntando a un canal muerto, sin
+      // ninguna señal en la UI de que el envío va a fallar.
+      setChannels(channelData.filter((channel) => Number(channel.type) === 1 && channel.status === "active"))
       setContactFields(fieldData)
     } catch (error) {
       addToast({ type: "error", title: t("common.error"), description: error instanceof Error ? error.message : undefined })

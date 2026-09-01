@@ -4,8 +4,18 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { PlatformIcon } from '@/components/chat/PlatformIcon'
 import { EmptyState } from '@/components/EmptyState'
-import { MessageSquare, Wifi, WifiOff, Pencil, Check, X, RefreshCw } from 'lucide-react'
+import { MessageSquare, Wifi, WifiOff, Pencil, Check, X, RefreshCw, Unplug, Loader2 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Channel, FilterType } from '@/data/types'
 import { ChannelType, channelTypeToFilterType, getChannelDisplayName, filterTypeToChannelType } from '@/data/enums'
 import {
@@ -27,6 +37,7 @@ interface ChannelsListProps {
   onRetry?: () => void
   onRenameChannel?: (channelId: number, name: string) => void | Promise<void>
   onSyncMailChannel?: (channelId: number) => void | Promise<void>
+  onDisconnectChannel?: (channelId: number) => void | Promise<void>
 }
 
 export function ChannelsList({
@@ -39,11 +50,14 @@ export function ChannelsList({
   onRetry,
   onRenameChannel,
   onSyncMailChannel,
+  onDisconnectChannel,
 }: ChannelsListProps) {
   const { t } = useTranslation()
   const [editingId, setEditingId] = useState<number | null>(null)
   const [draftName, setDraftName] = useState("")
   const [syncingId, setSyncingId] = useState<number | null>(null)
+  const [disconnectTarget, setDisconnectTarget] = useState<Channel | null>(null)
+  const [disconnecting, setDisconnecting] = useState(false)
 
   const handleSync = async (channelId: number) => {
     if (!onSyncMailChannel || syncingId !== null) return
@@ -71,6 +85,17 @@ export function ChannelsList({
       await onRenameChannel(channelId, trimmed)
     }
     cancelEditing()
+  }
+
+  const confirmDisconnect = async () => {
+    if (!disconnectTarget || !onDisconnectChannel) return
+    setDisconnecting(true)
+    try {
+      await onDisconnectChannel(disconnectTarget.id)
+      setDisconnectTarget(null)
+    } finally {
+      setDisconnecting(false)
+    }
   }
 
   const { connected, disconnected } = useMemo(() => ({
@@ -229,6 +254,16 @@ export function ChannelsList({
                           <Pencil className="h-4 w-4" />
                         </button>
                       )}
+                      {onDisconnectChannel && (
+                        <button
+                          type="button"
+                          aria-label={t("chats.disconnectChannel")}
+                          className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-destructive/10 hover:text-destructive sm:h-8 sm:w-8 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:focus-visible:opacity-100"
+                          onClick={(e) => { e.stopPropagation(); setDisconnectTarget(channel) }}
+                        >
+                          <Unplug className="h-4 w-4" />
+                        </button>
+                      )}
                     </>
                   )}
                 </div>
@@ -283,6 +318,27 @@ export function ChannelsList({
         </div>
       )}
 
+      <AlertDialog open={disconnectTarget !== null} onOpenChange={(open) => { if (!open && !disconnecting) setDisconnectTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("chats.disconnectChannelTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("chats.disconnectChannelDesc", { name: disconnectTarget?.name ?? "" })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={disconnecting}>{t("chats.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); void confirmDisconnect() }}
+              disabled={disconnecting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {disconnecting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t("chats.disconnectChannel")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
