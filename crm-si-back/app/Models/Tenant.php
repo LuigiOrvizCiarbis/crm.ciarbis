@@ -14,6 +14,7 @@ class Tenant extends Model
         'plan_id',
         'trial_ends_at',
         'timezone',
+        'navigation_labels',
         'owner_role_id',
     ];
 
@@ -21,6 +22,7 @@ class Tenant extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'trial_ends_at' => 'datetime',
+        'navigation_labels' => 'array',
     ];
 
     protected static function booted(): void

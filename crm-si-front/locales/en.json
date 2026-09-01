@@ -6,6 +6,7 @@
     "catalog": "Catalog",
     "pipeline": "Sales pipeline",
     "tasks": "Tasks",
+    "broadcasts": "Broadcasts",
     "automation": "Automation & AI",
     "admin": "Administration",
     "settings": "Settings",
@@ -761,6 +762,17 @@
         "description": "Your account does not have permission to view or modify this section."
       }
     },
+    "navigationLabels": {
+      "title": "Navigation names",
+      "description": "Use your team's vocabulary in the main menu. Changes are shared with the whole workspace.",
+      "defaultHint": "Default: {{label}}",
+      "mobileHint": "On smaller screens, longer names will be truncated.",
+      "reset": "Restore default",
+      "resetAll": "Restore all",
+      "resetAllConfirm": "Restore every default navigation name?",
+      "tooLong": "Each name can have up to 30 characters.",
+      "saved": "Navigation names saved"
+    },
     "automations": {
       "title": "Automations",
       "description": "Turn CRM events into auditable sequences with conditions, dates, and WhatsApp templates.",
@@ -1240,6 +1252,7 @@
   },
   "common": {
     "save": "Save",
+    "saving": "Saving...",
     "cancel": "Cancel",
     "close": "Close",
     "loading": "Loading...",

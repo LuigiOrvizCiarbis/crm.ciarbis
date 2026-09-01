@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useTranslation } from "@/hooks/useTranslation"
 import { LanguageSwitcher } from "@/components/LanguageSwitcher"
+import { NAVIGATION_ITEMS, resolveNavigationLabel } from "@/data/navigation"
 
 interface SidebarProps {
   className?: string
@@ -30,13 +31,8 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
   const pathname = usePathname()
   const router = useRouter()
   const [openSections, setOpenSections] = useState<string[]>([])
-  const { user, token, logout, permissions } = useAuthStore()
+  const { user, token, logout } = useAuthStore()
   const { t } = useTranslation()
-
-  const hasAnyPerm = (perms?: string[]) => {
-    if (!perms || perms.length === 0) return true
-    return perms.some((p) => (permissions ?? []).includes(p))
-  }
 
   const handleLogout = async () => {
     try {
@@ -60,50 +56,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
     setOpenSections((prev) => (prev.includes(section) ? prev.filter((s) => s !== section) : [...prev, section]))
   }
 
-  const navItems = [
-    {
-      href: "/dashboard",
-      emoji: "📊",
-      label: t("nav.panel"),
-      shortLabel: t("nav.panelShort"),
-    },
-    {
-      href: "/chats",
-      emoji: "💬",
-      label: t("nav.chats"),
-      shortLabel: t("nav.chatsShort"),
-    },
-    {
-      href: "/contactos",
-      emoji: "👥",
-      label: t("nav.contacts"),
-      shortLabel: t("nav.contactsShort"),
-    },
-    {
-      href: "/catalogo",
-      emoji: "📦",
-      label: t("nav.catalog"),
-      shortLabel: t("nav.catalogShort"),
-    },
-    {
-      href: "/oportunidades",
-      emoji: "🎯",
-      label: t("nav.pipeline"),
-      shortLabel: t("nav.pipelineShort"),
-    },
-    {
-      href: "/tareas",
-      emoji: "✅",
-      label: t("nav.tasks"),
-      shortLabel: t("nav.tasksShort"),
-    },
-    {
-      href: "/difusiones",
-      emoji: "📣",
-      label: "Difusiones",
-      shortLabel: "Difus.",
-    },
-  ]
+  const navItems = NAVIGATION_ITEMS.filter((item) => item.key !== "settings")
 
   const automationItems = [
     {
@@ -138,14 +91,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
     },
   ]
 
-  const bottomItems = [
-    {
-      href: "/configuracion",
-      emoji: "⚙️",
-      label: t("nav.settings"),
-      shortLabel: t("nav.settingsShort"),
-    },
-  ]
+  const bottomItems = NAVIGATION_ITEMS.filter((item) => item.key === "settings")
 
   const isAutomationActive = automationItems.some((item) => pathname === item.href)
 
@@ -223,6 +169,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
         {/* Main navigation items */}
         {navItems.map((item) => {
           const isActive = pathname === item.href
+          const label = resolveNavigationLabel(item, user?.tenant?.navigation_labels, t)
 
           return (
             <Link key={item.href} href={item.href}>
@@ -236,15 +183,15 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
-                title={isCollapsed ? item.label : undefined}
+                title={label}
               >
                 <span className={cn(isCollapsed ? "text-xl leading-none" : "text-base")}>{item.emoji}</span>
                 {isCollapsed ? (
-                  <span className="text-[10px] font-medium leading-tight text-center">
-                    {item.shortLabel || item.label}
+                  <span className="w-full truncate text-[10px] font-medium leading-tight text-center">
+                    {label}
                   </span>
                 ) : (
-                  item.label
+                  <span className="truncate">{label}</span>
                 )}
               </Button>
             </Link>
@@ -312,8 +259,9 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
         )}
 
         {/* Bottom items */}
-        {bottomItems.filter((item) => hasAnyPerm((item as any).requires)).map((item) => {
+        {bottomItems.map((item) => {
           const isActive = pathname === item.href
+          const label = resolveNavigationLabel(item, user?.tenant?.navigation_labels, t)
 
           return (
             <Link key={item.href} href={item.href}>
@@ -327,15 +275,15 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
-                title={isCollapsed ? item.label : undefined}
+                title={label}
               >
                 <span className={cn(isCollapsed ? "text-xl leading-none" : "text-base")}>{item.emoji}</span>
                 {isCollapsed ? (
-                  <span className="text-[10px] font-medium leading-tight text-center">
-                    {item.shortLabel || item.label}
+                  <span className="w-full truncate text-[10px] font-medium leading-tight text-center">
+                    {label}
                   </span>
                 ) : (
-                  item.label
+                  <span className="truncate">{label}</span>
                 )}
               </Button>
             </Link>

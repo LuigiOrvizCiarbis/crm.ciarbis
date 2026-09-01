@@ -20,6 +20,7 @@ import { AutomationsSettings } from "@/components/config/AutomationsSettings"
 import { IntegrationsSection } from "@/components/config/integrations/IntegrationsSection"
 import { BusinessVerificationCard } from "@/components/config/BusinessVerificationCard"
 import { ChannelsCard } from "@/components/config/ChannelsCard"
+import { NavigationLabelsCard } from "@/components/config/NavigationLabelsCard"
 import { usePermission } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
 import { cn } from "@/lib/utils"
@@ -64,6 +65,7 @@ export default function ConfiguracionPage() {
     "pipeline_stages.manage",
   ])
   const canViewAutomations = usePermission("automations.view")
+  const canManageNavigationLabels = usePermission("navigation_labels.manage")
   const sections = useMemo<SettingsSection[]>(
     () => [
       {
@@ -236,6 +238,7 @@ export default function ConfiguracionPage() {
                 )}
 
                 <SettingsSectionHeading section={sections[1]}>
+                  {canManageNavigationLabels && <NavigationLabelsCard />}
                   <MessageHotkeysCard />
                   {canViewPipeline && <PipelineStagesCard />}
                   {canViewFields && <FieldsCard />}
