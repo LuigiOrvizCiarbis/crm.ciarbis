@@ -40,6 +40,12 @@ export interface UserRole {
   is_owner?: boolean
 }
 
+export interface UserPreferences {
+  locale: string
+  timezone: string
+  date_format: string
+}
+
 export interface User {
   id: number
   name: string
@@ -48,6 +54,10 @@ export interface User {
   tenant_id?: number
   tenant?: UserTenant | null
   branch_id?: number | null
+  phone?: string | null
+  job_title?: string | null
+  avatar_url?: string | null
+  preferences?: UserPreferences | null
   created_at?: string
   updated_at?: string
 }

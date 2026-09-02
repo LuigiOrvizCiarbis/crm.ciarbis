@@ -1,40 +1,9 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 
-export type AccountType = "persona" | "empresa"
 export type IntegrationType = "whatsapp" | "instagram" | "facebook" | "telegram" | "smtp" | "gcal" | "mp" | "stripe"
 export type PlanId = "starter" | "classic" | "intermediate" | "high" | "agency" | "enterprise"
 export type Role = "admin" | "vendedor"
-
-export interface Profile {
-  accountType: AccountType
-  persona?: {
-    nombre: string
-    dni?: string
-    apodo?: string
-  }
-  empresa?: {
-    razonSocial: string
-    cuit?: string
-    fantasia?: string
-  }
-  comunes: {
-    website?: string
-    email?: string
-    contacto?: {
-      whatsapp?: string
-      telegram?: string
-    }
-    redes?: {
-      ig?: string
-      fb?: string
-      lin?: string
-      tt?: string
-      x?: string
-      yt?: string
-    }
-  }
-}
 
 export interface Integration {
   id: IntegrationType
@@ -51,19 +20,6 @@ export interface NotificationPrefs {
   cierreVenta: boolean
   recordatoriosDiarios: boolean
   reporteSemanal: boolean
-}
-
-export interface Session {
-  id: string
-  agente: string
-  dispositivo: string
-  ultimaActividad: string
-  actual?: boolean
-}
-
-export interface Security {
-  twoFAEnabled: boolean
-  sesiones: Session[]
 }
 
 export interface Channel {
@@ -98,19 +54,11 @@ interface ConfigStore {
   language: "es" | "en"
   setLanguage: (language: "es" | "en") => void
 
-  profile: Profile
-  setProfile: (profile: Profile) => void
-  updateProfile: (updates: Partial<Profile>) => void
-
   integrations: Integration[]
   toggleIntegration: (id: IntegrationType) => void
 
   notifications: NotificationPrefs
   setNotifications: (prefs: Partial<NotificationPrefs>) => void
-
-  security: Security
-  setSecurity: (security: Partial<Security>) => void
-  removeSession: (id: string) => void
 
   channels: Channel[]
   addChannel: (channel: Channel) => void
@@ -132,31 +80,6 @@ export const useConfigStore = create<ConfigStore>()(
     (set, get) => ({
       language: "es" as "es" | "en",
       setLanguage: (language: "es" | "en") => set({ language }),
-
-      profile: {
-        accountType: "persona",
-        persona: {
-          nombre: "Juan Pérez",
-          dni: "12345678",
-          apodo: "juanp",
-        },
-        comunes: {
-          email: "juan@socialimpulse.agency",
-          website: "https://socialimpulse.agency",
-          contacto: {
-            whatsapp: "+54 9 11 1234-5678",
-          },
-          redes: {
-            ig: "@socialimpulse",
-            lin: "https://linkedin.com/company/socialimpulse",
-          },
-        },
-      },
-      setProfile: (profile) => set({ profile }),
-      updateProfile: (updates) =>
-        set((state) => ({
-          profile: { ...state.profile, ...updates },
-        })),
 
       integrations: [
         {
@@ -232,36 +155,6 @@ export const useConfigStore = create<ConfigStore>()(
       setNotifications: (prefs) =>
         set((state) => ({
           notifications: { ...state.notifications, ...prefs },
-        })),
-
-      security: {
-        twoFAEnabled: false,
-        sesiones: [
-          {
-            id: "1",
-            agente: "Chrome",
-            dispositivo: "Windows",
-            ultimaActividad: "settings.time5min",
-            actual: true,
-          },
-          {
-            id: "2",
-            agente: "Safari",
-            dispositivo: "iPhone",
-            ultimaActividad: "settings.time2hours",
-          },
-        ],
-      },
-      setSecurity: (security) =>
-        set((state) => ({
-          security: { ...state.security, ...security },
-        })),
-      removeSession: (id) =>
-        set((state) => ({
-          security: {
-            ...state.security,
-            sesiones: state.security.sesiones.filter((s) => s.id !== id),
-          },
         })),
 
       channels: [

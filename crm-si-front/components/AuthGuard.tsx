@@ -6,6 +6,7 @@ import { useAuthStore } from "@/store/useAuthStore"
 import { Loader2 } from "lucide-react"
 import { authOnlyRoutes, isRouteMatch, publicRoutes, trialExpiredAllowedRoutes, unverifiedAllowedRoutes } from "@/lib/routes"
 import { isTrialExpired } from "@/lib/trial"
+import { useConfigStore } from "@/store/useConfigStore"
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -77,6 +78,21 @@ export function AuthGuard({ children }: AuthGuardProps) {
             setEmailVerified(isVerified)
           }
           updateUser(data.user)
+
+          // El idioma sólo se aplica desde el backend en el chequeo inicial
+          // de la sesión. updateUser() de arriba mergea el `user` completo
+          // (incluida `preferences`) en cada navegación — si aplicáramos el
+          // idioma acá siempre, un cambio hecho en /perfil quedaría revertido
+          // por el /me viejo en la primera navegación posterior al guardado.
+          if (!hasCompletedInitialCheck) {
+            const locale = data.user?.preferences?.locale
+            if (locale === "es" || locale === "en") {
+              const currentLanguage = useConfigStore.getState().language
+              if (currentLanguage !== locale) {
+                useConfigStore.getState().setLanguage(locale)
+              }
+            }
+          }
 
           // Si el email no está verificado y no está en ruta permitida, redirigir
           if (!isVerified && !isUnverifiedAllowed) {

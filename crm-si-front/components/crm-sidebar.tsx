@@ -2,14 +2,21 @@
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { ChevronDown, ChevronLeft, ChevronRight, LogOut, Menu } from "lucide-react"
+import { ChevronDown, ChevronLeft, ChevronRight, LogOut, Menu, Settings, User } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useState, useEffect } from "react"
 import { useAuthStore } from "@/store/useAuthStore"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Tooltip,
   TooltipContent,
@@ -303,39 +310,42 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
       {/* Footer */}
       {!isCollapsed && (
         <div className="mt-auto shrink-0 space-y-3 border-t border-sidebar-border p-4">
-          {/* User info + Logout */}
-          <div className="flex items-center gap-3">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
-                {userInitials}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-sidebar-foreground truncate">
-                {user?.name || "Usuario"}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {user?.email || ""}
-              </p>
-            </div>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleLogout}
-                    className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                  >
-                    <LogOut className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>{t("nav.logout")}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
+          {/* User info + menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex w-full items-center gap-3 rounded-md p-1 text-left transition-colors hover:bg-sidebar-accent">
+                <Avatar className="h-8 w-8">
+                  <AvatarImage src={user?.avatar_url ?? undefined} alt={user?.name ?? ""} />
+                  <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
+                    {userInitials}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-sidebar-foreground truncate">
+                    {user?.name || "Usuario"}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {user?.email || ""}
+                  </p>
+                </div>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top" className="w-56">
+              <DropdownMenuItem onClick={() => router.push("/perfil")}>
+                <User className="mr-2 h-4 w-4" />
+                {t("nav.profile")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/configuracion")}>
+                <Settings className="mr-2 h-4 w-4" />
+                {t("nav.settings")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+                <LogOut className="mr-2 h-4 w-4" />
+                {t("nav.logout")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <div className="flex items-center justify-between">
             <LanguageSwitcher />
@@ -349,23 +359,42 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
 
       {isCollapsed && (
         <div className="mt-auto shrink-0 space-y-2 border-t border-sidebar-border p-2">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleLogout}
-                  className="w-full h-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                >
-                  <LogOut className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>{t("nav.logout")}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <DropdownMenu>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button className="flex w-full items-center justify-center rounded-md p-1.5 transition-colors hover:bg-sidebar-accent">
+                      <Avatar className="h-7 w-7">
+                        <AvatarImage src={user?.avatar_url ?? undefined} alt={user?.name ?? ""} />
+                        <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
+                          {userInitials}
+                        </AvatarFallback>
+                      </Avatar>
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>{user?.name || "Usuario"}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <DropdownMenuContent align="start" side="right" className="w-56">
+              <DropdownMenuItem onClick={() => router.push("/perfil")}>
+                <User className="mr-2 h-4 w-4" />
+                {t("nav.profile")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/configuracion")}>
+                <Settings className="mr-2 h-4 w-4" />
+                {t("nav.settings")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+                <LogOut className="mr-2 h-4 w-4" />
+                {t("nav.logout")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <div className="flex justify-center">
             <ThemeToggle />
           </div>

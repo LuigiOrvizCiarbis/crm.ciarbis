@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { getConversationUnreadCount } from "@/lib/api/conversations"
 import { useAuthStore } from "@/store/useAuthStore"
 import { useTaskStore } from "@/store/useTaskStore"
-import { Menu, LogOut } from "lucide-react"
+import { Menu, LogOut, User } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -175,6 +175,12 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
                 <SheetTitle>Menú</SheetTitle>
               </SheetHeader>
               <div className="grid grid-cols-2 gap-2">
+                <Link href="/perfil" onClick={() => setIsMenuOpen(false)}>
+                  <Button variant="outline" className="w-full justify-start gap-3 h-12 bg-transparent" title={t("nav.profile")}>
+                    <User className="w-5 h-5 shrink-0" />
+                    <span className="truncate">{t("nav.profile")}</span>
+                  </Button>
+                </Link>
                 {menuItems.map((item) => (
                   <Link
                     key={item.href}
