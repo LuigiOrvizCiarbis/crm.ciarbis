@@ -10,6 +10,7 @@
     "automation": "Automation & AI",
     "admin": "Administration",
     "settings": "Settings",
+    "profile": "My profile",
     "logout": "Log out",
     "dashboard": "Main Dashboard",
     "panelShort": "Panel",
@@ -898,18 +899,6 @@
       }
     },
     "save": "Save changes",
-    "profile": "Profile",
-    "accountType": "Account type",
-    "individual": "Individual",
-    "company": "Company",
-    "fullName": "Full name *",
-    "username": "Username",
-    "companyName": "Company name *",
-    "taxId": "Tax ID",
-    "tradeName": "Trade name",
-    "website": "Website",
-    "profileSaved": "Profile saved",
-    "profileSavedDesc": "Changes saved successfully",
     "notifications": "Notifications",
     "newMessage": "New message",
     "taskOverdue": "Overdue task",
@@ -927,17 +916,6 @@
     "upgradePlan": "Upgrade plan",
     "availableFrom": "Available from Intermediate",
     "rolesUpsell": "Role management is available from the Intermediate plan onwards",
-    "security": "Security",
-    "twoFA": "Two-factor authentication (2FA)",
-    "twoFADesc": "Add an extra layer of security to your account",
-    "active": "Active",
-    "inactive": "Inactive",
-    "enable2FA": "Enable 2FA",
-    "disable2FA": "Disable 2FA",
-    "activeSessions": "Active sessions",
-    "lastActivity": "Last activity:",
-    "currentSession": "Current",
-    "logoutSession": "Log out",
     "integrations": "Integrations",
     "connected": "Connected",
     "notConnected": "Not connected",
@@ -1559,7 +1537,8 @@
       "title": "Your trial has ended",
       "description": "Upgrade your plan to keep using the CRM without interruptions.",
       "viewPlans": "View plans",
-      "logout": "Log out"
+      "logout": "Log out",
+      "securitySettings": "Change password or log out other sessions"
     }
   },
   "pricing": {
@@ -1631,6 +1610,81 @@
       "permission_missing": "Missing Meta permission",
       "token_invalid": "Reconnect the channel",
       "unknown": "Unknown"
+    }
+  },
+  "profile": {
+    "page": {
+      "title": "My profile",
+      "description": "Your personal data, security and account preferences.",
+      "navigationLabel": "Profile sections",
+      "account": {
+        "title": "Account",
+        "description": "Your photo, name and contact details."
+      },
+      "security": {
+        "title": "Security",
+        "description": "Password and active sessions."
+      },
+      "preferences": {
+        "title": "Preferences",
+        "description": "Language, timezone and date format."
+      }
+    },
+    "avatar": {
+      "title": "Profile photo",
+      "description": "Shown in the menu and on task and conversation assignments.",
+      "upload": "Upload photo",
+      "remove": "Remove",
+      "uploaded": "Photo updated",
+      "removed": "Photo removed",
+      "invalidType": "The image must be JPG, PNG or WEBP.",
+      "tooLarge": "The image cannot exceed 2 MB."
+    },
+    "details": {
+      "title": "Personal details",
+      "description": "Your name and contact details.",
+      "name": "Full name",
+      "email": "Email",
+      "emailHint": "To change your email, go to",
+      "emailChangeLink": "email verification.",
+      "phone": "Phone",
+      "jobTitle": "Job title",
+      "nameRequired": "Name is required.",
+      "saved": "Profile updated"
+    },
+    "password": {
+      "title": "Password",
+      "description": "Change your login password.",
+      "current": "Current password",
+      "new": "New password",
+      "confirm": "Confirm password",
+      "change": "Change password",
+      "mismatch": "Passwords don't match.",
+      "saved": "Password updated",
+      "savedDesc": "All other active sessions were closed.",
+      "sessionsWarning": "Changing your password will close all your other active sessions."
+    },
+    "sessions": {
+      "title": "Active sessions",
+      "description": "Devices where you're currently logged in.",
+      "empty": "No active sessions.",
+      "current": "Current session",
+      "revoke": "Log out",
+      "revoked": "Session closed",
+      "revokeAll": "Log out other sessions",
+      "revokeAllTitle": "Log out other sessions?",
+      "revokeAllConfirm": "This will log you out on every other device. This session will stay active.",
+      "revokedAll": "Other sessions were closed",
+      "lastUsed": "Last used: {{date}}",
+      "neverUsed": "No recorded use"
+    },
+    "preferences": {
+      "title": "Language and format",
+      "description": "How language, time and dates are displayed.",
+      "language": "Language",
+      "timezone": "Timezone",
+      "dateFormat": "Date format",
+      "saved": "Preferences saved"
     }
   }
 }

@@ -147,6 +147,7 @@ class UserController extends Controller
             'email' => $user->email,
             'tenant_id' => $user->tenant_id,
             'branch_id' => $user->branch_id,
+            'avatar_url' => $user->avatarUrl(),
             'role' => RolePayload::transform($role, $tenant),
             'created_at' => $user->created_at,
             'updated_at' => $user->updated_at,
