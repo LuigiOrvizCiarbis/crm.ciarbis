@@ -145,6 +145,7 @@ export const useInstagramLogin = () => {
       "pages_manage_metadata",
       "pages_messaging",
       "instagram_basic",
+      "instagram_manage_comments",
       messagingPermission,
       "business_management",
     ].join(",");

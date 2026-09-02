@@ -13,6 +13,7 @@ use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\InstagramConfig;
+use App\Models\InstagramComment;
 use App\Models\Message;
 use App\Models\Tenant;
 use App\Models\User;
@@ -97,6 +98,53 @@ class InstagramWebhookTest extends TestCase
         Event::assertDispatched(TenantMessageReceived::class);
         // Con ai_autoreply_default=false (default del canal) no se despacha IA.
         Queue::assertNotPushed(GenerateAiReplyJob::class);
+    }
+
+    public function test_comment_webhook_creates_comment_with_private_reply_deadline(): void
+    {
+        Http::fake();
+        [$channel] = $this->createChannel();
+        $payload = [
+            'object' => 'instagram',
+            'entry' => [[
+                'id' => $channel->external_id,
+                'changes' => [[
+                    'field' => 'comments',
+                    'value' => [
+                        'id' => 'comment_1',
+                        'from' => ['id' => 'IGSID_COMMENTER', 'username' => 'ana'],
+                        'text' => '¿Cuál es el precio?',
+                        'media' => ['id' => 'media_1', 'media_product_type' => 'FEED'],
+                    ],
+                ]],
+            ]],
+        ];
+
+        $this->postWebhook($payload)->assertOk();
+        $comment = InstagramComment::firstOrFail();
+        $this->assertSame('comment_1', $comment->external_id);
+        $this->assertSame('IGSID_COMMENTER', $comment->author_external_id);
+        $this->assertTrue($comment->private_reply_deadline->isFuture());
+    }
+
+    public function test_duplicate_comment_webhook_is_deduplicated(): void
+    {
+        Http::fake();
+        [$channel] = $this->createChannel();
+        $payload = [
+            'object' => 'instagram',
+            'entry' => [[
+                'id' => $channel->external_id,
+                'changes' => [[
+                    'field' => 'comments',
+                    'value' => ['id' => 'comment_dup', 'from' => ['id' => 'IGSID_COMMENTER'], 'text' => 'hola'],
+                ]],
+            ]],
+        ];
+
+        $this->postWebhook($payload)->assertOk();
+        $this->postWebhook($payload)->assertOk();
+        $this->assertSame(1, InstagramComment::where('external_id', 'comment_dup')->count());
     }
 
     public function test_inbound_dispatches_ai_reply_when_autoreply_enabled(): void

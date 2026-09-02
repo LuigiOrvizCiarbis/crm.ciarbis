@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MessageHotkeyController;
 use App\Http\Controllers\Api\MessageTranslationController;
+use App\Http\Controllers\Api\InstagramCommentController;
 use App\Http\Controllers\Api\NoteController;
 use App\Http\Controllers\Api\NavigationLabelController;
 use App\Http\Controllers\Api\OpportunityController;
@@ -493,6 +494,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('messages/{message}', [MessageController::class, 'update']);
     Route::delete('messages/{message}', [MessageController::class, 'destroy']);
     Route::post('messages/{message}/translation', [MessageTranslationController::class, 'store']);
+
+    Route::get('instagram-comments', [InstagramCommentController::class, 'index']);
+    Route::get('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'show']);
+    Route::patch('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'assign']);
+    Route::post('instagram-comments/{instagramComment}/reply', [InstagramCommentController::class, 'publicReply']);
+    Route::post('instagram-comments/{instagramComment}/private-reply', [InstagramCommentController::class, 'privateReply']);
+    Route::post('instagram-comments/{instagramComment}/hide', [InstagramCommentController::class, 'hide']);
+    Route::post('instagram-comments/{instagramComment}/unhide', [InstagramCommentController::class, 'unhide']);
+    Route::delete('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'destroy']);
 
     Route::apiResource('message-hotkeys', MessageHotkeyController::class)->except(['show']);
 

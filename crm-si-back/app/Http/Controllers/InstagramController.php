@@ -9,6 +9,7 @@ use App\Models\Channel;
 use App\Models\InstagramConfig;
 use App\Models\Scopes\TenantScope;
 use App\Services\InstagramMessageService;
+use App\Services\InstagramCommentService;
 use App\Support\MetaOAuth;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -31,7 +32,8 @@ class InstagramController extends Controller
     private const ONBOARDING_TTL_SECONDS = 600; // 10 minutos
 
     public function __construct(
-        private InstagramMessageService $messageService
+        private InstagramMessageService $messageService,
+        private InstagramCommentService $commentService
     ) {}
 
     public function handleAuth(InstagramChannelStoreRequest $request): JsonResponse
@@ -299,7 +301,7 @@ class InstagramController extends Controller
             $response = Http::withToken($pageToken)
                 ->timeout(15)
                 ->post("https://graph.facebook.com/{$version}/{$pageId}/subscribed_apps", [
-                    'subscribed_fields' => 'messages',
+                    'subscribed_fields' => 'messages,comments',
                 ]);
 
             if (! $response->successful()) {
@@ -361,6 +363,12 @@ class InstagramController extends Controller
 
             foreach ($request->input('entry', []) as $entry) {
                 $entryId = $entry['id'] ?? null;
+
+                foreach ($entry['changes'] ?? [] as $change) {
+                    if (($change['field'] ?? null) === 'comments' && $entryId && is_array($change['value'] ?? null)) {
+                        $this->commentService->processWebhook((string) $entryId, $change['value']);
+                    }
+                }
 
                 $events = $this->extractMessagingEvents($entry);
                 foreach ($events as $event) {
