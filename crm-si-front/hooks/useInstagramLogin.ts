@@ -143,6 +143,7 @@ export const useInstagramLogin = () => {
     const scope = [
       "pages_show_list",
       "pages_manage_metadata",
+      "pages_read_engagement",
       "pages_messaging",
       "instagram_basic",
       "instagram_manage_comments",
