@@ -364,7 +364,17 @@ class InstagramController extends Controller
             foreach ($request->input('entry', []) as $entry) {
                 $entryId = $entry['id'] ?? null;
 
-                foreach ($entry['changes'] ?? [] as $change) {
+                // Meta documenta comentarios tanto como field/value directo
+                // en entry como dentro de entry.changes[]. Normalizamos ambos.
+                $changes = $entry['changes'] ?? [];
+                if (isset($entry['field'])) {
+                    $changes[] = [
+                        'field' => $entry['field'],
+                        'value' => $entry['value'] ?? null,
+                    ];
+                }
+
+                foreach ($changes as $change) {
                     if (($change['field'] ?? null) === 'comments' && $entryId && is_array($change['value'] ?? null)) {
                         $this->commentService->processWebhook((string) $entryId, $change['value']);
                     }

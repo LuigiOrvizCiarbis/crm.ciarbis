@@ -127,6 +127,31 @@ class InstagramWebhookTest extends TestCase
         $this->assertTrue($comment->private_reply_deadline->isFuture());
     }
 
+    public function test_comment_webhook_in_direct_field_format_is_also_parsed(): void
+    {
+        Http::fake();
+        [$channel] = $this->createChannel();
+        $payload = [
+            'object' => 'instagram',
+            'entry' => [[
+                'id' => $channel->external_id,
+                'field' => 'comments',
+                'value' => [
+                    'id' => 'comment_direct',
+                    'from' => ['id' => 'IGSID_DIRECT', 'username' => 'lucia'],
+                    'text' => 'INFO',
+                    'media' => ['id' => 'media_direct', 'media_product_type' => 'REELS'],
+                ],
+            ]],
+        ];
+
+        $this->postWebhook($payload)->assertOk();
+
+        $comment = InstagramComment::firstOrFail();
+        $this->assertSame('comment_direct', $comment->external_id);
+        $this->assertSame('INFO', $comment->text);
+    }
+
     public function test_duplicate_comment_webhook_is_deduplicated(): void
     {
         Http::fake();
