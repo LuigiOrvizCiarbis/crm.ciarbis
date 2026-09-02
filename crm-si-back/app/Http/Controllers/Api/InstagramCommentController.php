@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\InstagramComment;
 use App\Services\InstagramCommentService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class InstagramCommentController extends Controller
 {
@@ -13,7 +14,9 @@ class InstagramCommentController extends Controller
 
     public function index(Request $request)
     {
-        $query = InstagramComment::with(['channel', 'contact', 'assignedUser'])->visibleTo($request->user());
+        $query = InstagramComment::with(['channel', 'contact', 'assignedUser'])
+            ->where('tenant_id', $request->user()->tenant_id)
+            ->visibleTo($request->user());
         foreach (['status', 'visibility', 'channel_id', 'assigned_to'] as $filter) if ($request->filled($filter)) $query->where($filter, $request->input($filter));
         return response()->json($query->latest('commented_at')->paginate((int) $request->input('per_page', 50)));
     }
@@ -27,7 +30,15 @@ class InstagramCommentController extends Controller
     public function assign(Request $request, InstagramComment $instagramComment)
     {
         $this->authorizeComment($request, $instagramComment);
-        $data = $request->validate(['assigned_to' => 'nullable|exists:users,id', 'status' => 'nullable|in:new,in_progress,resolved']);
+        $data = $request->validate([
+            'assigned_to' => [
+                'nullable',
+                Rule::exists('users', 'id')->where(
+                    fn ($query) => $query->where('tenant_id', $request->user()->tenant_id)
+                ),
+            ],
+            'status' => 'nullable|in:new,in_progress,resolved',
+        ]);
         $instagramComment->update($data);
         return response()->json(['data' => $instagramComment->fresh(['assignedUser'])]);
     }
