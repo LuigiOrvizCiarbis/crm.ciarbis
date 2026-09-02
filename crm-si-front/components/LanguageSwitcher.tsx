@@ -13,6 +13,14 @@ export function LanguageSwitcher({ className }: { className?: string }) {
   const { addToast } = useToast()
 
   const toggle = async (lang: "es" | "en") => {
+    // Sin sesión (login/register) el idioma es sólo una preferencia local del
+    // navegador: no hay perfil de usuario al que asociarla, así que no se
+    // intenta persistir ni se puede fallar por "no autenticado".
+    if (!user) {
+      changeLanguage(lang)
+      return
+    }
+
     const previousLocale = language
 
     // Optimista: el idioma cambia en la UI de inmediato; el guardado en el
@@ -23,7 +31,7 @@ export function LanguageSwitcher({ className }: { className?: string }) {
     // mostrando un idioma que el backend nunca llegó a persistir.
     changeLanguage(lang)
 
-    const current = user?.preferences ?? DEFAULT_PREFERENCES
+    const current = user.preferences ?? DEFAULT_PREFERENCES
     const next = { ...current, locale: lang }
     updateUser({ preferences: next })
 
