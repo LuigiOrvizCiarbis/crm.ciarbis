@@ -510,8 +510,9 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
               </div>
 
               <p className="text-xs text-muted-foreground">
-                Se creará un evento en tu Google Calendar con enlace de Google Meet. Si no conectaste tu cuenta, la
-                reunión queda pendiente de sincronizar (podés reintentarlo después desde Configuración).
+                Se creará un evento en el Google Calendar del responsable seleccionado, con enlace de Google Meet.
+                Si ese responsable no conectó su cuenta, la reunión queda pendiente de sincronizar (podés
+                reintentarlo después desde Configuración).
               </p>
             </div>
           )}
