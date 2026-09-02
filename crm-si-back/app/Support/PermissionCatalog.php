@@ -93,6 +93,7 @@ class PermissionCatalog
                 'channels.create',
                 'channels.update',
                 'channels.delete',
+                'channels.disconnect',
                 'channels.manage_users',
                 'channels.connect_whatsapp',
                 'channels.connect_mail',
@@ -119,6 +120,14 @@ class PermissionCatalog
                 'templates.create',
                 'templates.delete',
                 'templates.send',
+            ],
+            'whatsapp_groups' => [
+                'whatsapp_groups.view',
+                'whatsapp_groups.create',
+                'whatsapp_groups.update',
+                'whatsapp_groups.delete',
+                'whatsapp_groups.invite',
+                'whatsapp_groups.manage_participants',
             ],
             'analytics' => [
                 'analytics.view',
@@ -147,6 +156,9 @@ class PermissionCatalog
                 'branches.view',
                 'branches.manage',
                 'branches.view_all',
+            ],
+            'navigation_labels' => [
+                'navigation_labels.manage',
             ],
         ];
     }
@@ -182,6 +194,7 @@ class PermissionCatalog
             'roles.manage',
             'channels.delete',
             'users.deactivate',
+            'navigation_labels.manage',
         ];
 
         return array_values(array_diff(self::all(), $excluded));
@@ -231,6 +244,11 @@ class PermissionCatalog
             'analytics.view',
             'branches.view_any',
             'branches.view',
+            // Un vendedor puede armar el grupo de su propia venta e invitar;
+            // editar, quitar participantes y eliminar quedan para admin.
+            'whatsapp_groups.view',
+            'whatsapp_groups.create',
+            'whatsapp_groups.invite',
         ];
     }
 }

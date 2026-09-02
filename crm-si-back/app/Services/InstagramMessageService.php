@@ -143,12 +143,25 @@ class InstagramMessageService
         }
 
         // Backfill sólo cuando nunca se seteó: sobreescribir un valor existente
-        // degradaría la resolución si el entry.id llegara con otro id.
+        // degradaría la resolución si el entry.id llegara con otro id. Va antes
+        // del chequeo de canal activo: mantener el mapeo al día es correcto
+        // aunque descartemos el mensaje, así la reconexión funciona.
         if ($entryId && $config->webhook_object_id === null) {
             $config->update(['webhook_object_id' => $entryId]);
         }
 
-        return $config->channels->first();
+        $channel = $config->channels->firstWhere('status', 'active');
+
+        if (! $channel) {
+            Log::info('Instagram webhook ignorado: no hay canal activo para la config', [
+                'instagram_config_id' => $config->id,
+                'entry_id' => $entryId,
+            ]);
+
+            return null;
+        }
+
+        return $channel;
     }
 
     private function findOrCreateContact(Channel $channel, string $igsid): Contact
@@ -182,7 +195,7 @@ class InstagramMessageService
                 return;
             }
 
-            $version = config('services.facebook.graph_version', 'v21.0');
+            $version = config('services.facebook.graph_version', 'v26.0');
             $response = Http::withToken($token)
                 ->timeout(10)
                 ->get("https://graph.facebook.com/{$version}/{$igsid}", [
@@ -575,7 +588,7 @@ class InstagramMessageService
      */
     private function postMessage(string $pageId, string $token, array $payload): ?string
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         $response = Http::withToken($token)
             ->timeout(15)

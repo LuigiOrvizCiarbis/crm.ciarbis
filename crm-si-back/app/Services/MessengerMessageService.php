@@ -142,7 +142,16 @@ class MessengerMessageService
             ->with('channels')
             ->first();
 
-        return $config?->channels->first();
+        $channel = $config?->channels->firstWhere('status', 'active');
+
+        if ($config && ! $channel) {
+            Log::info('Messenger webhook ignorado: no hay canal activo para la página', [
+                'messenger_config_id' => $config->id,
+                'page_id' => $config->page_id,
+            ]);
+        }
+
+        return $channel;
     }
 
     private function findOrCreateContact(Channel $channel, string $psid): Contact
@@ -178,7 +187,7 @@ class MessengerMessageService
                 return;
             }
 
-            $version = config('services.facebook.graph_version', 'v21.0');
+            $version = config('services.facebook.graph_version', 'v26.0');
             $response = Http::withToken($token)
                 ->timeout(10)
                 ->get("https://graph.facebook.com/{$version}/{$psid}", [
@@ -600,7 +609,7 @@ class MessengerMessageService
      */
     private function postMessage(string $pageId, string $token, array $payload, ?string $tag = null): ?string
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         // messaging_type y tag son mutuamente excluyentes: con una tag el tipo
         // pasa a ser MESSAGE_TAG.

@@ -37,11 +37,13 @@ interface MessageListProps {
   isLoadingMore: boolean
   onEditMessage?: (message: Message) => void
   onDeleteMessage?: (message: Message) => void
+  onSaveContact?: (message: Message, index: number) => void
   currentUserId?: number
   isAdmin?: boolean
   translationLanguage: TranslationLanguage
   onTranslateMessage: (message: Message, targetLanguage: TranslationLanguage) => Promise<MessageTranslationResponse>
   channelType?: ChannelType
+  isGroupConversation?: boolean
 }
 
 interface TranslationState {
@@ -60,11 +62,13 @@ export function MessageList({
   isLoadingMore,
   onEditMessage,
   onDeleteMessage,
+  onSaveContact,
   currentUserId,
   isAdmin,
   translationLanguage,
   onTranslateMessage,
   channelType,
+  isGroupConversation = false,
 }: MessageListProps) {
   const { t, language } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -498,9 +502,11 @@ export function MessageList({
                   onTranslate={(target) => void handleTranslate(target)}
                   onEdit={onEditMessage}
                   onDelete={(target) => setDeleteTarget(target)}
+                  onSaveContact={onSaveContact}
                   canEdit={!!canEdit(msg) && !!onEditMessage}
                   canDelete={!!canDelete(msg) && !!onDeleteMessage}
                   canTranslate={!!canTranslate(msg)}
+                  isGroupConversation={isGroupConversation}
                 />
               </Fragment>
             )

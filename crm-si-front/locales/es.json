@@ -6,6 +6,7 @@
     "catalog": "Catálogo",
     "pipeline": "Pipeline de ventas",
     "tasks": "Tareas",
+    "broadcasts": "Difusiones",
     "automation": "Automatización & IA",
     "admin": "Administración",
     "settings": "Configuración",
@@ -496,6 +497,12 @@
     "renameChannel": "Editar nombre del canal",
     "renameChannelSuccess": "Nombre del canal actualizado",
     "renameChannelError": "No se pudo actualizar el nombre del canal",
+    "disconnectChannel": "Desconectar canal",
+    "disconnectChannelTitle": "¿Desconectar este canal?",
+    "disconnectChannelDesc": "Se va a desconectar {{name}}. Las conversaciones y mensajes se conservan, y podés volver a conectarlo cuando quieras desde \"Agregar Canal\".",
+    "disconnectChannelSuccess": "Canal desconectado",
+    "disconnectChannelError": "No se pudo desconectar el canal",
+    "disconnectChannelWarning": "El canal se desconectó, pero con una advertencia",
     "markAsRead": "Marcar como leído",
     "markAsUnread": "Marcar como no leído",
     "unnamedContact": "Sin nombre",
@@ -760,6 +767,17 @@
         "title": "Sin configuraciones disponibles",
         "description": "Tu usuario no tiene permisos para ver o modificar esta sección."
       }
+    },
+    "navigationLabels": {
+      "title": "Nombres de navegación",
+      "description": "Usá el vocabulario de tu equipo en el menú principal. Los cambios se comparten con todo el espacio.",
+      "defaultHint": "Predeterminado: {{label}}",
+      "mobileHint": "En pantallas chicas, los nombres largos se mostrarán recortados.",
+      "reset": "Restaurar predeterminado",
+      "resetAll": "Restaurar todos",
+      "resetAllConfirm": "¿Restaurar todos los nombres de navegación predeterminados?",
+      "tooLong": "Cada nombre puede tener hasta 30 caracteres.",
+      "saved": "Nombres de navegación guardados"
     },
     "automations": {
       "title": "Automatizaciones",
@@ -1240,6 +1258,7 @@
   },
   "common": {
     "save": "Guardar",
+    "saving": "Guardando...",
     "cancel": "Cancelar",
     "close": "Cerrar",
     "loading": "Cargando...",

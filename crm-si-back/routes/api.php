@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MessageHotkeyController;
 use App\Http\Controllers\Api\MessageTranslationController;
 use App\Http\Controllers\Api\NoteController;
+use App\Http\Controllers\Api\NavigationLabelController;
 use App\Http\Controllers\Api\OpportunityController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\PipelineStageController;
@@ -36,6 +37,8 @@ use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\WebhookEndpointController;
+use App\Http\Controllers\Api\WhatsAppGroupController;
+use App\Http\Controllers\Api\WhatsAppGroupInvitationController;
 use App\Http\Controllers\Api\WhatsAppTemplateController;
 use App\Http\Controllers\Api\WooCommerceConfigController;
 use App\Http\Controllers\FacebookDataDeletionController;
@@ -88,7 +91,7 @@ Route::post('login', function (Request $request): JsonResponse {
 
     return response()->json([
         'token' => $token,
-        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at', 'tenant.plan:id,key,name']),
+        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name']),
         'role' => RolePayload::transform($role, $user->tenant),
         'permissions' => $user->getAllPermissions()->pluck('name')->values(),
         'email_verified' => $user->hasVerifiedEmail(),
@@ -178,7 +181,7 @@ Route::post('register', function (Request $request): JsonResponse {
 
     return response()->json([
         'token' => $token,
-        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at', 'tenant.plan:id,key,name']),
+        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name']),
         'role' => RolePayload::transform($role, $tenant->fresh()),
         'permissions' => $user->getAllPermissions()->pluck('name')->values(),
         'email_verified' => false,
@@ -334,11 +337,14 @@ Route::post('reset-password', function (Request $request) {
 Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('broadcasts', [BroadcastCampaignController::class, 'index']);
+    Route::get('broadcasts/{id}/results', [BroadcastCampaignController::class, 'results']);
+    Route::get('broadcasts/{id}/recipients', [BroadcastCampaignController::class, 'recipients']);
+    Route::get('broadcasts/{id}/recipients/{recipientId}', [BroadcastCampaignController::class, 'recipient']);
     Route::post('broadcasts/estimate', [BroadcastCampaignController::class, 'estimate']);
     Route::post('broadcasts', [BroadcastCampaignController::class, 'store']);
 
     Route::get('user', function (Request $request): JsonResponse {
-        $user = $request->user()->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at', 'tenant.plan:id,key,name']);
+        $user = $request->user()->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name']);
         $role = $user->roles()->where('roles.tenant_id', $user->tenant_id)->first();
 
         return response()->json([
@@ -353,6 +359,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
         return response()->json(['message' => 'Sesión cerrada']);
     });
+
+    Route::put('navigation-labels', [NavigationLabelController::class, 'update']);
 
     Route::get('dashboard/metrics', [DashboardController::class, 'metrics']);
     Route::get('dashboard/branches', [DashboardController::class, 'branches']);
@@ -481,6 +489,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('messages', [MessageController::class, 'index']);
     Route::post('messages', [MessageController::class, 'store']);
+    Route::post('messages/{message}/contacts/{index}/save', [MessageController::class, 'saveSharedContact']);
     Route::put('messages/{message}', [MessageController::class, 'update']);
     Route::delete('messages/{message}', [MessageController::class, 'destroy']);
     Route::post('messages/{message}/translation', [MessageTranslationController::class, 'store']);
@@ -497,6 +506,23 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('channels/{id}/users/{userId}', [ChannelController::class, 'removeUser']);
     Route::put('channels/{id}/users', [ChannelController::class, 'syncUsers']);
     Route::patch('channels/{id}/branch', [ChannelController::class, 'assignBranch']);
+    Route::post('channels/{id}/disconnect', [ChannelController::class, 'disconnect']);
+    Route::get('channels/{channel}/groups-eligibility', [WhatsAppGroupController::class, 'eligibility']);
+
+    Route::get('whatsapp-groups', [WhatsAppGroupController::class, 'index']);
+    Route::post('whatsapp-groups', [WhatsAppGroupController::class, 'store']);
+    Route::get('whatsapp-groups/{group}', [WhatsAppGroupController::class, 'show']);
+    Route::patch('whatsapp-groups/{group}', [WhatsAppGroupController::class, 'update']);
+    Route::delete('whatsapp-groups/{group}', [WhatsAppGroupController::class, 'destroy']);
+    Route::post('whatsapp-groups/{group}/sync', [WhatsAppGroupController::class, 'sync']);
+    Route::get('whatsapp-groups/{group}/invite-templates', [WhatsAppGroupInvitationController::class, 'templates']);
+    Route::post('whatsapp-groups/{group}/invitations', [WhatsAppGroupInvitationController::class, 'store']);
+    Route::get('whatsapp-groups/{group}/invite-link', [WhatsAppGroupController::class, 'inviteLink']);
+    Route::post('whatsapp-groups/{group}/invite-link', [WhatsAppGroupController::class, 'resetInviteLink']);
+    Route::get('whatsapp-groups/{group}/join-requests', [WhatsAppGroupController::class, 'joinRequests']);
+    Route::post('whatsapp-groups/{group}/join-requests/approve', [WhatsAppGroupController::class, 'approveJoinRequests']);
+    Route::post('whatsapp-groups/{group}/join-requests/reject', [WhatsAppGroupController::class, 'rejectJoinRequests']);
+    Route::post('whatsapp-groups/{group}/participants/remove', [WhatsAppGroupController::class, 'removeParticipants']);
 
     Route::post('admin/channels/whatsapp-auth', [WhatsAppController::class, 'handleAuth']);
     Route::post('admin/channels/instagram-auth', [InstagramController::class, 'handleAuth']);

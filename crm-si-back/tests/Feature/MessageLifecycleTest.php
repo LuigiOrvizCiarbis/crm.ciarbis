@@ -464,6 +464,52 @@ class MessageLifecycleTest extends TestCase
         $this->assertSame('Hol', $conversation->last_message_content);
     }
 
+    public function test_inbound_reply_marks_previous_outbound_messages_as_read_when_meta_omits_read_status(): void
+    {
+        [$tenant, $channel] = $this->createWhatsAppChannelContext();
+
+        $contact = Contact::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Jane Doe',
+            'phone' => '5492235112208',
+            'source' => 'whatsapp',
+        ]);
+
+        $conversation = Conversation::create([
+            'tenant_id' => $tenant->id,
+            'channel_id' => $channel->id,
+            'contact_id' => $contact->id,
+            'status' => 'open',
+        ]);
+
+        $outbound = Message::create([
+            'tenant_id' => $tenant->id,
+            'conversation_id' => $conversation->id,
+            'sender_type' => SenderType::USER,
+            'sender_id' => $channel->user_id,
+            'content' => 'Hola',
+            'message_type' => MessageType::Text,
+            'direction' => MessageDirection::OUTBOUND,
+            'external_id' => 'wamid.outbound-without-read',
+            'delivered_at' => now()->subSecond(),
+        ]);
+
+        app(WhatsAppMessageService::class)->processIncomingMessage([
+            'value' => [
+                'metadata' => ['phone_number_id' => '123456789'],
+                'messages' => [[
+                    'from' => '5492235112208',
+                    'id' => 'wamid.inbound-reply',
+                    'timestamp' => (string) now()->timestamp,
+                    'type' => 'text',
+                    'text' => ['body' => 'Respuesta'],
+                ]],
+            ],
+        ]);
+
+        $this->assertNotNull($outbound->fresh()->read_at);
+    }
+
     /**
      * @return array{0: User, 1: Conversation, 2: Message, 3: Message}
      */

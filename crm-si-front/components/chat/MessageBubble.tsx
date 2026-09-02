@@ -1,6 +1,6 @@
 "use client"
 
-import { Message, TranslationLanguage } from "@/data/types"
+import { Message, TranslationLanguage, SharedContact } from "@/data/types"
 import { MessageStatus } from "./MessageStatus"
 import { MoreHorizontal, Pencil, Trash2, Bot, Languages, EyeOff } from "lucide-react"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -49,9 +49,12 @@ interface MessageBubbleProps {
   onTranslate: (message: Message) => void
   onEdit?: (message: Message) => void
   onDelete?: (message: Message) => void
+  onSaveContact?: (message: Message, index: number) => void
   canEdit: boolean
   canDelete: boolean
   canTranslate: boolean
+  /** Muestra el nombre de quien escribió sobre las burbujas inbound de un grupo. */
+  isGroupConversation?: boolean
 }
 
 export function MessageBubble({
@@ -68,6 +71,8 @@ export function MessageBubble({
   canEdit,
   canDelete,
   canTranslate,
+  isGroupConversation = false,
+  onSaveContact,
 }: MessageBubbleProps) {
   const { t } = useTranslation()
 
@@ -83,8 +88,9 @@ export function MessageBubble({
   const isImage = msg.message_type === "image" && mediaUrl
   const isSticker = msg.message_type === "sticker" && mediaUrl
   const isAudio = msg.message_type === "audio" && mediaUrl
+  const isContacts = msg.message_type === "contacts" && Array.isArray(msg.contacts)
 
-  const parsed = !isImage && !isSticker && !isAudio && !isDeleted
+  const parsed = !isImage && !isSticker && !isAudio && !isContacts && !isDeleted
     ? parseTemplateContent(msg.content || "")
     : { isTemplate: false, title: "", body: "" }
 
@@ -238,6 +244,18 @@ export function MessageBubble({
     </div>
   ) : isAudio && mediaUrl ? (
     <MessageBubbleAudio mediaUrl={mediaUrl} filename={msg.media_filename} />
+  ) : isContacts ? (
+    <div className="space-y-2">
+      {(msg.contacts as SharedContact[]).map((contact, index) => (
+        <div key={`${contact.name.formatted_name}-${index}`} className="min-w-56 rounded-lg border border-current/15 bg-background/40 p-2.5">
+          <p className="text-sm font-semibold">{contact.name.formatted_name}</p>
+          {contact.phones?.map((phone, phoneIndex) => phone.phone && <p key={`p-${phoneIndex}`} className="text-xs opacity-80">📞 {phone.phone}</p>)}
+          {contact.emails?.map((email, emailIndex) => email.email && <p key={`e-${emailIndex}`} className="truncate text-xs opacity-80">✉️ {email.email}</p>)}
+          {contact.org?.company && <p className="text-xs opacity-70">{contact.org.company}{contact.org.title ? ` · ${contact.org.title}` : ""}</p>}
+          {msg.direction === "inbound" && onSaveContact && <button type="button" className="mt-2 text-xs font-medium underline underline-offset-2" onClick={() => onSaveContact(msg, index)}>Guardar en contactos</button>}
+        </div>
+      ))}
+    </div>
   ) : parsed.isTemplate ? (
     <div className="space-y-1">
       <span className="text-xs font-medium opacity-75">{parsed.title}</span>
@@ -261,6 +279,8 @@ export function MessageBubble({
   // Los mensajes fallidos siempre conservan su estado visible, aunque otro
   // mensaje del mismo emisor los siga dentro de la ventana de agrupación.
   const showStatusRow = isLastOfGroup || (msg.direction === "outbound" && !!msg.failed_at)
+  const latestReaction = msg.interactions?.filter((item) => item.type === "reaction" || item.type === "reaction_removed").at(-1)
+  const currentReaction = latestReaction?.type === "reaction" ? latestReaction.value : null
 
   return (
     <div
@@ -271,7 +291,7 @@ export function MessageBubble({
       {isUser && actionsMenu}
 
       <div
-        className={`relative max-w-[80%] overflow-hidden break-words px-3 py-2 sm:max-w-[75%] ${corner} ${surface} ${
+        className={`relative max-w-[80%] overflow-visible break-words px-3 py-2 sm:max-w-[75%] ${corner} ${surface} ${
           hasActions ? "[-webkit-touch-callout:none]" : ""
         }`}
         {...(hasActions ? longPress : {})}
@@ -283,7 +303,19 @@ export function MessageBubble({
           </div>
         )}
 
+        {isGroupConversation && !isOwn && isFirstOfGroup && msg.sender?.name && (
+          <div className="mb-0.5 text-[11px] font-semibold text-primary">
+            {msg.sender.name}
+          </div>
+        )}
+
         {body}
+
+        {currentReaction && (
+          <span className="absolute -bottom-3 right-2 rounded-full border bg-background px-1.5 text-sm shadow-sm" aria-label={`Reacción ${currentReaction}`}>
+            {currentReaction}
+          </span>
+        )}
 
         {translationState?.visible && isCurrentTranslation && (
           <div className="mt-2 border-t border-current/15 pt-2" aria-live="polite">
@@ -325,12 +357,12 @@ export function MessageBubble({
         {showStatusRow && (timestamp || msg.failed_at) && (
           <div
             className={`mt-0.5 flex items-center justify-end gap-1 text-[11px] ${
-              isUser ? "opacity-70" : "text-muted-foreground"
+              isUser ? "" : "text-muted-foreground"
             }`}
           >
             {isEdited && <span className="opacity-80">{t("chats.edited")}</span>}
             {timestamp && (
-              <span className="tabular-nums">
+              <span className={`tabular-nums ${isUser ? "text-primary-foreground/70" : ""}`}>
                 {new Date(timestamp).toLocaleTimeString([], {
                   hour: "2-digit",
                   minute: "2-digit",

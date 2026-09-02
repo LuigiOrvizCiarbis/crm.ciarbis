@@ -31,6 +31,24 @@ class WhatsAppConfig extends Model
     /** Ventana que da Meta para completar el sync antes de exigir re-onboarding. */
     public const SYNC_WINDOW_HOURS = 24;
 
+    /**
+     * Estados de elegibilidad para la Groups API. Dos motivos de rechazo
+     * independientes (no_oba y on_biz_app): el mensaje al usuario cambia
+     * según cuál falle, así que se guardan por separado.
+     */
+    public const GROUPS_ELIGIBLE = 'eligible';
+
+    public const GROUPS_NOT_OBA = 'not_oba';
+
+    public const GROUPS_ON_BIZ_APP = 'on_biz_app';
+
+    public const GROUPS_TOKEN_INVALID = 'token_invalid';
+
+    public const GROUPS_UNKNOWN = 'unknown';
+
+    /** TTL de la lectura de elegibilidad antes de volver a consultar Meta. */
+    public const GROUPS_ELIGIBILITY_TTL_HOURS = 6;
+
     protected $table = 'whatsapp_configs';
 
     protected $fillable = [
@@ -62,6 +80,11 @@ class WhatsAppConfig extends Model
         'contact_sync_error_code',
         'meta_app_usage_pct',
         'meta_app_usage_at',
+        'groups_eligibility_status',
+        'groups_is_oba',
+        'groups_platform_type',
+        'groups_eligibility_checked_at',
+        'groups_eligibility_error',
     ];
 
     protected $casts = [
@@ -75,6 +98,8 @@ class WhatsAppConfig extends Model
         'contact_history_sync_messages_count' => 'integer',
         'meta_app_usage_pct' => 'integer',
         'meta_app_usage_at' => 'datetime',
+        'groups_is_oba' => 'boolean',
+        'groups_eligibility_checked_at' => 'datetime',
     ];
 
     /**

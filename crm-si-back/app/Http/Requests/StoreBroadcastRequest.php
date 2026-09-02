@@ -40,6 +40,11 @@ class StoreBroadcastRequest extends FormRequest
                 'integer',
                 Rule::exists('tags', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId)),
             ],
+            'filters.excluded_tag_ids' => ['nullable', 'array'],
+            'filters.excluded_tag_ids.*' => [
+                'integer',
+                Rule::exists('tags', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId)),
+            ],
             'filters.custom_filters' => ['nullable', 'array', 'max:10'],
             'filters.custom_filters.*.field' => ['required', 'string', 'max:100', 'regex:/^[a-zA-Z0-9_]+$/'],
             'filters.custom_filters.*.operator' => ['required', Rule::in(['equals', 'not_equals', 'contains'])],
@@ -47,6 +52,12 @@ class StoreBroadcastRequest extends FormRequest
             'launch' => ['required', Rule::in(['now', 'scheduled'])],
             'scheduled_at' => ['nullable', 'required_if:launch,scheduled', 'date', 'after:now'],
             'interval_seconds' => ['required', 'integer', Rule::in([0, 15, 30, 60, 120])],
+            // Confirmaciones explícitas para envíos de riesgo o escala; ver
+            // BroadcastCampaignController::store().
+            'include_without_consent' => ['nullable', 'boolean'],
+            'acknowledge_consent_risk' => ['nullable', 'boolean'],
+            'acknowledge_audience_size' => ['nullable', 'boolean'],
+            'acknowledge_messaging_limit' => ['nullable', 'boolean'],
         ];
     }
 }

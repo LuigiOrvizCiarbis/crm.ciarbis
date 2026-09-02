@@ -17,7 +17,9 @@ class DispatchDueBroadcasts extends Command
     {
         BroadcastCampaign::withoutGlobalScopes()
             ->where('status', BroadcastStatus::Scheduled)
-            ->where('scheduled_at', '<=', now())
+            // scheduled_at es timestamptz: comparar en UTC. now() da hora local
+            // y, sin ->utc(), el disparo se retrasa 3 horas. Ver HasTimezoneAwareDates.
+            ->where('scheduled_at', '<=', now()->utc())
             ->orderBy('scheduled_at')
             ->chunkById(50, function ($campaigns) use ($dispatcher): void {
                 foreach ($campaigns as $campaign) {

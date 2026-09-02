@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\ChannelType;
 use App\Events\MessageStatusUpdated;
+use App\Events\BroadcastResultsUpdated;
 use App\Exceptions\ChannelAlreadyConnectedException;
 use App\Http\Requests\ChannelStoreRequest;
 use App\Jobs\VerifyContactSyncJob;
@@ -57,7 +58,9 @@ class WhatsAppController extends Controller
     private array $isOnBusinessAppCache = [];
 
     public function __construct(
-        private WhatsAppMessageService $messageService
+        private WhatsAppMessageService $messageService,
+        private \App\Services\WhatsAppGroupWebhookService $groupWebhookService,
+        private \App\Services\WhatsAppGroupEligibilityService $groupEligibilityService,
     ) {}
 
     /**
@@ -335,6 +338,16 @@ class WhatsAppController extends Controller
                 }
             }
 
+            // Fail-safe: la elegibilidad de grupos no debe bloquear ni fallar el
+            // onboarding. Se resuelve acá para que ya esté cacheada (6h) cuando
+            // el usuario abra Chats, en vez de esperar la primera consulta a
+            // pedido desde el front.
+            try {
+                $this->groupEligibilityService->statusFor($config, force: true);
+            } catch (\Throwable $e) {
+                Log::warning('handleAuth: no se pudo resolver la elegibilidad de grupos', $this->describeException($e));
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Cuenta conectada exitosamente',
@@ -515,7 +528,7 @@ class WhatsAppController extends Controller
 
         // Paso 6: resolver el Channel del tenant para esa config.
         if ($existingChannel) {
-            $existingChannel->fill(['status' => 'active'])->save();
+            $existingChannel->activate();
 
             return $existingChannel;
         }
@@ -539,7 +552,7 @@ class WhatsAppController extends Controller
      */
     private function fetchFirstPhoneNumber(string $wabaId, string $token): ?array
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($token)
@@ -582,7 +595,7 @@ class WhatsAppController extends Controller
             return false;
         }
 
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         // Flujo coexistencia (WhatsApp Business App / SMB): Meta registra el número
         // solo durante el Embedded Signup. La doc dice explícitamente "skip the phone
@@ -701,7 +714,7 @@ class WhatsAppController extends Controller
             return $this->isOnBusinessAppCache[$phoneNumberId];
         }
 
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($token)
@@ -867,7 +880,7 @@ class WhatsAppController extends Controller
             return false;
         }
 
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($token)
@@ -1102,7 +1115,7 @@ class WhatsAppController extends Controller
             return;
         }
 
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($token)
@@ -1204,6 +1217,18 @@ class WhatsAppController extends Controller
 
                     } elseif ($field === 'history') {
                         $this->handleHistorySync($entry['id'] ?? null, $value);
+
+                    } elseif ($field === 'group_lifecycle_update') {
+                        $this->groupWebhookService->handleLifecycleUpdate($value);
+
+                    } elseif ($field === 'group_participants_update') {
+                        $this->groupWebhookService->handleParticipantsUpdate($value);
+
+                    } elseif ($field === 'group_settings_update') {
+                        $this->groupWebhookService->handleSettingsUpdate($value);
+
+                    } elseif ($field === 'group_status_update') {
+                        $this->groupWebhookService->handleStatusUpdate($value);
                     }
                 }
             }
@@ -1287,6 +1312,13 @@ class WhatsAppController extends Controller
                     if (! $message->isFailed()) {
                         $error = $this->describeStatusError($status['errors'] ?? []);
                         $message->markAsFailed($error);
+                        if ($recipient = $message->broadcastRecipient()->first()) {
+                            $errors = $status['errors'] ?? [];
+                            $recipient->update([
+                                'failure_code' => isset($errors[0]['code']) ? (string) $errors[0]['code'] : null,
+                                'failure_details' => is_array($errors) ? $errors : null,
+                            ]);
+                        }
                         $changed = true;
 
                         Log::warning('WhatsApp message failed', [
@@ -1306,6 +1338,9 @@ class WhatsAppController extends Controller
             // duplicados y no queremos spamear el canal ni re-renderizar el front.
             if ($changed && $message->conversation_id) {
                 broadcast(new MessageStatusUpdated($message));
+                if ($recipient = $message->broadcastRecipient()->first()) {
+                    broadcast(new BroadcastResultsUpdated($recipient->broadcast_campaign_id, $recipient->id));
+                }
             }
         }
     }

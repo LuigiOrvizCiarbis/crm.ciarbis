@@ -128,7 +128,7 @@ class WhatsAppContactSyncService
             return false;
         }
 
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($token)
@@ -324,7 +324,7 @@ class WhatsAppContactSyncService
         try {
             $response = Http::withToken($token)
                 ->timeout(15)
-                ->post('https://graph.facebook.com/'.config('services.facebook.graph_version', 'v21.0')."/{$phoneNumberId}/smb_app_data", [
+                ->post('https://graph.facebook.com/'.config('services.facebook.graph_version', 'v26.0')."/{$phoneNumberId}/smb_app_data", [
                     'messaging_product' => 'whatsapp',
                     'sync_type' => 'history',
                 ]);

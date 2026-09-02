@@ -25,14 +25,14 @@ export function resolveMessageStatus(message: Message): StatusKind {
 
 interface MessageStatusProps {
   message: Message
-  /** Sobre burbuja de acento el icono hereda el color del texto. */
+  /** Indica que el estado se muestra sobre la burbuja primaria. */
   onAccent?: boolean
 }
 
 /**
- * Indicador de entrega para mensajes salientes. Los equivalentes de icono siguen
- * la referencia de Meta: un check (sent), doble check (delivered), doble check
- * resaltado (read), micrófono (played) y alerta (failed).
+ * Indicador de entrega para mensajes salientes con la convención de WhatsApp:
+ * un check (sent), doble check neutro (delivered), doble check celeste (read),
+ * micrófono (played) y alerta (failed).
  */
 export function MessageStatus({ message, onAccent = false }: MessageStatusProps) {
   const { t } = useTranslation()
@@ -75,17 +75,23 @@ export function MessageStatus({ message, onAccent = false }: MessageStatusProps)
     )
   }
 
-  const Icon = status === "pending" ? Clock : status === "played" ? Mic : status === "sent" ? Check : CheckCheck
+  const Icon = status === "pending"
+    ? Clock
+    : status === "played"
+      ? Mic
+      : status === "sent"
+        ? Check
+        : CheckCheck
 
-  // El acento marca lectura. Sobre burbuja de acento no hay contraste posible,
-  // así que ahí se usa opacidad plena contra el resto atenuado.
+  // Leído/reproducido usan el rol semántico Logrado. Sobre la burbuja primaria
+  // cada estado tiene un token propio con contraste no-textual WCAG AA (>= 3:1).
   const isAcknowledged = status === "read" || status === "played"
   const tone = onAccent
     ? isAcknowledged
-      ? "opacity-100"
-      : "opacity-60"
+      ? "text-message-read-on-primary"
+      : "text-message-status-on-primary"
     : isAcknowledged
-      ? "text-primary"
+      ? "text-success"
       : "text-muted-foreground"
 
   return (

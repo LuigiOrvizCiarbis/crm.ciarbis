@@ -58,23 +58,27 @@ class BroadcastDispatcher
             $recipients = $locked->recipients()
                 ->where('status', BroadcastRecipientStatus::Pending)
                 ->orderBy('id')
-                ->get(['id', 'conversation_id']);
+                ->get(['id', 'conversation_id', 'contact_id']);
 
             $locked->update([
                 'status' => BroadcastStatus::Processing,
                 'started_at' => now(),
             ]);
 
+            // Bulk update vía query builder: no pasa por el modelo, así que
+            // getDateFormat() (HasTimezoneAwareDates) no aplica y now() se
+            // guarda sin offset. ->utc() explícito es obligatorio acá.
             $locked->recipients()
                 ->whereKey($recipients->modelKeys())
                 ->update([
                     'status' => BroadcastRecipientStatus::Queued,
-                    'queued_at' => now(),
+                    'queued_at' => now()->utc(),
                 ]);
 
             return $recipients->map(fn ($recipient): array => [
                 'id' => $recipient->id,
                 'conversation_id' => $recipient->conversation_id,
+                'contact_id' => $recipient->contact_id,
             ])->all();
         });
 
@@ -86,6 +90,11 @@ class BroadcastDispatcher
                 $campaign->created_by,
                 $campaign->tenant_id,
                 $recipient['id'],
+                // null cuando el recipient ya trae conversation_id (camino
+                // viejo, sigue funcionando igual). Cuando es null, el job
+                // resuelve/crea la conversación con estos dos.
+                $recipient['contact_id'],
+                $campaign->channel_id,
             );
 
             if ($campaign->interval_seconds > 0) {

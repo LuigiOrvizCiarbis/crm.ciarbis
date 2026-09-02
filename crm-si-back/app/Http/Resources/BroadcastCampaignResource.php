@@ -35,6 +35,7 @@ class BroadcastCampaignResource extends JsonResource
             'started_at' => $this->started_at?->toIso8601String(),
             'completed_at' => $this->completed_at?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
+            'results_tracking_version' => $this->results_tracking_version,
         ];
     }
 }

@@ -42,16 +42,26 @@ class MailController extends Controller
 
         try {
             // Una casilla = un canal dentro del tenant. Sin esto, dos conexiones
-            // de la misma casilla competirían por el mismo cursor UID.
-            $alreadyConnected = MailConfig::where('tenant_id', $user->tenant_id)
+            // de la misma casilla competirían por el mismo cursor UID. Se
+            // rechaza solo si hay un canal ACTIVO sobre la config: si el canal
+            // fue desconectado, la MailConfig sigue viva (conserva el cursor
+            // IMAP) pero no debe bloquear la reconexión.
+            $existingConfig = MailConfig::where('tenant_id', $user->tenant_id)
                 ->where('email_address', $emailAddress)
-                ->exists();
+                ->first();
 
-            if ($alreadyConnected) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Esta casilla ya está conectada como canal.',
-                ], 409);
+            if ($existingConfig) {
+                $hasActiveChannel = Channel::withoutGlobalScopes()
+                    ->where('mail_config_id', $existingConfig->id)
+                    ->where('status', 'active')
+                    ->exists();
+
+                if ($hasActiveChannel) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Esta casilla ya está conectada como canal.',
+                    ], 409);
+                }
             }
 
             // Config en memoria (sin persistir) sólo para probar la conexión.
@@ -70,18 +80,37 @@ class MailController extends Controller
             $this->messageService->assertSmtpCredentials($probe, $request->password);
 
             $channel = DB::transaction(function () use ($request, $user, $emailAddress) {
-                $config = MailConfig::create([
-                    'tenant_id' => $user->tenant_id,
-                    'email_address' => $emailAddress,
-                    'from_name' => $request->input('from_name') ?: null,
-                    'imap_host' => $request->imap_host,
-                    'imap_port' => $request->imap_port,
-                    'imap_encryption' => $request->imap_encryption,
-                    'smtp_host' => $request->smtp_host,
-                    'smtp_port' => $request->smtp_port,
-                    'smtp_encryption' => $request->smtp_encryption,
-                    'password' => Crypt::encryptString($request->password),
-                ]);
+                // updateOrCreate por clave natural: si ya existía la config (canal
+                // previamente desconectado), refresca sus credenciales sin perder
+                // last_uid/uidvalidity, que no están en el array de update.
+                $config = MailConfig::updateOrCreate(
+                    ['tenant_id' => $user->tenant_id, 'email_address' => $emailAddress],
+                    [
+                        'from_name' => $request->input('from_name') ?: null,
+                        'imap_host' => $request->imap_host,
+                        'imap_port' => $request->imap_port,
+                        'imap_encryption' => $request->imap_encryption,
+                        'smtp_host' => $request->smtp_host,
+                        'smtp_port' => $request->smtp_port,
+                        'smtp_encryption' => $request->smtp_encryption,
+                        'password' => Crypt::encryptString($request->password),
+                        'last_error' => null,
+                    ]
+                );
+
+                // withoutGlobalScopes(): HasBranch podría ocultar un canal de otra
+                // sucursal y llevarnos a crear un duplicado que después colisiona.
+                $existing = Channel::withoutGlobalScopes()
+                    ->where('tenant_id', $user->tenant_id)
+                    ->where('type', ChannelType::MAIL)
+                    ->where('mail_config_id', $config->id)
+                    ->first();
+
+                if ($existing) {
+                    $existing->activate();
+
+                    return $existing;
+                }
 
                 return Channel::create([
                     'tenant_id' => $user->tenant_id,

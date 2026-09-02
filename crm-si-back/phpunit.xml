@@ -12,6 +12,16 @@
             <directory>tests/Feature</directory>
         </testsuite>
     </testsuites>
+    <!--
+        Los tests de timestamptz necesitan Postgres real: SQLite no distingue
+        timestamp de timestamptz. Corren en la suite aparte:
+        php artisan test -c phpunit.postgres.xml
+    -->
+    <groups>
+        <exclude>
+            <group>requires-postgres</group>
+        </exclude>
+    </groups>
     <source>
         <include>
             <directory>app</directory>

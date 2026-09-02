@@ -21,6 +21,10 @@
   --accent-foreground: oklch(1 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(1 0 0);
+  /* Estados de mensaje: roles semánticos medidos contra su superficie. */
+  --success: oklch(0.532 0.135 155);
+  --message-status-on-primary: oklch(0.988 0.003 279);
+  --message-read-on-primary: oklch(0.32 0.1 155);
   --border: oklch(0.922 0.013 106.423);
   --input: oklch(0.976 0.006 106.423);
   --ring: oklch(0.631 0.206 221.275 / 0.5);
@@ -61,6 +65,9 @@
   --accent-foreground: oklch(1 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(1 0 0);
+  --success: oklch(0.69 0.12 155);
+  --message-status-on-primary: oklch(0.965 0.004 279);
+  --message-read-on-primary: oklch(0.32 0.1 155);
   --border: oklch(0.269 0.015 258.338);
   --input: oklch(0.269 0.015 258.338);
   --ring: oklch(0.631 0.206 221.275 / 0.5);
@@ -102,6 +109,9 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-message-status-on-primary: var(--message-status-on-primary);
+  --color-message-read-on-primary: var(--message-read-on-primary);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

@@ -71,11 +71,24 @@ export interface Channel {
 
 }
 
+export interface WhatsAppGroupSummary {
+  id: number
+  subject: string
+  status: "pending" | "active" | "suspended" | "deleted" | "failed"
+  group_id: string | null
+  total_participant_count: number
+  invite_link: string | null
+}
+
 export interface Conversation {
   id: number
   channelId: number
   contact_id?: number
-  contact: {id: string, name: string, phone?: string}
+  // null en conversaciones de grupo (kind === "group"): un grupo no tiene un
+  // contacto único, ver whatsapp-group-panel / conversation-header.
+  contact: {id: string, name: string, phone?: string} | null
+  kind?: "direct" | "group"
+  group?: WhatsAppGroupSummary
   last_message: string
   timestamp: string
   unread: boolean
@@ -159,13 +172,18 @@ export interface Message {
   id: number
   conversation_id: number
   content: string
-  message_type?: "text" | "image" | "sticker" | "document" | "audio" | "video"
+  message_type?: "text" | "image" | "sticker" | "document" | "audio" | "video" | "contacts"
+  contacts?: SharedContact[] | null
   media_url?: string | null
   media_full_url?: string | null
   media_mime_type?: string | null
   media_filename?: string | null
   sender_type: "user" | "contact" | "system"
   sender_id?: number
+  // Autoría dentro de un grupo: quién de los participantes escribió. No
+  // viene de un morphTo (sin morph map registrado en el back), se carga en
+  // batch y se adjunta al serializar.
+  sender?: { id: number; name: string } | null
   direction: "inbound" | "outbound"
   delivered_at?: string | null
   read_at?: string | null
@@ -180,6 +198,17 @@ export interface Message {
   mail_parent_message_id?: number | null
   created_at: string
   updated_at?: string
+  interactions?: Array<{ type: string; value?: string | null; content?: string | null; occurred_at: string }>
+}
+
+export interface SharedContact {
+  name: { formatted_name: string; first_name?: string; last_name?: string; middle_name?: string; suffix?: string; prefix?: string }
+  phones?: Array<{ phone?: string; type?: string; wa_id?: string }>
+  emails?: Array<{ email?: string; type?: string }>
+  org?: { company?: string; department?: string; title?: string }
+  urls?: Array<{ url?: string; type?: string }>
+  addresses?: Array<{ street?: string; city?: string; state?: string; zip?: string; country?: string; country_code?: string; type?: string }>
+  birthday?: string
 }
 
 export interface MailAddress {

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\BroadcastRecipientStatus;
 use App\Enums\BroadcastStatus;
 use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\HasTimezoneAwareDates;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -12,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class BroadcastCampaign extends Model
 {
     use BelongsToTenant;
+    use HasTimezoneAwareDates;
 
     protected $fillable = [
         'tenant_id',
@@ -23,12 +25,17 @@ class BroadcastCampaign extends Model
         'audience_filters',
         'components',
         'audience_count',
+        'duplicate_phone_count',
+        'without_consent_count',
+        'consent_warning_accepted_by',
+        'consent_warning_accepted_at',
         'estimated_cost_usd',
         'actual_cost_usd',
         'interval_seconds',
         'scheduled_at',
         'started_at',
         'completed_at',
+        'results_tracking_version',
     ];
 
     protected function casts(): array
@@ -42,6 +49,8 @@ class BroadcastCampaign extends Model
             'scheduled_at' => 'immutable_datetime',
             'started_at' => 'immutable_datetime',
             'completed_at' => 'immutable_datetime',
+            'consent_warning_accepted_at' => 'immutable_datetime',
+            'results_tracking_version' => 'integer',
         ];
     }
 
@@ -60,9 +69,19 @@ class BroadcastCampaign extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    public function consentWarningAcceptedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'consent_warning_accepted_by');
+    }
+
     public function recipients(): HasMany
     {
         return $this->hasMany(BroadcastRecipient::class);
+    }
+
+    public function resultsEnabled(): bool
+    {
+        return (int) $this->results_tracking_version === 1;
     }
 
     public function refreshDeliveryStatus(): void

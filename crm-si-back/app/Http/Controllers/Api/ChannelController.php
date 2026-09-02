@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Channel;
+use App\Services\Channels\ChannelDisconnector;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -152,6 +153,36 @@ class ChannelController extends Controller
         return response()->json([
             'message' => 'Usuarios sincronizados',
             'users' => $channel->users()->get(['id', 'name', 'email']),
+        ]);
+    }
+
+    /**
+     * Desconexión "blanda": revoca la suscripción de webhooks en Meta
+     * (best-effort) y purga las credenciales, pero conserva conversaciones,
+     * mensajes y difusiones. El canal se puede reconectar por el wizard.
+     */
+    public function disconnect(Request $request, ChannelDisconnector $disconnector, $id)
+    {
+        $channel = Channel::query()
+            ->with(['whatsappConfig', 'instagramConfig', 'facebookConfig', 'mailConfig'])
+            ->findOrFail($id);
+
+        $this->authorize('disconnect', $channel);
+
+        if ($channel->isDisconnected()) {
+            return response()->json([
+                'message' => 'El canal ya estaba desconectado.',
+                'data' => $channel,
+                'warnings' => [],
+            ]);
+        }
+
+        $result = $disconnector->disconnect($channel, $request->user());
+
+        return response()->json([
+            'message' => 'Canal desconectado.',
+            'data' => $channel->refresh(),
+            'warnings' => $result->warnings,
         ]);
     }
 }

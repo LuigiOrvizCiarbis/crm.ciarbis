@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ContactFieldType;
+use App\Enums\MarketingConsentStatus;
 use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\HasBranch;
 use App\Models\Concerns\HasTags;
@@ -38,6 +39,10 @@ class Contact extends Model
         'source',
         'custom_data',
         'lock_version',
+        'marketing_consent_status',
+        'marketing_consent_source',
+        'marketing_consent_at',
+        'marketing_consent_evidence',
     ];
 
     protected $attributes = [
@@ -51,6 +56,8 @@ class Contact extends Model
             'updated_at' => 'datetime',
             'custom_data' => 'array',
             'lock_version' => 'integer',
+            'marketing_consent_status' => MarketingConsentStatus::class,
+            'marketing_consent_at' => 'datetime',
         ];
     }
 
@@ -162,6 +169,35 @@ class Contact extends Model
             $q->whereHas('conversations', fn (Builder $sub) => $sub->visibleTo($user))
                 ->orWhereHas('opportunities', fn (Builder $sub) => $sub->where('assigned_to', $user->id));
         });
+    }
+
+    /**
+     * Visibilidad de audiencia para difusiones.
+     *
+     * A diferencia de scopeVisibleTo, NO exige que el contacto tenga una
+     * conversación del usuario: el criterio correcto para un envío masivo es
+     * "¿puede este usuario difundir en este tenant?" —ya lo responde el
+     * permiso templates.send en StoreBroadcastRequest— y no "¿es este
+     * contacto suyo?". Usar scopeVisibleTo acá reintroduciría el bug que la
+     * difusión por Contact viene a arreglar: un contacto sin conversación es
+     * invisible para ese scope, así que la audiencia colapsaría de nuevo a
+     * "solo los que ya escribieron".
+     *
+     * El estimate/store solo devuelven un conteo, nunca la lista, así que no
+     * se exponen datos que el usuario no pueda ver en el CRM. BranchScope
+     * sigue activo como global scope y acota por sucursal igual que siempre.
+     */
+    public function scopeVisibleForBroadcast(Builder $query, User $user): Builder
+    {
+        if ($user->can('contacts.view_any')) {
+            return $query;
+        }
+
+        if (! $user->can('contacts.view_assigned')) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query;
     }
 
     public function activeConversation()

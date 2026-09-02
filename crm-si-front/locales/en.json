@@ -6,6 +6,7 @@
     "catalog": "Catalog",
     "pipeline": "Sales pipeline",
     "tasks": "Tasks",
+    "broadcasts": "Broadcasts",
     "automation": "Automation & AI",
     "admin": "Administration",
     "settings": "Settings",
@@ -496,6 +497,12 @@
     "renameChannel": "Edit channel name",
     "renameChannelSuccess": "Channel name updated",
     "renameChannelError": "Could not update channel name",
+    "disconnectChannel": "Disconnect channel",
+    "disconnectChannelTitle": "Disconnect this channel?",
+    "disconnectChannelDesc": "This will disconnect {{name}}. Conversations and messages are kept, and you can reconnect it anytime from \"Add Channel\".",
+    "disconnectChannelSuccess": "Channel disconnected",
+    "disconnectChannelError": "Could not disconnect the channel",
+    "disconnectChannelWarning": "The channel was disconnected, but with a warning",
     "markAsRead": "Mark as read",
     "markAsUnread": "Mark as unread",
     "unnamedContact": "Unnamed contact",
@@ -760,6 +767,17 @@
         "title": "No settings available",
         "description": "Your account does not have permission to view or modify this section."
       }
+    },
+    "navigationLabels": {
+      "title": "Navigation names",
+      "description": "Use your team's vocabulary in the main menu. Changes are shared with the whole workspace.",
+      "defaultHint": "Default: {{label}}",
+      "mobileHint": "On smaller screens, longer names will be truncated.",
+      "reset": "Restore default",
+      "resetAll": "Restore all",
+      "resetAllConfirm": "Restore every default navigation name?",
+      "tooLong": "Each name can have up to 30 characters.",
+      "saved": "Navigation names saved"
     },
     "automations": {
       "title": "Automations",
@@ -1240,6 +1258,7 @@
   },
   "common": {
     "save": "Save",
+    "saving": "Saving...",
     "cancel": "Cancel",
     "close": "Close",
     "loading": "Loading...",
