@@ -5,12 +5,14 @@ import { ContactsCompactHeader } from "@/components/contacts-compact-header"
 import { ContactsStats } from "@/components/contacts-stats"
 import { ContactsList } from "@/components/contacts-list"
 import { SidebarLayout } from "@/components/SidebarLayout"
+import type { RangeFilterValue } from "@/components/contacts/RangeFilterMenu"
 
 export default function ContactosPage() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [searchQuery, setSearchQuery] = useState("")
   const [sourceFilter, setSourceFilter] = useState("all")
   const [tagFilterSlugs, setTagFilterSlugs] = useState<string[]>([])
+  const [customRangeFilter, setCustomRangeFilter] = useState<Record<string, RangeFilterValue>>({})
 
   const handleNewContact = (): void => {
     window.dispatchEvent(new CustomEvent("contacts-new-contact"))
@@ -33,6 +35,8 @@ export default function ContactosPage() {
         onSourceFilter={setSourceFilter}
         tagFilterSlugs={tagFilterSlugs}
         onTagFilter={setTagFilterSlugs}
+        customRangeFilter={customRangeFilter}
+        onCustomRangeFilter={setCustomRangeFilter}
         onExportCSV={handleExportCSV}
         onImportCSV={handleImportCSV}
         onNewContact={handleNewContact}
@@ -46,6 +50,7 @@ export default function ContactosPage() {
             onSearchTermChange={setSearchQuery}
             sourceFilter={sourceFilter}
             tagFilterSlugs={tagFilterSlugs}
+            customRangeFilter={customRangeFilter}
           />
         </div>
       </div>

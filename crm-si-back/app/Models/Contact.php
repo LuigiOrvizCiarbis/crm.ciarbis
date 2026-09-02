@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ContactFieldType;
 use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\HasBranch;
 use App\Models\Concerns\HasTags;
@@ -102,6 +103,49 @@ class Contact extends Model
         $stringValue = is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
 
         return $query->whereRaw('custom_data ->> ? = ?', [$key, $stringValue]);
+    }
+
+    /**
+     * Filtra por un campo custom de tipo Date o Number dentro de un rango
+     * inclusivo. `$type` decide el cast: los campos Date se comparan como
+     * texto ISO (ya normalizados en escritura por ContactCustomDataNormalizer,
+     * así el mismo SQL corre igual en el SQLite de los tests y el Postgres de
+     * producción); los Number se castean a numeric porque se guardan como
+     * número real en el JSON y comparar como texto ordenaría "9" > "10".
+     * `$from`/`$to` llegan ya validados por el controller contra el tipo del
+     * campo — acá no se revalida el formato.
+     */
+    public function scopeWhereCustomFieldRange(Builder $query, string $key, ContactFieldType $type, ?string $from, ?string $to): Builder
+    {
+        if ($from === null && $to === null) {
+            return $query;
+        }
+
+        if ($type === ContactFieldType::Number) {
+            // CAST(x AS REAL) es portable entre el SQLite de los tests y el
+            // Postgres de producción (a diferencia de ::numeric, solo Postgres).
+            // Solo Postgres explota con un valor no numérico ("N/A" cargado a
+            // mano); se excluye ANTES del cast (mismo patrón que
+            // ConversationController::L98 para ilike/like según el driver).
+            // SQLite castea silenciosamente a 0 en vez de fallar, y 0 cae
+            // fuera de cualquier rango de vencimiento o contador real, así
+            // que ahí no hace falta excluir nada aparte.
+            if ($query->getConnection()->getDriverName() === 'pgsql') {
+                $query->whereRaw("custom_data ->> ? ~ '^-?[0-9]+(\\.[0-9]+)?$'", [$key]);
+            }
+            $column = 'CAST(custom_data ->> ? AS REAL)';
+        } else {
+            $column = 'custom_data ->> ?';
+        }
+
+        if ($from !== null) {
+            $query->whereRaw("{$column} >= ?", [$key, $from]);
+        }
+        if ($to !== null) {
+            $query->whereRaw("{$column} <= ?", [$key, $to]);
+        }
+
+        return $query;
     }
 
     public function scopeVisibleTo(Builder $query, User $user): Builder

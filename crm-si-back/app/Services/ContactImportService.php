@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Contact;
 use App\Models\ContactField;
+use App\Support\ContactCustomDataNormalizer;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
@@ -283,6 +284,7 @@ class ContactImportService
             'boolean' => in_array(strtolower($raw), ['1', 'true', 'yes', 'si', 'sí'], true),
             'number' => is_numeric($raw) ? $raw + 0 : $raw,
             'currency' => $this->castCurrency($raw),
+            'date' => ContactCustomDataNormalizer::normalizeDate($raw) ?? $raw,
             default => $raw,
         };
     }

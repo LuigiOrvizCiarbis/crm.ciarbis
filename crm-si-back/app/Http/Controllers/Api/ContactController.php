@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\ContactFieldType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ImportContactsRequest;
 use App\Http\Resources\ContactResource;
@@ -10,6 +11,7 @@ use App\Models\ContactField;
 use App\Rules\ValidContactCustomData;
 use App\Services\ContactImportService;
 use App\Support\BranchRuleResolver;
+use App\Support\ContactCustomDataNormalizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -57,6 +59,26 @@ class ContactController extends Controller
                     continue;
                 }
                 $q->whereCustomField($key, $value);
+            }
+        }
+
+        $customRangeFilter = $request->query('custom_range');
+        if (is_array($customRangeFilter) && $customRangeFilter !== []) {
+            $fieldsByKey = ContactField::forCurrentTenant()->keyBy('key');
+            foreach ($customRangeFilter as $key => $range) {
+                if (! is_string($key) || ! is_array($range) || ! $fieldsByKey->has($key)) {
+                    continue;
+                }
+                $field = $fieldsByKey->get($key);
+                if (! in_array($field->type, [ContactFieldType::Date, ContactFieldType::Number], true)) {
+                    continue;
+                }
+                $from = isset($range['from']) && $range['from'] !== '' ? (string) $range['from'] : null;
+                $to = isset($range['to']) && $range['to'] !== '' ? (string) $range['to'] : null;
+                if ($from === null && $to === null) {
+                    continue;
+                }
+                $q->whereCustomFieldRange($key, $field->type, $from, $to);
             }
         }
 
@@ -126,7 +148,9 @@ class ContactController extends Controller
     public function store(Request $request)
     {
         $this->authorize('create', Contact::class);
-        $request->merge(['custom_data' => $request->input('custom_data', [])]);
+        $tenantId = $request->user()->tenant_id;
+        $customData = ContactCustomDataNormalizer::normalize((array) $request->input('custom_data', []), $tenantId);
+        $request->merge(['custom_data' => $customData]);
         $validated = $request->validate($this->contactRules());
 
         $contact = Contact::create([
@@ -161,7 +185,7 @@ class ContactController extends Controller
 
         $providedCustomKeys = [];
         if ($request->has('custom_data')) {
-            $incoming = (array) $request->input('custom_data');
+            $incoming = ContactCustomDataNormalizer::normalize((array) $request->input('custom_data'), $contact->tenant_id);
             $providedCustomKeys = array_keys($incoming);
             $merged = array_merge($contact->custom_data ?? [], $incoming);
             $request->merge(['custom_data' => $merged]);

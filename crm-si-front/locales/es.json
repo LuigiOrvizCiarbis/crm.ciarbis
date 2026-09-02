@@ -147,7 +147,13 @@
       "lead": "Lead",
       "qualified": "Calificado",
       "customer": "Cliente",
-      "inactive": "Inactivo"
+      "inactive": "Inactivo",
+      "range": {
+        "label": "Rango",
+        "menuTitle": "Filtrar por rango",
+        "from": "Desde",
+        "to": "Hasta"
+      }
     },
     "actions": {
       "exportCsv": "Exportar CSV",

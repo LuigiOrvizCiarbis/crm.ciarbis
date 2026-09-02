@@ -10,6 +10,7 @@ use App\Models\ContactField;
 use App\Models\DocumentExtraction;
 use App\Models\MediaAsset;
 use App\Rules\ValidContactCustomData;
+use App\Support\ContactCustomDataNormalizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -183,6 +184,7 @@ class DocumentExtractionController extends Controller
                 ], 409);
             }
 
+            $applied = ContactCustomDataNormalizer::normalize($applied, $locked->tenant_id);
             $merged = array_merge($locked->custom_data ?? [], $applied);
 
             $validator = validator(
