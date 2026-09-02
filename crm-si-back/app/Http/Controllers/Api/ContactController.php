@@ -6,8 +6,10 @@ use App\Enums\ContactFieldType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ImportContactsRequest;
 use App\Http\Resources\ContactResource;
+use App\Models\BillingConfig;
 use App\Models\Contact;
 use App\Models\ContactField;
+use App\Models\User;
 use App\Rules\ValidContactCustomData;
 use App\Services\ContactImportService;
 use App\Support\BranchRuleResolver;
@@ -142,7 +144,65 @@ class ContactController extends Controller
             'qualified' => $qualified,
             'won' => $won,
             'conversion_rate' => $conversionRate,
+            ...$this->billingSummary($user),
         ]);
+    }
+
+    /**
+     * Buckets de cobranzas (al_dia / por_vencer / vencido) para las tarjetas
+     * de /contactos. Si el tenant no tiene billing_configs o está
+     * deshabilitado, no se emite ninguna clave: el front no muestra las
+     * tarjetas en vez de mostrarlas en 0 (que confundiría "no configurado"
+     * con "todo al día").
+     *
+     * "Por vencer" es una ventana fija de 7 días — mismo horizonte que el
+     * ejemplo de filtro de la Fase 1 ("vence esta semana"). El plan no
+     * define ese número para los KPIs; se ancla al único precedente que da.
+     *
+     * @return array<string, int>
+     */
+    private function billingSummary(User $user): array
+    {
+        $config = BillingConfig::where('tenant_id', $user->tenant_id)
+            ->where('enabled', true)
+            ->first();
+
+        if (! $config) {
+            return [];
+        }
+
+        $today = now($config->timezone)->format('Y-m-d');
+        $weekOut = now($config->timezone)->addDays(7)->format('Y-m-d');
+
+        $base = fn () => Contact::query()->visibleTo($user);
+
+        $alDia = $base()
+            ->whereCustomField($config->status_field_key, 'al_dia')
+            ->count();
+
+        $unpaidStatuses = fn ($q) => $q->where(function ($w) use ($config) {
+            $w->whereRaw('custom_data ->> ? = ?', [$config->status_field_key, 'impago'])
+                ->orWhereRaw('custom_data ->> ? = ?', [$config->status_field_key, 'en_prueba']);
+        });
+
+        $porVencer = $base()
+            ->tap($unpaidStatuses)
+            ->whereCustomFieldRange($config->due_date_field_key, ContactFieldType::Date, $today, $weekOut)
+            ->count();
+
+        $vencido = $base()
+            ->tap($unpaidStatuses)
+            ->whereCustomFieldRange($config->due_date_field_key, ContactFieldType::Date, null, $today)
+            // El corte de "por vencer" ya cuenta hoy, así que vencido excluye
+            // hoy para no duplicar el contacto en las dos tarjetas.
+            ->whereRaw('custom_data ->> ? != ?', [$config->due_date_field_key, $today])
+            ->count();
+
+        return [
+            'billing_al_dia' => $alDia,
+            'billing_por_vencer' => $porVencer,
+            'billing_vencido' => $vencido,
+        ];
     }
 
     public function store(Request $request)

@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Enums\ContactFieldType;
 use App\Enums\MarketingConsentStatus;
 use App\Enums\TemplateCategory;
 use App\Models\Contact;
+use App\Models\ContactField;
 use App\Models\User;
 use App\Support\PhoneNumberNormalizer;
 use Illuminate\Database\Eloquent\Builder;
@@ -204,19 +206,48 @@ class BroadcastAudienceService
         }
 
         foreach ($filters['custom_filters'] ?? [] as $filter) {
-            $this->applyContactFilter($query, $filter);
+            $this->applyContactFilter($query, $filter, $user->tenant_id);
         }
 
         return $query->orderBy('id');
     }
 
+    // scopeWhereCustomFieldRange (Fase 1) siempre compara inclusivo (>=/<=):
+    // no hay operador estricto en el resto del sistema para justificar uno
+    // acá. greater_or_equal/less_or_equal cubren "vencimiento a partir de
+    // hoy" / "hasta tal fecha"; between cubre el rango con ambos bordes.
+    private const RANGE_OPERATORS = ['between', 'greater_or_equal', 'less_or_equal'];
+
     /** @param array{field: string, operator: string, value: mixed} $filter */
-    private function applyContactFilter(Builder $query, array $filter): void
+    private function applyContactFilter(Builder $query, array $filter, int $tenantId): void
     {
         $field = $filter['field'];
         $operator = $filter['operator'];
         $value = $filter['value'];
         $standardFields = ['name', 'phone', 'email', 'source'];
+
+        if (in_array($operator, self::RANGE_OPERATORS, true)) {
+            // Los operadores de rango solo tienen sentido sobre un campo custom
+            // tipado como Date o Number (ver scopeWhereCustomFieldRange, Fase
+            // 1 del plan de cobranzas): un campo estándar (name/phone/email/
+            // source) o un campo custom de otro tipo (Select, Text) no aceptan
+            // rango. Si no matchea, el filtro se ignora en vez de romper la
+            // query — mismo criterio defensivo que ContactController::index
+            // con la whitelist de custom_range.
+            if (in_array($field, $standardFields, true)) {
+                return;
+            }
+
+            $contactField = ContactField::forTenant($tenantId)->firstWhere('key', $field);
+            if (! $contactField || ! in_array($contactField->type, [ContactFieldType::Date, ContactFieldType::Number], true)) {
+                return;
+            }
+
+            [$from, $to] = $this->rangeBounds($operator, $value);
+            $query->whereCustomFieldRange($field, $contactField->type, $from, $to);
+
+            return;
+        }
 
         $column = in_array($field, $standardFields, true)
             ? $field
@@ -226,6 +257,36 @@ class BroadcastAudienceService
             'contains' => $query->where($column, 'like', '%'.$value.'%'),
             'not_equals' => $query->where($column, '!=', $value),
             default => $query->where($column, $value),
+        };
+    }
+
+    /**
+     * Traduce el operador de rango + el valor crudo del filtro a los límites
+     * from/to que espera scopeWhereCustomFieldRange. `between` espera
+     * `{from?, to?}`; los demás son un límite simple de un solo lado.
+     *
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function rangeBounds(string $operator, mixed $value): array
+    {
+        if ($operator === 'between') {
+            $bounds = is_array($value) ? $value : [];
+            $from = isset($bounds['from']) && $bounds['from'] !== '' ? (string) $bounds['from'] : null;
+            $to = isset($bounds['to']) && $bounds['to'] !== '' ? (string) $bounds['to'] : null;
+
+            return [$from, $to];
+        }
+
+        if (! is_scalar($value) || $value === '') {
+            return [null, null];
+        }
+
+        $stringValue = (string) $value;
+
+        return match ($operator) {
+            'greater_or_equal' => [$stringValue, null],
+            'less_or_equal' => [null, $stringValue],
+            default => [null, null],
         };
     }
 }

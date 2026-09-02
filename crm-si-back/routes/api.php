@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AiConfigController;
 use App\Http\Controllers\Api\AutomationController;
 use App\Http\Controllers\Api\AutomationRunController;
+use App\Http\Controllers\Api\BillingConfigController;
 use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\BroadcastCampaignController;
 use App\Http\Controllers\Api\ChannelController;
@@ -18,14 +19,14 @@ use App\Http\Controllers\Api\GoogleCalendarConnectionController;
 use App\Http\Controllers\Api\IncomingWebhookController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\MailIntakeController;
+use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MediaAssetController;
 use App\Http\Controllers\Api\MediaAssetDownloadController;
 use App\Http\Controllers\Api\MessageController;
-use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MessageHotkeyController;
 use App\Http\Controllers\Api\MessageTranslationController;
-use App\Http\Controllers\Api\NoteController;
 use App\Http\Controllers\Api\NavigationLabelController;
+use App\Http\Controllers\Api\NoteController;
 use App\Http\Controllers\Api\OpportunityController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\PipelineStageController;
@@ -452,6 +453,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('woocommerce-config', [WooCommerceConfigController::class, 'update']);
     Route::post('woocommerce-config/test', [WooCommerceConfigController::class, 'test']);
     Route::post('woocommerce-config/sync', [WooCommerceConfigController::class, 'sync']);
+
+    // Config del módulo de cobranzas por tenant (qué campo custom es el
+    // vencimiento/estado/contador de mora, ver Fase 3 del plan SI-27).
+    Route::get('billing-config', [BillingConfigController::class, 'show']);
+    Route::put('billing-config', [BillingConfigController::class, 'update']);
 
     // Config de webhooks entrantes por tenant (el endpoint público de recepción
     // está fuera de este grupo, al final del archivo).

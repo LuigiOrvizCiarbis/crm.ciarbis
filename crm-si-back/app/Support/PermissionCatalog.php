@@ -114,6 +114,10 @@ class PermissionCatalog
                 'automations.view',
                 'automations.manage',
             ],
+            'billing' => [
+                'billing.view',
+                'billing.manage',
+            ],
             'templates' => [
                 'templates.view',
                 'templates.sync',
@@ -224,6 +228,7 @@ class PermissionCatalog
             'contacts.update',
             'contacts.view_history',
             'contact_fields.view',
+            'billing.view',
             'document_extraction.use',
             'opportunities.view_assigned',
             'opportunities.view',

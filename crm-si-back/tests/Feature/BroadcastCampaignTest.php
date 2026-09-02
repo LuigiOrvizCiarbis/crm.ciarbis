@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\BroadcastRecipientStatus;
 use App\Enums\BroadcastStatus;
 use App\Enums\ChannelType;
+use App\Enums\ContactFieldType;
 use App\Enums\MarketingConsentStatus;
 use App\Enums\MessageDirection;
 use App\Enums\MessageType;
@@ -18,6 +19,7 @@ use App\Models\BroadcastCampaign;
 use App\Models\BroadcastRecipient;
 use App\Models\Channel;
 use App\Models\Contact;
+use App\Models\ContactField;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageInteraction;
@@ -73,6 +75,163 @@ class BroadcastCampaignTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.audience_count', 1)
             ->assertJsonPath('data.estimated_cost_usd', 0.07);
+    }
+
+    public function test_between_filters_date_field_within_inclusive_range(): void
+    {
+        [$user, $channel, $template] = $this->createSetup();
+        ContactField::create([
+            'tenant_id' => $user->tenant_id,
+            'key' => 'vencimiento',
+            'label' => 'Vencimiento',
+            'type' => ContactFieldType::Date,
+            'display_order' => 0,
+        ]);
+
+        $this->createConversation($user, $channel, null, ['vencimiento' => '2026-09-01']);
+        $this->createConversation($user, $channel, null, ['vencimiento' => '2026-09-07']);
+        $this->createConversation($user, $channel, null, ['vencimiento' => '2026-08-31']);
+        $this->createConversation($user, $channel, null, ['vencimiento' => '2026-09-08']);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/broadcasts/estimate', $this->payload($channel, $template, [
+            'custom_filters' => [[
+                'field' => 'vencimiento',
+                'operator' => 'between',
+                'value' => ['from' => '2026-09-01', 'to' => '2026-09-07'],
+            ]],
+        ]))
+            ->assertOk()
+            ->assertJsonPath('data.audience_count', 2);
+    }
+
+    public function test_between_with_only_from_matches_open_ended_range(): void
+    {
+        [$user, $channel, $template] = $this->createSetup();
+        ContactField::create([
+            'tenant_id' => $user->tenant_id,
+            'key' => 'vencimiento',
+            'label' => 'Vencimiento',
+            'type' => ContactFieldType::Date,
+            'display_order' => 0,
+        ]);
+
+        $this->createConversation($user, $channel, null, ['vencimiento' => '2026-09-10']);
+        $this->createConversation($user, $channel, null, ['vencimiento' => '2026-09-05']);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/broadcasts/estimate', $this->payload($channel, $template, [
+            'custom_filters' => [[
+                'field' => 'vencimiento',
+                'operator' => 'between',
+                'value' => ['from' => '2026-09-09'],
+            ]],
+        ]))
+            ->assertOk()
+            ->assertJsonPath('data.audience_count', 1);
+    }
+
+    public function test_greater_or_equal_and_less_or_equal_on_number_field(): void
+    {
+        [$user, $channel, $template] = $this->createSetup();
+        ContactField::create([
+            'tenant_id' => $user->tenant_id,
+            'key' => 'ciclos_impagos',
+            'label' => 'Ciclos impagos',
+            'type' => ContactFieldType::Number,
+            'display_order' => 0,
+        ]);
+
+        // El caso que un filtro textual rompería: "9" > "10" como string.
+        $this->createConversation($user, $channel, null, ['ciclos_impagos' => 9]);
+        $this->createConversation($user, $channel, null, ['ciclos_impagos' => 10]);
+        $this->createConversation($user, $channel, null, ['ciclos_impagos' => 2]);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/broadcasts/estimate', $this->payload($channel, $template, [
+            'custom_filters' => [[
+                'field' => 'ciclos_impagos',
+                'operator' => 'greater_or_equal',
+                'value' => '5',
+            ]],
+        ]))
+            ->assertOk()
+            ->assertJsonPath('data.audience_count', 2);
+    }
+
+    public function test_range_operator_on_text_field_is_ignored(): void
+    {
+        [$user, $channel, $template] = $this->createSetup();
+        ContactField::create([
+            'tenant_id' => $user->tenant_id,
+            'key' => 'notas',
+            'label' => 'Notas',
+            'type' => ContactFieldType::Text,
+            'display_order' => 0,
+        ]);
+
+        $this->createConversation($user, $channel, null, ['notas' => 'zzz']);
+
+        Sanctum::actingAs($user);
+
+        // Un rango sobre un campo Text no whitelisteado se descarta entero: el
+        // filtro no se aplica (no rompe la query) y el contacto sigue contando.
+        $this->postJson('/api/broadcasts/estimate', $this->payload($channel, $template, [
+            'custom_filters' => [[
+                'field' => 'notas',
+                'operator' => 'between',
+                'value' => ['from' => 'aaa', 'to' => 'mmm'],
+            ]],
+        ]))
+            ->assertOk()
+            ->assertJsonPath('data.audience_count', 1);
+    }
+
+    public function test_malformed_number_value_does_not_break_estimate(): void
+    {
+        [$user, $channel, $template] = $this->createSetup();
+        ContactField::create([
+            'tenant_id' => $user->tenant_id,
+            'key' => 'ciclos_impagos',
+            'label' => 'Ciclos impagos',
+            'type' => ContactFieldType::Number,
+            'display_order' => 0,
+        ]);
+
+        // Cargado a mano fuera de la validación normal (ej. vía psql).
+        $this->createConversation($user, $channel, null, ['ciclos_impagos' => 'N/A']);
+        $this->createConversation($user, $channel, null, ['ciclos_impagos' => 3]);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/broadcasts/estimate', $this->payload($channel, $template, [
+            'custom_filters' => [[
+                'field' => 'ciclos_impagos',
+                'operator' => 'between',
+                'value' => ['from' => '1', 'to' => '5'],
+            ]],
+        ]))
+            ->assertOk()
+            ->assertJsonPath('data.audience_count', 1);
+    }
+
+    public function test_store_rejects_range_filter_without_from_or_to(): void
+    {
+        [$user, $channel, $template] = $this->createSetup();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/broadcasts/estimate', $this->payload($channel, $template, [
+            'custom_filters' => [[
+                'field' => 'vencimiento',
+                'operator' => 'between',
+                'value' => [],
+            ]],
+        ]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['filters.custom_filters.0.value']);
     }
 
     public function test_send_now_persists_recipients_and_queues_one_job_per_contact(): void
