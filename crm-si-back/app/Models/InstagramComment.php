@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class InstagramComment extends Model
 {
+    use BelongsToTenant;
+
     protected $fillable = [
         'tenant_id', 'channel_id', 'contact_id', 'conversation_id', 'assigned_to',
         'external_id', 'parent_external_id', 'author_external_id', 'author_username',
