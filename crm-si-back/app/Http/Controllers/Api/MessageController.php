@@ -372,7 +372,15 @@ class MessageController extends Controller
             }
         }
 
-        $phone = $card['phones'][0]['phone'] ?? null;
+        $rawPhone = $card['phones'][0]['phone'] ?? null;
+        $phone = $rawPhone;
+        // WhatsApp puede enviar el teléfono con prefijo, espacios y guiones
+        // (por ejemplo, "+54 9 2236 18-4933"). Los contactos del CRM se
+        // almacenan en formato internacional compacto para mantenerlos
+        // consistentes con el resto de la agenda.
+        if (is_string($phone)) {
+            $phone = preg_replace('/\D+/', '', $phone) ?: null;
+        }
         $email = $card['emails'][0]['email'] ?? null;
         $attributes = array_filter([
             'name' => $card['name']['formatted_name'] ?? 'Sin nombre',
@@ -381,9 +389,31 @@ class MessageController extends Controller
         ], static fn ($value) => $value !== null && $value !== '');
 
         try {
-            if ($contact) {
+            $updatingSelectedContact = $contact !== null;
+
+            if (! $contact && ($phone || $email)) {
+                $phoneCandidates = array_values(array_unique(array_filter([
+                    is_string($rawPhone) ? $rawPhone : null,
+                    $phone,
+                ])));
+
+                $contact = Contact::query()
+                    ->where('tenant_id', $user->tenant_id)
+                    ->where(function ($query) use ($phoneCandidates, $email) {
+                        if ($phoneCandidates !== []) {
+                            $query->whereIn('phone', $phoneCandidates);
+                        }
+                        if ($email) {
+                            $method = $phoneCandidates === [] ? 'where' : 'orWhere';
+                            $query->{$method}('email', $email);
+                        }
+                    })
+                    ->first();
+            }
+
+            if ($updatingSelectedContact && $contact) {
                 $contact->update($attributes);
-            } else {
+            } elseif (! $contact) {
                 $contact = Contact::create([
                     'tenant_id' => $user->tenant_id,
                     'branch_id' => $message->conversation?->branch_id,
