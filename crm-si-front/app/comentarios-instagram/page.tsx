@@ -48,8 +48,13 @@ export default function InstagramCommentsPage() {
     setLoading(true)
     try {
       const payload = await commentRequest("?per_page=100")
-      setComments(payload.data?.data || [])
-      setSelected((current) => current ? (payload.data?.data || []).find((item: InstagramComment) => item.id === current.id) || null : null)
+      const items: InstagramComment[] = Array.isArray(payload.data)
+        ? payload.data
+        : payload.data?.data || []
+      setComments(items)
+      setSelected((current) => current
+        ? items.find((item) => item.id === current.id) || null
+        : null)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudieron cargar los comentarios")
     } finally { setLoading(false) }
