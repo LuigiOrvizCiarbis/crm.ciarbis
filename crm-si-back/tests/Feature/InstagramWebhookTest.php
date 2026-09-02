@@ -7,13 +7,14 @@ use App\Enums\MessageDirection;
 use App\Enums\UserRole;
 use App\Events\MessageSent;
 use App\Events\TenantMessageReceived;
+use App\Jobs\EvaluateAutomationEventJob;
 use App\Jobs\GenerateAiReplyJob;
 use App\Models\AiConfig;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
-use App\Models\InstagramConfig;
 use App\Models\InstagramComment;
+use App\Models\InstagramConfig;
 use App\Models\Message;
 use App\Models\Tenant;
 use App\Models\User;
@@ -102,6 +103,7 @@ class InstagramWebhookTest extends TestCase
 
     public function test_comment_webhook_creates_comment_with_private_reply_deadline(): void
     {
+        Queue::fake();
         Http::fake();
         [$channel] = $this->createChannel();
         $payload = [
@@ -125,6 +127,10 @@ class InstagramWebhookTest extends TestCase
         $this->assertSame('comment_1', $comment->external_id);
         $this->assertSame('IGSID_COMMENTER', $comment->author_external_id);
         $this->assertTrue($comment->private_reply_deadline->isFuture());
+        Queue::assertPushed(EvaluateAutomationEventJob::class, fn ($job) => $job->tenantId === $channel->tenant_id
+            && $job->event['subject_id'] === $comment->id
+            && $job->event['text'] === '¿Cuál es el precio?'
+        );
     }
 
     public function test_comment_webhook_in_direct_field_format_is_also_parsed(): void

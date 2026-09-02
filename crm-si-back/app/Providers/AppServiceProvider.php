@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Automation\AutomationRegistry;
 use App\Automation\Handlers\DateTriggerHandler;
 use App\Automation\Handlers\EventTriggerHandler;
+use App\Automation\Handlers\InstagramCommentKeywordTriggerHandler;
+use App\Automation\Handlers\InstagramPrivateReplyActionHandler;
 use App\Automation\Handlers\WhatsAppTemplateActionHandler;
 use App\Models\Branch;
 use App\Models\Channel;
@@ -62,9 +64,13 @@ class AppServiceProvider extends ServiceProvider
                 new EventTriggerHandler('conversation.created', 'Conversación creada', 'conversation'),
                 new EventTriggerHandler('conversation.stage_changed', 'Etapa de conversación modificada', 'conversation'),
                 new EventTriggerHandler('conversation.status_changed', 'Estado de conversación modificado', 'conversation'),
+                new InstagramCommentKeywordTriggerHandler,
                 new DateTriggerHandler,
             ],
-            actions: [$app->make(WhatsAppTemplateActionHandler::class)],
+            actions: [
+                $app->make(WhatsAppTemplateActionHandler::class),
+                $app->make(InstagramPrivateReplyActionHandler::class),
+            ],
         ));
     }
 
