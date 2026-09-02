@@ -28,6 +28,7 @@ use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
 use App\Services\BroadcastConversationResolver;
+use App\Services\BroadcastDispatcher;
 use App\Services\WhatsAppMessageService;
 use App\Services\WhatsAppTemplateService;
 use App\Support\PermissionCatalog;
@@ -126,6 +127,53 @@ class BroadcastCampaignTest extends TestCase
 
         Queue::assertPushed(SendBroadcastMessageJob::class, 1);
         $this->assertSame(BroadcastStatus::Processing, $campaign->fresh()->status);
+    }
+
+    public function test_dispatch_due_processes_every_campaign_across_id_chunks(): void
+    {
+        [$user, $channel, $template] = $this->createSetup();
+
+        // La campaña con el ID más bajo vence después que las otras 50. Si la
+        // consulta se ordena por scheduled_at antes de chunkById(), la primera
+        // página termina en el ID más alto y esta campaña queda omitida.
+        $campaigns = collect([
+            BroadcastCampaign::create([
+                'tenant_id' => $user->tenant_id,
+                'channel_id' => $channel->id,
+                'whatsapp_template_id' => $template->id,
+                'created_by' => $user->id,
+                'name' => 'Campaña ID bajo',
+                'status' => BroadcastStatus::Scheduled,
+                'scheduled_at' => now()->subMinute(),
+            ]),
+        ]);
+
+        foreach (range(1, 50) as $index) {
+            $campaigns->push(BroadcastCampaign::create([
+                'tenant_id' => $user->tenant_id,
+                'channel_id' => $channel->id,
+                'whatsapp_template_id' => $template->id,
+                'created_by' => $user->id,
+                'name' => "Campaña temprana {$index}",
+                'status' => BroadcastStatus::Scheduled,
+                'scheduled_at' => now()->subHours(2),
+            ]));
+        }
+
+        $dispatchedIds = [];
+        $this->mock(BroadcastDispatcher::class, function ($mock) use (&$dispatchedIds): void {
+            $mock->shouldReceive('dispatch')
+                ->times(51)
+                ->andReturnUsing(function (BroadcastCampaign $campaign) use (&$dispatchedIds): int {
+                    $dispatchedIds[] = $campaign->id;
+
+                    return 0;
+                });
+        });
+
+        $this->artisan('broadcasts:dispatch-due')->assertSuccessful();
+
+        $this->assertEqualsCanonicalizing($campaigns->pluck('id')->all(), $dispatchedIds);
     }
 
     public function test_paused_template_is_rejected_with_its_reason(): void
