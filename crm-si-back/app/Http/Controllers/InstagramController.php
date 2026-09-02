@@ -279,7 +279,7 @@ class InstagramController extends Controller
         });
 
         $warnings = [];
-        if (! $this->subscribeToWebhooks($page['page_id'], $page['page_access_token'])) {
+        if (! $this->subscribeToWebhooks($page['ig_user_id'], $page['page_access_token'])) {
             $warnings[] = 'No se pudo suscribir a los webhooks de Meta. Los mensajes entrantes pueden no llegar.';
         }
 
@@ -291,16 +291,16 @@ class InstagramController extends Controller
     }
 
     /**
-     * Suscribe la app a los webhooks de mensajes de la página (campo `messages`).
+     * Suscribe la app a los webhooks de la cuenta profesional de Instagram.
      */
-    private function subscribeToWebhooks(string $pageId, string $pageToken): bool
+    private function subscribeToWebhooks(string $igUserId, string $pageToken): bool
     {
         $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($pageToken)
                 ->timeout(15)
-                ->post("https://graph.facebook.com/{$version}/{$pageId}/subscribed_apps", [
+                ->post("https://graph.facebook.com/{$version}/{$igUserId}/subscribed_apps", [
                     'subscribed_fields' => 'messages,comments',
                 ]);
 
