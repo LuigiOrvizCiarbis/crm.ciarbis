@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw } from "lucide-react"
+import type { RangeFilterValue } from "./contacts/RangeFilterMenu"
 import { ImportContactsDialog } from "./import-contacts-dialog"
 import { BulkTagsDialog } from "./contacts/bulk-tags-dialog"
 import { ExtractDocumentDialog } from "./contacts/ExtractDocumentDialog"
@@ -343,6 +344,7 @@ interface ContactsListProps {
   onSearchTermChange?: (value: string) => void
   sourceFilter?: string
   tagFilterSlugs?: string[]
+  customRangeFilter?: Record<string, RangeFilterValue>
 }
 
 export function ContactsList({
@@ -350,6 +352,7 @@ export function ContactsList({
   onSearchTermChange,
   sourceFilter = "all",
   tagFilterSlugs = [],
+  customRangeFilter = {},
 }: ContactsListProps = {}) {
   const { t } = useTranslation()
   const router = useRouter()
@@ -585,13 +588,13 @@ export function ContactsList({
 
   useEffect(() => {
     setPage(1)
-  }, [searchTerm, sourceFilter, tagFilterSlugs, perPage, sortField, sortDirection])
+  }, [searchTerm, sourceFilter, tagFilterSlugs, customRangeFilter, perPage, sortField, sortDirection])
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => fetchContacts(), 300)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [searchTerm, sourceFilter, tagFilterSlugs, page, perPage, sortField, sortDirection])
+  }, [searchTerm, sourceFilter, tagFilterSlugs, customRangeFilter, page, perPage, sortField, sortDirection])
 
   useEffect(() => {
     return () => {
@@ -622,6 +625,10 @@ export function ContactsList({
       if (searchTerm) queryParams.append("search", searchTerm)
       if (sourceFilter !== "all") queryParams.append("source", sourceFilter)
       if (tagFilterSlugs.length > 0) queryParams.append("tags", tagFilterSlugs.join(","))
+      for (const [key, range] of Object.entries(customRangeFilter)) {
+        if (range.from) queryParams.append(`custom_range[${key}][from]`, range.from)
+        if (range.to) queryParams.append(`custom_range[${key}][to]`, range.to)
+      }
       queryParams.append("page", String(page))
       queryParams.append("per_page", String(perPage))
       queryParams.append("sort_by", sortField)

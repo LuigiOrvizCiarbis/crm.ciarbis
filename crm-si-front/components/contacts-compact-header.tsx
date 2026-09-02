@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Download, Plus, Search, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,7 +12,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { TagFilterMenu } from "@/components/tags/TagFilterMenu"
+import { RangeFilterMenu, type RangeFilterValue } from "@/components/contacts/RangeFilterMenu"
 import { useTranslation } from "@/hooks/useTranslation"
+import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 
 interface ContactsCompactHeaderProps {
   searchQuery?: string
@@ -21,6 +23,8 @@ interface ContactsCompactHeaderProps {
   onSourceFilter?: (source: string) => void
   tagFilterSlugs?: string[]
   onTagFilter?: (slugs: string[]) => void
+  customRangeFilter?: Record<string, RangeFilterValue>
+  onCustomRangeFilter?: (value: Record<string, RangeFilterValue>) => void
   onExportCSV?: () => void
   onImportCSV?: () => void
   onNewContact?: () => void
@@ -33,10 +37,18 @@ export function ContactsCompactHeader({
   onSourceFilter,
   tagFilterSlugs = [],
   onTagFilter,
+  customRangeFilter = {},
+  onCustomRangeFilter,
   onExportCSV,
   onImportCSV,
   onNewContact,
 }: ContactsCompactHeaderProps) {
+  const contactFields = useContactFieldsStore((s) => s.fields)
+  const contactFieldsLoaded = useContactFieldsStore((s) => s.loaded)
+  const fetchContactFields = useContactFieldsStore((s) => s.fetch)
+  useEffect(() => {
+    if (!contactFieldsLoaded) fetchContactFields()
+  }, [contactFieldsLoaded, fetchContactFields])
   const { t } = useTranslation()
   const [searchQueryInternal, setSearchQueryInternal] = useState("")
   const isSearchControlled = searchQueryProp !== undefined
@@ -85,6 +97,12 @@ export function ContactsCompactHeader({
           <TagFilterMenu
             selectedSlugs={tagFilterSlugs}
             onChange={(slugs) => onTagFilter?.(slugs)}
+          />
+
+          <RangeFilterMenu
+            fields={contactFields}
+            value={customRangeFilter}
+            onChange={(value) => onCustomRangeFilter?.(value)}
           />
 
           <Button

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AiConfigController;
 use App\Http\Controllers\Api\AutomationController;
 use App\Http\Controllers\Api\AutomationRunController;
+use App\Http\Controllers\Api\BillingConfigController;
 use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\BroadcastCampaignController;
 use App\Http\Controllers\Api\ChannelController;
@@ -484,6 +485,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('woocommerce-config', [WooCommerceConfigController::class, 'update']);
     Route::post('woocommerce-config/test', [WooCommerceConfigController::class, 'test']);
     Route::post('woocommerce-config/sync', [WooCommerceConfigController::class, 'sync']);
+
+    // Config del módulo de cobranzas por tenant (qué campo custom es el
+    // vencimiento/estado/contador de mora, ver Fase 3 del plan SI-27).
+    Route::get('billing-config', [BillingConfigController::class, 'show']);
+    Route::put('billing-config', [BillingConfigController::class, 'update']);
 
     // Config de webhooks entrantes por tenant (el endpoint público de recepción
     // está fuera de este grupo, al final del archivo).

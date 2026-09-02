@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\SyncTaskCalendarEventJob;
 use App\Models\Task;
 use App\Models\TaskCalendarSync;
+use App\Support\TimezoneAliases;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,10 +18,6 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 
 class TaskController extends Controller
 {
-    private const TIMEZONE_ALIASES = [
-        'America/Buenos_Aires' => 'America/Argentina/Buenos_Aires',
-    ];
-
     private const EAGER_LOAD = [
         'assignedUser:id,name,email',
         'contact:id,name,phone,email,source',
@@ -335,9 +332,8 @@ class TaskController extends Controller
             return;
         }
 
-        $timezone = $request->string('meeting_timezone')->toString();
         $request->merge([
-            'meeting_timezone' => self::TIMEZONE_ALIASES[$timezone] ?? $timezone,
+            'meeting_timezone' => TimezoneAliases::canonicalize($request->string('meeting_timezone')->toString()),
         ]);
     }
 
