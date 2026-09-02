@@ -2,14 +2,18 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\ContactFieldType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ImportContactsRequest;
 use App\Http\Resources\ContactResource;
+use App\Models\BillingConfig;
 use App\Models\Contact;
 use App\Models\ContactField;
+use App\Models\User;
 use App\Rules\ValidContactCustomData;
 use App\Services\ContactImportService;
 use App\Support\BranchRuleResolver;
+use App\Support\ContactCustomDataNormalizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -57,6 +61,26 @@ class ContactController extends Controller
                     continue;
                 }
                 $q->whereCustomField($key, $value);
+            }
+        }
+
+        $customRangeFilter = $request->query('custom_range');
+        if (is_array($customRangeFilter) && $customRangeFilter !== []) {
+            $fieldsByKey = ContactField::forCurrentTenant()->keyBy('key');
+            foreach ($customRangeFilter as $key => $range) {
+                if (! is_string($key) || ! is_array($range) || ! $fieldsByKey->has($key)) {
+                    continue;
+                }
+                $field = $fieldsByKey->get($key);
+                if (! in_array($field->type, [ContactFieldType::Date, ContactFieldType::Number], true)) {
+                    continue;
+                }
+                $from = isset($range['from']) && $range['from'] !== '' ? (string) $range['from'] : null;
+                $to = isset($range['to']) && $range['to'] !== '' ? (string) $range['to'] : null;
+                if ($from === null && $to === null) {
+                    continue;
+                }
+                $q->whereCustomFieldRange($key, $field->type, $from, $to);
             }
         }
 
@@ -120,13 +144,73 @@ class ContactController extends Controller
             'qualified' => $qualified,
             'won' => $won,
             'conversion_rate' => $conversionRate,
+            ...$this->billingSummary($user),
         ]);
+    }
+
+    /**
+     * Buckets de cobranzas (al_dia / por_vencer / vencido) para las tarjetas
+     * de /contactos. Si el tenant no tiene billing_configs o está
+     * deshabilitado, no se emite ninguna clave: el front no muestra las
+     * tarjetas en vez de mostrarlas en 0 (que confundiría "no configurado"
+     * con "todo al día").
+     *
+     * "Por vencer" es una ventana fija de 7 días — mismo horizonte que el
+     * ejemplo de filtro de la Fase 1 ("vence esta semana"). El plan no
+     * define ese número para los KPIs; se ancla al único precedente que da.
+     *
+     * @return array<string, int>
+     */
+    private function billingSummary(User $user): array
+    {
+        $config = BillingConfig::where('tenant_id', $user->tenant_id)
+            ->where('enabled', true)
+            ->first();
+
+        if (! $config) {
+            return [];
+        }
+
+        $today = now($config->timezone)->format('Y-m-d');
+        $weekOut = now($config->timezone)->addDays(7)->format('Y-m-d');
+
+        $base = fn () => Contact::query()->visibleTo($user);
+
+        $alDia = $base()
+            ->whereCustomField($config->status_field_key, 'al_dia')
+            ->count();
+
+        $unpaidStatuses = fn ($q) => $q->where(function ($w) use ($config) {
+            $w->whereRaw('custom_data ->> ? = ?', [$config->status_field_key, 'impago'])
+                ->orWhereRaw('custom_data ->> ? = ?', [$config->status_field_key, 'en_prueba']);
+        });
+
+        $porVencer = $base()
+            ->tap($unpaidStatuses)
+            ->whereCustomFieldRange($config->due_date_field_key, ContactFieldType::Date, $today, $weekOut)
+            ->count();
+
+        $vencido = $base()
+            ->tap($unpaidStatuses)
+            ->whereCustomFieldRange($config->due_date_field_key, ContactFieldType::Date, null, $today)
+            // El corte de "por vencer" ya cuenta hoy, así que vencido excluye
+            // hoy para no duplicar el contacto en las dos tarjetas.
+            ->whereRaw('custom_data ->> ? != ?', [$config->due_date_field_key, $today])
+            ->count();
+
+        return [
+            'billing_al_dia' => $alDia,
+            'billing_por_vencer' => $porVencer,
+            'billing_vencido' => $vencido,
+        ];
     }
 
     public function store(Request $request)
     {
         $this->authorize('create', Contact::class);
-        $request->merge(['custom_data' => $request->input('custom_data', [])]);
+        $tenantId = $request->user()->tenant_id;
+        $customData = ContactCustomDataNormalizer::normalize((array) $request->input('custom_data', []), $tenantId);
+        $request->merge(['custom_data' => $customData]);
         $validated = $request->validate($this->contactRules());
 
         $contact = Contact::create([
@@ -161,7 +245,7 @@ class ContactController extends Controller
 
         $providedCustomKeys = [];
         if ($request->has('custom_data')) {
-            $incoming = (array) $request->input('custom_data');
+            $incoming = ContactCustomDataNormalizer::normalize((array) $request->input('custom_data'), $contact->tenant_id);
             $providedCustomKeys = array_keys($incoming);
             $merged = array_merge($contact->custom_data ?? [], $incoming);
             $request->merge(['custom_data' => $merged]);

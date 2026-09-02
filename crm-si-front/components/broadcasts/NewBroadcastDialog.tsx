@@ -162,7 +162,9 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
   const templateReady = selectedTemplate
     && paramValues.every((value, index) => paramSources[index] !== "custom" || value.trim().length > 0)
     && (!mediaFormat || mediaFile !== null || mediaUrl.trim().length > 0)
-  const audienceReady = name.trim().length > 0 && customFilters.every((filter) => filter.value.trim().length > 0)
+  const audienceReady = name.trim().length > 0 && customFilters.every((filter) =>
+    typeof filter.value === "string" ? filter.value.trim().length > 0 : Boolean(filter.value.from || filter.value.to)
+  )
   const launchReady = launch === "now" || Boolean(scheduledAt && new Date(scheduledAt) > new Date())
 
   const goForward = async () => {
@@ -232,6 +234,14 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
   const updateFilter = (index: number, patch: Partial<BroadcastFilter>) => {
     setCustomFilters((current) => current.map((filter, filterIndex) => filterIndex === index ? { ...filter, ...patch } : filter))
     setEstimate(null)
+  }
+
+  // Solo un campo custom de tipo Date o Number acepta operadores de rango —
+  // mismo whitelist que BroadcastAudienceService::applyContactFilter en el
+  // backend. Los campos estándar (name/phone/email/source) nunca los aceptan.
+  const rangeableFieldType = (fieldKey: string): "date" | "number" | null => {
+    const field = fields.find((f) => f.key === fieldKey)
+    return field?.type === "date" || field?.type === "number" ? field.type : null
   }
 
   const toggleIncludeWithoutConsent = (checked: boolean) => {
@@ -373,14 +383,94 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
 
               <div className="space-y-3 rounded-2xl border p-4">
                 <div className="flex items-center justify-between"><div><Label>Campos del contacto</Label><p className="text-xs text-muted-foreground">Filtrá por ciudad, empresa u otro dato guardado.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setCustomFilters((current) => [...current, { field: "name", operator: "contains", value: "" }])}><Plus className="mr-1 h-3.5 w-3.5" />Agregar filtro</Button></div>
-                {customFilters.map((filter, index) => (
-                  <div key={index} className="grid gap-2 md:grid-cols-[1fr_150px_1fr_40px]">
-                    <Select value={filter.field} onValueChange={(value) => updateFilter(index, { field: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="name">Nombre</SelectItem><SelectItem value="phone">Teléfono</SelectItem><SelectItem value="email">Email</SelectItem><SelectItem value="source">Origen</SelectItem>{fields.map((field) => <SelectItem key={field.key} value={field.key}>{field.label}</SelectItem>)}</SelectContent></Select>
-                    <Select value={filter.operator} onValueChange={(value: BroadcastFilter["operator"]) => updateFilter(index, { operator: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="contains">Contiene</SelectItem><SelectItem value="equals">Es igual a</SelectItem><SelectItem value="not_equals">No es igual a</SelectItem></SelectContent></Select>
-                    <Input value={filter.value} onChange={(event) => updateFilter(index, { value: event.target.value })} placeholder="Mar del Plata" />
-                    <Button type="button" size="icon" variant="ghost" onClick={() => { setCustomFilters((current) => current.filter((_, filterIndex) => filterIndex !== index)); setEstimate(null) }} aria-label="Eliminar filtro"><Trash2 className="h-4 w-4" /></Button>
-                  </div>
-                ))}
+                {customFilters.map((filter, index) => {
+                  const fieldType = rangeableFieldType(filter.field)
+                  const isRangeOperator = filter.operator === "between"
+                  const rangeValue = typeof filter.value === "object" ? filter.value : {}
+                  const inputType = fieldType === "date" ? "date" : fieldType === "number" ? "number" : "text"
+
+                  return (
+                    <div key={index} className="grid gap-2 md:grid-cols-[1fr_150px_1fr_40px]">
+                      <Select
+                        value={filter.field}
+                        onValueChange={(value) => {
+                          // Cambiar a un campo que no acepta rango descarta un
+                          // operador de rango que ya no tendría sentido — el
+                          // backend lo ignoraría igual, pero mejor no dejarlo
+                          // seleccionado en la UI.
+                          const nextFieldType = rangeableFieldType(value)
+                          const stillRangeable = nextFieldType !== null
+                          updateFilter(index, {
+                            field: value,
+                            operator: stillRangeable ? filter.operator : "contains",
+                            value: stillRangeable && isRangeOperator ? filter.value : "",
+                          })
+                        }}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="name">Nombre</SelectItem>
+                          <SelectItem value="phone">Teléfono</SelectItem>
+                          <SelectItem value="email">Email</SelectItem>
+                          <SelectItem value="source">Origen</SelectItem>
+                          {fields.map((field) => <SelectItem key={field.key} value={field.key}>{field.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={filter.operator}
+                        onValueChange={(value: BroadcastFilter["operator"]) => {
+                          const becomingRange = value === "between"
+                          const wasRange = isRangeOperator
+                          updateFilter(index, {
+                            operator: value,
+                            // El shape de value cambia entre string y {from,to}:
+                            // al cruzar esa frontera se resetea para no dejar
+                            // basura de la forma anterior.
+                            value: becomingRange === wasRange ? filter.value : becomingRange ? {} : "",
+                          })
+                        }}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="contains">Contiene</SelectItem>
+                          <SelectItem value="equals">Es igual a</SelectItem>
+                          <SelectItem value="not_equals">No es igual a</SelectItem>
+                          {fieldType && (
+                            <>
+                              <SelectItem value="between">Entre</SelectItem>
+                              <SelectItem value="greater_or_equal">Desde</SelectItem>
+                              <SelectItem value="less_or_equal">Hasta</SelectItem>
+                            </>
+                          )}
+                        </SelectContent>
+                      </Select>
+                      {isRangeOperator ? (
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input
+                            type={inputType}
+                            value={rangeValue.from ?? ""}
+                            onChange={(event) => updateFilter(index, { value: { ...rangeValue, from: event.target.value || undefined } })}
+                            placeholder="Desde"
+                          />
+                          <Input
+                            type={inputType}
+                            value={rangeValue.to ?? ""}
+                            onChange={(event) => updateFilter(index, { value: { ...rangeValue, to: event.target.value || undefined } })}
+                            placeholder="Hasta"
+                          />
+                        </div>
+                      ) : (
+                        <Input
+                          type={inputType}
+                          value={typeof filter.value === "string" ? filter.value : ""}
+                          onChange={(event) => updateFilter(index, { value: event.target.value })}
+                          placeholder="Mar del Plata"
+                        />
+                      )}
+                      <Button type="button" size="icon" variant="ghost" onClick={() => { setCustomFilters((current) => current.filter((_, filterIndex) => filterIndex !== index)); setEstimate(null) }} aria-label="Eliminar filtro"><Trash2 className="h-4 w-4" /></Button>
+                    </div>
+                  )
+                })}
                 {customFilters.length === 0 && <p className="py-3 text-center text-sm text-muted-foreground">Sin filtros de campo: se usará toda la audiencia con consentimiento del CRM.</p>}
               </div>
 

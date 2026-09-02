@@ -40,3 +40,9 @@ Schedule::command('extractions:reclaim')->everyFiveMinutes()->withoutOverlapping
 // El upload del PDF y el encolado son dos requests: si el usuario cierra el
 // diálogo entre medio, el archivo queda en disco sin que nada lo referencie.
 Schedule::command('extractions:purge-orphans')->dailyAt('03:30')->withoutOverlapping();
+
+// Avanza el ciclo de cobranza de los contactos vencidos. El scheduler corre
+// en UTC; el command evalúa internamente si para cada tenant ya corresponde
+// (BillingConfig.timezone + last_rolled_at), así que hourly es solo el
+// intervalo de chequeo, no el momento real del corte.
+Schedule::command('billing:roll-cycle')->hourly()->withoutOverlapping(30);

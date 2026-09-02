@@ -3,10 +3,20 @@ import { throwApiError } from "./api-error"
 
 export type BroadcastStatus = "scheduled" | "processing" | "completed" | "partial" | "failed" | "cancelled"
 
+export type BroadcastFilterOperator = "equals" | "not_equals" | "contains" | "between" | "greater_or_equal" | "less_or_equal"
+
+export interface BroadcastFilterRangeValue {
+  from?: string
+  to?: string
+}
+
 export interface BroadcastFilter {
   field: string
-  operator: "equals" | "not_equals" | "contains"
-  value: string
+  operator: BroadcastFilterOperator
+  // "between" manda {from, to}; greater_or_equal/less_or_equal y el resto de
+  // los operadores mandan un único valor. Ver
+  // BroadcastAudienceService::applyContactFilter en el backend.
+  value: string | BroadcastFilterRangeValue
 }
 
 export interface BroadcastAudienceFilters {

@@ -149,7 +149,13 @@
       "lead": "Lead",
       "qualified": "Qualified",
       "customer": "Customer",
-      "inactive": "Inactive"
+      "inactive": "Inactive",
+      "range": {
+        "label": "Range",
+        "menuTitle": "Filter by range",
+        "from": "From",
+        "to": "To"
+      }
     },
     "actions": {
       "exportCsv": "Export CSV",
