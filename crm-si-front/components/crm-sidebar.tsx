@@ -74,6 +74,12 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
       shortLabel: t("nav.chatsShort"),
     },
     {
+      href: "/comentarios-instagram",
+      emoji: "📸",
+      label: "Comentarios IG",
+      shortLabel: "Comentarios",
+    },
+    {
       href: "/contactos",
       emoji: "👥",
       label: t("nav.contacts"),

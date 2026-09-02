@@ -86,6 +86,7 @@ return [
         // en el dashboard de Meta (App Review). Documentado como
         // 'instagram_manage_messages' al momento de implementar.
         'messaging_permission' => env('INSTAGRAM_MESSAGING_PERMISSION', 'instagram_manage_messages'),
+        'comments_permission' => env('INSTAGRAM_COMMENTS_PERMISSION', 'instagram_manage_comments'),
     ],
 
     'messenger' => [
