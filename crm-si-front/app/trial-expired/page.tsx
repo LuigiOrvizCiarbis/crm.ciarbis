@@ -50,6 +50,11 @@ export default function TrialExpiredPage() {
             <Link href="/pricing" className="w-full">
               <Button className="w-full">{t("trial.expired.viewPlans")}</Button>
             </Link>
+            <Link href="/perfil#security" className="w-full">
+              <Button variant="outline" className="w-full">
+                {t("trial.expired.securitySettings")}
+              </Button>
+            </Link>
             <Button variant="ghost" className="w-full gap-2" onClick={handleLogout}>
               <LogOut className="w-4 h-4" />
               {t("trial.expired.logout")}

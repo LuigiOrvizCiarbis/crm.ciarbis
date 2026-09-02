@@ -16,23 +16,24 @@ use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DocumentExtractionController;
 use App\Http\Controllers\Api\GoogleCalendarConnectionController;
 use App\Http\Controllers\Api\IncomingWebhookController;
+use App\Http\Controllers\Api\InstagramCommentController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\MailIntakeController;
+use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MediaAssetController;
 use App\Http\Controllers\Api\MediaAssetDownloadController;
 use App\Http\Controllers\Api\MessageController;
-use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MessageHotkeyController;
 use App\Http\Controllers\Api\MessageTranslationController;
-use App\Http\Controllers\Api\InstagramCommentController;
-use App\Http\Controllers\Api\NoteController;
 use App\Http\Controllers\Api\NavigationLabelController;
+use App\Http\Controllers\Api\NoteController;
 use App\Http\Controllers\Api\OpportunityController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\PipelineStageController;
 use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProductFieldController;
+use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\TaskController;
@@ -48,6 +49,7 @@ use App\Http\Controllers\InstagramController;
 use App\Http\Controllers\MailController;
 use App\Http\Controllers\MessengerController;
 use App\Http\Controllers\WhatsAppController;
+use App\Http\Resources\UserResource;
 use App\Models\Invitation;
 use App\Models\Scopes\TenantScope;
 use App\Models\Tenant;
@@ -62,6 +64,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password as PasswordRule;
 use Spatie\Permission\PermissionRegistrar;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -88,11 +91,22 @@ Route::post('login', function (Request $request): JsonResponse {
     app(PermissionRegistrar::class)->setPermissionsTeamId($user->tenant_id);
     $role = $user->roles()->where('roles.tenant_id', $user->tenant_id)->first();
 
-    $token = $user->createToken('api-token')->plainTextToken;
+    // El nombre del token queda como identificador legible en la lista de
+    // sesiones del perfil (GET /api/profile/sessions); IP/UA se guardan aparte
+    // porque Sanctum no los trackea de fábrica.
+    $userAgent = (string) $request->userAgent();
+    $newAccessToken = $user->createToken(
+        $userAgent !== '' ? Str::limit($userAgent, 255, '') : 'api-token'
+    );
+    $newAccessToken->accessToken->forceFill([
+        'ip_address' => $request->ip(),
+        'user_agent' => $userAgent,
+    ])->save();
+    $token = $newAccessToken->plainTextToken;
 
     return response()->json([
         'token' => $token,
-        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name']),
+        'user' => new UserResource($user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name'])),
         'role' => RolePayload::transform($role, $user->tenant),
         'permissions' => $user->getAllPermissions()->pluck('name')->values(),
         'email_verified' => $user->hasVerifiedEmail(),
@@ -178,11 +192,19 @@ Route::post('register', function (Request $request): JsonResponse {
     }
 
     $role = $user->roles()->where('roles.tenant_id', $tenant->id)->first();
-    $token = $user->createToken('api-token')->plainTextToken;
+    $userAgent = (string) $request->userAgent();
+    $newAccessToken = $user->createToken(
+        $userAgent !== '' ? Str::limit($userAgent, 255, '') : 'api-token'
+    );
+    $newAccessToken->accessToken->forceFill([
+        'ip_address' => $request->ip(),
+        'user_agent' => $userAgent,
+    ])->save();
+    $token = $newAccessToken->plainTextToken;
 
     return response()->json([
         'token' => $token,
-        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name']),
+        'user' => new UserResource($user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name'])),
         'role' => RolePayload::transform($role, $tenant->fresh()),
         'permissions' => $user->getAllPermissions()->pluck('name')->values(),
         'email_verified' => false,
@@ -349,7 +371,7 @@ Route::middleware('auth:sanctum')->group(function () {
         $role = $user->roles()->where('roles.tenant_id', $user->tenant_id)->first();
 
         return response()->json([
-            'user' => $user,
+            'user' => new UserResource($user),
             'role' => RolePayload::transform($role, $user->tenant),
             'permissions' => $user->getAllPermissions()->pluck('name')->values(),
         ]);
@@ -382,6 +404,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('users/{user}', [UserController::class, 'show']);
     Route::patch('users/{user}/role', [UserController::class, 'assignRole']);
     Route::patch('users/{user}/branch', [UserController::class, 'assignBranch']);
+
+    Route::put('profile', [ProfileController::class, 'update']);
+    Route::put('profile/password', [ProfileController::class, 'updatePassword']);
+    Route::put('profile/preferences', [ProfileController::class, 'updatePreferences']);
+    Route::post('profile/avatar', [ProfileController::class, 'uploadAvatar']);
+    Route::delete('profile/avatar', [ProfileController::class, 'deleteAvatar']);
+    Route::get('profile/sessions', [ProfileController::class, 'sessions']);
+    Route::delete('profile/sessions/{tokenId}', [ProfileController::class, 'revokeSession']);
+    Route::delete('profile/sessions', [ProfileController::class, 'revokeOtherSessions']);
 
     Route::get('roles', [RoleController::class, 'index']);
     Route::post('roles', [RoleController::class, 'store']);

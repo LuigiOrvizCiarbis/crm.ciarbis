@@ -34,6 +34,16 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     protected string $guard_name = 'web';
 
+    /**
+     * Defaults aplicados por el accessor `preferences` sobre lo guardado en
+     * DB, para que el front nunca reciba claves faltantes.
+     */
+    public const DEFAULT_PREFERENCES = [
+        'locale' => 'es',
+        'timezone' => 'America/Argentina/Buenos_Aires',
+        'date_format' => 'dd/MM/yyyy',
+    ];
+
     protected $fillable = [
         'name',
         'email',
@@ -41,6 +51,10 @@ class User extends Authenticatable implements MustVerifyEmail
         'tenant_id',
         'branch_id',
         'email_verified_at',
+        'avatar_path',
+        'phone',
+        'job_title',
+        'preferences',
     ];
 
     protected ?bool $isTenantOwnerCache = null;
@@ -55,7 +69,33 @@ class User extends Authenticatable implements MustVerifyEmail
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'preferences' => 'array',
         ];
+    }
+
+    /**
+     * URL pública del avatar, o null si no tiene. Mismo patrón que
+     * MediaAsset::publicUrl().
+     */
+    public function avatarUrl(): ?string
+    {
+        if ($this->avatar_path === null) {
+            return null;
+        }
+
+        $base = config('app.url');
+
+        return rtrim((string) $base, '/').'/storage/'.$this->avatar_path;
+    }
+
+    /**
+     * Preferencias del usuario con los defaults ya mezclados.
+     *
+     * @return array<string, mixed>
+     */
+    public function preferencesWithDefaults(): array
+    {
+        return array_merge(self::DEFAULT_PREFERENCES, $this->preferences ?? []);
     }
 
     public function sendEmailVerificationNotification(): void

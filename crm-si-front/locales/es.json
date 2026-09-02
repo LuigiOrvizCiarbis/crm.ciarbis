@@ -10,6 +10,7 @@
     "automation": "Automatización & IA",
     "admin": "Administración",
     "settings": "Configuración",
+    "profile": "Mi perfil",
     "logout": "Cerrar sesión",
     "dashboard": "Tablero principal",
     "panelShort": "Panel",
@@ -898,18 +899,6 @@
       }
     },
     "save": "Guardar cambios",
-    "profile": "Perfil",
-    "accountType": "Tipo de cuenta",
-    "individual": "Persona",
-    "company": "Empresa",
-    "fullName": "Nombre y apellido *",
-    "username": "Apodo / nombre de usuario",
-    "companyName": "Nombre de la sociedad *",
-    "taxId": "CUIT",
-    "tradeName": "Nombre de fantasía / comercial",
-    "website": "Sitio web",
-    "profileSaved": "Perfil guardado",
-    "profileSavedDesc": "Los cambios se guardaron correctamente",
     "notifications": "Notificaciones",
     "newMessage": "Nuevo mensaje",
     "taskOverdue": "Tarea vencida",
@@ -927,17 +916,6 @@
     "upgradePlan": "Actualizar plan",
     "availableFrom": "Disponible desde Intermediate",
     "rolesUpsell": "La gestión de roles está disponible desde el plan Intermediate en adelante",
-    "security": "Seguridad",
-    "twoFA": "Autenticación de dos factores (2FA)",
-    "twoFADesc": "Agrega una capa extra de seguridad a tu cuenta",
-    "active": "Activo",
-    "inactive": "Inactivo",
-    "enable2FA": "Activar 2FA",
-    "disable2FA": "Desactivar 2FA",
-    "activeSessions": "Sesiones activas",
-    "lastActivity": "Última actividad:",
-    "currentSession": "Actual",
-    "logoutSession": "Cerrar sesión",
     "integrations": "Integraciones",
     "connected": "Conectado",
     "notConnected": "No conectado",
@@ -1559,7 +1537,8 @@
       "title": "Tu período de prueba finalizó",
       "description": "Actualiza tu plan para seguir usando el CRM sin interrupciones.",
       "viewPlans": "Ver planes",
-      "logout": "Cerrar sesión"
+      "logout": "Cerrar sesión",
+      "securitySettings": "Cambiar contraseña o cerrar sesiones"
     }
   },
   "pricing": {
@@ -1631,6 +1610,81 @@
       "permission_missing": "Falta permiso en Meta",
       "token_invalid": "Reconectá el canal",
       "unknown": "Desconocido"
+    }
+  },
+  "profile": {
+    "page": {
+      "title": "Mi perfil",
+      "description": "Tus datos personales, seguridad y preferencias de la cuenta.",
+      "navigationLabel": "Secciones del perfil",
+      "account": {
+        "title": "Cuenta",
+        "description": "Tu foto, nombre y datos de contacto."
+      },
+      "security": {
+        "title": "Seguridad",
+        "description": "Contraseña y sesiones activas."
+      },
+      "preferences": {
+        "title": "Preferencias",
+        "description": "Idioma, zona horaria y formato de fecha."
+      }
+    },
+    "avatar": {
+      "title": "Foto de perfil",
+      "description": "Se muestra en el menú y en las asignaciones de tareas y conversaciones.",
+      "upload": "Subir foto",
+      "remove": "Quitar",
+      "uploaded": "Foto actualizada",
+      "removed": "Foto eliminada",
+      "invalidType": "La imagen debe ser JPG, PNG o WEBP.",
+      "tooLarge": "La imagen no puede superar los 2 MB."
+    },
+    "details": {
+      "title": "Datos personales",
+      "description": "Tu nombre y datos de contacto.",
+      "name": "Nombre y apellido",
+      "email": "Email",
+      "emailHint": "Para cambiar tu email, andá a",
+      "emailChangeLink": "verificación de email.",
+      "phone": "Teléfono",
+      "jobTitle": "Cargo",
+      "nameRequired": "El nombre es obligatorio.",
+      "saved": "Perfil actualizado"
+    },
+    "password": {
+      "title": "Contraseña",
+      "description": "Cambiá tu contraseña de acceso.",
+      "current": "Contraseña actual",
+      "new": "Nueva contraseña",
+      "confirm": "Confirmar contraseña",
+      "change": "Cambiar contraseña",
+      "mismatch": "Las contraseñas no coinciden.",
+      "saved": "Contraseña actualizada",
+      "savedDesc": "Se cerraron las demás sesiones activas.",
+      "sessionsWarning": "Al cambiar tu contraseña se cerrarán todas las demás sesiones activas."
+    },
+    "sessions": {
+      "title": "Sesiones activas",
+      "description": "Dispositivos donde iniciaste sesión con tu cuenta.",
+      "empty": "No hay sesiones activas.",
+      "current": "Sesión actual",
+      "revoke": "Cerrar sesión",
+      "revoked": "Sesión cerrada",
+      "revokeAll": "Cerrar las demás sesiones",
+      "revokeAllTitle": "¿Cerrar las demás sesiones?",
+      "revokeAllConfirm": "Se cerrará la sesión en todos los demás dispositivos. Esta sesión seguirá activa.",
+      "revokedAll": "Se cerraron las demás sesiones",
+      "lastUsed": "Último uso: {{date}}",
+      "neverUsed": "Sin uso registrado"
+    },
+    "preferences": {
+      "title": "Idioma y formato",
+      "description": "Cómo se muestran el idioma, la hora y las fechas.",
+      "language": "Idioma",
+      "timezone": "Zona horaria",
+      "dateFormat": "Formato de fecha",
+      "saved": "Preferencias guardadas"
     }
   }
 }
