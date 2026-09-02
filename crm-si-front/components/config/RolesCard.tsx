@@ -1,10 +1,10 @@
 "use client"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Shield } from "lucide-react"
 import { RolesList } from "@/components/admin/RolesList"
 import { UsersRoleList } from "@/components/admin/UsersRoleList"
+import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { useTranslation } from "@/hooks/useTranslation"
 import { usePermission } from "@/hooks/usePermission"
 
@@ -15,28 +15,23 @@ export function RolesCard() {
   if (!allowed) return null
 
   return (
-    <Card className="rounded-2xl border-border">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Shield className="w-5 h-5" />
-          {t("roles.title")}
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">{t("roles.subtitle")}</p>
-      </CardHeader>
-      <CardContent>
-        <Tabs defaultValue="roles" className="w-full">
-          <TabsList>
-            <TabsTrigger value="roles">{t("roles.tabs.roles")}</TabsTrigger>
-            <TabsTrigger value="users">{t("roles.tabs.users")}</TabsTrigger>
-          </TabsList>
-          <TabsContent value="roles" className="pt-6">
-            <RolesList />
-          </TabsContent>
-          <TabsContent value="users" className="pt-6">
-            <UsersRoleList />
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
+    <SettingsBlock
+      title={t("roles.title")}
+      description={t("roles.subtitle")}
+      icon={Shield}
+    >
+      <Tabs defaultValue="roles" className="w-full">
+        <TabsList>
+          <TabsTrigger value="roles">{t("roles.tabs.roles")}</TabsTrigger>
+          <TabsTrigger value="users">{t("roles.tabs.users")}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="roles" className="pt-5">
+          <RolesList />
+        </TabsContent>
+        <TabsContent value="users" className="pt-5">
+          <UsersRoleList />
+        </TabsContent>
+      </Tabs>
+    </SettingsBlock>
   )
 }

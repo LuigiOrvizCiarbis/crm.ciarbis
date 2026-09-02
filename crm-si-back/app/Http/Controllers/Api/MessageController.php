@@ -8,13 +8,16 @@ use App\Events\MessageDeleted;
 use App\Events\MessageEdited;
 use App\Exceptions\MetaApiException;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\ContactResource;
 use App\Http\Requests\UpdateMessageRequest;
 use App\Models\Conversation;
+use App\Models\Contact;
 use App\Models\Message;
 use App\Services\InstagramMessageService;
 use App\Services\MailMessageService;
 use App\Services\MessengerMessageService;
 use App\Services\WhatsAppMessageService;
+use App\Services\VoiceTranscoder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -22,11 +25,40 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 
 class MessageController extends Controller
 {
+    /**
+     * Mimes que aceptamos para el campo `audio` del envío general (regla de
+     * validación de `store`). Laravel detecta el mime por CONTENIDO, no por lo
+     * que declara el navegador, así que además de los formatos "de escritorio"
+     * (mp3/ogg) sumamos lo que produce grabar/adjuntar audio desde mobile:
+     * Chrome/Android graba webm/opus, Safari/iOS graba mp4 (que PHP suele
+     * detectar como video/mp4 o audio/x-m4a), y las notas de voz de WhatsApp
+     * reenviadas desde iOS llegan como audio/x-m4a.
+     * `video/*` está acá porque son contenedores sólo-audio que PHP marca
+     * como video; no habilita subir video real, sólo pasa la validación —
+     * `WhatsAppMessageService` sigue tratándolo como audio.
+     */
+    private const ALLOWED_AUDIO_MIMES = [
+        'audio/aac',
+        'audio/mpeg',
+        'audio/mp3',
+        'audio/ogg',
+        'audio/mp4',
+        'audio/amr',
+        'audio/3gpp',
+        'audio/webm',
+        'video/webm',
+        'audio/x-m4a',
+        'audio/wav',
+        'audio/x-wav',
+        'video/mp4',
+    ];
+
     public function __construct(
         private WhatsAppMessageService $messageService,
         private InstagramMessageService $instagramService,
         private MessengerMessageService $messengerService,
         private MailMessageService $mailService,
+        private VoiceTranscoder $voiceTranscoder,
     ) {}
 
     public function index(Request $request, Conversation $conversation): JsonResponse
@@ -34,7 +66,7 @@ class MessageController extends Controller
         $this->authorize('view', $conversation);
 
         $messages = Message::query()
-            ->with(['mailDetails', 'mailAttachments'])
+            ->with(['mailDetails', 'mailAttachments', 'interactions'])
             ->withTrashed()
             ->where('conversation_id', $conversation->id)
             ->whereNull('mail_parent_message_id')
@@ -55,17 +87,22 @@ class MessageController extends Controller
     {
         $data = $request->validate([
             'conversation_id' => 'required|exists:conversations,id',
-            'content' => 'required_unless:type,image,audio,mail|nullable|string',
+            'content' => 'required_unless:type,image,audio,mail,contacts|nullable|string',
             'content_html' => 'nullable|string|max:200000',
-            'type' => 'required|string|in:text,image,audio,mail',
+            'type' => 'required|string|in:text,image,audio,mail,contacts',
+            'contact_ids' => 'required_if:type,contacts|array|min:1|max:10',
+            'contact_ids.*' => 'integer|distinct',
             'image' => 'required_if:type,image|image|max:10240',
-            'audio' => 'required_if:type,audio|file|mimetypes:audio/aac,audio/mpeg,audio/mp3,audio/ogg,audio/mp4,audio/amr,audio/3gpp|max:16384',
+            'audio' => 'required_if:type,audio|file|mimetypes:'.implode(',', self::ALLOWED_AUDIO_MIMES).'|max:16384',
+            'voice' => 'sometimes|boolean',
             'cc' => 'nullable|array|max:20',
             'cc.*' => 'required|email:rfc|max:255',
             'bcc' => 'nullable|array|max:20',
             'bcc.*' => 'required|email:rfc|max:255',
             'attachments' => 'nullable|array|max:10',
             'attachments.*' => 'file|max:10240',
+        ], [
+            'audio.mimetypes' => 'Este formato de audio no es compatible. Probá grabar de nuevo o adjuntar un MP3, OGG o M4A.',
         ]);
 
         $conversation = Conversation::query()
@@ -77,6 +114,18 @@ class MessageController extends Controller
         $this->authorize('sendMessage', $conversation);
 
         $type = $data['type'] ?? 'text';
+        $channelType = $conversation->channel?->type;
+        $voice = $request->boolean('voice');
+        if ($voice && ($type !== 'audio' || $channelType !== ChannelType::WHATSAPP)) {
+            return response()->json(['message' => 'voice sólo está disponible para audios de WhatsApp.'], 422);
+        }
+
+        // Meta no soporta mensajes de voz (grabaciones con transcripción/
+        // waveform) en grupos, solo audio normal.
+        if ($voice && $conversation->isGroup()) {
+            return response()->json(['message' => 'Los mensajes de voz no están disponibles en grupos.'], 422);
+        }
+
         $tenantId = $request->user()->tenant_id;
 
         // El servicio de transporte se elige por el tipo de canal. Las firmas de
@@ -85,10 +134,34 @@ class MessageController extends Controller
         // match exhaustivo con default explícito: un canal sin transporte de
         // envío (Telegram, Web, Manual) debe cortar acá con un 422 claro,
         // no caer silenciosamente a WhatsApp.
-        $channelType = $conversation->channel?->type;
-
         if ($type === 'mail' && $channelType !== ChannelType::MAIL) {
             return response()->json(['message' => 'El formato email sólo está disponible en canales de correo.'], 422);
+        }
+
+        if ($type === 'contacts') {
+            if ($channelType !== ChannelType::WHATSAPP) {
+                return response()->json(['message' => 'Compartir contactos sólo está disponible en canales de WhatsApp.'], 422);
+            }
+            $contacts = Contact::query()
+                ->visibleTo($request->user())
+                ->whereIn('id', $data['contact_ids'] ?? [])
+                ->get();
+            if ($contacts->count() !== count($data['contact_ids'] ?? [])) {
+                return response()->json(['message' => 'Uno o más contactos no están disponibles para compartir.'], 422);
+            }
+            try {
+                $message = $this->messageService->sendContactsMessageFromCRM(
+                    $conversation,
+                    $this->messageService->buildContactCards($contacts),
+                    $request->user(),
+                );
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            } catch (\RuntimeException $e) {
+                Log::warning('Error enviando contactos por WhatsApp', ['conversation_id' => $conversation->id, 'error' => $e->getMessage()]);
+                return response()->json(['message' => 'No se pudieron enviar los contactos por WhatsApp.'], 422);
+            }
+            return response()->json(['data' => $message], 201);
         }
 
         if ($type === 'mail'
@@ -168,15 +241,33 @@ class MessageController extends Controller
                 );
             } elseif ($type === 'audio' && $request->hasFile('audio')) {
                 $file = $request->file('audio');
-                $path = $file->store("messages/{$tenantId}", 'public');
+                $voicePath = null;
+                try {
+                    if ($voice) {
+                        $voicePath = $this->voiceTranscoder->transcode($file->getRealPath());
+                        $path = "messages/{$tenantId}/".uniqid('voice_', true).'.ogg';
+                        Storage::disk('public')->put($path, file_get_contents($voicePath));
+                    } else {
+                        $path = $file->store("messages/{$tenantId}", 'public');
+                    }
 
-                $message = $service->sendAudioMessageFromCRM(
-                    $conversation,
-                    $path,
-                    '/storage/'.$path,
-                    $file->getMimeType() ?: 'audio/mpeg',
-                    $request->user()
-                );
+                    if ($channelType === ChannelType::WHATSAPP) {
+                        $message = $this->messageService->sendAudioMessageFromCRM(
+                            $conversation, $path, '/storage/'.$path,
+                            $voice ? 'audio/ogg' : ($file->getMimeType() ?: 'audio/mpeg'),
+                            $request->user(), $voice
+                        );
+                    } else {
+                        $message = $service->sendAudioMessageFromCRM(
+                            $conversation, $path, '/storage/'.$path,
+                            $file->getMimeType() ?: 'audio/mpeg', $request->user()
+                        );
+                    }
+                } finally {
+                    if ($voicePath !== null && is_file($voicePath)) {
+                        unlink($voicePath);
+                    }
+                }
             } else {
                 $message = $service->sendTextMessageFromCRM(
                     $conversation,
@@ -248,6 +339,99 @@ class MessageController extends Controller
         }
 
         return response()->json(['data' => $message], 201);
+    }
+
+    public function saveSharedContact(Request $request, Message $message, int $index): JsonResponse
+    {
+        $this->authorize('view', $message);
+        $cards = is_array($message->contacts) ? $message->contacts : [];
+        $card = $cards[$index] ?? null;
+        $messageType = $message->message_type instanceof MessageType
+            ? $message->message_type->value
+            : (string) $message->message_type;
+        if ($messageType !== MessageType::Contacts->value || ! is_array($card)) {
+            Log::warning('Tarjeta de contacto de WhatsApp no encontrada', [
+                'message_id' => $message->id,
+                'tenant_id' => $message->tenant_id,
+                'index' => $index,
+                'message_type' => $messageType,
+                'contacts_count' => count($cards),
+            ]);
+            return response()->json(['message' => 'La tarjeta de contacto no existe.'], 404);
+        }
+
+        $validated = $request->validate(['contact_id' => ['nullable', 'integer']]);
+        $user = $request->user();
+        $contact = null;
+        if (! empty($validated['contact_id'])) {
+            $contact = Contact::query()->whereKey($validated['contact_id'])->where('tenant_id', $user->tenant_id)->firstOrFail();
+            $this->authorize('update', $contact);
+        } else {
+            if (! $user->can('contacts.create')) {
+                return response()->json(['message' => 'Tu usuario no tiene permiso para crear contactos. Pedí habilitar contacts.create en el tenant.'], 403);
+            }
+        }
+
+        $rawPhone = $card['phones'][0]['phone'] ?? null;
+        $phone = $rawPhone;
+        // WhatsApp puede enviar el teléfono con prefijo, espacios y guiones
+        // (por ejemplo, "+54 9 2236 18-4933"). Los contactos del CRM se
+        // almacenan en formato internacional compacto para mantenerlos
+        // consistentes con el resto de la agenda.
+        if (is_string($phone)) {
+            $phone = preg_replace('/\D+/', '', $phone) ?: null;
+        }
+        $email = $card['emails'][0]['email'] ?? null;
+        $attributes = array_filter([
+            'name' => $card['name']['formatted_name'] ?? 'Sin nombre',
+            'phone' => $phone,
+            'email' => $email,
+        ], static fn ($value) => $value !== null && $value !== '');
+
+        try {
+            $updatingSelectedContact = $contact !== null;
+
+            if (! $contact && ($phone || $email)) {
+                $phoneCandidates = array_values(array_unique(array_filter([
+                    is_string($rawPhone) ? $rawPhone : null,
+                    $phone,
+                ])));
+
+                $contact = Contact::query()
+                    ->where('tenant_id', $user->tenant_id)
+                    ->where(function ($query) use ($phoneCandidates, $email) {
+                        if ($phoneCandidates !== []) {
+                            $query->whereIn('phone', $phoneCandidates);
+                        }
+                        if ($email) {
+                            $method = $phoneCandidates === [] ? 'where' : 'orWhere';
+                            $query->{$method}('email', $email);
+                        }
+                    })
+                    ->first();
+            }
+
+            if ($updatingSelectedContact && $contact) {
+                $contact->update($attributes);
+            } elseif (! $contact) {
+                $contact = Contact::create([
+                    'tenant_id' => $user->tenant_id,
+                    'branch_id' => $message->conversation?->branch_id,
+                    'source' => 'whatsapp',
+                    ...$attributes,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('No se pudo guardar tarjeta de contacto de WhatsApp', [
+                'tenant_id' => $user->tenant_id,
+                'message_id' => $message->id,
+                'index' => $index,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json(['message' => 'No se pudo guardar el contacto recibido. Verificá los permisos y los datos del contacto.'], 422);
+        }
+
+        return response()->json(['data' => new ContactResource($contact->refresh())]);
     }
 
     public function update(UpdateMessageRequest $request, Message $message): JsonResponse

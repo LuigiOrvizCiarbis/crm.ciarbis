@@ -1,13 +1,13 @@
 import { memo, useMemo } from "react"
 import { Card } from "@/components/ui/card"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { ContactAvatar } from "@/components/contact-avatar"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { LeadScoreBadge } from "@/components/Badges"
 import { PlatformIcon } from "@/components/chat/PlatformIcon"
 import { EmptyState } from "@/components/EmptyState"
 import { SkeletonList } from "@/components/Skeleton"
-import { Loader2, MessageSquare } from "lucide-react"
+import { Loader2, MessageSquare, Users } from "lucide-react"
 import { Conversation, Channel } from "@/data/types"
 import { channelTypeToFilterType } from "@/data/enums"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -35,8 +35,13 @@ const ConversationCard = memo(function ConversationCard({
 }: ConversationCardProps) {
   const { t } = useTranslation()
 
-  const contactName = conversation.contact?.name || t("chats.unnamedContact")
-  const contactPhone = formatPhoneNumber(conversation.contact?.phone)
+  const isGroup = conversation.kind === "group"
+  const contactName = isGroup
+    ? conversation.group?.subject || "Grupo"
+    : conversation.contact?.name || t("chats.unnamedContact")
+  const contactPhone = isGroup
+    ? `${conversation.group?.total_participant_count ?? 0} participantes`
+    : formatPhoneNumber(conversation.contact?.phone)
   const leadScore = conversation.leadScore ?? null
   const unreadCount = conversation.unread_count ?? 0
   const isUnread = unreadCount > 0 || Boolean(conversation.unread) || Boolean(conversation.manual_unread)
@@ -79,13 +84,6 @@ const ConversationCard = memo(function ConversationCard({
     return date.toLocaleDateString([], { day: "2-digit", month: "2-digit" })
   }
 
-  const initials = contactName
-    .split(" ")
-    .map((name) => name[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase()
-
   const handleCardClick = () => {
     if (selectionMode) {
       onToggleSelect?.(conversation.id)
@@ -116,11 +114,17 @@ const ConversationCard = memo(function ConversationCard({
               className="w-4 h-4"
             />
           )}
-          <Avatar className="w-8 h-8 bg-muted">
-            <AvatarFallback className="text-xs font-medium">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
+          {isGroup ? (
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </div>
+          ) : (
+            <ContactAvatar
+              contactId={conversation.contact?.id}
+              name={contactName}
+              className="w-8 h-8"
+            />
+          )}
         </div>
 
         <div className="flex-1 min-w-0">

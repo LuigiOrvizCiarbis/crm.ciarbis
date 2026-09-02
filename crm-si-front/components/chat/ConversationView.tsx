@@ -121,6 +121,7 @@ export function ConversationView({
                 translationLanguage={language}
                 onTranslateMessage={(targetMessage, targetLanguage) => translateMessage(targetMessage.id, targetLanguage)}
                 channelType={conversation.channel?.type}
+                isGroupConversation={conversation.kind === "group"}
             />
 
             <AISuggestions

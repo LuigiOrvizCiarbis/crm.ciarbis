@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AiConfigController;
 use App\Http\Controllers\Api\AutomationController;
 use App\Http\Controllers\Api\AutomationRunController;
 use App\Http\Controllers\Api\BranchController;
+use App\Http\Controllers\Api\BroadcastCampaignController;
 use App\Http\Controllers\Api\ChannelController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\ContactFieldController;
@@ -12,15 +13,20 @@ use App\Http\Controllers\Api\ContactTimelineController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\ConversationTranslationController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\DocumentExtractionController;
 use App\Http\Controllers\Api\GoogleCalendarConnectionController;
 use App\Http\Controllers\Api\IncomingWebhookController;
 use App\Http\Controllers\Api\InvitationController;
+use App\Http\Controllers\Api\MailIntakeController;
 use App\Http\Controllers\Api\MediaAssetController;
+use App\Http\Controllers\Api\MediaAssetDownloadController;
 use App\Http\Controllers\Api\MessageController;
+use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MessageHotkeyController;
 use App\Http\Controllers\Api\MessageTranslationController;
 use App\Http\Controllers\Api\InstagramCommentController;
 use App\Http\Controllers\Api\NoteController;
+use App\Http\Controllers\Api\NavigationLabelController;
 use App\Http\Controllers\Api\OpportunityController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\PipelineStageController;
@@ -32,14 +38,15 @@ use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\WebhookEndpointController;
+use App\Http\Controllers\Api\WhatsAppGroupController;
+use App\Http\Controllers\Api\WhatsAppGroupInvitationController;
 use App\Http\Controllers\Api\WhatsAppTemplateController;
 use App\Http\Controllers\Api\WooCommerceConfigController;
 use App\Http\Controllers\FacebookDataDeletionController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstagramController;
-use App\Http\Controllers\MessengerController;
 use App\Http\Controllers\MailController;
-use App\Http\Controllers\Api\MailIntakeController;
+use App\Http\Controllers\MessengerController;
 use App\Http\Controllers\WhatsAppController;
 use App\Models\Invitation;
 use App\Models\Scopes\TenantScope;
@@ -85,7 +92,7 @@ Route::post('login', function (Request $request): JsonResponse {
 
     return response()->json([
         'token' => $token,
-        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at', 'tenant.plan:id,key,name']),
+        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name']),
         'role' => RolePayload::transform($role, $user->tenant),
         'permissions' => $user->getAllPermissions()->pluck('name')->values(),
         'email_verified' => $user->hasVerifiedEmail(),
@@ -175,7 +182,7 @@ Route::post('register', function (Request $request): JsonResponse {
 
     return response()->json([
         'token' => $token,
-        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at', 'tenant.plan:id,key,name']),
+        'user' => $user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name']),
         'role' => RolePayload::transform($role, $tenant->fresh()),
         'permissions' => $user->getAllPermissions()->pluck('name')->values(),
         'email_verified' => false,
@@ -330,8 +337,15 @@ Route::post('reset-password', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function () {
 
+    Route::get('broadcasts', [BroadcastCampaignController::class, 'index']);
+    Route::get('broadcasts/{id}/results', [BroadcastCampaignController::class, 'results']);
+    Route::get('broadcasts/{id}/recipients', [BroadcastCampaignController::class, 'recipients']);
+    Route::get('broadcasts/{id}/recipients/{recipientId}', [BroadcastCampaignController::class, 'recipient']);
+    Route::post('broadcasts/estimate', [BroadcastCampaignController::class, 'estimate']);
+    Route::post('broadcasts', [BroadcastCampaignController::class, 'store']);
+
     Route::get('user', function (Request $request): JsonResponse {
-        $user = $request->user()->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at', 'tenant.plan:id,key,name']);
+        $user = $request->user()->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name']);
         $role = $user->roles()->where('roles.tenant_id', $user->tenant_id)->first();
 
         return response()->json([
@@ -346,6 +360,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
         return response()->json(['message' => 'Sesión cerrada']);
     });
+
+    Route::put('navigation-labels', [NavigationLabelController::class, 'update']);
 
     Route::get('dashboard/metrics', [DashboardController::class, 'metrics']);
     Route::get('dashboard/branches', [DashboardController::class, 'branches']);
@@ -389,6 +405,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('automation-runs/{run}', [AutomationRunController::class, 'show']);
     Route::post('automation-runs/{run}/retry', [AutomationRunController::class, 'retry']);
 
+    // Lectura autenticada de un archivo del espacio. Se declara antes que las
+    // rutas genéricas de media-assets porque no comparte su permiso: un adjunto
+    // de contacto se autoriza como el contacto, no con automations.manage.
+    Route::get('media-assets/{mediaAsset}/meta', [MediaAssetDownloadController::class, 'meta']);
+    Route::get('media-assets/{mediaAsset}/download', [MediaAssetDownloadController::class, 'download']);
+
     Route::get('media-assets', [MediaAssetController::class, 'index']);
     Route::post('media-assets', [MediaAssetController::class, 'store']);
     Route::delete('media-assets/{mediaAsset}', [MediaAssetController::class, 'destroy']);
@@ -401,6 +423,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('contacts/{contact}', [ContactController::class, 'show']);
     Route::put('contacts/{contact}', [ContactController::class, 'update']);
     Route::delete('contacts/{contact}', [ContactController::class, 'destroy']);
+    // Extracción de datos desde documentos. El upload es propio del contacto:
+    // el genérico /media-assets exige automations.manage, que el rol operativo
+    // no tiene, y abrirlo permitiría subir archivos sin vínculo con un contacto.
+    Route::post('contacts/{contact}/documents', [DocumentExtractionController::class, 'upload']);
+    Route::post('contacts/{contact}/extractions', [DocumentExtractionController::class, 'store']);
+    Route::get('contacts/{contact}/extractions/{extraction}', [DocumentExtractionController::class, 'show']);
+    Route::post('contacts/{contact}/extractions/{extraction}/confirm', [DocumentExtractionController::class, 'confirm']);
     Route::get('contacts/{contact}/history', [ContactHistoryController::class, 'show']);
     Route::get('contacts/{contact}/timeline', [ContactTimelineController::class, 'show']);
     Route::post('contacts/{contact}/tags', [TagController::class, 'attachToContact']);
@@ -411,6 +440,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('contact-fields/{contact_field}', [ContactFieldController::class, 'update']);
     Route::delete('contact-fields/{contact_field}', [ContactFieldController::class, 'destroy']);
     Route::post('contact-fields/reorder', [ContactFieldController::class, 'reorder']);
+    Route::post('contact-fields/apply-preset', [ContactFieldController::class, 'applyPreset']);
 
     // Config de IA por tenant (proveedor + API key BYOK).
     Route::get('ai-config', [AiConfigController::class, 'show']);
@@ -452,11 +482,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('conversations/bulk-read', [ConversationController::class, 'bulkMarkRead']);
     Route::post('conversations/bulk-broadcast', [ConversationController::class, 'bulkBroadcast']);
     Route::get('conversations/{conversation}', [ConversationController::class, 'show']);
+    Route::get('conversations/{conversation}/ai-draft', [ManualAiDraftController::class, 'show']);
+    Route::post('conversations/{conversation}/ai-draft', [ManualAiDraftController::class, 'store']);
+    Route::delete('conversations/{conversation}/ai-draft', [ManualAiDraftController::class, 'destroy']);
     Route::post('conversations/{conversation}/tags', [TagController::class, 'attachToConversation']);
     Route::delete('conversations/{conversation}/tags/{tag}', [TagController::class, 'detachFromConversation']);
 
     Route::get('messages', [MessageController::class, 'index']);
     Route::post('messages', [MessageController::class, 'store']);
+    Route::post('messages/{message}/contacts/{index}/save', [MessageController::class, 'saveSharedContact']);
     Route::put('messages/{message}', [MessageController::class, 'update']);
     Route::delete('messages/{message}', [MessageController::class, 'destroy']);
     Route::post('messages/{message}/translation', [MessageTranslationController::class, 'store']);
@@ -482,6 +516,23 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('channels/{id}/users/{userId}', [ChannelController::class, 'removeUser']);
     Route::put('channels/{id}/users', [ChannelController::class, 'syncUsers']);
     Route::patch('channels/{id}/branch', [ChannelController::class, 'assignBranch']);
+    Route::post('channels/{id}/disconnect', [ChannelController::class, 'disconnect']);
+    Route::get('channels/{channel}/groups-eligibility', [WhatsAppGroupController::class, 'eligibility']);
+
+    Route::get('whatsapp-groups', [WhatsAppGroupController::class, 'index']);
+    Route::post('whatsapp-groups', [WhatsAppGroupController::class, 'store']);
+    Route::get('whatsapp-groups/{group}', [WhatsAppGroupController::class, 'show']);
+    Route::patch('whatsapp-groups/{group}', [WhatsAppGroupController::class, 'update']);
+    Route::delete('whatsapp-groups/{group}', [WhatsAppGroupController::class, 'destroy']);
+    Route::post('whatsapp-groups/{group}/sync', [WhatsAppGroupController::class, 'sync']);
+    Route::get('whatsapp-groups/{group}/invite-templates', [WhatsAppGroupInvitationController::class, 'templates']);
+    Route::post('whatsapp-groups/{group}/invitations', [WhatsAppGroupInvitationController::class, 'store']);
+    Route::get('whatsapp-groups/{group}/invite-link', [WhatsAppGroupController::class, 'inviteLink']);
+    Route::post('whatsapp-groups/{group}/invite-link', [WhatsAppGroupController::class, 'resetInviteLink']);
+    Route::get('whatsapp-groups/{group}/join-requests', [WhatsAppGroupController::class, 'joinRequests']);
+    Route::post('whatsapp-groups/{group}/join-requests/approve', [WhatsAppGroupController::class, 'approveJoinRequests']);
+    Route::post('whatsapp-groups/{group}/join-requests/reject', [WhatsAppGroupController::class, 'rejectJoinRequests']);
+    Route::post('whatsapp-groups/{group}/participants/remove', [WhatsAppGroupController::class, 'removeParticipants']);
 
     Route::post('admin/channels/whatsapp-auth', [WhatsAppController::class, 'handleAuth']);
     Route::post('admin/channels/instagram-auth', [InstagramController::class, 'handleAuth']);
@@ -489,6 +540,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('admin/channels/mail-auth', [MailController::class, 'handleAuth']);
     Route::post('admin/channels/{id}/mail-sync', [MailController::class, 'sync']);
     Route::get('admin/channels/{id}/business-verification', [WhatsAppController::class, 'businessVerification']);
+    Route::get('admin/channels/{id}/contact-sync', [WhatsAppController::class, 'contactSyncStatus']);
+    Route::post('admin/channels/{id}/contact-sync/retry', [WhatsAppController::class, 'retryContactSync']);
+    Route::post('admin/channels/{id}/contact-sync/retry-history', [WhatsAppController::class, 'retryHistorySync']);
 
     Route::get('/conversations/{id}/messages', [ConversationController::class, 'fetchMessages']);
 

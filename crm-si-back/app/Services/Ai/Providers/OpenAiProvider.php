@@ -2,6 +2,7 @@
 
 namespace App\Services\Ai\Providers;
 
+use App\Services\Ai\AiExtractionResult;
 use App\Services\Ai\AiProvider;
 use App\Services\Ai\AiVerificationResult;
 use GuzzleHttp\Client as GuzzleClient;
@@ -157,6 +158,37 @@ class OpenAiProvider implements AiProvider
 
             return [];
         }
+    }
+
+    /**
+     * La extracción de documentos no está habilitada para OpenAI.
+     *
+     * Se implementó y se revirtió: el camino quedaba escrito pero no podía
+     * funcionar contra ningún modelo real, y fallar de forma opaca es peor que
+     * decir que no está soportado. Faltan tres cosas, ninguna difícil, pero que
+     * necesitan una key de OpenAI para verificarse:
+     *
+     * 1. Modelo por proveedor. Hoy services.ai.extraction.model es uno solo y
+     *    su default es de Claude, así que un tenant con OpenAI recibiría un
+     *    model ID de Anthropic.
+     * 2. max_completion_tokens en vez de max_tokens: las familias o-series y
+     *    gpt-5 rechazan el segundo. translate() en este mismo archivo ya usa
+     *    la forma nueva.
+     * 3. Schema propio. ExtractionSchemaBuilder emite maxLength, format y enum
+     *    con null, y el modo strict de OpenAI rechaza los tres; el de Anthropic
+     *    los acepta. Hay que generar un schema por proveedor o bajar strict.
+     */
+    public function extract(
+        string $text,
+        array $images,
+        array $schema,
+        string $systemPrompt,
+        string $model,
+    ): AiExtractionResult {
+        return AiExtractionResult::failure(
+            'unsupported',
+            'La extracción de datos desde documentos requiere Claude como proveedor de IA.',
+        );
     }
 
     public function verify(string $systemPrompt, string $model): AiVerificationResult

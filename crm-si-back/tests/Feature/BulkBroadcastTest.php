@@ -14,6 +14,7 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
+use App\Services\BroadcastConversationResolver;
 use App\Services\WhatsAppTemplateService;
 use App\Support\PermissionCatalog;
 use App\Support\RoleProvisioner;
@@ -140,7 +141,7 @@ class BulkBroadcastTest extends TestCase
             [],
             $user->id,
             $foreignTenant->id,
-        ))->handle(app(WhatsAppTemplateService::class));
+        ))->handle(app(WhatsAppTemplateService::class), app(BroadcastConversationResolver::class));
 
         Http::assertNothingSent();
         $this->assertSame(0, $conversation->messages()->count());
@@ -167,7 +168,7 @@ class BulkBroadcastTest extends TestCase
             [],
             $user->id,
             $user->tenant_id,
-        ))->handle(app(WhatsAppTemplateService::class));
+        ))->handle(app(WhatsAppTemplateService::class), app(BroadcastConversationResolver::class));
 
         Http::assertNothingSent();
         $this->assertSame(0, $conversation->messages()->count());
@@ -191,7 +192,7 @@ class BulkBroadcastTest extends TestCase
             [['type' => 'body', 'parameters' => [['type' => 'text', 'text' => 'Juan'], ['type' => 'text', 'text' => '42']]]],
             $user->id,
             $user->tenant_id,
-        ))->handle(app(WhatsAppTemplateService::class));
+        ))->handle(app(WhatsAppTemplateService::class), app(BroadcastConversationResolver::class));
 
         $message = $conversation->messages()->first();
         $this->assertNotNull($message);
@@ -222,7 +223,7 @@ class BulkBroadcastTest extends TestCase
             ]]],
             $user->id,
             $user->tenant_id,
-        ))->handle(app(WhatsAppTemplateService::class));
+        ))->handle(app(WhatsAppTemplateService::class), app(BroadcastConversationResolver::class));
 
         $contactName = $conversation->contact->name;
 

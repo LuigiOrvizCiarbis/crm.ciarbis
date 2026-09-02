@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Support\PermissionCatalog;
 use App\Support\RoleProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use App\Enums\ContactFieldType;
 use Illuminate\Http\UploadedFile;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
@@ -36,6 +37,115 @@ class ContactFieldsTest extends TestCase
             ->assertJsonPath('data.type', 'text');
 
         $this->assertDatabaseHas('contact_fields', ['key' => 'talle', 'label' => 'Talle']);
+    }
+
+    public function test_owner_can_create_and_validate_repeater_field(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/contact-fields', [
+            'label' => 'Productos',
+            'type' => 'repeater',
+            'options' => [
+                'fields' => [
+                    ['label' => 'Producto', 'type' => 'text', 'is_required' => true],
+                    ['label' => 'Cantidad', 'type' => 'number'],
+                ],
+                'min_items' => 1,
+                'max_items' => 3,
+            ],
+        ]);
+
+        $response->assertCreated()->assertJsonPath('data.type', 'repeater');
+        $field = ContactField::where('key', 'productos')->firstOrFail();
+        $this->assertSame('producto', $field->options['fields'][0]['key']);
+
+        $this->postJson('/api/contacts', [
+            'name' => 'Sin filas',
+            'custom_data' => ['productos' => []],
+        ])->assertStatus(422);
+
+        $this->postJson('/api/contacts', [
+            'name' => 'Con filas',
+            'custom_data' => ['productos' => [['producto' => 'Remera', 'cantidad' => 2]]],
+        ])->assertCreated();
+    }
+
+    public function test_new_keyless_repeater_subfield_cannot_reuse_omitted_key(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $created = $this->postJson('/api/contact-fields', [
+            'label' => 'Productos',
+            'type' => 'repeater',
+            'options' => ['fields' => [['label' => 'Producto', 'type' => 'text']]],
+        ])->assertCreated();
+
+        $id = $created->json('data.id');
+        $updated = $this->putJson("/api/contact-fields/{$id}", [
+            'options' => ['fields' => [['label' => 'Producto', 'type' => 'number']]],
+        ])->assertOk();
+
+        $fields = $updated->json('data.options.fields');
+        $this->assertSame('producto_2', $fields[0]['key']);
+        $this->assertSame('producto', $fields[1]['key']);
+        $this->assertFalse($fields[1]['is_active']);
+    }
+
+    public function test_required_repeater_cannot_have_zero_max_items(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/contact-fields', [
+            'label' => 'Items inválidos',
+            'type' => 'repeater',
+            'is_required' => true,
+            'options' => [
+                'fields' => [['label' => 'Item', 'type' => 'text']],
+                'max_items' => 0,
+            ],
+        ])->assertStatus(422)->assertJsonValidationErrors('options.max_items');
+
+        $created = $this->postJson('/api/contact-fields', [
+            'label' => 'Items válidos',
+            'type' => 'repeater',
+            'options' => [
+                'fields' => [['label' => 'Item', 'type' => 'text']],
+                'max_items' => 1,
+            ],
+        ])->assertCreated();
+
+        $this->putJson('/api/contact-fields/'.$created->json('data.id'), [
+            'is_required' => true,
+            'options' => [
+                'fields' => $created->json('data.options.fields'),
+                'max_items' => 0,
+            ],
+        ])->assertStatus(422)->assertJsonValidationErrors('options.max_items');
+    }
+
+    public function test_repeater_rejects_unique_on_partial_update(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $created = $this->postJson('/api/contact-fields', [
+            'label' => 'Items únicos',
+            'type' => 'repeater',
+            'options' => ['fields' => [['label' => 'Item', 'type' => 'text']]],
+        ])->assertCreated();
+
+        $this->putJson('/api/contact-fields/'.$created->json('data.id'), [
+            'is_unique' => true,
+        ])->assertStatus(422)->assertJsonValidationErrors('is_unique');
+
+        $this->assertDatabaseHas('contact_fields', [
+            'id' => $created->json('data.id'),
+            'is_unique' => false,
+        ]);
     }
 
     public function test_member_cannot_create_field(): void
@@ -380,6 +490,131 @@ class ContactFieldsTest extends TestCase
         $list = $this->getJson('/api/contact-fields');
         $list->assertOk();
         $this->assertCount(0, $list->json('data'));
+    }
+
+    public function test_owner_can_create_currency_field_with_a_currency(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/contact-fields', [
+            'label' => 'Alquiler mensual',
+            'type' => 'currency',
+            'options' => ['currency' => 'USD'],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.type', 'currency')
+            ->assertJsonPath('data.options.currency', 'USD');
+
+        $this->postJson('/api/contacts', [
+            'name' => 'Inquilino',
+            'custom_data' => ['alquiler_mensual' => 1250000.5],
+        ])->assertCreated();
+    }
+
+    public function test_currency_field_without_options_falls_back_to_the_default(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/contact-fields', [
+            'label' => 'Expensas',
+            'type' => 'currency',
+        ])->assertCreated()->assertJsonPath('data.options.currency', ContactFieldType::DEFAULT_CURRENCY);
+    }
+
+    public function test_currency_field_rejects_an_unsupported_currency(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/contact-fields', [
+            'label' => 'Alquiler',
+            'type' => 'currency',
+            'options' => ['currency' => 'XYZ'],
+        ])->assertStatus(422)->assertJsonValidationErrors('options.currency');
+    }
+
+    public function test_currency_field_rejects_a_non_numeric_value(): void
+    {
+        [$user, $tenant] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        ContactField::create([
+            'tenant_id' => $tenant->id,
+            'key' => 'alquiler',
+            'label' => 'Alquiler',
+            'type' => 'currency',
+            'options' => ['currency' => 'ARS'],
+        ]);
+
+        $this->postJson('/api/contacts', [
+            'name' => 'Inquilino',
+            'custom_data' => ['alquiler' => 'mil pesos'],
+        ])->assertStatus(422);
+    }
+
+    public function test_currency_can_be_a_repeater_subfield(): void
+    {
+        [$user] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/contact-fields', [
+            'label' => 'Unidades',
+            'type' => 'repeater',
+            'options' => [
+                'fields' => [
+                    ['label' => 'Unidad', 'type' => 'text', 'is_required' => true],
+                    ['label' => 'Precio', 'type' => 'currency', 'options' => ['currency' => 'USD']],
+                ],
+                'min_items' => 1,
+                'max_items' => 5,
+            ],
+        ])->assertCreated();
+
+        $field = ContactField::where('key', 'unidades')->firstOrFail();
+        $this->assertSame('USD', $field->options['fields'][1]['options']['currency']);
+
+        $this->postJson('/api/contacts', [
+            'name' => 'Edificio',
+            'custom_data' => ['unidades' => [['unidad' => '3B', 'precio' => 180000]]],
+        ])->assertCreated();
+
+        $this->postJson('/api/contacts', [
+            'name' => 'Otro',
+            'custom_data' => ['unidades' => [['unidad' => '4A', 'precio' => 'carísimo']]],
+        ])->assertStatus(422);
+    }
+
+    public function test_import_parses_currency_written_the_way_people_type_it(): void
+    {
+        [$user, $tenant] = $this->createOwner();
+        Sanctum::actingAs($user);
+
+        ContactField::create([
+            'tenant_id' => $tenant->id,
+            'key' => 'alquiler',
+            'label' => 'Alquiler',
+            'type' => 'currency',
+            'options' => ['currency' => 'ARS'],
+        ]);
+
+        // Un CSV real trae el importe formateado como se lo ve en pantalla.
+        $csv = "name,phone,alquiler\nJuan,+5491111,\"$ 1.250.000,50\"\nMaria,+5492222,900000\n";
+        $file = UploadedFile::fake()->createWithContent('contacts.csv', $csv);
+
+        $this->postJson('/api/contacts/import', [
+            'file' => $file,
+            'mapping' => json_encode([
+                'name' => 0,
+                'phone' => 1,
+                'custom' => ['alquiler' => 2],
+            ]),
+        ])->assertOk()->assertJsonPath('data.imported', 2);
+
+        $this->assertEquals(1250000.5, Contact::where('name', 'Juan')->first()->custom_data['alquiler']);
+        $this->assertEquals(900000, Contact::where('name', 'Maria')->first()->custom_data['alquiler']);
     }
 
     public function test_import_csv_with_custom_field(): void

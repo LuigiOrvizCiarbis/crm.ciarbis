@@ -1,9 +1,15 @@
-import { Avatar, AvatarFallback } from "@radix-ui/react-avatar"
+import { ContactAvatar } from "@/components/contact-avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { LeadScoreBadge } from "@/components/Badges"
-import { ArrowLeft, Info, History, Pencil, Check, X, User, Plus, Bot } from "lucide-react"
+import { ArrowLeft, Info, History, Pencil, Check, X, User, Users, Plus, Bot, MoreVertical } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Conversation } from "@/data/types"
 import { useEffect, useRef, useState } from "react"
 import { ContactHistoryDrawer } from "./ContactHistoryDrawer"
@@ -18,6 +24,7 @@ interface ConversationHeaderProps {
   onBack: () => void
   onToggleContactInfo: () => void
   onRenameContact?: (name: string) => Promise<void> | void
+  onRenameGroup?: (subject: string) => Promise<void> | void
   onToggleAiAutoreply?: (enabled: boolean) => Promise<void> | void
 }
 
@@ -27,15 +34,21 @@ export function ConversationHeader({
   onBack,
   onToggleContactInfo,
   onRenameContact,
+  onRenameGroup,
   onToggleAiAutoreply,
 }: ConversationHeaderProps) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [timelineOpen, setTimelineOpen] = useState(false)
   const [taskModalOpen, setTaskModalOpen] = useState(false)
+  const isGroup = conversation.kind === "group"
   const contactId = conversation.contact_id ?? Number(conversation.contact?.id)
-  const hasContactId = Boolean(contactId) && !Number.isNaN(contactId)
+  const hasContactId = !isGroup && Boolean(contactId) && !Number.isNaN(contactId)
+  const displayName = isGroup
+    ? conversation.group?.subject ?? "Grupo"
+    : conversation.contact?.name ?? ""
+  const onRename = isGroup ? onRenameGroup : onRenameContact
   const [isEditingName, setIsEditingName] = useState(false)
-  const [nameDraft, setNameDraft] = useState(conversation.contact.name)
+  const [nameDraft, setNameDraft] = useState(displayName)
   const [isSavingName, setIsSavingName] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const currentUser = useAuthStore((state) => state.user)
@@ -44,9 +57,9 @@ export function ConversationHeader({
 
   useEffect(() => {
     if (!isEditingName) {
-      setNameDraft(conversation.contact.name)
+      setNameDraft(displayName)
     }
-  }, [conversation.contact.name, isEditingName])
+  }, [displayName, isEditingName])
 
   useEffect(() => {
     if (isEditingName) {
@@ -56,24 +69,24 @@ export function ConversationHeader({
   }, [isEditingName])
 
   const startEditingName = () => {
-    setNameDraft(conversation.contact.name)
+    setNameDraft(displayName)
     setIsEditingName(true)
   }
 
   const cancelEditingName = () => {
     setIsEditingName(false)
-    setNameDraft(conversation.contact.name)
+    setNameDraft(displayName)
   }
 
   const saveName = async () => {
     const trimmed = nameDraft.trim()
-    if (!trimmed || trimmed === conversation.contact.name) {
+    if (!trimmed || trimmed === displayName) {
       cancelEditingName()
       return
     }
     try {
       setIsSavingName(true)
-      await onRenameContact?.(trimmed)
+      await onRename?.(trimmed)
       setIsEditingName(false)
     } finally {
       setIsSavingName(false)
@@ -90,12 +103,6 @@ export function ConversationHeader({
     }
   }
 
-  const initials = conversation.contact.name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-
   return (
     <div className="border-b border-border bg-card px-3 py-2.5 sm:p-4">
       <div className="flex min-w-0 items-center justify-between gap-3">
@@ -109,11 +116,18 @@ export function ConversationHeader({
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>
-          <Avatar className="flex h-10 w-10 shrink-0 overflow-hidden rounded-full ring-1 ring-border">
-            <AvatarFallback className="flex h-full w-full items-center justify-center bg-muted text-sm font-semibold">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
+          {isGroup ? (
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted ring-1 ring-border">
+              <Users className="h-5 w-5 text-muted-foreground" />
+            </div>
+          ) : (
+            <ContactAvatar
+              contactId={conversation.contact?.id}
+              name={conversation.contact?.name}
+              className="h-10 w-10 ring-1 ring-border"
+              fallbackClassName="text-sm font-semibold"
+            />
+          )}
           <div className="flex-1 min-w-0">
             <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
               {isEditingName ? (
@@ -152,9 +166,9 @@ export function ConversationHeader({
               ) : (
                 <div className="group flex min-w-0 items-center gap-0.5">
                   <h3 className="truncate text-sm font-semibold leading-tight sm:text-base sm:font-medium">
-                    {conversation.contact.name}
+                    {displayName}
                   </h3>
-                  {onRenameContact && (
+                  {onRename && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -175,10 +189,63 @@ export function ConversationHeader({
               />
             </div>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {conversation.contact.phone || t("chats.online")}
+              {isGroup
+                ? `${conversation.group?.total_participant_count ?? 0} participantes`
+                : conversation.contact?.phone || t("chats.online")}
             </p>
           </div>
         </div>
+        {/* Mobile: sólo el estado de la IA queda a la vista. Es lo único que
+            se mira mientras se lee (dice si el bot está contestando por vos);
+            el resto son acciones puntuales y viven en el menú. */}
+        <div className="flex shrink-0 items-center gap-0.5 sm:hidden">
+          {onToggleAiAutoreply && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`h-10 w-10 shrink-0 rounded-full p-0 ${
+                conversation.aiAutoreplyEnabled ? "bg-primary/10 text-primary" : "text-muted-foreground"
+              }`}
+              onClick={() => void onToggleAiAutoreply(!conversation.aiAutoreplyEnabled)}
+              aria-pressed={Boolean(conversation.aiAutoreplyEnabled)}
+              title={t("chats.aiAutoreplyHint")}
+              aria-label={t("chats.aiAutoreply")}
+            >
+              <Bot className="h-[18px] w-[18px]" />
+            </Button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-10 w-10 shrink-0 rounded-full p-0"
+                aria-label={t("chats.moreActions")}
+              >
+                <MoreVertical className="h-[18px] w-[18px]" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem onSelect={() => setTaskModalOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                {t("chats.createTask")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setTimelineOpen(true)} disabled={!hasContactId}>
+                <User className="mr-2 h-4 w-4" />
+                {t("timeline.title")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setHistoryOpen(true)} disabled={!hasContactId}>
+                <History className="mr-2 h-4 w-4" />
+                {t("chats.viewFullHistory")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onToggleContactInfo}>
+                <Info className="mr-2 h-4 w-4" />
+                {t("chats.contactInfo")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
         <div className="hidden items-center gap-2 sm:flex">
           {onToggleAiAutoreply && (
             <label
@@ -214,14 +281,16 @@ export function ConversationHeader({
               <User className="w-4 h-4" />
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setHistoryOpen(true)}
-            title={t("chats.viewFullHistory")}
-          >
-            <History className="w-4 h-4" />
-          </Button>
+          {hasContactId && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setHistoryOpen(true)}
+              title={t("chats.viewFullHistory")}
+            >
+              <History className="w-4 h-4" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -234,70 +303,14 @@ export function ConversationHeader({
         </div>
       </div>
 
-      <div className={`mt-2 grid gap-1 rounded-xl bg-muted/60 p-1 sm:hidden ${onToggleAiAutoreply ? "grid-cols-5" : "grid-cols-4"}`}>
-        {onToggleAiAutoreply && (
-          <Button
-            variant={conversation.aiAutoreplyEnabled ? "secondary" : "ghost"}
-            size="sm"
-            className="h-10 rounded-lg p-0"
-            onClick={() => void onToggleAiAutoreply(!conversation.aiAutoreplyEnabled)}
-            aria-pressed={Boolean(conversation.aiAutoreplyEnabled)}
-            title={t("chats.aiAutoreply")}
-            aria-label={t("chats.aiAutoreply")}
-          >
-            <Bot className={`h-[18px] w-[18px] ${conversation.aiAutoreplyEnabled ? "text-primary" : ""}`} />
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-10 rounded-lg p-0"
-          onClick={() => setTaskModalOpen(true)}
-          title={t("chats.createTask")}
-          aria-label={t("chats.createTask")}
-        >
-          <Plus className="h-[18px] w-[18px]" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-10 rounded-lg p-0"
-          onClick={() => setTimelineOpen(true)}
-          disabled={!hasContactId}
-          title={t("timeline.title")}
-          aria-label={t("timeline.title")}
-        >
-          <User className="h-[18px] w-[18px]" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-10 rounded-lg p-0"
-          onClick={() => setHistoryOpen(true)}
-          title={t("chats.viewFullHistory")}
-          aria-label={t("chats.viewFullHistory")}
-        >
-          <History className="h-[18px] w-[18px]" />
-        </Button>
-        <Button
-          variant={isContactInfoOpen ? "secondary" : "ghost"}
-          size="sm"
-          className="h-10 rounded-lg p-0"
-          onClick={onToggleContactInfo}
-          aria-pressed={isContactInfoOpen}
-          title={t("chats.contactInfo")}
-          aria-label={t("chats.contactInfo")}
-        >
-          <Info className="h-[18px] w-[18px]" />
-        </Button>
-      </div>
-
-      <ContactHistoryDrawer
-        open={historyOpen}
-        onOpenChange={setHistoryOpen}
-        contactId={conversation.contact.id}
-        contactName={conversation.contact.name}
-      />
+      {hasContactId && conversation.contact && (
+        <ContactHistoryDrawer
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          contactId={conversation.contact.id}
+          contactName={conversation.contact.name}
+        />
+      )}
 
       {hasContactId && (
         <ContactTimeline
@@ -305,7 +318,7 @@ export function ConversationHeader({
           onOpenChange={setTimelineOpen}
           contactId={contactId}
           conversationId={conversation.id}
-          contactName={conversation.contact.name}
+          contactName={conversation.contact?.name ?? ""}
         />
       )}
 
@@ -316,7 +329,7 @@ export function ConversationHeader({
         prefilledData={{
           relationType: "chat",
           relationId: String(conversation.id),
-          relationLabel: conversation.contact.name,
+          relationLabel: displayName,
           lockRelation: true,
           ...(currentUser ? { assigneeId: String(currentUser.id) } : {}),
         }}

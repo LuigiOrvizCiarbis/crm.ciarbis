@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\MarketingConsentStatus;
 use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\HasBranch;
 use App\Models\Concerns\HasTags;
@@ -36,6 +37,11 @@ class Contact extends Model
         'external_id',
         'source',
         'custom_data',
+        'lock_version',
+        'marketing_consent_status',
+        'marketing_consent_source',
+        'marketing_consent_at',
+        'marketing_consent_evidence',
     ];
 
     protected $attributes = [
@@ -48,6 +54,9 @@ class Contact extends Model
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
             'custom_data' => 'array',
+            'lock_version' => 'integer',
+            'marketing_consent_status' => MarketingConsentStatus::class,
+            'marketing_consent_at' => 'datetime',
         ];
     }
 
@@ -118,6 +127,35 @@ class Contact extends Model
         });
     }
 
+    /**
+     * Visibilidad de audiencia para difusiones.
+     *
+     * A diferencia de scopeVisibleTo, NO exige que el contacto tenga una
+     * conversación del usuario: el criterio correcto para un envío masivo es
+     * "¿puede este usuario difundir en este tenant?" —ya lo responde el
+     * permiso templates.send en StoreBroadcastRequest— y no "¿es este
+     * contacto suyo?". Usar scopeVisibleTo acá reintroduciría el bug que la
+     * difusión por Contact viene a arreglar: un contacto sin conversación es
+     * invisible para ese scope, así que la audiencia colapsaría de nuevo a
+     * "solo los que ya escribieron".
+     *
+     * El estimate/store solo devuelven un conteo, nunca la lista, así que no
+     * se exponen datos que el usuario no pueda ver en el CRM. BranchScope
+     * sigue activo como global scope y acota por sucursal igual que siempre.
+     */
+    public function scopeVisibleForBroadcast(Builder $query, User $user): Builder
+    {
+        if ($user->can('contacts.view_any')) {
+            return $query;
+        }
+
+        if (! $user->can('contacts.view_assigned')) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query;
+    }
+
     public function activeConversation()
     {
         return $this->conversations()->where('status', 'open')->latest()->first();
@@ -141,5 +179,34 @@ class Contact extends Model
     public function messages(): MorphMany
     {
         return $this->morphMany(Message::class, 'sender');
+    }
+
+    /**
+     * Avanza lock_version en cada modificación persistida.
+     *
+     * Vive acá y no en cada writer a propósito: el contacto se escribe desde el
+     * CRUD, los webhooks entrantes, el import de CSV y la confirmación de una
+     * extracción. Si el contador sólo lo tocara quien lo lee, una edición hecha
+     * por cualquiera de las otras vías dejaría la versión igual y la
+     * confirmación de una extracción pisaría ese cambio sin devolver 409, que
+     * es justo lo que el contador viene a evitar.
+     *
+     * Se excluye el caso en que lock_version ya venga modificado en el mismo
+     * save (la confirmación lo incrementa explícitamente), para no contarlo dos
+     * veces.
+     */
+    protected static function booted(): void
+    {
+        static::updating(function (self $contact): void {
+            if ($contact->isDirty('lock_version')) {
+                return;
+            }
+
+            if ($contact->getDirty() === []) {
+                return;
+            }
+
+            $contact->lock_version = (int) $contact->getOriginal('lock_version') + 1;
+        });
     }
 }

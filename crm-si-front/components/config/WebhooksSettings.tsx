@@ -73,6 +73,10 @@ function sampleValue(field: WebhookContactField): unknown {
   switch (field.type) {
     case "number":
       return 100
+    // El payload lleva el importe pelado: la divisa del campo no viaja en el
+    // valor, vive en su definición.
+    case "currency":
+      return 1250000.5
     case "date":
       return "2026-07-15"
     case "boolean":
@@ -87,6 +91,11 @@ function sampleValue(field: WebhookContactField): unknown {
       return "https://example.com"
     case "phone":
       return "+5491123456789"
+    case "repeater":
+      return [(field.options?.fields ?? []).filter((nested) => nested.is_active !== false).reduce<Record<string, unknown>>((row, nested) => {
+        row[nested.key ?? nested.label] = nested.type === "number" ? 1 : nested.type === "currency" ? 1250000.5 : nested.type === "boolean" ? true : nested.type === "select" ? nested.options?.choices?.[0] ?? "opcion" : "ejemplo"
+        return row
+      }, {})]
     default:
       return "ejemplo"
   }

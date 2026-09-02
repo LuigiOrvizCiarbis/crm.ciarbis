@@ -27,6 +27,8 @@ import { cn } from "@/lib/utils"
 import { uploadMediaAsset } from "@/lib/api/media-assets"
 import type { ContactField } from "@/lib/api/contact-fields"
 import type { ProductField } from "@/lib/api/product-fields"
+import { RepeaterFieldInput } from "@/components/RepeaterFieldInput"
+import { CurrencyInput } from "@/components/CurrencyInput"
 
 interface CustomFieldInputProps {
   /** Contact and product fields share the same shape; either works here. */
@@ -39,9 +41,11 @@ interface CustomFieldInputProps {
   autoOpen?: boolean
   /** Se llama al cerrar un picker desplegable (para finalizar la edición inline). */
   onPickerClose?: () => void
+  /** Usa una superficie más compacta para editores complejos dentro de tablas. */
+  compact?: boolean
 }
 
-export function CustomFieldInput({ field, value, onChange, disabled, className, autoOpen, onPickerClose }: CustomFieldInputProps) {
+export function CustomFieldInput({ field, value, onChange, disabled, className, autoOpen, onPickerClose, compact }: CustomFieldInputProps) {
   const id = `cf-${field.key}`
   const choices = field.options?.choices ?? []
 
@@ -51,7 +55,7 @@ export function CustomFieldInput({ field, value, onChange, disabled, className, 
     onChange(raw === "" ? null : Number(raw))
   }
 
-  const labelNode = (
+  const labelNode = field.type === "repeater" ? null : (
     <Label htmlFor={id} className="text-sm">
       {field.label}
       {field.is_required ? <span className="text-destructive ml-1">*</span> : null}
@@ -77,6 +81,16 @@ export function CustomFieldInput({ field, value, onChange, disabled, className, 
             type="number"
             value={value === null || value === undefined ? "" : String(value)}
             onChange={handleNumber}
+            disabled={disabled}
+          />
+        )
+      case "currency":
+        return (
+          <CurrencyInput
+            id={id}
+            value={value}
+            currency={field.options?.currency}
+            onChange={onChange}
             disabled={disabled}
           />
         )
@@ -173,10 +187,20 @@ export function CustomFieldInput({ field, value, onChange, disabled, className, 
             onChange={(assetId) => onChange(assetId)}
           />
         )
+      case "repeater":
+        return (
+          <RepeaterFieldInput
+            field={field}
+            value={value}
+            disabled={disabled}
+            onChange={onChange}
+            compact={compact}
+          />
+        )
       default:
         return null
     }
-  }, [field.type, field.label, value, choices, disabled, id, autoOpen, onPickerClose])
+  }, [field.type, field.label, field.options?.currency, value, choices, disabled, id, autoOpen, onPickerClose, compact])
 
   return (
     <div className={`space-y-1 ${className ?? ""}`}>

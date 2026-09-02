@@ -2,6 +2,7 @@ import { create } from "zustand"
 import { persist, createJSONStorage } from "zustand/middleware"
 import * as Sentry from "@sentry/nextjs"
 import { disconnectPusher } from "@/lib/pusher"
+import type { NavigationLabels } from "@/data/navigation"
 
 /**
  * Identifica al usuario en Sentry para que cada error reportado indique
@@ -29,6 +30,7 @@ export interface UserTenant {
   name: string
   plan?: UserPlan | null
   trial_ends_at?: string | null
+  navigation_labels?: NavigationLabels | null
 }
 
 export interface UserRole {

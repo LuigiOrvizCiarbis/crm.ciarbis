@@ -5,18 +5,21 @@ import { useState, useEffect, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { ContactAvatar } from "@/components/contact-avatar"
 import { Checkbox } from "@/components/ui/checkbox"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags } from "lucide-react"
+import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw } from "lucide-react"
 import { ImportContactsDialog } from "./import-contacts-dialog"
 import { BulkTagsDialog } from "./contacts/bulk-tags-dialog"
+import { ExtractDocumentDialog } from "./contacts/ExtractDocumentDialog"
+import { DocumentViewerSheet } from "./contacts/DocumentViewerSheet"
 import { getAuthToken } from "@/lib/api/auth-token"
 import { getPipelineStages } from "@/lib/api/pipeline"
 import { createOpportunity, getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
@@ -52,6 +55,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
+import { formatCurrency } from "@/lib/currency"
 
 interface Contact {
   id: number
@@ -78,26 +82,9 @@ const DEFAULT_FORM: { name: string; phone: string; email: string; source: string
   custom_data: {},
 }
 
-function getInitials(name: string): string {
-  return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
-}
-
 function capitalize(value: string): string {
   if (!value) return value
   return value.charAt(0).toUpperCase() + value.slice(1)
-}
-
-const AVATAR_GRADIENTS = [
-  "from-cyan-500 to-blue-600",
-  "from-violet-500 to-purple-600",
-  "from-emerald-500 to-green-600",
-  "from-orange-500 to-amber-600",
-  "from-pink-500 to-rose-600",
-  "from-indigo-500 to-blue-600",
-]
-
-function getAvatarGradient(id: number): string {
-  return AVATAR_GRADIENTS[id % AVATAR_GRADIENTS.length]
 }
 
 const sourceColors: Record<string, string> = {
@@ -138,6 +125,7 @@ const DEFAULT_COLUMNS: Column[] = [
 ]
 
 const COLUMN_ORDER_KEY = "contacts-column-order"
+const COLUMN_WIDTHS_KEY = "contacts-column-widths"
 const COLUMN_SORT_FIELDS: Partial<Record<ColumnId, SortField>> = {
   contact: "name",
   phone: "phone",
@@ -146,8 +134,10 @@ const COLUMN_SORT_FIELDS: Partial<Record<ColumnId, SortField>> = {
   lastContact: "updated_at",
 }
 
-function formatCustomValue(value: unknown, type: string | undefined): string {
+function formatCustomValue(value: unknown, type: string | undefined, currency?: unknown): string {
   if (value === null || value === undefined || value === "") return "—"
+  if (type === "currency") return formatCurrency(value, currency)
+  if (type === "repeater" && Array.isArray(value)) return `${value.length} elementos`
   if (Array.isArray(value)) return value.length > 0 ? value.join(", ") : "—"
   if (typeof value === "boolean") return value ? "Sí" : "No"
   if (type === "date" && typeof value === "string") {
@@ -186,18 +176,104 @@ function loadColumnOrder(): Column[] {
   }
 }
 
+function loadColumnWidths(): Record<string, string> {
+  if (typeof window === "undefined") return {}
+  try {
+    const saved = window.localStorage.getItem(COLUMN_WIDTHS_KEY)
+    return saved ? (JSON.parse(saved) as Record<string, string>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function widthInPixels(width: string): number {
+  const parsed = Number.parseFloat(width)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function widthWithMinimum(column: Column, width: number): string {
+  return `${Math.min(560, Math.max(widthInPixels(column.minWidth), Math.round(width)))}px`
+}
+
+function ColumnResizeHandle({
+  column,
+  onResize,
+  onAutoResize,
+}: {
+  column: Column
+  onResize: (columnId: ColumnId, delta: number) => void
+  onAutoResize: (columnId: ColumnId) => void
+}) {
+  const previousX = useRef<number | null>(null)
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    previousX.current = event.clientX
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (previousX.current === null) return
+    const delta = event.clientX - previousX.current
+    previousX.current = event.clientX
+    onResize(column.id, delta)
+  }
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
+    previousX.current = null
+    event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault()
+      event.stopPropagation()
+      const direction = event.key === "ArrowRight" ? 1 : -1
+      onResize(column.id, direction * (event.shiftKey ? 40 : 10))
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={`Ajustar ancho de ${column.labelKey || "columna"}`}
+      aria-valuemin={widthInPixels(column.minWidth)}
+      aria-valuenow={widthInPixels(column.width)}
+      aria-valuetext={`${widthInPixels(column.width)} píxeles`}
+      role="separator"
+      tabIndex={0}
+      className="absolute inset-y-0 right-0 z-10 w-3 cursor-col-resize touch-none rounded-sm outline-none transition-colors hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onDoubleClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onAutoResize(column.id)
+      }}
+      onKeyDown={handleKeyDown}
+      title="Arrastrar para ajustar. Doble clic para autoajustar."
+    />
+  )
+}
+
 function SortableHeader({
   column,
   label,
   sortField,
   sortDirection,
   onSort,
+  onResize,
+  onAutoResize,
 }: {
   column: Column
   label: string
   sortField: SortField
   sortDirection: SortDirection
   onSort: (columnId: ColumnId) => void
+  onResize: (columnId: ColumnId, delta: number) => void
+  onAutoResize: (columnId: ColumnId) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: column.id,
@@ -214,7 +290,7 @@ function SortableHeader({
 
   if (!column.draggable) {
     return (
-      <TableHead ref={setNodeRef} style={style} className={column.id === "actions" ? "text-right" : ""}>
+      <TableHead ref={setNodeRef} style={style} className={cn("relative", column.id === "actions" ? "text-right" : "")}>
         {label}
       </TableHead>
     )
@@ -229,7 +305,7 @@ function SortableHeader({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "select-none cursor-grab active:cursor-grabbing",
+        "relative select-none cursor-grab active:cursor-grabbing",
         column.id === "actions" ? "text-right" : "",
       )}
       {...attributes}
@@ -257,6 +333,7 @@ function SortableHeader({
           <span>{label}</span>
         )}
       </div>
+      <ColumnResizeHandle column={column} onResize={onResize} onAutoResize={onAutoResize} />
     </TableHead>
   )
 }
@@ -305,8 +382,22 @@ export function ContactsList({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
 
+  // Visor del documento adjunto de un campo tipo archivo. Se guarda el contacto
+  // y la clave para que reemplazar o quitar escriba en la celda correcta.
+  const [viewerTarget, setViewerTarget] = useState<{
+    contactId: number
+    key: string
+    label: string
+    assetId: number
+  } | null>(null)
+  const [viewerOpen, setViewerOpen] = useState(false)
+
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileContact, setProfileContact] = useState<Contact | null>(null)
+
+  // Extracción de datos desde un PDF. Vive acá y no en el panel de perfil
+  // porque ese es de sólo lectura y no recarga el contacto al confirmar.
+  const [extractionContact, setExtractionContact] = useState<Contact | null>(null)
 
   const [deleteContact, setDeleteContact] = useState<Contact | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -326,7 +417,7 @@ export function ContactsList({
       contactFields.map((f) => ({
         id: `custom:${f.key}` as ColumnId,
         labelKey: f.label,
-        width: "180px",
+        width: loadColumnWidths()[`custom:${f.key}`] ?? "180px",
         minWidth: "140px",
         draggable: true,
       })),
@@ -334,9 +425,16 @@ export function ContactsList({
   )
 
   const [columns, setColumns] = useState<Column[]>(DEFAULT_COLUMNS)
+  const [columnsHydrated, setColumnsHydrated] = useState(false)
+  const tableRef = useRef<HTMLTableElement | null>(null)
 
   useEffect(() => {
-    setColumns(loadColumnOrder())
+    const savedWidths = loadColumnWidths()
+    setColumns(loadColumnOrder().map((column) => ({
+      ...column,
+      width: savedWidths[column.id] ?? column.width,
+    })))
+    setColumnsHydrated(true)
   }, [])
 
   useEffect(() => {
@@ -358,9 +456,13 @@ export function ContactsList({
   }, [customFieldColumns])
 
   useEffect(() => {
-    if (typeof window === "undefined") return
+    if (typeof window === "undefined" || !columnsHydrated) return
     window.localStorage.setItem(COLUMN_ORDER_KEY, JSON.stringify(columns.map((c) => c.id)))
-  }, [columns])
+    window.localStorage.setItem(
+      COLUMN_WIDTHS_KEY,
+      JSON.stringify(Object.fromEntries(columns.map((column) => [column.id, column.width]))),
+    )
+  }, [columns, columnsHydrated])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -377,6 +479,37 @@ export function ContactsList({
       if (!items[oldIndex].draggable || !items[newIndex].draggable) return items
       return arrayMove(items, oldIndex, newIndex)
     })
+  }
+
+  const handleColumnResize = (columnId: ColumnId, delta: number): void => {
+    setColumns((current) => current.map((column) => {
+      if (column.id !== columnId) return column
+      return {
+        ...column,
+        width: widthWithMinimum(column, widthInPixels(column.width) + delta),
+      }
+    }))
+  }
+
+  const handleColumnAutoResize = (columnId: ColumnId): void => {
+    const column = columns.find((item) => item.id === columnId)
+    if (!column || !tableRef.current) return
+
+    const cells = Array.from(tableRef.current.querySelectorAll<HTMLElement>("[data-column-id]"))
+      .filter((cell) => cell.dataset.columnId === columnId)
+    const measuredWidth = cells.reduce((width, cell) => Math.max(width, cell.scrollWidth), 0)
+    const nextWidth = Math.min(560, Math.max(widthInPixels(column.minWidth), measuredWidth + 12))
+
+    setColumns((current) => current.map((item) => (
+      item.id === columnId ? { ...item, width: `${Math.round(nextWidth)}px` } : item
+    )))
+  }
+
+  const resetColumnWidths = (): void => {
+    setColumns((current) => current.map((column) => {
+      const defaultColumn = DEFAULT_COLUMNS.find((item) => item.id === column.id)
+      return defaultColumn ? { ...column, width: defaultColumn.width } : { ...column, width: "180px" }
+    }))
   }
 
   const handleSort = (columnId: ColumnId): void => {
@@ -618,6 +751,11 @@ export function ContactsList({
     }
   }
 
+  const openContactConversation = (contact: Contact) => {
+    const conversationId = contact.conversations?.[0]?.id
+    if (conversationId) router.push(`/chats?chat=${conversationId}`)
+  }
+
   const handleDeleteContact = async () => {
     if (!deleteContact) return
     setDeleting(true)
@@ -707,13 +845,20 @@ export function ContactsList({
       case "contact":
         return (
           <div className="flex items-center gap-3">
-            <Avatar className="w-9 h-9 flex-shrink-0">
-              <AvatarFallback
-                className={`text-xs font-bold bg-gradient-to-br ${getAvatarGradient(contact.id)} text-white`}
-              >
-                {getInitials(contact.name)}
-              </AvatarFallback>
-            </Avatar>
+            <button
+              type="button"
+              onClick={() => openContactConversation(contact)}
+              disabled={!contact.conversations?.[0]?.id}
+              className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default"
+              title={contact.conversations?.[0]?.id ? "Abrir conversación" : "Sin conversación"}
+            >
+              <ContactAvatar
+                contactId={contact.id}
+                name={contact.name}
+                className="w-9 h-9"
+                fallbackClassName="text-xs font-bold"
+              />
+            </button>
             <div className="min-w-0 flex-1">
               <EditableCell
                 type="text"
@@ -726,9 +871,14 @@ export function ContactsList({
                 className="px-1"
               />
               {contact.conversations && contact.conversations.length > 0 ? (
-                <p className="text-xs text-muted-foreground truncate max-w-[180px] px-1">
+                <button
+                  type="button"
+                  onClick={() => openContactConversation(contact)}
+                  className="block max-w-[180px] truncate rounded px-1 text-left text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  title="Abrir conversación"
+                >
                   {contact.conversations[0].last_message_content}
-                </p>
+                </button>
               ) : null}
             </div>
           </div>
@@ -856,6 +1006,9 @@ export function ContactsList({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => openProfileSheet(contact)}>Ver perfil</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openEditDialog(contact)}>Editar</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setExtractionContact(contact)}>
+                  Extraer datos de un PDF
+                </DropdownMenuItem>
                 <DropdownMenuItem>Crear tarea</DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={addingToPipelineId === contact.id}
@@ -891,6 +1044,36 @@ export function ContactsList({
           const isEditingThis = editingCell?.contactId === contact.id && editingCell.field === columnId
 
           if (isEditingThis) {
+            if (field.type === "repeater") {
+              return (
+                <Popover open onOpenChange={(open) => { if (!open) setEditingCell(null) }}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="w-full truncate rounded px-1 py-0.5 text-left text-sm text-foreground transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      aria-label={`Editar ${field.label}`}
+                    >
+                      {formatCustomValue(raw, field.type, field.options?.currency)}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    sideOffset={6}
+                    collisionPadding={24}
+                    sticky="always"
+                    className="w-auto max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+                  >
+                    <CustomFieldInput
+                      field={field}
+                      value={raw}
+                      compact
+                      onChange={(next) => handleCustomCellSave(contact, key, next)}
+                    />
+                  </PopoverContent>
+                </Popover>
+              )
+            }
+
             // Tipos que despliegan portales (Select/Radix) o múltiples controles no
             // deben cerrarse en blur, porque interactuar con el portal dispara blur.
             const usesPortal = field.type === "select" || field.type === "multi_select"
@@ -926,13 +1109,48 @@ export function ContactsList({
             )
           }
 
+          // Un campo tipo archivo se consulta mucho más de lo que se reemplaza,
+          // así que el click abre el documento en vez del uploader. Cambiar el
+          // archivo se hace desde el propio visor.
+          if (field.type === "file") {
+            const assetId = typeof raw === "number" ? raw : null
+
+            if (assetId === null) {
+              return (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none"
+                  onClick={() => setEditingCell({ contactId: contact.id, field: columnId })}
+                >
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  Subir archivo
+                </button>
+              )
+            }
+
+            return (
+              <button
+                type="button"
+                className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-sm text-foreground transition-colors hover:bg-muted/60 focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none"
+                aria-label={`Ver ${field.label} de ${contact.name}`}
+                onClick={() => {
+                  setViewerTarget({ contactId: contact.id, key, label: field.label, assetId })
+                  setViewerOpen(true)
+                }}
+              >
+                <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="truncate">Ver documento</span>
+              </button>
+            )
+          }
+
           return (
             <button
               type="button"
               className="w-full text-left rounded px-1 py-0.5 hover:bg-muted/60 transition-colors truncate text-sm text-foreground"
               onClick={() => setEditingCell({ contactId: contact.id, field: columnId })}
             >
-              {formatCustomValue(raw, field.type)}
+              {formatCustomValue(raw, field.type, field.options?.currency)}
             </button>
           )
         }
@@ -990,6 +1208,16 @@ export function ContactsList({
             </SelectContent>
           </Select>
           <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={resetColumnWidths}
+            title="Restablecer anchos de columnas"
+          >
+            <RotateCcw className="h-4 w-4" />
+            <span className="hidden lg:inline">Restablecer anchos</span>
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             disabled={loading || paginationMeta.current_page <= 1}
@@ -1030,6 +1258,50 @@ export function ContactsList({
         </div>
       )}
 
+      {extractionContact && (
+        <ExtractDocumentDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setExtractionContact(null)
+          }}
+          contactId={extractionContact.id}
+          currentCustomData={(extractionContact.custom_data as Record<string, unknown>) ?? {}}
+          onConfirmed={(customData) => {
+            // El backend devuelve el custom_data ya mergeado y validado: se usa
+            // ese en vez de recomponerlo acá.
+            setContacts((prev) =>
+              prev.map((c) => (c.id === extractionContact.id ? { ...c, custom_data: customData } : c)),
+            )
+            setExtractionContact((prev) => (prev ? { ...prev, custom_data: customData } : prev))
+          }}
+        />
+      )}
+
+      <DocumentViewerSheet
+        open={viewerOpen}
+        onOpenChange={(open) => {
+          setViewerOpen(open)
+          // El target se limpia después de la animación de salida para que el
+          // panel no se vacíe mientras se desliza.
+          if (!open) setTimeout(() => setViewerTarget(null), 300)
+        }}
+        assetId={viewerTarget?.assetId ?? null}
+        contactId={viewerTarget?.contactId ?? null}
+        fieldLabel={viewerTarget?.label}
+        onValueChange={(assetId) => {
+          if (!viewerTarget) return
+          const contact = contacts.find((c) => c.id === viewerTarget.contactId)
+          if (!contact) return
+          handleCustomCellSave(contact, viewerTarget.key, assetId)
+          if (assetId === null) {
+            setViewerOpen(false)
+            return
+          }
+          // Tras reemplazar, el visor apunta al archivo nuevo y lo recarga.
+          setViewerTarget({ ...viewerTarget, assetId })
+        }}
+      />
+
       <BulkTagsDialog
         open={bulkTagsOpen}
         onOpenChange={setBulkTagsOpen}
@@ -1052,17 +1324,100 @@ export function ContactsList({
         </div>
       ) : (
         <>
-          <div className="border rounded-lg overflow-hidden">
+          <div className="space-y-3 md:hidden">
+            {filteredContacts.map((contact) => {
+              const conversation = contact.conversations?.[0]
+              const conversationId = conversation?.id
+              const telHref = contact.phone ? `tel:${contact.phone.replace(/[^\d+]/g, "")}` : undefined
+              const mailHref = contact.email ? `mailto:${contact.email}` : undefined
+
+              return (
+                <div key={contact.id} className="rounded-lg border bg-card p-4 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <button
+                      type="button"
+                      onClick={() => openContactConversation(contact)}
+                      disabled={!conversationId}
+                      className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default"
+                      title={conversationId ? "Abrir conversación" : "Sin conversación"}
+                    >
+                      <ContactAvatar
+                        contactId={contact.id}
+                        name={contact.name}
+                        className="h-11 w-11"
+                        fallbackClassName="font-bold"
+                      />
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold text-foreground">{contact.name}</p>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {conversation?.last_message_content || "Sin conversación"}
+                      </p>
+                    </div>
+                    <Checkbox
+                      checked={selectedIds.has(contact.id)}
+                      onCheckedChange={() => toggleSelect(contact.id)}
+                      aria-label={`Seleccionar ${contact.name}`}
+                    />
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">Teléfono</p>
+                      <p className="truncate">{contact.phone || "—"}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">Email</p>
+                      <p className="truncate">{contact.email || "—"}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Badge className={sourceColors[contact.source] || "bg-gray-500/10 text-gray-600 border-gray-200"} variant="outline">
+                        {sourceLabels[contact.source] || contact.source}
+                      </Badge>
+                      <span className="truncate text-xs text-muted-foreground">{getLastContact(contact)}</span>
+                    </div>
+                    <Button
+                      variant={conversationId ? "default" : "outline"}
+                      size="sm"
+                      disabled={!conversationId}
+                      onClick={() => openContactConversation(contact)}
+                      className="min-h-10 shrink-0 gap-2"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      {conversationId ? "Abrir chat" : "Sin chat"}
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-end gap-1 border-t pt-3">
+                    <Button asChild={!!telHref} variant="ghost" size="sm" disabled={!telHref} className="h-10 w-10 p-0">
+                      {telHref ? <a href={telHref} aria-label={`Llamar a ${contact.name}`}><Phone className="h-4 w-4" /></a> : <Phone className="h-4 w-4" />}
+                    </Button>
+                    <Button asChild={!!mailHref} variant="ghost" size="sm" disabled={!mailHref} className="h-10 w-10 p-0">
+                      {mailHref ? <a href={mailHref} aria-label={`Enviar email a ${contact.name}`}><Mail className="h-4 w-4" /></a> : <Mail className="h-4 w-4" />}
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-10 px-3" onClick={() => openProfileSheet(contact)}>
+                      Ver perfil
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="hidden border rounded-lg overflow-hidden md:block">
             <div className="overflow-x-auto">
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
-                <Table className="min-w-[1100px]">
+                <Table ref={tableRef} className="min-w-[1100px] table-fixed">
                   <TableHeader className="sticky top-0 z-10 bg-background border-b">
                     <TableRow>
                       <SortableContext items={columns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
                         {columns.map((column) => {
                           if (column.id === "select") {
                             return (
-                              <TableHead key={column.id} style={{ width: column.width, minWidth: column.minWidth }} className="px-4">
+                              <TableHead key={column.id} data-column-id={column.id} style={{ width: column.width, minWidth: column.minWidth }} className="px-4">
                                 <Checkbox checked={allSelected} onCheckedChange={handleSelectAll} />
                               </TableHead>
                             )
@@ -1084,6 +1439,8 @@ export function ContactsList({
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={handleSort}
+                              onResize={handleColumnResize}
+                              onAutoResize={handleColumnAutoResize}
                             />
                           )
                         })}
@@ -1109,6 +1466,7 @@ export function ContactsList({
                           {columns.map((column) => (
                             <TableCell
                               key={column.id}
+                              data-column-id={column.id}
                               className={`py-3 ${column.id === "select" ? "px-4" : ""} ${column.id === "actions" ? "text-right" : ""}`}
                               style={{ width: column.width, minWidth: column.minWidth, maxWidth: column.width }}
                             >
@@ -1241,13 +1599,12 @@ export function ContactsList({
           {profileContact && (
             <div className="mt-6 space-y-6">
               <div className="flex items-center gap-4">
-                <Avatar className="w-16 h-16">
-                  <AvatarFallback
-                    className={`text-xl font-bold bg-gradient-to-br ${getAvatarGradient(profileContact.id)} text-white`}
-                  >
-                    {getInitials(profileContact.name)}
-                  </AvatarFallback>
-                </Avatar>
+                <ContactAvatar
+                  contactId={profileContact.id}
+                  name={profileContact.name}
+                  className="w-16 h-16"
+                  fallbackClassName="text-xl font-bold"
+                />
                 <div>
                   <h3 className="text-lg font-semibold">{profileContact.name}</h3>
                   <Badge className={sourceColors[profileContact.source] || "bg-gray-500/10 text-gray-600"} variant="outline">

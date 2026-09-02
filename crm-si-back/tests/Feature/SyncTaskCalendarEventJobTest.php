@@ -16,6 +16,7 @@ use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class SyncTaskCalendarEventJobTest extends TestCase
@@ -105,6 +106,10 @@ class SyncTaskCalendarEventJobTest extends TestCase
             new Response(409, [], json_encode(['error' => ['code' => 409, 'message' => 'The requested identifier already exists.']])),
             new Response(200, [], json_encode([
                 'id' => 'evt123',
+                'conferenceData' => ['entryPoints' => []],
+            ])),
+            new Response(200, [], json_encode([
+                'id' => 'evt123',
                 'htmlLink' => 'https://calendar.google.com/event?eid=evt123',
             ])),
         ]);
@@ -168,6 +173,113 @@ class SyncTaskCalendarEventJobTest extends TestCase
         $this->assertSame('pending', $sync->status);
         $this->assertSame('needs_reauth', $sync->last_error);
         $this->assertSame('needs_reauth', $connection->fresh()->status);
+    }
+
+    public function test_upsert_rethrows_quota_errors_so_the_queue_can_retry(): void
+    {
+        [$tenant, $user] = $this->makeConnectedUser();
+        $task = Task::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Reunión',
+            'type' => 'reunion',
+            'assigned_to' => $user->id,
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDay()->addMinutes(30),
+        ]);
+
+        $this->mockGoogleResponses([
+            new Response(403, [], json_encode(['error' => [
+                'code' => 403,
+                'message' => 'Quota exceeded',
+                'errors' => [['reason' => 'quotaExceeded']],
+            ]])),
+        ]);
+
+        $this->expectException(GoogleServiceException::class);
+        try {
+            (new SyncTaskCalendarEventJob($task->id, 'upsert'))->handle();
+        } finally {
+            $this->assertDatabaseHas('task_calendar_syncs', [
+                'task_id' => $task->id,
+                'status' => 'pending',
+                'last_error' => 'retrying',
+            ]);
+        }
+    }
+
+    public function test_recurrence_is_sent_as_an_rrule_and_conference_request_is_unique(): void
+    {
+        [$tenant, $user] = $this->makeConnectedUser();
+        $task = Task::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Reunión recurrente',
+            'type' => 'reunion',
+            'assigned_to' => $user->id,
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDay()->addMinutes(30),
+            'recurrence' => 'FREQ=WEEKLY;BYDAY=MO',
+        ]);
+        $sync = new TaskCalendarSync(['task_id' => $task->id, 'tenant_id' => $tenant->id]);
+        $method = new \ReflectionMethod(SyncTaskCalendarEventJob::class, 'buildEvent');
+        $method->setAccessible(true);
+
+        $event = $method->invoke(new SyncTaskCalendarEventJob($task->id, 'upsert'), $task, $sync);
+        $requestId = $event->getConferenceData()->getCreateRequest()->getRequestId();
+
+        $this->assertSame(['RRULE:FREQ=WEEKLY;BYDAY=MO'], $event->getRecurrence());
+        $this->assertMatchesRegularExpression('/^[0-9a-f-]{36}$/', $requestId);
+    }
+
+    public function test_utc_meeting_instant_is_sent_to_google_at_the_selected_local_time(): void
+    {
+        [$tenant, $user] = $this->makeConnectedUser();
+        $task = Task::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Reunión a las 17',
+            'type' => 'reunion',
+            'assigned_to' => $user->id,
+            // El navegador convierte 17:00 de Buenos Aires a este instante.
+            'starts_at' => '2026-08-31T20:00:00.000Z',
+            'ends_at' => '2026-08-31T20:30:00.000Z',
+            'meeting_timezone' => 'America/Argentina/Buenos_Aires',
+        ]);
+
+        $sync = new TaskCalendarSync(['task_id' => $task->id, 'tenant_id' => $tenant->id]);
+        $method = new \ReflectionMethod(SyncTaskCalendarEventJob::class, 'buildEvent');
+        $method->setAccessible(true);
+        $event = $method->invoke(new SyncTaskCalendarEventJob($task->id, 'upsert'), $task->fresh(), $sync);
+
+        $this->assertSame('2026-08-31T17:00:00-03:00', $event->getStart()->getDateTime());
+        $this->assertSame('2026-08-31T17:30:00-03:00', $event->getEnd()->getDateTime());
+        $this->assertSame('America/Argentina/Buenos_Aires', $event->getStart()->getTimeZone());
+    }
+
+    public function test_pending_meet_creation_is_polled_and_event_becomes_synced(): void
+    {
+        [$tenant, $user] = $this->makeConnectedUser();
+        $task = Task::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Reunión con Meet pendiente',
+            'type' => 'reunion',
+            'assigned_to' => $user->id,
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDay()->addMinutes(30),
+        ]);
+        Queue::fake();
+        $this->mockGoogleResponses([
+            new Response(200, [], json_encode(['id' => 'evt123', 'conferenceData' => [
+                'createRequest' => ['status' => ['statusCode' => 'pending']],
+            ]])),
+            new Response(200, [], json_encode(['id' => 'evt123', 'htmlLink' => 'https://calendar.google.com/event?eid=evt123', 'conferenceData' => [
+                'entryPoints' => [['entryPointType' => 'video', 'uri' => 'https://meet.google.com/abc-defg-hij']],
+            ]])),
+        ]);
+
+        (new SyncTaskCalendarEventJob($task->id, 'upsert'))->handle();
+        Queue::assertPushed(SyncTaskCalendarEventJob::class, fn ($job) => $job->action === 'refresh_conference');
+
+        (new SyncTaskCalendarEventJob($task->id, 'refresh_conference', conferencePoll: 1))->handle();
+        $this->assertSame('synced', TaskCalendarSync::where('task_id', $task->id)->value('status'));
     }
 
     public function test_cancel_action_deletes_event_and_marks_paused(): void

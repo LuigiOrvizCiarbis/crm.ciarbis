@@ -11,13 +11,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
  * @property int $tenant_id
  * @property int $channel_id
- * @property int $contact_id
+ * @property int|null $contact_id
+ * @property string $kind
  * @property int|null $assigned_to
  * @property string $status
  * @property bool $manual_unread
@@ -39,6 +41,7 @@ class Conversation extends Model
         'branch_id',
         'channel_id',
         'contact_id',
+        'kind',
         'assigned_to',
         'status',
         'manual_unread',
@@ -85,11 +88,26 @@ class Conversation extends Model
     }
 
     /**
-     * Relación con contact
+     * Relación con contact. Null en conversaciones de grupo (kind='group').
      */
     public function contact(): BelongsTo
     {
         return $this->belongsTo(Contact::class);
+    }
+
+    /**
+     * FK inversa: el grupo de WhatsApp que generó esta conversación, si es
+     * de tipo 'group'. Se guarda la relación del lado de WhatsAppGroup
+     * (conversation_id unique) para no tocar el $fillable de este modelo.
+     */
+    public function whatsappGroup(): HasOne
+    {
+        return $this->hasOne(WhatsAppGroup::class);
+    }
+
+    public function isGroup(): bool
+    {
+        return $this->kind === 'group';
     }
 
     /**
