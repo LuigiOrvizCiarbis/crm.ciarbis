@@ -18,12 +18,14 @@ use App\Http\Controllers\Api\GoogleCalendarConnectionController;
 use App\Http\Controllers\Api\IncomingWebhookController;
 use App\Http\Controllers\Api\InstagramCommentController;
 use App\Http\Controllers\Api\InvitationController;
+use App\Http\Controllers\Api\LinkPreviewController;
 use App\Http\Controllers\Api\MailIntakeController;
 use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MediaAssetController;
 use App\Http\Controllers\Api\MediaAssetDownloadController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\MessageHotkeyController;
+use App\Http\Controllers\Api\MessageMediaController;
 use App\Http\Controllers\Api\MessageTranslationController;
 use App\Http\Controllers\Api\NavigationLabelController;
 use App\Http\Controllers\Api\NoteController;
@@ -525,6 +527,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('messages/{message}', [MessageController::class, 'update']);
     Route::delete('messages/{message}', [MessageController::class, 'destroy']);
     Route::post('messages/{message}/translation', [MessageTranslationController::class, 'store']);
+    Route::get('messages/{message}/media', [MessageMediaController::class, 'show']);
+    Route::post('messages/{message}/link-preview', [LinkPreviewController::class, 'store'])->middleware('throttle:link-preview');
 
     Route::get('instagram-comments', [InstagramCommentController::class, 'index']);
     Route::get('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'show']);

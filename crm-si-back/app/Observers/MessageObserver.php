@@ -2,9 +2,11 @@
 
 namespace App\Observers;
 
-use App\Models\Message;
-use App\Models\ManualAiDraft;
 use App\Events\ManualAiDraftUpdated;
+use App\Jobs\FetchLinkPreviewJob;
+use App\Models\ManualAiDraft;
+use App\Models\Message;
+use App\Services\LinkPreviewService;
 
 class MessageObserver
 {
@@ -19,6 +21,10 @@ class MessageObserver
         foreach ($drafts as $draft) {
             $draft->update(['status' => 'cancelled']);
             broadcast(new ManualAiDraftUpdated($draft->fresh()));
+        }
+
+        if (app(LinkPreviewService::class)->extractFirstUrl($message->content) !== null) {
+            FetchLinkPreviewJob::dispatch($message->id);
         }
     }
 
