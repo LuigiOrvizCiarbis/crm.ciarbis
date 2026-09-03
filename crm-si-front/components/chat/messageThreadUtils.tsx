@@ -1,8 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { Music2 } from "lucide-react"
+import { FileText, Music2 } from "lucide-react"
 import { pauseOtherAudios } from "@/lib/audio"
+import { DocumentViewerSheet, type DocumentViewerSource } from "@/components/ui/DocumentViewerSheet"
 
 /**
  * Helpers compartidos del hilo de mensajes: resaltado de búsqueda, etiquetas de
@@ -17,14 +18,20 @@ function escapeRegExp(value: string): string {
 /**
  * Resalta las coincidencias de `query` dentro de `text`.
  * Marca la coincidencia activa con un color distinto para la navegación.
+ *
+ * `renderPart` es un hook opcional para transformar cada segmento de texto
+ * (matched o no) antes de devolverlo — lo usa MessageText para aplicar
+ * autolink también dentro de un <mark>, sin tener que recorrer JSX ya
+ * construido desde afuera.
  */
 export function highlightText(
   text: string,
   query: string,
   activeKey: string | null,
   matchKeyPrefix: string,
+  renderPart: (part: string, key: string) => React.ReactNode = (part) => part,
 ): React.ReactNode {
-  if (!query) return text
+  if (!query) return renderPart(text, matchKeyPrefix)
   const regex = new RegExp(`(${escapeRegExp(query)})`, "gi")
   const parts = text.split(regex)
   let matchIndex = 0
@@ -42,11 +49,11 @@ export function highlightText(
               : "rounded bg-yellow-300/70 px-0.5 text-black"
           }
         >
-          {part}
+          {renderPart(part, `${matchKeyPrefix}-mark-${i}`)}
         </mark>
       )
     }
-    return part
+    return renderPart(part, `${matchKeyPrefix}-part-${i}`)
   })
 }
 
@@ -228,5 +235,58 @@ export function MessageBubbleAudio({ mediaUrl, filename }: { mediaUrl: string; f
       </div>
       <audio controls src={mediaUrl} className="w-full max-w-[280px]" preload="metadata" onPlay={pauseOtherAudios} />
     </div>
+  )
+}
+
+export function MessageBubbleVideo({ mediaUrl }: { mediaUrl: string }) {
+  return (
+    <video
+      controls
+      src={mediaUrl}
+      preload="metadata"
+      className="max-h-[280px] max-w-[280px] rounded-lg bg-black/80"
+    />
+  )
+}
+
+/**
+ * Tarjeta de documento adjunto. A diferencia de imagen/audio/video, el archivo
+ * no se abre por media_full_url directo: los adjuntos de mensaje se sirven por
+ * el endpoint autenticado /api/messages/{id}/media (media_url público quedó
+ * como legado, ver plan de hipervínculos en chat), así que el visor pide el
+ * blob con el mismo messageId en vez de recibir una URL.
+ */
+export function MessageBubbleDocument({
+  messageId,
+  filename,
+  mimeType,
+  isUser,
+}: {
+  messageId: number
+  filename?: string | null
+  mimeType?: string | null
+  isUser: boolean
+}) {
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const source: DocumentViewerSource = { kind: "message", id: messageId, filename, mimeType }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setViewerOpen(true)}
+        className={`flex min-w-[200px] max-w-[260px] items-center gap-2 rounded-lg border border-current/15 p-2.5 text-left transition-colors hover:bg-background/40 ${
+          isUser ? "bg-primary/10" : "bg-background/40"
+        }`}
+      >
+        <FileText className="h-8 w-8 shrink-0 opacity-70" aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{filename || "Documento"}</span>
+          {mimeType && <span className="block truncate text-xs opacity-60">{mimeType}</span>}
+        </span>
+      </button>
+
+      <DocumentViewerSheet open={viewerOpen} onOpenChange={setViewerOpen} source={viewerOpen ? source : null} />
+    </>
   )
 }

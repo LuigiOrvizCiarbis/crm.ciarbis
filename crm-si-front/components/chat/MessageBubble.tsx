@@ -20,12 +20,15 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import {
-  highlightText,
   parseTemplateContent,
   MessageBubbleImage,
   MessageBubbleSticker,
   MessageBubbleAudio,
+  MessageBubbleVideo,
+  MessageBubbleDocument,
 } from "./messageThreadUtils"
+import { MessageText } from "./MessageText"
+import { LinkPreviewCard } from "./LinkPreviewCard"
 
 export interface TranslationState {
   content?: string
@@ -88,9 +91,13 @@ export function MessageBubble({
   const isImage = msg.message_type === "image" && mediaUrl
   const isSticker = msg.message_type === "sticker" && mediaUrl
   const isAudio = msg.message_type === "audio" && mediaUrl
+  const isVideo = msg.message_type === "video" && mediaUrl
+  // El documento no depende de mediaUrl (público, legado): se sirve por el
+  // endpoint autenticado /api/messages/{id}/media, así que basta con el tipo.
+  const isDocument = msg.message_type === "document"
   const isContacts = msg.message_type === "contacts" && Array.isArray(msg.contacts)
 
-  const parsed = !isImage && !isSticker && !isAudio && !isContacts && !isDeleted
+  const parsed = !isImage && !isSticker && !isAudio && !isVideo && !isDocument && !isContacts && !isDeleted
     ? parseTemplateContent(msg.content || "")
     : { isTemplate: false, title: "", body: "" }
 
@@ -215,9 +222,12 @@ export function MessageBubble({
         {msg.original_content}
       </p>
       <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-        {normalizedQuery
-          ? highlightText(msg.content || "", normalizedQuery, activeMatchKey, matchKeyPrefix)
-          : msg.content}
+        <MessageText
+          content={msg.content || ""}
+          query={normalizedQuery}
+          activeMatchKey={activeMatchKey}
+          matchKeyPrefix={matchKeyPrefix}
+        />
       </p>
     </div>
   ) : isImage && mediaUrl ? (
@@ -225,9 +235,12 @@ export function MessageBubble({
       <MessageBubbleImage mediaUrl={mediaUrl} isUser={isUser} />
       {msg.content && (
         <p className="mt-1 text-sm">
-          {normalizedQuery
-            ? highlightText(msg.content, normalizedQuery, activeMatchKey, matchKeyPrefix)
-            : msg.content}
+          <MessageText
+            content={msg.content}
+            query={normalizedQuery}
+            activeMatchKey={activeMatchKey}
+            matchKeyPrefix={matchKeyPrefix}
+          />
         </p>
       )}
     </div>
@@ -236,14 +249,50 @@ export function MessageBubble({
       <MessageBubbleSticker mediaUrl={mediaUrl} />
       {msg.content && (
         <p className="mt-1 text-sm">
-          {normalizedQuery
-            ? highlightText(msg.content, normalizedQuery, activeMatchKey, matchKeyPrefix)
-            : msg.content}
+          <MessageText
+            content={msg.content}
+            query={normalizedQuery}
+            activeMatchKey={activeMatchKey}
+            matchKeyPrefix={matchKeyPrefix}
+          />
         </p>
       )}
     </div>
   ) : isAudio && mediaUrl ? (
     <MessageBubbleAudio mediaUrl={mediaUrl} filename={msg.media_filename} />
+  ) : isVideo && mediaUrl ? (
+    <div className="space-y-1">
+      <MessageBubbleVideo mediaUrl={mediaUrl} />
+      {msg.content && (
+        <p className="mt-1 text-sm">
+          <MessageText
+            content={msg.content}
+            query={normalizedQuery}
+            activeMatchKey={activeMatchKey}
+            matchKeyPrefix={matchKeyPrefix}
+          />
+        </p>
+      )}
+    </div>
+  ) : isDocument ? (
+    <div className="space-y-1">
+      <MessageBubbleDocument
+        messageId={msg.id}
+        filename={msg.media_filename}
+        mimeType={msg.media_mime_type}
+        isUser={isUser}
+      />
+      {msg.content && (
+        <p className="mt-1 text-sm">
+          <MessageText
+            content={msg.content}
+            query={normalizedQuery}
+            activeMatchKey={activeMatchKey}
+            matchKeyPrefix={matchKeyPrefix}
+          />
+        </p>
+      )}
+    </div>
   ) : isContacts ? (
     <div className="space-y-2">
       {(msg.contacts as SharedContact[]).map((contact, index) => (
@@ -261,18 +310,27 @@ export function MessageBubble({
       <span className="text-xs font-medium opacity-75">{parsed.title}</span>
       {parsed.body && (
         <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-          {normalizedQuery
-            ? highlightText(parsed.body, normalizedQuery, activeMatchKey, matchKeyPrefix)
-            : parsed.body}
+          <MessageText
+            content={parsed.body}
+            query={normalizedQuery}
+            activeMatchKey={activeMatchKey}
+            matchKeyPrefix={matchKeyPrefix}
+          />
         </p>
       )}
     </div>
   ) : (
-    <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-      {normalizedQuery
-        ? highlightText(msg.content || "", normalizedQuery, activeMatchKey, matchKeyPrefix)
-        : msg.content}
-    </p>
+    <div>
+      <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
+        <MessageText
+          content={msg.content || ""}
+          query={normalizedQuery}
+          activeMatchKey={activeMatchKey}
+          matchKeyPrefix={matchKeyPrefix}
+        />
+      </p>
+      {msg.link_preview && <LinkPreviewCard preview={msg.link_preview} isUser={isUser} />}
+    </div>
   )
 
   const timestamp = msg.delivered_at || msg.created_at
@@ -345,7 +403,12 @@ export function MessageBubble({
               </div>
             ) : (
               <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-                {translationState.content}
+                <MessageText
+                  content={translationState.content || ""}
+                  query=""
+                  activeMatchKey={null}
+                  matchKeyPrefix={`${matchKeyPrefix}-translation`}
+                />
               </p>
             )}
           </div>

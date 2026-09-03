@@ -8,8 +8,8 @@ use App\Enums\MessageType;
 use App\Enums\SenderType;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -28,6 +28,7 @@ class Message extends Model
         'media_url',
         'media_mime_type',
         'media_filename',
+        'link_preview_id',
         'direction',
         'external_id',
         'mail_message_id',
@@ -109,6 +110,11 @@ class Message extends Model
     public function mailParent(): BelongsTo
     {
         return $this->belongsTo(self::class, 'mail_parent_message_id');
+    }
+
+    public function linkPreview(): BelongsTo
+    {
+        return $this->belongsTo(LinkPreview::class);
     }
 
     public function broadcastRecipient(): HasOne

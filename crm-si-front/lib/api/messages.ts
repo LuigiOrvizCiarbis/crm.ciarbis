@@ -2,6 +2,7 @@ import { Message, TranslationLanguage, SharedContact } from "@/data/types";
 import { getAuthToken } from "./auth-token";
 import { throwApiError } from "./api-error";
 import { audioExtensionForMime } from "@/lib/audio";
+import { AssetForbiddenError, AssetMissingError } from "./media-assets";
 
 // El grabador guarda el blob como "video/webm" en algunos navegadores (mismo
 // contenedor que un audio-only webm, pero el browser no distingue el track).
@@ -241,4 +242,48 @@ export async function translateMessage(
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) throwApiError(res.status, payload, "No se pudo traducir el mensaje");
   return payload.data;
+}
+
+/**
+ * Descarga el adjunto de un mensaje (documento/video) y devuelve una URL de
+ * objeto para el visor. Mismo motivo que fetchMediaAssetObjectUrl: el endpoint
+ * exige el token en un header, así que un <object>/<video> no puede pedirlo
+ * directo. Quien llame es responsable de URL.revokeObjectURL().
+ */
+export async function fetchMessageMediaObjectUrl(messageId: number, signal?: AbortSignal): Promise<string> {
+  const token = getAuthToken();
+  if (!token) throw new Error("Token faltante");
+
+  const res = await fetch(`/api/messages/${messageId}/media`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal,
+  });
+
+  if (res.status === 404) throw new AssetMissingError();
+  if (res.status === 403) throw new AssetForbiddenError();
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throwApiError(res.status, data, "No se pudo abrir el archivo");
+  }
+
+  return URL.createObjectURL(await res.blob());
+}
+
+/**
+ * Reintenta el unfurl de un mensaje cuya preview quedó "failed" o "pending".
+ * La preview "ok" llega sola por el broadcast de message.edited cuando el job
+ * en cola la resuelve; esto es sólo para el botón de reintento manual.
+ */
+export async function retryLinkPreview(messageId: number): Promise<void> {
+  const token = getAuthToken();
+  if (!token) throw new Error("Token faltante");
+
+  const res = await fetch(`/api/messages/${messageId}/link-preview`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throwApiError(res.status, payload, "No se pudo generar la vista previa del link");
 }

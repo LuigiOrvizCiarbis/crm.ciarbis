@@ -8,16 +8,16 @@ use App\Events\MessageDeleted;
 use App\Events\MessageEdited;
 use App\Exceptions\MetaApiException;
 use App\Http\Controllers\Controller;
-use App\Http\Resources\ContactResource;
 use App\Http\Requests\UpdateMessageRequest;
-use App\Models\Conversation;
+use App\Http\Resources\ContactResource;
 use App\Models\Contact;
+use App\Models\Conversation;
 use App\Models\Message;
 use App\Services\InstagramMessageService;
 use App\Services\MailMessageService;
 use App\Services\MessengerMessageService;
-use App\Services\WhatsAppMessageService;
 use App\Services\VoiceTranscoder;
+use App\Services\WhatsAppMessageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -66,7 +66,7 @@ class MessageController extends Controller
         $this->authorize('view', $conversation);
 
         $messages = Message::query()
-            ->with(['mailDetails', 'mailAttachments', 'interactions'])
+            ->with(['mailDetails', 'mailAttachments', 'interactions', 'linkPreview'])
             ->withTrashed()
             ->where('conversation_id', $conversation->id)
             ->whereNull('mail_parent_message_id')
@@ -159,8 +159,10 @@ class MessageController extends Controller
                 return response()->json(['message' => $e->getMessage()], 422);
             } catch (\RuntimeException $e) {
                 Log::warning('Error enviando contactos por WhatsApp', ['conversation_id' => $conversation->id, 'error' => $e->getMessage()]);
+
                 return response()->json(['message' => 'No se pudieron enviar los contactos por WhatsApp.'], 422);
             }
+
             return response()->json(['data' => $message], 201);
         }
 
@@ -357,6 +359,7 @@ class MessageController extends Controller
                 'message_type' => $messageType,
                 'contacts_count' => count($cards),
             ]);
+
             return response()->json(['message' => 'La tarjeta de contacto no existe.'], 404);
         }
 
@@ -428,6 +431,7 @@ class MessageController extends Controller
                 'index' => $index,
                 'error' => $e->getMessage(),
             ]);
+
             return response()->json(['message' => 'No se pudo guardar el contacto recibido. Verificá los permisos y los datos del contacto.'], 422);
         }
 
