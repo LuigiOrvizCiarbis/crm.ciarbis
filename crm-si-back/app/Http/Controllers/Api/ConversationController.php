@@ -3,13 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Enums\MessageDirection;
+use App\Enums\SenderType;
+use App\Events\ManualAiDraftUpdated;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendBroadcastMessageJob;
 use App\Models\Channel;
+use App\Models\Contact;
 use App\Models\Conversation;
-use App\Models\Message;
 use App\Models\ManualAiDraft;
-use App\Events\ManualAiDraftUpdated;
+use App\Models\Message;
 use App\Models\Opportunity;
 use App\Models\PipelineStage;
 use App\Models\WhatsAppTemplate;
@@ -206,7 +208,7 @@ class ConversationController extends Controller
         $conversation = Conversation::with([
             'messages' => function ($q) {
                 // CAMBIO SUGERIDO: Aumentar de 4 a 20 para llenar la pantalla inicial
-                $q->with(['mailDetails', 'mailAttachments'])
+                $q->with(['mailDetails', 'mailAttachments', 'linkPreview'])
                     ->whereNull('mail_parent_message_id')
                     ->orderBy('created_at', 'desc')
                     ->limit(20);
@@ -242,12 +244,12 @@ class ConversationController extends Controller
      * se puede hacer ->load('sender'): se resuelve a mano en batch por
      * sender_id contra Contact.
      *
-     * @param  \Illuminate\Support\Collection<int, Message>  $messages
+     * @param  Collection<int, Message>  $messages
      */
-    private function attachSenderNames(\Illuminate\Support\Collection $messages): void
+    private function attachSenderNames(Collection $messages): void
     {
         $contactIds = $messages
-            ->where('sender_type', \App\Enums\SenderType::CONTACT)
+            ->where('sender_type', SenderType::CONTACT)
             ->pluck('sender_id')
             ->filter()
             ->unique();
@@ -256,10 +258,10 @@ class ConversationController extends Controller
             return;
         }
 
-        $names = \App\Models\Contact::whereIn('id', $contactIds)->pluck('name', 'id');
+        $names = Contact::whereIn('id', $contactIds)->pluck('name', 'id');
 
         $messages->each(function ($message) use ($names) {
-            if ($message->sender_type === \App\Enums\SenderType::CONTACT && $names->has($message->sender_id)) {
+            if ($message->sender_type === SenderType::CONTACT && $names->has($message->sender_id)) {
                 $message->setAttribute('sender', ['id' => $message->sender_id, 'name' => $names->get($message->sender_id)]);
             }
         });
@@ -276,7 +278,7 @@ class ConversationController extends Controller
         // Obtenemos mensajes ordenados por fecha descendente (del más nuevo al más viejo)
         // Laravel Paginator se encarga de 'page=1', 'page=2', etc.
         $messages = $conversation->messages()
-            ->with(['mailDetails', 'mailAttachments'])
+            ->with(['mailDetails', 'mailAttachments', 'linkPreview'])
             ->whereNull('mail_parent_message_id')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
