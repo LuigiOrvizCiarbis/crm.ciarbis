@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Music2 } from "lucide-react"
 import { pauseOtherAudios } from "@/lib/audio"
+import { MessageReaction } from "@/data/types"
 
 /**
  * Helpers compartidos del hilo de mensajes: resaltado de búsqueda, etiquetas de
@@ -229,4 +230,52 @@ export function MessageBubbleAudio({ mediaUrl, filename }: { mediaUrl: string; f
       <audio controls src={mediaUrl} className="w-full max-w-[280px]" preload="metadata" onPlay={pauseOtherAudios} />
     </div>
   )
+}
+
+/**
+ * Proyección local del toggle de reacción, para el estado optimista. Q1: el
+ * lado del negocio tiene una sola reacción por mensaje (el contacto ve un
+ * único número de WhatsApp), así que el usuario actual nunca aparece dos
+ * veces — reaccionar de nuevo reemplaza, tocar la propia con el mismo emoji
+ * (o emoji === "") la quita. La respuesta del servidor siempre pisa esta
+ * proyección apenas llega.
+ */
+export function applyReactionToggle(
+  summary: MessageReaction[],
+  emoji: string,
+  currentUserId: number | undefined,
+): MessageReaction[] {
+  if (!currentUserId) return summary
+
+  // Primero se quita al usuario actual de dondequiera que estuviera (a lo
+  // sumo un emoji, por la regla de Q1), descartando el grupo si queda vacío.
+  const withoutMine = summary
+    .map((r) => {
+      const hadMine = (r.reactor_user_ids ?? []).includes(currentUserId)
+      if (!hadMine) return r
+      return {
+        ...r,
+        count: r.count - 1,
+        reactor_user_ids: (r.reactor_user_ids ?? []).filter((id) => id !== currentUserId),
+      }
+    })
+    .filter((r) => r.count > 0)
+
+  if (emoji === "") {
+    return withoutMine
+  }
+
+  const existing = withoutMine.find((r) => r.emoji === emoji)
+  if (existing) {
+    return withoutMine.map((r) =>
+      r.emoji === emoji
+        ? { ...r, count: r.count + 1, reactor_user_ids: [...(r.reactor_user_ids ?? []), currentUserId] }
+        : r
+    )
+  }
+
+  return [
+    ...withoutMine,
+    { emoji, count: 1, reactor_user_ids: [currentUserId], reacted_by_me: true },
+  ]
 }

@@ -1,4 +1,4 @@
-import { Message, TranslationLanguage, SharedContact } from "@/data/types";
+import { Message, MessageReaction, TranslationLanguage, SharedContact } from "@/data/types";
 import { getAuthToken } from "./auth-token";
 import { throwApiError } from "./api-error";
 import { audioExtensionForMime } from "@/lib/audio";
@@ -241,4 +241,28 @@ export async function translateMessage(
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) throwApiError(res.status, payload, "No se pudo traducir el mensaje");
   return payload.data;
+}
+
+/**
+ * Pone, cambia o quita la reacción del usuario actual. emoji: "" quita, que
+ * es el mismo contrato que usa WhatsApp — no hay un endpoint DELETE separado.
+ * Devuelve el agregado ya confirmado por el servidor.
+ */
+export async function reactToMessage(messageId: number, emoji: string): Promise<MessageReaction[]> {
+  const token = getAuthToken();
+  if (!token) throw new Error("Token faltante");
+
+  const res = await fetch(`/api/messages/${messageId}/reaction`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ emoji }),
+  });
+
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throwApiError(res.status, payload, "No se pudo enviar la reacción");
+  return payload.data ?? [];
 }

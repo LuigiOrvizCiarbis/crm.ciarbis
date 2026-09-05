@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\MediaAssetController;
 use App\Http\Controllers\Api\MediaAssetDownloadController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\MessageHotkeyController;
+use App\Http\Controllers\Api\MessageReactionController;
 use App\Http\Controllers\Api\MessageTranslationController;
 use App\Http\Controllers\Api\NavigationLabelController;
 use App\Http\Controllers\Api\NoteController;
@@ -531,6 +532,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('messages/{message}', [MessageController::class, 'update']);
     Route::delete('messages/{message}', [MessageController::class, 'destroy']);
     Route::post('messages/{message}/translation', [MessageTranslationController::class, 'store']);
+    Route::post('messages/{message}/reaction', [MessageReactionController::class, 'store']);
 
     Route::get('instagram-comments', [InstagramCommentController::class, 'index']);
     Route::get('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'show']);

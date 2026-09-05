@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Message } from "@/data/types";
+import { Message, MessageReaction } from "@/data/types";
 import { getPusher } from "@/lib/pusher";
 
 export interface MessageStatusUpdate {
@@ -12,12 +12,19 @@ export interface MessageStatusUpdate {
   error_message?: string | null;
 }
 
+export interface MessageReactionUpdate {
+  message_id: number;
+  conversation_id: number;
+  reactions: MessageReaction[];
+}
+
 interface UseReverbMessagesProps {
   conversationId: string | number | null;
   onMessage: (message: Message) => void;
   onEdited?: (message: Message) => void;
   onDeleted?: (data: { id: number; conversation_id: number }) => void;
   onStatus?: (status: MessageStatusUpdate) => void;
+  onReaction?: (data: MessageReactionUpdate) => void;
 }
 
 export function useSSEMessages({
@@ -26,11 +33,13 @@ export function useSSEMessages({
   onEdited,
   onDeleted,
   onStatus,
+  onReaction,
 }: UseReverbMessagesProps) {
   const onMessageRef = useRef(onMessage);
   const onEditedRef = useRef(onEdited);
   const onDeletedRef = useRef(onDeleted);
   const onStatusRef = useRef(onStatus);
+  const onReactionRef = useRef(onReaction);
 
   useEffect(() => {
     onMessageRef.current = onMessage;
@@ -47,6 +56,10 @@ export function useSSEMessages({
   useEffect(() => {
     onStatusRef.current = onStatus;
   }, [onStatus]);
+
+  useEffect(() => {
+    onReactionRef.current = onReaction;
+  }, [onReaction]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -68,6 +81,10 @@ export function useSSEMessages({
 
     channel.bind("message.status", (data: MessageStatusUpdate) => {
       onStatusRef.current?.(data);
+    });
+
+    channel.bind("message.reaction", (data: MessageReactionUpdate) => {
+      onReactionRef.current?.(data);
     });
 
     return () => {

@@ -55,7 +55,7 @@ class Message extends Model
         'updated_at' => 'datetime',
     ];
 
-    protected $appends = ['media_full_url'];
+    protected $appends = ['media_full_url', 'reaction_summary'];
 
     public function getMediaFullUrlAttribute(): ?string
     {
@@ -68,6 +68,22 @@ class Message extends Model
         }
 
         return rtrim(config('app.url'), '/').$this->media_url;
+    }
+
+    /**
+     * Agregado de reacciones listo para la burbuja. Devuelve null si la
+     * relación no está cargada, para no disparar una query por mensaje desde
+     * endpoints que no la pidieron (fail-safe: "no se ven reacciones", no N+1).
+     *
+     * @return list<array{emoji: string, count: int, reactor_user_ids: list<int>}>|null
+     */
+    public function getReactionSummaryAttribute(): ?array
+    {
+        if (! $this->relationLoaded('reactions')) {
+            return null;
+        }
+
+        return MessageReaction::summaryFor($this);
     }
 
     public function sender(): MorphTo
@@ -119,6 +135,11 @@ class Message extends Model
     public function interactions(): HasMany
     {
         return $this->hasMany(MessageInteraction::class, 'target_message_id');
+    }
+
+    public function reactions(): HasMany
+    {
+        return $this->hasMany(MessageReaction::class)->orderBy('reacted_at');
     }
 
     /**

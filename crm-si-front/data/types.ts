@@ -168,6 +168,15 @@ export interface WhatsAppTemplate {
   updated_at: string
 }
 
+export interface MessageReaction {
+  emoji: string
+  count: number
+  /** Sólo reacciones de usuarios del CRM; permite derivar "reaccioné yo" sin más queries. */
+  reactor_user_ids?: number[]
+  /** Sólo lo manda el back en la respuesta HTTP; en realtime se deriva de reactor_user_ids. */
+  reacted_by_me?: boolean
+}
+
 export interface Message {
   id: number
   conversation_id: number
@@ -185,6 +194,9 @@ export interface Message {
   // batch y se adjunta al serializar.
   sender?: { id: number; name: string } | null
   direction: "inbound" | "outbound"
+  // wamid de WhatsApp. Lo necesita canReact: sin esto, Meta no sabe a qué
+  // mensaje reaccionar.
+  external_id?: string | null
   delivered_at?: string | null
   read_at?: string | null
   played_at?: string | null
@@ -199,6 +211,7 @@ export interface Message {
   created_at: string
   updated_at?: string
   interactions?: Array<{ type: string; value?: string | null; content?: string | null; occurred_at: string }>
+  reaction_summary?: MessageReaction[] | null
 }
 
 export interface SharedContact {

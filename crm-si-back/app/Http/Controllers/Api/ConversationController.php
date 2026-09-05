@@ -206,7 +206,7 @@ class ConversationController extends Controller
         $conversation = Conversation::with([
             'messages' => function ($q) {
                 // CAMBIO SUGERIDO: Aumentar de 4 a 20 para llenar la pantalla inicial
-                $q->with(['mailDetails', 'mailAttachments'])
+                $q->with(['mailDetails', 'mailAttachments', 'reactions'])
                     ->whereNull('mail_parent_message_id')
                     ->orderBy('created_at', 'desc')
                     ->limit(20);
@@ -276,7 +276,7 @@ class ConversationController extends Controller
         // Obtenemos mensajes ordenados por fecha descendente (del más nuevo al más viejo)
         // Laravel Paginator se encarga de 'page=1', 'page=2', etc.
         $messages = $conversation->messages()
-            ->with(['mailDetails', 'mailAttachments'])
+            ->with(['mailDetails', 'mailAttachments', 'reactions'])
             ->whereNull('mail_parent_message_id')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);

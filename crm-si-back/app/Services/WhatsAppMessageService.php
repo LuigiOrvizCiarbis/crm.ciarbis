@@ -10,9 +10,11 @@ use App\Enums\SenderType;
 use App\Events\BroadcastResultsUpdated;
 use App\Events\MessageDeleted;
 use App\Events\MessageEdited;
+use App\Events\MessageReactionUpdated;
 use App\Events\MessageSent;
 use App\Events\MessageStatusUpdated;
 use App\Events\TenantMessageReceived;
+use App\Exceptions\MetaApiException;
 use App\Jobs\GenerateAiReplyJob;
 use App\Models\AiConfig;
 use App\Models\BroadcastRecipient;
@@ -22,12 +24,15 @@ use App\Models\ContactField;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageInteraction;
+use App\Models\MessageReaction;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Services\Concerns\ResolvesWhatsAppChannel;
 use App\Services\Concerns\ResolvesWhatsAppCredentials;
 use Carbon\Carbon;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
@@ -105,7 +110,7 @@ class WhatsAppMessageService
             }
 
             if ($messageType === 'reaction') {
-                $this->recordReactionInteraction($messageData, $tenantId);
+                $this->handleIncomingReaction($messageData, $contactData, $channel);
 
                 return null;
             }
@@ -631,6 +636,136 @@ class WhatsAppMessageService
         broadcast(new BroadcastResultsUpdated($recipient->campaign->id, $recipient->id));
     }
 
+    /**
+     * Reacción entrante del contacto. A diferencia del handler viejo
+     * (recordReactionInteraction, más abajo), esto se guarda SIEMPRE en
+     * message_reactions — no sólo si el target es de una campaña de difusión
+     * con resultados habilitados. La escritura en message_interactions se
+     * mantiene al final, sin tocarla, para no romper los reportes de difusión.
+     */
+    private function handleIncomingReaction(array $messageData, ?array $contactData, Channel $channel): void
+    {
+        $targetExternalId = $messageData['reaction']['message_id'] ?? null;
+        if (! $targetExternalId) {
+            Log::warning('WhatsApp reacción sin message_id, payload ignorado', [
+                'reaction' => $messageData['reaction'] ?? null,
+                'channel_id' => $channel->id,
+            ]);
+
+            return;
+        }
+
+        // withTrashed() es deliberado: si el mensaje fue borrado en el CRM
+        // pero el contacto igual reaccionó en su teléfono, se registra sin
+        // explotar. La burbuja no se ve (tombstone), pero el dato queda.
+        $target = Message::withTrashed()->where('external_id', $targetExternalId)->first();
+        if (! $target) {
+            Log::info('WhatsApp reacción a mensaje desconocido en el CRM', [
+                'external_id' => $targetExternalId,
+                'channel_id' => $channel->id,
+            ]);
+
+            return;
+        }
+
+        // external_id es unique GLOBAL y el webhook es público sin validación
+        // de firma: sin este guard, un wamid ajeno podría resolver a un
+        // mensaje de otro tenant y filtrar quién reaccionó a qué.
+        if ($target->tenant_id !== $channel->tenant_id) {
+            Log::warning('WhatsApp reacción: mensaje resuelto pertenece a otro tenant, ignorada', [
+                'external_id' => $targetExternalId,
+                'target_tenant_id' => $target->tenant_id,
+                'channel_tenant_id' => $channel->tenant_id,
+            ]);
+
+            return;
+        }
+
+        $contact = $this->findOrCreateContact($contactData, $messageData['from'] ?? '', $channel);
+
+        // La forma exacta del "remove" no está documentada por Meta; se trata
+        // emoji ausente, null o vacío como remoción, de forma defensiva.
+        $emoji = trim((string) ($messageData['reaction']['emoji'] ?? ''));
+
+        Log::info('WhatsApp reaction payload', ['reaction' => $messageData['reaction'] ?? null]);
+
+        $reactorKey = [
+            'message_id' => $target->id,
+            'reactor_type' => SenderType::CONTACT,
+            'reactor_id' => $contact->id,
+        ];
+
+        $eventReactedAt = $this->parseWebhookTimestamp($messageData['timestamp'] ?? null)->utc();
+
+        // Meta entrega con garantía at-least-once: un webhook reentregado o
+        // fuera de orden no debe pisar un estado más nuevo (p.ej. 👍 luego ❤️,
+        // donde el 👍 llega tarde) ni resucitar una reacción ya removida.
+        //
+        // Se compara contra el valor CRUDO de la columna, no contra el
+        // atributo casteado: `reacted_at` es timestampTz y siempre se
+        // escribe en UTC (acá y en el envío saliente), pero el cast
+        // 'datetime' de Eloquent reaplica config('app.timezone') al parsear
+        // sin importar el offset guardado — inofensivo en Postgres (el
+        // driver preserva el offset real), pero en SQLite (usado en tests)
+        // el offset se pierde y el valor se relee corrido 3h. Parsear el
+        // crudo como UTC explícito evita depender de esa diferencia de
+        // driver. Comparación a nivel de segundo porque el timestamp de
+        // Meta viene truncado a segundos, mientras que un `reacted_at`
+        // seteado con now() (envío saliente desde el CRM) conserva
+        // microsegundos.
+        $existing = MessageReaction::where($reactorKey)->first();
+        if ($existing) {
+            $existingReactedAt = Carbon::parse($existing->getRawOriginal('reacted_at'), 'UTC')->startOfSecond();
+            if ($eventReactedAt->lt($existingReactedAt)) {
+                Log::info('WhatsApp reacción fuera de orden ignorada', [
+                    'external_id' => $messageData['id'] ?? null,
+                    'existing_reacted_at' => $existingReactedAt,
+                    'event_reacted_at' => $eventReactedAt,
+                ]);
+
+                return;
+            }
+        }
+
+        try {
+            if ($emoji === '') {
+                MessageReaction::where($reactorKey)->delete();
+            } else {
+                MessageReaction::updateOrCreate($reactorKey, [
+                    'tenant_id' => $target->tenant_id,
+                    'conversation_id' => $target->conversation_id,
+                    'emoji' => $emoji,
+                    'external_id' => $messageData['id'] ?? null,
+                    'reacted_at' => $eventReactedAt,
+                ]);
+            }
+        } catch (QueryException $e) {
+            // Dos webhooks concurrentes pasando el check-then-insert a la vez
+            // sobre la unique de external_id: reentrega benigna, se ignora.
+            Log::info('WhatsApp reacción duplicada ignorada (unique constraint)', [
+                'external_id' => $messageData['id'] ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            return;
+        }
+
+        try {
+            broadcast(MessageReactionUpdated::forMessage($target));
+        } catch (\Exception $e) {
+            Log::error('Error broadcasting reacción entrante: '.$e->getMessage());
+        }
+
+        // No tocar: mantiene el flujo de analítica de difusiones intacto.
+        $this->recordReactionInteraction($messageData, $channel->tenant_id);
+    }
+
+    /**
+     * Registra la reacción como MessageInteraction únicamente cuando el
+     * mensaje reaccionado pertenece a una campaña de difusión con resultados
+     * habilitados — es la tabla de analítica de campañas, no el almacén de
+     * reacciones del chat (eso es message_reactions, ver handleIncomingReaction).
+     */
     private function recordReactionInteraction(array $messageData, int $tenantId): void
     {
         $targetExternalId = $messageData['reaction']['message_id'] ?? null;
@@ -652,7 +787,10 @@ class WhatsAppMessageService
                 'type' => $emoji ? 'reaction' : 'reaction_removed',
                 'value' => $emoji,
                 'payload' => $messageData['reaction'],
-                'occurred_at' => $this->parseWebhookTimestamp($messageData['timestamp'] ?? null),
+                // occurred_at es timestampTz: sin ->utc() acá queda 3h corrido
+                // respecto de message_reactions.reacted_at para el mismo evento
+                // (parseWebhookTimestamp devuelve hora local de la app).
+                'occurred_at' => $this->parseWebhookTimestamp($messageData['timestamp'] ?? null)->utc(),
             ],
         );
         broadcast(new BroadcastResultsUpdated($recipient->campaign->id, $recipient->id));
@@ -1628,6 +1766,102 @@ class WhatsAppMessageService
         $this->createMessage($attributes);
 
         return 'created';
+    }
+
+    /**
+     * Reacciona a un mensaje desde el CRM. $emoji vacío o null quita la
+     * reacción (contrato de Meta: mismo payload con emoji: ""). No crea un
+     * Message: la reacción es un atributo de otro mensaje, no una entrada
+     * nueva del timeline — por eso tampoco toca last_message_at/
+     * last_message_content ni apaga ai_autoreply_enabled (una reacción no es
+     * una respuesta ni un handoff).
+     */
+    public function sendReactionFromCRM(Message $message, ?string $emoji, User $user): ?MessageReaction
+    {
+        $conversation = $message->conversation;
+        if (! $conversation) {
+            throw new \InvalidArgumentException('El mensaje no tiene una conversación asociada.');
+        }
+
+        if ($conversation->channel?->type !== ChannelType::WHATSAPP) {
+            throw new \InvalidArgumentException('Las reacciones sólo están disponibles en canales de WhatsApp.');
+        }
+
+        if (! $message->external_id) {
+            throw new \InvalidArgumentException('Este mensaje todavía no se sincronizó con WhatsApp.');
+        }
+
+        if ($message->trashed()) {
+            throw new \InvalidArgumentException('No se puede reaccionar a un mensaje eliminado.');
+        }
+
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+            $this->resolveOutboundWhatsAppContext($conversation);
+
+        $emoji = trim((string) $emoji);
+
+        $response = Http::withToken($businessToken)
+            ->timeout(10)
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
+                'messaging_product' => 'whatsapp',
+                'recipient_type' => $recipientType,
+                'to' => $to,
+                'type' => 'reaction',
+                'reaction' => [
+                    'message_id' => $message->external_id,
+                    'emoji' => $emoji,
+                ],
+            ]);
+
+        if (! $response->successful()) {
+            throw MetaApiException::fromGraphResponse(ChannelType::WHATSAPP, $response->json());
+        }
+
+        // Q1: el contacto sólo ve una reacción del negocio (un solo número de
+        // WhatsApp), así que si otro usuario del CRM ya había reaccionado a
+        // este mensaje, se reemplaza en vez de acumularse. Transacción: Meta
+        // ya confirmó el envío, así que borrar la fila vieja y crear la nueva
+        // deben ser atómicos — si el create fallara suelto, el mensaje
+        // quedaría sin ninguna reacción local pese a que WhatsApp sí la tiene.
+        $reaction = DB::transaction(function () use ($message, $conversation, $user, $emoji, $response) {
+            MessageReaction::where([
+                'message_id' => $message->id,
+                'reactor_type' => SenderType::USER,
+            ])->delete();
+
+            if ($emoji === '') {
+                return null;
+            }
+
+            return MessageReaction::create([
+                'tenant_id' => $message->tenant_id,
+                'message_id' => $message->id,
+                'conversation_id' => $conversation->id,
+                'reactor_type' => SenderType::USER,
+                'reactor_id' => $user->id,
+                'emoji' => $emoji,
+                'external_id' => $response->json('messages.0.id'),
+                'reacted_at' => now(),
+            ]);
+        });
+
+        if ($emoji === '') {
+            try {
+                broadcast(MessageReactionUpdated::forMessage($message));
+            } catch (\Exception $e) {
+                Log::error('Error broadcasting reacción saliente removida: '.$e->getMessage());
+            }
+
+            return null;
+        }
+
+        try {
+            broadcast(MessageReactionUpdated::forMessage($message));
+        } catch (\Exception $e) {
+            Log::error('Error broadcasting reacción saliente: '.$e->getMessage());
+        }
+
+        return $reaction;
     }
 
     public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message

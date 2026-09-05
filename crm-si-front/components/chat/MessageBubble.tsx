@@ -2,6 +2,9 @@
 
 import { Message, TranslationLanguage, SharedContact } from "@/data/types"
 import { MessageStatus } from "./MessageStatus"
+import { MessageReactions } from "./MessageReactions"
+import { ReactionPicker } from "./ReactionPicker"
+import { EmojiPicker } from "./EmojiPicker"
 import { MoreHorizontal, Pencil, Trash2, Bot, Languages, EyeOff } from "lucide-react"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useLongPress } from "@/hooks/useLongPress"
@@ -16,8 +19,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Popover, PopoverContent, PopoverAnchor } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import {
   highlightText,
@@ -49,10 +54,13 @@ interface MessageBubbleProps {
   onTranslate: (message: Message) => void
   onEdit?: (message: Message) => void
   onDelete?: (message: Message) => void
+  onReact?: (message: Message, emoji: string) => void
   onSaveContact?: (message: Message, index: number) => void
   canEdit: boolean
   canDelete: boolean
   canTranslate: boolean
+  canReact: boolean
+  currentUserId?: number
   /** Muestra el nombre de quien escribió sobre las burbujas inbound de un grupo. */
   isGroupConversation?: boolean
 }
@@ -68,9 +76,12 @@ export function MessageBubble({
   onTranslate,
   onEdit,
   onDelete,
+  onReact,
   canEdit,
   canDelete,
   canTranslate,
+  canReact,
+  currentUserId,
   isGroupConversation = false,
   onSaveContact,
 }: MessageBubbleProps) {
@@ -99,7 +110,13 @@ export function MessageBubble({
     translationState?.sourceContent === msg.content &&
     translationState.targetLanguage === translationLanguage
 
-  const hasActions = canEdit || canDelete || canTranslate
+  const reactions = msg.reaction_summary ?? []
+  const myReaction = reactions.find((r) => !!currentUserId && (r.reactor_user_ids ?? []).includes(currentUserId))
+
+  // Un mensaje sin ninguna otra acción (p.ej. imagen inbound sin texto) igual
+  // necesita menú/long-press si se puede reaccionar: sin esto en hasActions,
+  // esos mensajes se quedan sin forma de abrir el picker.
+  const hasActions = canEdit || canDelete || canTranslate || canReact
 
   // El menú por hover es inalcanzable en touch: ahí las acciones se abren con
   // toque sostenido sobre la burbuja, igual que en WhatsApp.
@@ -107,6 +124,19 @@ export function MessageBubble({
   const longPress = useLongPress(() => {
     if (hasActions) setIsActionSheetOpen(true)
   })
+
+  // Picker completo de emoji, separado del DropdownMenu/Sheet de acciones:
+  // anidar un Popover/Sheet dentro de otro portal de Radix rompe el focus
+  // trap, así que primero se cierra el contenedor de acciones y luego se abre
+  // este.
+  const [isEmojiPopoverOpen, setIsEmojiPopoverOpen] = useState(false)
+  const [isEmojiSheetOpen, setIsEmojiSheetOpen] = useState(false)
+
+  const handleReactSelect = (emoji: string) => {
+    onReact?.(msg, emoji)
+    setIsEmojiPopoverOpen(false)
+    setIsEmojiSheetOpen(false)
+  }
 
   const sheetActions = [
     ...(canTranslate
@@ -144,53 +174,72 @@ export function MessageBubble({
   ]
 
   const actionsMenu = hasActions ? (
-    <div
-      className={`flex items-center opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100 ${
-        isUser ? "mr-1" : "ml-1"
-      }`}
-    >
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-7 w-7">
-            <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align={isUser ? "end" : "start"}>
-          {canTranslate && (
-            <DropdownMenuItem
-              onClick={() => onTranslate(msg)}
-              disabled={isCurrentTranslation && translationState.loading}
-            >
-              {isCurrentTranslation && translationState.visible ? (
-                <EyeOff className="h-4 w-4 mr-2" />
-              ) : (
-                <Languages className="h-4 w-4 mr-2" />
+    <Popover open={isEmojiPopoverOpen} onOpenChange={setIsEmojiPopoverOpen}>
+      <PopoverAnchor asChild>
+        <div
+          className={`flex items-center opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100 ${
+            isUser ? "mr-1" : "ml-1"
+          }`}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7">
+                <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align={isUser ? "end" : "start"}>
+              {canReact && onReact && (
+                <>
+                  <ReactionPicker
+                    onSelect={handleReactSelect}
+                    onMore={() => setIsEmojiPopoverOpen(true)}
+                    currentEmoji={myReaction?.emoji}
+                  />
+                  <DropdownMenuSeparator />
+                </>
               )}
-              {isCurrentTranslation && translationState.visible
-                ? t("chats.hideTranslation")
-                : isCurrentTranslation && translationState.content
-                  ? t("chats.showTranslation")
-                  : t("chats.translateMessage")}
-            </DropdownMenuItem>
-          )}
-          {canEdit && onEdit && (
-            <DropdownMenuItem onClick={() => onEdit(msg)}>
-              <Pencil className="h-4 w-4 mr-2" />
-              {t("chats.editMessage")}
-            </DropdownMenuItem>
-          )}
-          {canDelete && onDelete && (
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => onDelete(msg)}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              {t("chats.deleteMessage")}
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+              {canTranslate && (
+                <DropdownMenuItem
+                  onClick={() => onTranslate(msg)}
+                  disabled={isCurrentTranslation && translationState.loading}
+                >
+                  {isCurrentTranslation && translationState.visible ? (
+                    <EyeOff className="h-4 w-4 mr-2" />
+                  ) : (
+                    <Languages className="h-4 w-4 mr-2" />
+                  )}
+                  {isCurrentTranslation && translationState.visible
+                    ? t("chats.hideTranslation")
+                    : isCurrentTranslation && translationState.content
+                      ? t("chats.showTranslation")
+                      : t("chats.translateMessage")}
+                </DropdownMenuItem>
+              )}
+              {canEdit && onEdit && (
+                <DropdownMenuItem onClick={() => onEdit(msg)}>
+                  <Pencil className="h-4 w-4 mr-2" />
+                  {t("chats.editMessage")}
+                </DropdownMenuItem>
+              )}
+              {canDelete && onDelete && (
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => onDelete(msg)}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  {t("chats.deleteMessage")}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </PopoverAnchor>
+      {canReact && onReact && (
+        <PopoverContent align={isUser ? "end" : "start"} className="w-80 p-3">
+          <EmojiPicker onSelect={handleReactSelect} />
+        </PopoverContent>
+      )}
+    </Popover>
   ) : null
 
   // Radio asimétrico: la esquina del lado del emisor se endereza sólo en el
@@ -279,8 +328,6 @@ export function MessageBubble({
   // Los mensajes fallidos siempre conservan su estado visible, aunque otro
   // mensaje del mismo emisor los siga dentro de la ventana de agrupación.
   const showStatusRow = isLastOfGroup || (msg.direction === "outbound" && !!msg.failed_at)
-  const latestReaction = msg.interactions?.filter((item) => item.type === "reaction" || item.type === "reaction_removed").at(-1)
-  const currentReaction = latestReaction?.type === "reaction" ? latestReaction.value : null
 
   return (
     <div
@@ -290,89 +337,95 @@ export function MessageBubble({
     >
       {isUser && actionsMenu}
 
-      <div
-        className={`relative max-w-[80%] overflow-visible break-words px-3 py-2 sm:max-w-[75%] ${corner} ${surface} ${
-          hasActions ? "[-webkit-touch-callout:none]" : ""
-        }`}
-        {...(hasActions ? longPress : {})}
-      >
-        {isBot && (
-          <div className="mb-1 flex items-center gap-1 text-[11px] font-medium text-primary">
-            <Bot className="h-3 w-3" />
-            {t("chats.aiBadge")}
-          </div>
-        )}
+      {/* Wrapper en columna: la burbuja y los chips de reacción son hermanos
+          en flujo normal (no absolute), así una tanda de mensajes agrupados
+          con mt-0.5 nunca queda tapada por los chips del anterior. */}
+      <div className={`flex max-w-[80%] flex-col sm:max-w-[75%] ${isOwn ? "items-end" : "items-start"}`}>
+        <div
+          className={`relative w-fit max-w-full overflow-visible break-words px-3 py-2 ${corner} ${surface} ${
+            hasActions ? "[-webkit-touch-callout:none]" : ""
+          }`}
+          {...(hasActions ? longPress : {})}
+        >
+          {isBot && (
+            <div className="mb-1 flex items-center gap-1 text-[11px] font-medium text-primary">
+              <Bot className="h-3 w-3" />
+              {t("chats.aiBadge")}
+            </div>
+          )}
 
-        {isGroupConversation && !isOwn && isFirstOfGroup && msg.sender?.name && (
-          <div className="mb-0.5 text-[11px] font-semibold text-primary">
-            {msg.sender.name}
-          </div>
-        )}
+          {isGroupConversation && !isOwn && isFirstOfGroup && msg.sender?.name && (
+            <div className="mb-0.5 text-[11px] font-semibold text-primary">
+              {msg.sender.name}
+            </div>
+          )}
 
-        {body}
+          {body}
 
-        {currentReaction && (
-          <span className="absolute -bottom-3 right-2 rounded-full border bg-background px-1.5 text-sm shadow-sm" aria-label={`Reacción ${currentReaction}`}>
-            {currentReaction}
-          </span>
-        )}
-
-        {translationState?.visible && isCurrentTranslation && (
-          <div className="mt-2 border-t border-current/15 pt-2" aria-live="polite">
-            <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-medium opacity-70">
-              <span className="inline-flex items-center gap-1">
-                <Languages className="h-3 w-3" />
-                {t("chats.translationTo", { language: t(`chats.language.${translationLanguage}`) })}
-              </span>
-              {!translationState.loading && !translationState.error && (
-                <button
-                  type="button"
-                  className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => onTranslate(msg)}
-                >
-                  {t("chats.hideTranslation")}
-                </button>
+          {translationState?.visible && isCurrentTranslation && (
+            <div className="mt-2 border-t border-current/15 pt-2" aria-live="polite">
+              <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-medium opacity-70">
+                <span className="inline-flex items-center gap-1">
+                  <Languages className="h-3 w-3" />
+                  {t("chats.translationTo", { language: t(`chats.language.${translationLanguage}`) })}
+                </span>
+                {!translationState.loading && !translationState.error && (
+                  <button
+                    type="button"
+                    className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => onTranslate(msg)}
+                  >
+                    {t("chats.hideTranslation")}
+                  </button>
+                )}
+              </div>
+              {translationState.loading ? (
+                <div className="space-y-1.5 py-1" aria-label={t("chats.translating")}>
+                  <div className="h-3 w-full animate-pulse rounded-sm bg-current/10 motion-reduce:animate-none" />
+                  <div className="h-3 w-2/3 animate-pulse rounded-sm bg-current/10 motion-reduce:animate-none" />
+                </div>
+              ) : translationState.error ? (
+                <div className="flex items-start justify-between gap-2 text-xs">
+                  <span className="opacity-80">{translationState.error}</span>
+                </div>
+              ) : (
+                <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
+                  {translationState.content}
+                </p>
               )}
             </div>
-            {translationState.loading ? (
-              <div className="space-y-1.5 py-1" aria-label={t("chats.translating")}>
-                <div className="h-3 w-full animate-pulse rounded-sm bg-current/10 motion-reduce:animate-none" />
-                <div className="h-3 w-2/3 animate-pulse rounded-sm bg-current/10 motion-reduce:animate-none" />
-              </div>
-            ) : translationState.error ? (
-              <div className="flex items-start justify-between gap-2 text-xs">
-                <span className="opacity-80">{translationState.error}</span>
-              </div>
-            ) : (
-              <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-                {translationState.content}
-              </p>
-            )}
-          </div>
-        )}
+          )}
 
-        {/* La hora vive dentro de la burbuja, alineada abajo a la derecha junto
-            al estado. Normalmente sólo el último de la tanda la muestra; los
-            fallos mantienen su estado visible en cada mensaje. */}
-        {showStatusRow && (timestamp || msg.failed_at) && (
-          <div
-            className={`mt-0.5 flex items-center justify-end gap-1 text-[11px] ${
-              isUser ? "" : "text-muted-foreground"
-            }`}
-          >
-            {isEdited && <span className="opacity-80">{t("chats.edited")}</span>}
-            {timestamp && (
-              <span className={`tabular-nums ${isUser ? "text-primary-foreground/70" : ""}`}>
-                {new Date(timestamp).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  hour12: true,
-                })}
-              </span>
-            )}
-            <MessageStatus message={msg} onAccent={isUser} />
-          </div>
-        )}
+          {/* La hora vive dentro de la burbuja, alineada abajo a la derecha junto
+              al estado. Normalmente sólo el último de la tanda la muestra; los
+              fallos mantienen su estado visible en cada mensaje. */}
+          {showStatusRow && (timestamp || msg.failed_at) && (
+            <div
+              className={`mt-0.5 flex items-center justify-end gap-1 text-[11px] ${
+                isUser ? "" : "text-muted-foreground"
+              }`}
+            >
+              {isEdited && <span className="opacity-80">{t("chats.edited")}</span>}
+              {timestamp && (
+                <span className={`tabular-nums ${isUser ? "text-primary-foreground/70" : ""}`}>
+                  {new Date(timestamp).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: true,
+                  })}
+                </span>
+              )}
+              <MessageStatus message={msg} onAccent={isUser} />
+            </div>
+          )}
+        </div>
+
+        <MessageReactions
+          reactions={reactions}
+          currentUserId={currentUserId}
+          onToggle={(emoji) => onReact?.(msg, emoji)}
+          disabled={!canReact || !onReact}
+        />
       </div>
 
       {!isUser && actionsMenu}
@@ -385,6 +438,22 @@ export function MessageBubble({
               {msg.content || t("chats.messageWithoutText")}
             </p>
           </SheetHeader>
+          {canReact && onReact && (
+            <div className="border-b border-border px-2 pb-3">
+              <ReactionPicker
+                size="touch"
+                onSelect={(emoji) => {
+                  setIsActionSheetOpen(false)
+                  handleReactSelect(emoji)
+                }}
+                onMore={() => {
+                  setIsActionSheetOpen(false)
+                  setIsEmojiSheetOpen(true)
+                }}
+                currentEmoji={myReaction?.emoji}
+              />
+            </div>
+          )}
           <div className="flex flex-col px-2 pb-6">
             {sheetActions.map((action) => (
               <button
@@ -405,6 +474,19 @@ export function MessageBubble({
           </div>
         </SheetContent>
       </Sheet>
+
+      {canReact && onReact && (
+        <Sheet open={isEmojiSheetOpen} onOpenChange={setIsEmojiSheetOpen}>
+          <SheetContent side="bottom" className="gap-0 rounded-t-2xl pb-[env(safe-area-inset-bottom)]">
+            <SheetHeader className="pb-2">
+              <SheetTitle className="text-base">{t("chats.reactionsTitle")}</SheetTitle>
+            </SheetHeader>
+            <div className="px-4 pb-6">
+              <EmojiPicker size="touch" onSelect={handleReactSelect} />
+            </div>
+          </SheetContent>
+        </Sheet>
+      )}
     </div>
   )
 }
