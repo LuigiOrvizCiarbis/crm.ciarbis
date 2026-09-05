@@ -9,6 +9,13 @@ export interface ContactsSummary {
   qualified: number
   won: number
   conversion_rate: number
+  // Cobranzas: el backend emite estas tres claves SOLO si el tenant tiene el
+  // módulo habilitado (billing_configs.enabled). Su ausencia es la señal de
+  // "módulo apagado" — por eso son opcionales y no números en 0, que se
+  // confundirían con "todo al día".
+  billing_al_dia?: number
+  billing_por_vencer?: number
+  billing_vencido?: number
 }
 
 export interface ContactUpdate {

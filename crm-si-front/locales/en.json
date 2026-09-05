@@ -155,6 +155,11 @@
         "menuTitle": "Filter by range",
         "from": "From",
         "to": "To"
+      },
+      "audience": {
+        "label": "Audience",
+        "all": "All",
+        "clients": "Clients"
       }
     },
     "actions": {
@@ -167,7 +172,10 @@
       "activeLeads": "Active Leads",
       "qualified": "Qualified",
       "conversionRate": "Conversion Rate",
-      "vsPrevious": "vs {value} last month"
+      "vsPrevious": "vs {value} last month",
+      "billingAlDia": "Up to date",
+      "billingPorVencer": "Due soon",
+      "billingVencido": "Overdue"
     },
     "table": {
       "contact": "Contact",
