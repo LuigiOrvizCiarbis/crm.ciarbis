@@ -345,6 +345,7 @@ interface ContactsListProps {
   sourceFilter?: string
   tagFilterSlugs?: string[]
   customRangeFilter?: Record<string, RangeFilterValue>
+  audience?: "all" | "clients"
 }
 
 export function ContactsList({
@@ -353,6 +354,7 @@ export function ContactsList({
   sourceFilter = "all",
   tagFilterSlugs = [],
   customRangeFilter = {},
+  audience = "all",
 }: ContactsListProps = {}) {
   const { t } = useTranslation()
   const router = useRouter()
@@ -588,13 +590,13 @@ export function ContactsList({
 
   useEffect(() => {
     setPage(1)
-  }, [searchTerm, sourceFilter, tagFilterSlugs, customRangeFilter, perPage, sortField, sortDirection])
+  }, [searchTerm, sourceFilter, tagFilterSlugs, customRangeFilter, audience, perPage, sortField, sortDirection])
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => fetchContacts(), 300)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [searchTerm, sourceFilter, tagFilterSlugs, customRangeFilter, page, perPage, sortField, sortDirection])
+  }, [searchTerm, sourceFilter, tagFilterSlugs, customRangeFilter, audience, page, perPage, sortField, sortDirection])
 
   useEffect(() => {
     return () => {
@@ -629,6 +631,7 @@ export function ContactsList({
         if (range.from) queryParams.append(`custom_range[${key}][from]`, range.from)
         if (range.to) queryParams.append(`custom_range[${key}][to]`, range.to)
       }
+      if (audience === "clients") queryParams.append("billing", "clients")
       queryParams.append("page", String(page))
       queryParams.append("per_page", String(perPage))
       queryParams.append("sort_by", sortField)

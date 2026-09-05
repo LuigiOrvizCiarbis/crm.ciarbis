@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Enums\ContactFieldType;
+use App\Models\BillingConfig;
 use App\Models\ContactField;
 use App\Support\TimezoneAliases;
 use Illuminate\Contracts\Validation\Validator;
@@ -12,16 +13,6 @@ use Illuminate\Validation\Rule;
 
 class BillingConfigRequest extends FormRequest
 {
-    /**
-     * Estados que el motor de cobranzas entiende de forma literal (Fase 5 del
-     * plan): billing:roll-cycle y las reglas provisionadas por
-     * billing:provision comparan contra estos valores exactos. No son
-     * vocabulario libre del tenant como el nombre del campo — el campo
-     * Select puede tener choices adicionales, pero estos tres tienen que
-     * estar.
-     */
-    private const REQUIRED_STATUS_CHOICES = ['al_dia', 'impago', 'en_prueba'];
-
     public function authorize(): bool
     {
         return (bool) $this->user()?->can('billing.manage');
@@ -79,7 +70,7 @@ class BillingConfigRequest extends FormRequest
                 return;
             }
             $choices = is_array($statusField->options['choices'] ?? null) ? $statusField->options['choices'] : [];
-            $missing = array_diff(self::REQUIRED_STATUS_CHOICES, $choices);
+            $missing = array_diff(BillingConfig::STATUSES, $choices);
             if ($missing !== []) {
                 $v->errors()->add(
                     'status_field_key',

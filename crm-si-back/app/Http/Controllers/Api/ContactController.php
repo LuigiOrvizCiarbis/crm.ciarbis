@@ -84,6 +84,26 @@ class ContactController extends Controller
             }
         }
 
+        // Un contacto cuenta como cliente con ciclo de cobranza activo cuando
+        // tiene el campo de estado cargado con alguno de los valores que el
+        // motor entiende (BillingConfig::STATUSES). No hay flag ni tabla
+        // aparte: la "calificación" ocurre al cargarle ese campo, sea a mano
+        // o por webhook. Sin config habilitada el filtro no aplica — el front
+        // tampoco ofrece el control en ese caso.
+        if ($request->query('billing') === 'clients') {
+            $billingConfig = BillingConfig::where('tenant_id', $user->tenant_id)
+                ->where('enabled', true)
+                ->first();
+
+            if ($billingConfig) {
+                $q->where(function ($w) use ($billingConfig) {
+                    foreach (BillingConfig::STATUSES as $status) {
+                        $w->orWhereRaw('custom_data ->> ? = ?', [$billingConfig->status_field_key, $status]);
+                    }
+                });
+            }
+        }
+
         $sortBy = (string) $request->query('sort_by', 'updated_at');
         $sortDir = strtolower((string) $request->query('sort_dir', 'desc')) === 'asc' ? 'asc' : 'desc';
         $sortableColumns = ['name', 'phone', 'email', 'source', 'created_at', 'updated_at'];
