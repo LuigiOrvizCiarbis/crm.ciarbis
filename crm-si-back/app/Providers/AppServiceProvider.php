@@ -93,6 +93,12 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('incoming-webhooks', fn (Request $request) => Limit::perMinute(60)
             ->by($request->header('X-Api-Key') ?: $request->ip()));
 
+        // Reintento manual de preview de link: dispara un fetch síncrono a una
+        // URL externa por request, así que se limita por usuario para no
+        // habilitar un uso como proxy de fetch arbitrario.
+        RateLimiter::for('link-preview', fn (Request $request) => Limit::perMinute(20)
+            ->by($request->user()?->id ?: $request->ip()));
+
         Gate::policy(Branch::class, BranchPolicy::class);
         Gate::policy(Channel::class, ChannelPolicy::class);
         Gate::policy(Contact::class, ContactPolicy::class);

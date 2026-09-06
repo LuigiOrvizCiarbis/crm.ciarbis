@@ -25,12 +25,15 @@ import {
 import { Popover, PopoverContent, PopoverAnchor } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import {
-  highlightText,
   parseTemplateContent,
   MessageBubbleImage,
   MessageBubbleSticker,
   MessageBubbleAudio,
+  MessageBubbleVideo,
+  MessageBubbleDocument,
 } from "./messageThreadUtils"
+import { MessageText } from "./MessageText"
+import { LinkPreviewCard } from "./LinkPreviewCard"
 
 export interface TranslationState {
   content?: string
@@ -99,9 +102,13 @@ export function MessageBubble({
   const isImage = msg.message_type === "image" && mediaUrl
   const isSticker = msg.message_type === "sticker" && mediaUrl
   const isAudio = msg.message_type === "audio" && mediaUrl
+  const isVideo = msg.message_type === "video" && mediaUrl
+  // El documento no depende de mediaUrl (público, legado): se sirve por el
+  // endpoint autenticado /api/messages/{id}/media, así que basta con el tipo.
+  const isDocument = msg.message_type === "document"
   const isContacts = msg.message_type === "contacts" && Array.isArray(msg.contacts)
 
-  const parsed = !isImage && !isSticker && !isAudio && !isContacts && !isDeleted
+  const parsed = !isImage && !isSticker && !isAudio && !isVideo && !isDocument && !isContacts && !isDeleted
     ? parseTemplateContent(msg.content || "")
     : { isTemplate: false, title: "", body: "" }
 
@@ -264,9 +271,12 @@ export function MessageBubble({
         {msg.original_content}
       </p>
       <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-        {normalizedQuery
-          ? highlightText(msg.content || "", normalizedQuery, activeMatchKey, matchKeyPrefix)
-          : msg.content}
+        <MessageText
+          content={msg.content || ""}
+          query={normalizedQuery}
+          activeMatchKey={activeMatchKey}
+          matchKeyPrefix={matchKeyPrefix}
+        />
       </p>
     </div>
   ) : isImage && mediaUrl ? (
@@ -274,9 +284,12 @@ export function MessageBubble({
       <MessageBubbleImage mediaUrl={mediaUrl} isUser={isUser} />
       {msg.content && (
         <p className="mt-1 text-sm">
-          {normalizedQuery
-            ? highlightText(msg.content, normalizedQuery, activeMatchKey, matchKeyPrefix)
-            : msg.content}
+          <MessageText
+            content={msg.content}
+            query={normalizedQuery}
+            activeMatchKey={activeMatchKey}
+            matchKeyPrefix={matchKeyPrefix}
+          />
         </p>
       )}
     </div>
@@ -285,14 +298,50 @@ export function MessageBubble({
       <MessageBubbleSticker mediaUrl={mediaUrl} />
       {msg.content && (
         <p className="mt-1 text-sm">
-          {normalizedQuery
-            ? highlightText(msg.content, normalizedQuery, activeMatchKey, matchKeyPrefix)
-            : msg.content}
+          <MessageText
+            content={msg.content}
+            query={normalizedQuery}
+            activeMatchKey={activeMatchKey}
+            matchKeyPrefix={matchKeyPrefix}
+          />
         </p>
       )}
     </div>
   ) : isAudio && mediaUrl ? (
     <MessageBubbleAudio mediaUrl={mediaUrl} filename={msg.media_filename} />
+  ) : isVideo && mediaUrl ? (
+    <div className="space-y-1">
+      <MessageBubbleVideo mediaUrl={mediaUrl} />
+      {msg.content && (
+        <p className="mt-1 text-sm">
+          <MessageText
+            content={msg.content}
+            query={normalizedQuery}
+            activeMatchKey={activeMatchKey}
+            matchKeyPrefix={matchKeyPrefix}
+          />
+        </p>
+      )}
+    </div>
+  ) : isDocument ? (
+    <div className="space-y-1">
+      <MessageBubbleDocument
+        messageId={msg.id}
+        filename={msg.media_filename}
+        mimeType={msg.media_mime_type}
+        isUser={isUser}
+      />
+      {msg.content && (
+        <p className="mt-1 text-sm">
+          <MessageText
+            content={msg.content}
+            query={normalizedQuery}
+            activeMatchKey={activeMatchKey}
+            matchKeyPrefix={matchKeyPrefix}
+          />
+        </p>
+      )}
+    </div>
   ) : isContacts ? (
     <div className="space-y-2">
       {(msg.contacts as SharedContact[]).map((contact, index) => (
@@ -310,18 +359,27 @@ export function MessageBubble({
       <span className="text-xs font-medium opacity-75">{parsed.title}</span>
       {parsed.body && (
         <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-          {normalizedQuery
-            ? highlightText(parsed.body, normalizedQuery, activeMatchKey, matchKeyPrefix)
-            : parsed.body}
+          <MessageText
+            content={parsed.body}
+            query={normalizedQuery}
+            activeMatchKey={activeMatchKey}
+            matchKeyPrefix={matchKeyPrefix}
+          />
         </p>
       )}
     </div>
   ) : (
-    <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-      {normalizedQuery
-        ? highlightText(msg.content || "", normalizedQuery, activeMatchKey, matchKeyPrefix)
-        : msg.content}
-    </p>
+    <div>
+      <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
+        <MessageText
+          content={msg.content || ""}
+          query={normalizedQuery}
+          activeMatchKey={activeMatchKey}
+          matchKeyPrefix={matchKeyPrefix}
+        />
+      </p>
+      {msg.link_preview && <LinkPreviewCard preview={msg.link_preview} isUser={isUser} />}
+    </div>
   )
 
   const timestamp = msg.delivered_at || msg.created_at
@@ -379,22 +437,27 @@ export function MessageBubble({
                   </button>
                 )}
               </div>
-              {translationState.loading ? (
-                <div className="space-y-1.5 py-1" aria-label={t("chats.translating")}>
-                  <div className="h-3 w-full animate-pulse rounded-sm bg-current/10 motion-reduce:animate-none" />
-                  <div className="h-3 w-2/3 animate-pulse rounded-sm bg-current/10 motion-reduce:animate-none" />
-                </div>
-              ) : translationState.error ? (
-                <div className="flex items-start justify-between gap-2 text-xs">
-                  <span className="opacity-80">{translationState.error}</span>
-                </div>
-              ) : (
-                <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
-                  {translationState.content}
-                </p>
-              )}
-            </div>
-          )}
+            {translationState.loading ? (
+              <div className="space-y-1.5 py-1" aria-label={t("chats.translating")}>
+                <div className="h-3 w-full animate-pulse rounded-sm bg-current/10 motion-reduce:animate-none" />
+                <div className="h-3 w-2/3 animate-pulse rounded-sm bg-current/10 motion-reduce:animate-none" />
+              </div>
+            ) : translationState.error ? (
+              <div className="flex items-start justify-between gap-2 text-xs">
+                <span className="opacity-80">{translationState.error}</span>
+              </div>
+            ) : (
+              <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
+                <MessageText
+                  content={translationState.content || ""}
+                  query=""
+                  activeMatchKey={null}
+                  matchKeyPrefix={`${matchKeyPrefix}-translation`}
+                />
+              </p>
+            )}
+          </div>
+        )}
 
           {/* La hora vive dentro de la burbuja, alineada abajo a la derecha junto
               al estado. Normalmente sólo el último de la tanda la muestra; los

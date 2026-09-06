@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Models\Product;
 use App\Models\WooCommerceConfig;
-use Illuminate\Http\Client\Response;
+use App\Support\PublicUrlGuard;
+use App\Support\PublicUrlRejectedException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -22,6 +24,8 @@ class WooCommerceService
     private const PER_PAGE = 100;
 
     private const MAX_PAGES = 100; // Tope de seguridad: hasta 10.000 productos por sync.
+
+    public function __construct(private PublicUrlGuard $urlGuard) {}
 
     /**
      * Prueba la conexión: pega a /products con page_size=1. Distingue credenciales
@@ -200,17 +204,13 @@ class WooCommerceService
      *
      * @throws WooCommerceUrlException si la store_url no es una URL pública válida.
      */
-    private function request(string $storeUrl, string $consumerKey, string $consumerSecret): \Illuminate\Http\Client\PendingRequest
+    private function request(string $storeUrl, string $consumerKey, string $consumerSecret): PendingRequest
     {
         // La store_url la controla el tenant → validar contra SSRF antes de pegarle.
-        // Devuelve las IPs públicas ya validadas para pinnearlas en la conexión.
-        $ips = $this->assertPublicUrl($storeUrl);
+        // Devuelve host/puerto/IPs públicas ya validadas para pinnearlas en la conexión.
+        [$host, $port, $ips] = $this->assertPublicUrl($storeUrl);
 
         $base = rtrim($storeUrl, '/').self::API_PREFIX;
-
-        $parts = parse_url($storeUrl);
-        $host = $parts['host'] ?? '';
-        $port = $parts['port'] ?? (($parts['scheme'] ?? 'https') === 'http' ? 80 : 443);
 
         return Http::withBasicAuth($consumerKey, $consumerSecret)
             ->acceptJson()
@@ -228,105 +228,20 @@ class WooCommerceService
     }
 
     /**
-     * Valida que la URL sea pública y segura de contactar (anti-SSRF):
-     * esquema http/https, host presente, puerto estándar, y que ninguna de las
-     * IPs a las que resuelve el host (A + AAAA) sea loopback, privada o link-local.
+     * Valida que la store_url sea pública y segura de contactar (anti-SSRF),
+     * delegando en PublicUrlGuard. Traduce su excepción a WooCommerceUrlException
+     * para no cambiar el contrato que ya consumen los callers de este servicio.
      *
-     * Devuelve las IPs públicas ya validadas para pinnearlas en la conexión y
-     * cerrar la ventana de DNS rebinding.
-     *
-     * @return list<string> IPs públicas validadas a las que resuelve el host.
+     * @return array{0: string, 1: int, 2: list<string>} host, puerto, IPs públicas validadas.
      *
      * @throws WooCommerceUrlException
      */
     private function assertPublicUrl(string $storeUrl): array
     {
-        $parts = parse_url($storeUrl);
-
-        if ($parts === false || empty($parts['host'])) {
-            throw new WooCommerceUrlException('URL de tienda inválida.');
-        }
-
-        $scheme = strtolower($parts['scheme'] ?? '');
-        if (! in_array($scheme, ['http', 'https'], true)) {
-            throw new WooCommerceUrlException('La URL debe usar http o https.');
-        }
-
-        // Solo puertos web estándar (o el implícito del esquema).
-        if (isset($parts['port']) && ! in_array($parts['port'], [80, 443], true)) {
-            throw new WooCommerceUrlException('Puerto no permitido.');
-        }
-
-        $host = $parts['host'];
-
-        // Si el host ya es una IP literal, validarla directamente.
-        if (filter_var($host, FILTER_VALIDATE_IP)) {
-            $this->assertPublicIp($host);
-
-            return [$host];
-        }
-
-        // Resolver el hostname (A + AAAA) y rechazar si ALGUNA IP resuelta no es
-        // pública (defensa contra DNS que devuelve múltiples registros).
-        $ips = $this->resolveHost($host);
-        if ($ips === []) {
-            throw new WooCommerceUrlException('No se pudo resolver el dominio de la tienda.');
-        }
-
-        foreach ($ips as $ip) {
-            $this->assertPublicIp($ip);
-        }
-
-        return $ips;
-    }
-
-    /**
-     * Resuelve un hostname a todas sus IPs A (IPv4) y AAAA (IPv6). gethostbynamel()
-     * solo devuelve IPv4, así que un target IPv6 quedaba sin validar.
-     *
-     * @return list<string>
-     */
-    private function resolveHost(string $host): array
-    {
-        $ips = [];
-
-        $records = @dns_get_record($host, DNS_A | DNS_AAAA);
-        if (is_array($records)) {
-            foreach ($records as $record) {
-                $ip = $record['ip'] ?? $record['ipv6'] ?? null;
-                if ($ip !== null) {
-                    $ips[] = $ip;
-                }
-            }
-        }
-
-        // Fallback a IPv4 si dns_get_record no devolvió nada (p. ej. /etc/hosts).
-        if ($ips === []) {
-            $ipv4 = gethostbynamel($host);
-            if (is_array($ipv4)) {
-                $ips = $ipv4;
-            }
-        }
-
-        return array_values(array_unique($ips));
-    }
-
-    /**
-     * Rechaza IPs no enrutables públicamente (loopback, privadas RFC1918,
-     * link-local 169.254/16, etc.). Usa los flags de filter_var.
-     *
-     * @throws WooCommerceUrlException
-     */
-    private function assertPublicIp(string $ip): void
-    {
-        $isPublic = filter_var(
-            $ip,
-            FILTER_VALIDATE_IP,
-            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
-        );
-
-        if ($isPublic === false) {
-            throw new WooCommerceUrlException('La URL apunta a una dirección no permitida.');
+        try {
+            return $this->urlGuard->assertPublicUrl($storeUrl);
+        } catch (PublicUrlRejectedException $exception) {
+            throw new WooCommerceUrlException($exception->getMessage(), previous: $exception);
         }
     }
 }

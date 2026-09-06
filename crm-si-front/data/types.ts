@@ -177,6 +177,18 @@ export interface MessageReaction {
   reacted_by_me?: boolean
 }
 
+export interface LinkPreview {
+  id: number
+  url: string
+  title?: string | null
+  description?: string | null
+  site_name?: string | null
+  image_url?: string | null
+  status: "pending" | "ok" | "failed"
+  fetched_at?: string | null
+  failure_reason?: string | null
+}
+
 export interface Message {
   id: number
   conversation_id: number
@@ -187,6 +199,7 @@ export interface Message {
   media_full_url?: string | null
   media_mime_type?: string | null
   media_filename?: string | null
+  link_preview?: LinkPreview | null
   sender_type: "user" | "contact" | "system"
   sender_id?: number
   // Autoría dentro de un grupo: quién de los participantes escribió. No
