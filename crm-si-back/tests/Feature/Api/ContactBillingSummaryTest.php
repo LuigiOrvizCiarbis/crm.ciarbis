@@ -101,6 +101,79 @@ class ContactBillingSummaryTest extends TestCase
             ->assertJsonPath('billing_al_dia', 1);
     }
 
+    public function test_billing_clients_filter_returns_only_contacts_with_a_billing_status(): void
+    {
+        [$user] = $this->createOwner();
+        $this->createBillingFields($user->tenant_id);
+        $this->createBillingConfig($user->tenant_id);
+
+        $client = $this->createContact($user->tenant_id, 'impago', now()->addDays(5)->format('Y-m-d'));
+        $trial = $this->createContact($user->tenant_id, 'en_prueba', now()->addDays(5)->format('Y-m-d'));
+        // Un lead: nunca se le cargó el campo de estado, así que no es cliente.
+        $lead = Contact::create([
+            'tenant_id' => $user->tenant_id,
+            'name' => 'Lead sin calificar',
+            'source' => 'whatsapp',
+            'custom_data' => [],
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $ids = collect($this->getJson('/api/contacts?billing=clients')->assertOk()->json('data'))
+            ->pluck('id')
+            ->all();
+
+        $this->assertContains($client->id, $ids);
+        $this->assertContains($trial->id, $ids);
+        $this->assertNotContains($lead->id, $ids);
+    }
+
+    public function test_billing_clients_filter_is_ignored_without_an_enabled_config(): void
+    {
+        [$user] = $this->createOwner();
+        $this->createBillingFields($user->tenant_id);
+        $this->createBillingConfig($user->tenant_id, enabled: false);
+
+        $lead = Contact::create([
+            'tenant_id' => $user->tenant_id,
+            'name' => 'Lead',
+            'source' => 'whatsapp',
+            'custom_data' => [],
+        ]);
+
+        Sanctum::actingAs($user);
+
+        // Sin módulo habilitado el filtro no recorta nada: el front tampoco
+        // ofrece el control, así que un query manual no debe vaciar la lista.
+        $ids = collect($this->getJson('/api/contacts?billing=clients')->assertOk()->json('data'))
+            ->pluck('id')
+            ->all();
+
+        $this->assertContains($lead->id, $ids);
+    }
+
+    public function test_billing_clients_filter_respects_tenant_isolation(): void
+    {
+        [$user] = $this->createOwner();
+        $this->createBillingFields($user->tenant_id);
+        $this->createBillingConfig($user->tenant_id);
+        $mine = $this->createContact($user->tenant_id, 'impago', now()->addDays(5)->format('Y-m-d'));
+
+        $otherTenant = $this->seedTenantWithRoles();
+        $this->createBillingFields($otherTenant->id);
+        $this->createBillingConfig($otherTenant->id);
+        $theirs = $this->createContact($otherTenant->id, 'impago', now()->addDays(5)->format('Y-m-d'));
+
+        Sanctum::actingAs($user);
+
+        $ids = collect($this->getJson('/api/contacts?billing=clients')->assertOk()->json('data'))
+            ->pluck('id')
+            ->all();
+
+        $this->assertContains($mine->id, $ids);
+        $this->assertNotContains($theirs->id, $ids);
+    }
+
     private function createContact(int $tenantId, string $estado, string $vencimiento): Contact
     {
         return Contact::create([

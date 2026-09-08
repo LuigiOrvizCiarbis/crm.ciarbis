@@ -120,7 +120,7 @@ class BillingProvisionCommand extends Command
             [
                 'label' => 'Estado de pago',
                 'type' => ContactFieldType::Select,
-                'options' => ['choices' => ['al_dia', 'impago', 'en_prueba']],
+                'options' => ['choices' => BillingConfig::STATUSES],
                 'display_order' => 901,
             ],
         );
@@ -129,7 +129,7 @@ class BillingProvisionCommand extends Command
         // completan en vez de fallar, así una corrida sobre un tenant con
         // campos parcialmente armados a mano converge igual.
         $existingChoices = is_array($statusField->options['choices'] ?? null) ? $statusField->options['choices'] : [];
-        $missingChoices = array_diff(['al_dia', 'impago', 'en_prueba'], $existingChoices);
+        $missingChoices = array_diff(BillingConfig::STATUSES, $existingChoices);
         if ($missingChoices !== []) {
             $statusField->update(['options' => ['choices' => array_values([...$existingChoices, ...$missingChoices])]]);
         }

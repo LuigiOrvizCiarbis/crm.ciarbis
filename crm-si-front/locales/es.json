@@ -155,6 +155,11 @@
         "menuTitle": "Filtrar por rango",
         "from": "Desde",
         "to": "Hasta"
+      },
+      "audience": {
+        "label": "Audiencia",
+        "all": "Todos",
+        "clients": "Clientes"
       }
     },
     "actions": {
@@ -167,7 +172,10 @@
       "activeLeads": "Leads Activos",
       "qualified": "Calificados",
       "conversionRate": "Tasa Conversión",
-      "vsPrevious": "vs {value} mes pasado"
+      "vsPrevious": "vs {value} mes pasado",
+      "billingAlDia": "Al día",
+      "billingPorVencer": "Por vencer",
+      "billingVencido": "Vencidos"
     },
     "table": {
       "contact": "Contacto",
