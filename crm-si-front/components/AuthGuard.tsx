@@ -100,12 +100,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
             return
           }
 
-          // Si el email está verificado y está en verify-email, redirigir a chats
-          if (isVerified && pathname === "/verify-email") {
-            router.replace("/chats")
-            return
-          }
-
           const trialExpired = isTrialExpired(data.user?.tenant)
 
           // Trial vencido y no está en ruta permitida, redirigir a pantalla de bloqueo
