@@ -36,7 +36,7 @@ export function ReactionPicker({ onSelect, onMore, currentEmoji, size = "compact
             aria-label={emoji}
             className={`flex items-center justify-center rounded-full text-lg transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
               isTouch ? "h-11 w-11 text-2xl" : "h-8 w-8"
-            } ${mine ? "bg-primary/10" : ""}`}
+            } ${mine ? "bg-accent" : ""}`}
           >
             {emoji}
           </button>

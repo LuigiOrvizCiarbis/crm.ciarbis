@@ -36,13 +36,13 @@ export function MessageReactions({ reactions, currentUserId, onToggle, disabled 
                 ? t("chats.reactionRemoveAria", { emoji: r.emoji })
                 : t("chats.reactionAria", { emoji: r.emoji, count: String(r.count) })
             }
-            className={`flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 ${
-              mine
-                ? "border-primary bg-primary/10"
-                : "border-border bg-background hover:bg-accent"
+            className={`flex items-center gap-0.5 rounded-full border border-border px-1.5 py-px text-xs transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 ${
+              mine ? "bg-accent" : "bg-background hover:bg-accent"
             }`}
           >
-            <span className="text-sm leading-none">{r.emoji}</span>
+            {/* leading-normal (no leading-none): con el line-box apretado al
+                tamaño de fuente, los emojis altos se recortan arriba. */}
+            <span className="text-sm leading-normal">{r.emoji}</span>
             {r.count > 1 ? <span className="tabular-nums text-muted-foreground">{r.count}</span> : null}
           </button>
         )
