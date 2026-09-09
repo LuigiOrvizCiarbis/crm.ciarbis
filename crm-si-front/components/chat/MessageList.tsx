@@ -37,9 +37,12 @@ interface MessageListProps {
   isLoadingMore: boolean
   onEditMessage?: (message: Message) => void
   onDeleteMessage?: (message: Message) => void
+  onReactMessage?: (message: Message, emoji: string) => void
   onSaveContact?: (message: Message, index: number) => void
   currentUserId?: number
   isAdmin?: boolean
+  /** conversations.send_message: sin esto, reaccionar comería un 403 del back. */
+  canSendMessage?: boolean
   translationLanguage: TranslationLanguage
   onTranslateMessage: (message: Message, targetLanguage: TranslationLanguage) => Promise<MessageTranslationResponse>
   channelType?: ChannelType
@@ -62,9 +65,11 @@ export function MessageList({
   isLoadingMore,
   onEditMessage,
   onDeleteMessage,
+  onReactMessage,
   onSaveContact,
   currentUserId,
   isAdmin,
+  canSendMessage,
   translationLanguage,
   onTranslateMessage,
   channelType,
@@ -271,7 +276,20 @@ export function MessageList({
     !!msg.content?.trim() &&
     (!msg.message_type || msg.message_type === "text" || msg.message_type === "image")
 
-  const hasActions = (msg: Message) => canEdit(msg) || canDelete(msg) || canTranslate(msg)
+  /**
+   * Reaccionar es exclusivo de WhatsApp: Instagram y Messenger dejaron los
+   * eventos de reacción fuera de alcance, y Mail no aplica. Además hace
+   * falta el wamid (external_id): sin él, Meta no sabe a qué mensaje
+   * reaccionar. canSendMessage evita ofrecer una acción que el back
+   * rechazaría con 403.
+   */
+  const canReact = (msg: Message) =>
+    channelType === ChannelType.WHATSAPP &&
+    !msg.deleted_at &&
+    !!msg.external_id &&
+    !!canSendMessage
+
+  const hasActions = (msg: Message) => canEdit(msg) || canDelete(msg) || canTranslate(msg) || canReact(msg)
 
   const handleTranslate = async (msg: Message) => {
     const key = String(msg.id)
@@ -502,10 +520,13 @@ export function MessageList({
                   onTranslate={(target) => void handleTranslate(target)}
                   onEdit={onEditMessage}
                   onDelete={(target) => setDeleteTarget(target)}
+                  onReact={onReactMessage}
                   onSaveContact={onSaveContact}
                   canEdit={!!canEdit(msg) && !!onEditMessage}
                   canDelete={!!canDelete(msg) && !!onDeleteMessage}
                   canTranslate={!!canTranslate(msg)}
+                  canReact={canReact(msg) && !!onReactMessage}
+                  currentUserId={currentUserId}
                   isGroupConversation={isGroupConversation}
                 />
               </Fragment>

@@ -22,6 +22,13 @@ class MetaApiException extends RuntimeException
 
     public const REASON_MISSING_PERMISSION = 'missing_permission';
 
+    /**
+     * Error 131009 de reacciones: el mensaje objetivo tiene más de 30 días,
+     * fue eliminado, no existe, o es en sí mismo una reacción. Meta no
+     * distingue estos casos entre sí, así que el copy cubre el caso general.
+     */
+    public const REASON_REACTION_TARGET_INVALID = 'reaction_target_invalid';
+
     public const REASON_UNKNOWN = 'unknown';
 
     public function __construct(
@@ -61,6 +68,7 @@ class MetaApiException extends RuntimeException
             str_contains($lowerMessage, 'outside of allowed window')
                 || str_contains($lowerMessage, 'outside the allowed window')
                 || str_contains($lowerMessage, '24 hour') => self::REASON_WINDOW_CLOSED,
+            $code === 131009 => self::REASON_REACTION_TARGET_INVALID,
             $code === 190 || $type === 'OAuthException' => self::REASON_TOKEN_INVALID,
             str_contains($lowerMessage, 'permission') => self::REASON_MISSING_PERMISSION,
             str_contains($lowerMessage, 'attachment') || str_contains($lowerMessage, 'media')
