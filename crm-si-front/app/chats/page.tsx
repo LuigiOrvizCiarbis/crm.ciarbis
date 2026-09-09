@@ -72,9 +72,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
-import { sendMessage, sendContactsMessage, saveSharedContact, sendMailMessage, editMessage, deleteMessage, translateMessage, type SendMailMessageInput } from "@/lib/api/messages"
+import { sendMessage, sendContactsMessage, saveSharedContact, sendMailMessage, editMessage, deleteMessage, translateMessage, reactToMessage, type SendMailMessageInput } from "@/lib/api/messages"
 import { ConversationHeader } from "@/components/chat/ConversationHeader"
 import { MessageList } from "@/components/chat/MessageList"
+import { applyReactionToggle } from "@/components/chat/messageThreadUtils"
 import { MessageInput } from "@/components/chat/MessageInput"
 import { MailMessageInput } from "@/components/chat/MailMessageInput"
 import { ConversationList } from "@/components/chat/ConversationList"
@@ -88,7 +89,7 @@ import { ChannelHeader } from "@/components/chat/AccountHeader"
 import { useConversationFilters } from "@/hooks/useConversationFilters"
 import { TagFilterMenu } from "@/components/tags/TagFilterMenu"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
-import { useSSEMessages, type MessageStatusUpdate } from "@/hooks/useSSEMessages"
+import { useSSEMessages, type MessageStatusUpdate, type MessageReactionUpdate } from "@/hooks/useSSEMessages"
 import { useTenantSSE } from "@/hooks/useTenantSSE"
 import { getPusher } from "@/lib/pusher"
 import { cancelManualAiDraft, getManualAiDraft, requestManualAiDraft, type ManualAiDraft } from "@/lib/api/manual-ai-drafts"
@@ -285,6 +286,7 @@ export default function ChatsPage() {
   } = useMessengerLogin()
   const currentUserId = user?.id
   const isAdmin = (permissions ?? []).includes("conversations.view_any")
+  const canSendMessage = (permissions ?? []).includes("conversations.send_message")
   const canUpdateChannels = (permissions ?? []).includes("channels.update")
   const canDisconnectChannels = (permissions ?? []).includes("channels.disconnect")
   const canCreateGroups = (permissions ?? []).includes("whatsapp_groups.create")
@@ -596,12 +598,29 @@ export default function ChatsPage() {
     });
   }, []);
 
+  // El evento trae el estado completo de reacciones del mensaje, no un delta:
+  // siempre pisa cualquier proyección optimista local, sin reconciliación
+  // heurística.
+  const handleRealTimeReaction = useCallback((data: MessageReactionUpdate) => {
+    setCurrentConversation((prev) => {
+      if (!prev) return prev;
+      const messages = prev.messages || [];
+      return {
+        ...prev,
+        messages: messages.map((m: Message) =>
+          String(m.id) === String(data.message_id) ? { ...m, reaction_summary: data.reactions } : m
+        ),
+      };
+    });
+  }, []);
+
   useSSEMessages({
     conversationId: selectedConversationId,
     onMessage: handleRealTimeMessage,
     onEdited: handleRealTimeEdit,
     onDeleted: handleRealTimeDelete,
     onStatus: handleRealTimeStatus,
+    onReaction: handleRealTimeReaction,
   });
 
   const selectedChannelIdRef = useRef(selectedChannelId);
@@ -1330,6 +1349,53 @@ export default function ChatsPage() {
       })
     }
   }, [activeConversation, addToast, currentConversation, selectedConversationId, t])
+
+  const handleReactToMessage = useCallback(async (msg: Message, emoji: string) => {
+    const previous = msg.reaction_summary ?? [];
+    const optimistic = applyReactionToggle(previous, emoji, currentUserId);
+
+    const patch = (summary: Message["reaction_summary"]) =>
+      setCurrentConversation((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          messages: (prev.messages || []).map((m: Message) =>
+            m.id === msg.id ? { ...m, reaction_summary: summary } : m
+          ),
+        };
+      });
+
+    patch(optimistic);
+
+    try {
+      const confirmed = await reactToMessage(msg.id, emoji);
+      patch(confirmed);
+    } catch (error) {
+      // Rollback sobre el estado ACTUAL del mensaje, no sobre el snapshot de
+      // antes del click: si un evento SSE actualizó reaction_summary mientras
+      // el POST estaba en vuelo (reacción del contacto, otra pestaña), un
+      // rollback a `previous` lo pisaría y lo perdería silenciosamente.
+      setCurrentConversation((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          messages: (prev.messages || []).map((m: Message) => {
+            if (m.id !== msg.id) return m;
+            const current = m.reaction_summary ?? [];
+            // Si el estado actual sigue siendo la proyección optimista propia
+            // (nadie más lo tocó), se revierte al snapshot pre-click; si ya
+            // cambió por SSE, se deja como está.
+            return current === optimistic ? { ...m, reaction_summary: previous } : m;
+          }),
+        };
+      });
+      addToast({
+        type: "error",
+        title: t("chats.reactionError"),
+        description: error instanceof Error ? error.message : t("chats.unknownError"),
+      });
+    }
+  }, [currentUserId, addToast, t]);
 
   const handleDeleteMessage = async (msg: Message) => {
     try {
@@ -2220,9 +2286,11 @@ export default function ChatsPage() {
                 isLoadingMore={isLoadingMore}
                 onEditMessage={handleEditMessage}
                 onDeleteMessage={handleDeleteMessage}
+                onReactMessage={handleReactToMessage}
                 onSaveContact={handleSaveSharedContact}
                 currentUserId={currentUserId}
                 isAdmin={isAdmin}
+                canSendMessage={canSendMessage}
                 translationLanguage={language}
                 onTranslateMessage={handleTranslateMessage}
                 channelType={activeConversation?.channel?.type}
