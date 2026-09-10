@@ -12,6 +12,7 @@ use App\Support\RoleProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
@@ -60,6 +61,32 @@ class InstagramCommentTenantIsolationTest extends TestCase
         ])->assertUnprocessable()->assertJsonValidationErrors('assigned_to');
 
         $this->assertNull($commentA->fresh()->assigned_to);
+    }
+
+    public function test_user_without_instagram_comments_section_access_cannot_read_comments(): void
+    {
+        [$tenant, $owner, $channel] = $this->createTenantWithOwnerAndChannel('Tenant A');
+        $this->createComment($tenant, $channel, 'comment-a');
+
+        $registrar = app(PermissionRegistrar::class);
+        $registrar->setPermissionsTeamId($tenant->id);
+
+        $memberRole = Role::query()
+            ->where('tenant_id', $tenant->id)
+            ->where('name', 'Member')
+            ->firstOrFail();
+        $memberRole->syncPermissions(array_values(array_filter(
+            PermissionCatalog::memberPermissions(),
+            fn (string $permission): bool => $permission !== 'sections.instagram_comments',
+        )));
+        $registrar->forgetCachedPermissions();
+
+        $member = User::factory()->create(['tenant_id' => $tenant->id]);
+        $member->assignRole($memberRole);
+
+        Sanctum::actingAs($member);
+
+        $this->getJson('/api/instagram-comments')->assertForbidden();
     }
 
     /**

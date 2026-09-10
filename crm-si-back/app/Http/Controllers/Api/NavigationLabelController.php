@@ -10,7 +10,7 @@ class NavigationLabelController extends Controller
 {
     /** @var list<string> */
     private const KEYS = [
-        'dashboard', 'chats', 'contacts', 'catalog',
+        'dashboard', 'chats', 'instagram_comments', 'contacts', 'catalog',
         'pipeline', 'tasks', 'broadcasts', 'settings',
     ];
 

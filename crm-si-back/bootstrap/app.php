@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureTrialNotExpired;
+use App\Http\Middleware\EnsureSectionAccess;
 use App\Http\Middleware\SetSpatieTeamId;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
@@ -25,6 +26,9 @@ return Application::configure(basePath: dirname(__DIR__))
         ['prefix' => 'api', 'middleware' => ['api', 'auth:sanctum']],
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->alias([
+            'section' => EnsureSectionAccess::class,
+        ]);
         $middleware->trustProxies(at: '*');
         $middleware->validateCsrfTokens(except: [
             'api/*',

@@ -13,15 +13,18 @@ import {
   Search,
 } from "lucide-react"
 import { useToast } from "./Toast"
-import { NAVIGATION_ITEMS, resolveNavigationLabel } from "@/data/navigation"
+import { resolveNavigationLabel } from "@/data/navigation"
 import { useAuthStore } from "@/store/useAuthStore"
 import { useTranslation } from "@/hooks/useTranslation"
+import { accessibleNavigationItems, canAccessSection } from "@/lib/section-access"
 
 export function CommandPalette() {
   const router = useRouter()
   const { addToast } = useToast()
   const { commandPaletteOpen, setCommandPaletteOpen } = useAppStore()
   const navigationLabels = useAuthStore((state) => state.user?.tenant?.navigation_labels)
+  const permissions = useAuthStore((state) => state.permissions)
+  const role = useAuthStore((state) => state.role)
   const { t } = useTranslation()
   const [search, setSearch] = useState("")
 
@@ -55,13 +58,13 @@ export function CommandPalette() {
           nextKey.then((key) => {
             switch (key) {
               case "p":
-                router.push("/dashboard")
+                if (canAccessSection("dashboard", permissions, role)) router.push("/dashboard")
                 break
               case "c":
-                router.push("/chats")
+                if (canAccessSection("chats", permissions, role)) router.push("/chats")
                 break
               case "o":
-                router.push("/oportunidades")
+                if (canAccessSection("pipeline", permissions, role)) router.push("/oportunidades")
                 break
             }
           })
@@ -80,7 +83,7 @@ export function CommandPalette() {
 
     document.addEventListener("keydown", down)
     return () => document.removeEventListener("keydown", down)
-  }, [commandPaletteOpen, setCommandPaletteOpen, router, addToast])
+  }, [commandPaletteOpen, setCommandPaletteOpen, router, addToast, permissions, role])
 
   const runCommand = (command: () => void) => {
     setCommandPaletteOpen(false)
@@ -106,7 +109,7 @@ export function CommandPalette() {
             </Command.Empty>
 
             <Command.Group heading="Navegación">
-              {NAVIGATION_ITEMS.map((item) => {
+              {accessibleNavigationItems(permissions, role).map((item) => {
                 const label = resolveNavigationLabel(item, navigationLabels, t)
                 const defaultLabel = t(item.labelKey)
                 const shortcut = item.key === "dashboard" ? "G P" : item.key === "chats" ? "G C" : item.key === "pipeline" ? "G O" : null

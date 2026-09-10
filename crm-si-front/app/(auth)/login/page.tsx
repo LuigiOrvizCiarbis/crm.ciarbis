@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/card"
 import { useAuthStore } from "@/store/useAuthStore"
 import { LanguageSwitcher } from "@/components/LanguageSwitcher"
+import { firstAccessibleSection } from "@/lib/section-access"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -58,7 +59,7 @@ export default function LoginPage() {
       if (redirectTo && redirectTo.startsWith("/")) {
         router.push(redirectTo)
       } else if (emailVerified) {
-        router.push("/chats")
+        router.push(firstAccessibleSection(data.permissions ?? [], data.role ?? null)?.href ?? "/sin-acceso")
       } else {
         router.push("/verify-email")
       }
