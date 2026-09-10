@@ -13,6 +13,7 @@ import {
 export const NAVIGATION_KEYS = [
   "dashboard",
   "chats",
+  "instagram_comments",
   "contacts",
   "catalog",
   "pipeline",
@@ -35,6 +36,7 @@ export interface NavigationItem {
 export const NAVIGATION_ITEMS: readonly NavigationItem[] = [
   { key: "dashboard", href: "/dashboard", emoji: "📊", icon: BarChart3, labelKey: "nav.panel" },
   { key: "chats", href: "/chats", emoji: "💬", icon: MessageSquare, labelKey: "nav.chats" },
+  { key: "instagram_comments", href: "/comentarios-instagram", emoji: "📸", icon: MessageSquare, labelKey: "nav.instagramComments" },
   { key: "contacts", href: "/contactos", emoji: "👥", icon: Users, labelKey: "nav.contacts" },
   { key: "catalog", href: "/catalogo", emoji: "📦", icon: Package, labelKey: "nav.catalog" },
   { key: "pipeline", href: "/oportunidades", emoji: "🎯", icon: Target, labelKey: "nav.pipeline" },

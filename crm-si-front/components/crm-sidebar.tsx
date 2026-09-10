@@ -25,7 +25,8 @@ import {
 } from "@/components/ui/tooltip"
 import { useTranslation } from "@/hooks/useTranslation"
 import { LanguageSwitcher } from "@/components/LanguageSwitcher"
-import { NAVIGATION_ITEMS, resolveNavigationLabel } from "@/data/navigation"
+import { resolveNavigationLabel } from "@/data/navigation"
+import { accessibleNavigationItems, canAccessSection } from "@/lib/section-access"
 
 interface SidebarProps {
   className?: string
@@ -39,6 +40,8 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
   const router = useRouter()
   const [openSections, setOpenSections] = useState<string[]>([])
   const { user, token, logout } = useAuthStore()
+  const permissions = useAuthStore((state) => state.permissions)
+  const role = useAuthStore((state) => state.role)
   const { t } = useTranslation()
 
   const handleLogout = async () => {
@@ -63,14 +66,8 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
     setOpenSections((prev) => (prev.includes(section) ? prev.filter((s) => s !== section) : [...prev, section]))
   }
 
-  const navItems = NAVIGATION_ITEMS.filter((item) => item.key !== "settings").flatMap((item) => [
-    item,
-    ...(item.key === "chats" ? [{
-      href: "/comentarios-instagram",
-      emoji: "📸",
-      label: "Comentarios IG",
-    }] : []),
-  ])
+  const accessibleItems = accessibleNavigationItems(permissions, role)
+  const navItems = accessibleItems.filter((item) => item.key !== "settings")
 
   const automationItems = [
     {
@@ -105,7 +102,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
     },
   ]
 
-  const bottomItems = NAVIGATION_ITEMS.filter((item) => item.key === "settings")
+  const bottomItems = accessibleItems.filter((item) => item.key === "settings")
 
   const isAutomationActive = automationItems.some((item) => pathname === item.href)
 
@@ -335,10 +332,10 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
                 <User className="mr-2 h-4 w-4" />
                 {t("nav.profile")}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => router.push("/configuracion")}>
+              {canAccessSection("settings", permissions, role) ? <DropdownMenuItem onClick={() => router.push("/configuracion")}>
                 <Settings className="mr-2 h-4 w-4" />
                 {t("nav.settings")}
-              </DropdownMenuItem>
+              </DropdownMenuItem> : null}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
                 <LogOut className="mr-2 h-4 w-4" />
@@ -384,10 +381,10 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
                 <User className="mr-2 h-4 w-4" />
                 {t("nav.profile")}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => router.push("/configuracion")}>
+              {canAccessSection("settings", permissions, role) ? <DropdownMenuItem onClick={() => router.push("/configuracion")}>
                 <Settings className="mr-2 h-4 w-4" />
                 {t("nav.settings")}
-              </DropdownMenuItem>
+              </DropdownMenuItem> : null}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
                 <LogOut className="mr-2 h-4 w-4" />

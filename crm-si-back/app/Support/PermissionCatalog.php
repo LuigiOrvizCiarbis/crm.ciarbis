@@ -12,6 +12,17 @@ class PermissionCatalog
     public static function grouped(): array
     {
         return [
+            'sections' => [
+                'sections.dashboard',
+                'sections.chats',
+                'sections.instagram_comments',
+                'sections.contacts',
+                'sections.catalog',
+                'sections.pipeline',
+                'sections.tasks',
+                'sections.broadcasts',
+                'sections.settings',
+            ],
             'conversations' => [
                 'conversations.view_any',
                 'conversations.view_assigned',
@@ -215,6 +226,7 @@ class PermissionCatalog
     public static function memberPermissions(): array
     {
         return [
+            ...self::sectionPermissions(),
             'conversations.view_assigned',
             'conversations.view',
             'conversations.send_message',
@@ -255,5 +267,11 @@ class PermissionCatalog
             'whatsapp_groups.create',
             'whatsapp_groups.invite',
         ];
+    }
+
+    /** @return list<string> */
+    public static function sectionPermissions(): array
+    {
+        return self::grouped()['sections'];
     }
 }
