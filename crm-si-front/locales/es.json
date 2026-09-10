@@ -2,6 +2,7 @@
   "nav": {
     "panel": "Panel",
     "chats": "Chats",
+    "instagramComments": "Comentarios IG",
     "contacts": "Contactos",
     "catalog": "Catálogo",
     "pipeline": "Pipeline de ventas",
@@ -1305,6 +1306,7 @@
     },
     "groups": {
       "conversations": "Conversaciones",
+      "sections": "Acceso a secciones",
       "messages": "Mensajes",
       "contacts": "Contactos",
       "contact_fields": "Campos de contacto",
@@ -1332,6 +1334,15 @@
       "navigation_labels": "Etiquetas de navegación"
     },
     "perms": {
+      "sections.dashboard": "Acceder al Panel",
+      "sections.chats": "Acceder a Chats",
+      "sections.instagram_comments": "Acceder a Comentarios IG",
+      "sections.contacts": "Acceder a Contactos",
+      "sections.catalog": "Acceder al Catálogo",
+      "sections.pipeline": "Acceder a Oportunidades",
+      "sections.tasks": "Acceder a Tareas",
+      "sections.broadcasts": "Acceder a Difusiones",
+      "sections.settings": "Acceder a Configuración",
       "conversations.view_any": "Ver todas las conversaciones",
       "conversations.view_assigned": "Ver conversaciones asignadas",
       "conversations.view": "Abrir una conversación",
