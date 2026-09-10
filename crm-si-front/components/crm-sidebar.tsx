@@ -180,9 +180,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
         {/* Main navigation items */}
         {navItems.map((item) => {
           const isActive = pathname === item.href
-          const label = "label" in item
-            ? item.label
-            : resolveNavigationLabel(item, user?.tenant?.navigation_labels, t)
+          const label = resolveNavigationLabel(item, user?.tenant?.navigation_labels, t)
 
           return (
             <Link key={item.href} href={item.href}>
