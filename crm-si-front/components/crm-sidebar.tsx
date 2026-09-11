@@ -26,6 +26,7 @@ import {
 import { useTranslation } from "@/hooks/useTranslation"
 import { LanguageSwitcher } from "@/components/LanguageSwitcher"
 import { NAVIGATION_ITEMS, resolveNavigationLabel } from "@/data/navigation"
+import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher"
 
 interface SidebarProps {
   className?: string
@@ -148,30 +149,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
         </Button>
       </div>
 
-      {!isCollapsed && user?.tenant?.name && (
-        <div className="px-4 py-3 border-b border-sidebar-border">
-          <div className="w-full flex items-center gap-3 rounded-md p-2">
-            <Avatar className="h-9 w-9">
-              <AvatarFallback className="bg-linear-to-br from-blue-500 to-violet-500 text-white text-xs font-semibold">
-                {user.tenant.name
-                  .split(" ")
-                  .map((part) => part[0])
-                  .join("")
-                  .toUpperCase()
-                  .slice(0, 2)}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0 text-left">
-              <p className="text-sm font-medium text-sidebar-foreground truncate">
-                {user.tenant.name}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {t("tenant.activeClient")}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      {user?.tenant?.name && <div className="border-b border-sidebar-border px-3 py-3"><WorkspaceSwitcher collapsed={isCollapsed} /></div>}
 
       {/* Navigation */}
       <nav

@@ -46,3 +46,4 @@ Schedule::command('extractions:purge-orphans')->dailyAt('03:30')->withoutOverlap
 // (BillingConfig.timezone + last_rolled_at), así que hourly es solo el
 // intervalo de chequeo, no el momento real del corte.
 Schedule::command('billing:roll-cycle')->hourly()->withoutOverlapping(30);
+Schedule::command('workspaces:purge')->dailyAt('04:00')->withoutOverlapping(30);

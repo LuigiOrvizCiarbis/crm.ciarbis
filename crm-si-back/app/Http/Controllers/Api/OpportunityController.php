@@ -10,6 +10,7 @@ use App\Models\PipelineStage;
 use App\Models\User;
 use App\Support\BranchRuleResolver;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
@@ -209,7 +210,7 @@ class OpportunityController extends Controller
             'contact_id' => [...$sometimes, 'integer', Rule::exists('contacts', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
             'conversation_id' => ['nullable', 'integer', Rule::exists('conversations', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
             'pipeline_stage_id' => ['nullable', 'integer', Rule::exists('pipeline_stages', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
-            'assigned_to' => ['nullable', 'integer', Rule::exists('users', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
+            'assigned_to' => ['nullable', 'integer', Rule::exists('users', 'id')->where(fn ($query) => $query->whereIn('id', DB::table('tenant_memberships')->select('user_id')->where('tenant_id', $tenantId)->whereNull('removed_at')))],
             'title' => [$opportunity ? 'sometimes' : 'nullable', 'string', 'max:255'],
             'status' => [$opportunity ? 'sometimes' : 'nullable', Rule::in(['open', 'won', 'lost', 'archived'])],
             'source_type' => [$opportunity ? 'sometimes' : 'nullable', Rule::in(['manual', 'conversation'])],
@@ -253,6 +254,8 @@ class OpportunityController extends Controller
             return null;
         }
 
-        return User::findOrFail($validated['assigned_to']);
+        return User::withoutGlobalScopes()->whereKey($validated['assigned_to'])
+            ->whereHas('memberships', fn ($query) => $query->where('tenant_id', request()->user()->tenant_id)->whereNull('removed_at'))
+            ->firstOrFail();
     }
 }

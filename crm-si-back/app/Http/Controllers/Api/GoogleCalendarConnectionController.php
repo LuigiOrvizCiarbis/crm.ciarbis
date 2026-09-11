@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\GoogleCalendarConnection;
 use App\Models\Scopes\TenantScope;
+use App\Models\TenantMembership;
 use App\Models\User;
 use App\Support\GoogleCalendarClient;
 use App\Support\GoogleCalendarOAuth;
@@ -63,9 +64,16 @@ class GoogleCalendarConnectionController extends Controller
 
         $user = User::withoutGlobalScope(TenantScope::class)->find($payload['user_id']);
 
-        if (! $user || $user->tenant_id !== $payload['tenant_id']) {
+        if (! $user || ! TenantMembership::active()
+            ->where('tenant_id', $payload['tenant_id'])
+            ->where('user_id', $user->id)
+            ->exists()) {
             return redirect()->away("{$frontendUrl}/configuracion?google_calendar=error");
         }
+
+        // OAuth callbacks do not have the request header, so restore the
+        // workspace captured in the one-time state only in memory.
+        $user->setAttribute('tenant_id', (int) $payload['tenant_id']);
 
         try {
             $client = GoogleCalendarClient::make();
