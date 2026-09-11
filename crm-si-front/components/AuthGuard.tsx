@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react"
 import { authOnlyRoutes, isRouteMatch, publicRoutes, trialExpiredAllowedRoutes, unverifiedAllowedRoutes } from "@/lib/routes"
 import { isTrialExpired } from "@/lib/trial"
 import { useConfigStore } from "@/store/useConfigStore"
+import { firstAccessibleSection } from "@/lib/section-access"
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -18,11 +19,18 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const { isAuthenticated, emailVerified, token, _hasHydrated, setEmailVerified, updateUser, setRoleAndPermissions, setWorkspaces } = useAuthStore()
   const [isChecking, setIsChecking] = useState(true)
   const [hasCompletedInitialCheck, setHasCompletedInitialCheck] = useState(false)
+  const [refreshNonce, setRefreshNonce] = useState(0)
 
   const isPublicRoute = isRouteMatch(pathname, publicRoutes)
   const isAuthOnlyRoute = isRouteMatch(pathname, authOnlyRoutes)
   const isUnverifiedAllowed = isRouteMatch(pathname, unverifiedAllowedRoutes)
   const isTrialExpiredAllowed = isRouteMatch(pathname, trialExpiredAllowedRoutes)
+
+  useEffect(() => {
+    const refreshOnFocus = () => setRefreshNonce((value) => value + 1)
+    window.addEventListener("focus", refreshOnFocus)
+    return () => window.removeEventListener("focus", refreshOnFocus)
+  }, [])
 
   useEffect(() => {
     // Esperar a que Zustand se hidrate desde localStorage
@@ -38,7 +46,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
       // Si está autenticado y trata de acceder a login/register, redirigir
       if (isAuthenticated && token && isAuthOnlyRoute) {
         if (emailVerified) {
-          router.replace("/chats")
+          const { permissions, role } = useAuthStore.getState()
+          router.replace(firstAccessibleSection(permissions, role)?.href ?? "/sin-acceso")
         } else {
           router.replace("/verify-email")
         }
@@ -111,7 +120,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
           // Trial ya no está vencido (upgrade) y sigue en la pantalla de bloqueo
           if (isVerified && !trialExpired && pathname === "/trial-expired") {
-            router.replace("/chats")
+            router.replace(firstAccessibleSection(data.permissions ?? [], data.role ?? null)?.href ?? "/sin-acceso")
             return
           }
         } catch {
@@ -140,6 +149,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
     isAuthOnlyRoute,
     isUnverifiedAllowed,
     isTrialExpiredAllowed,
+    refreshNonce,
   ])
 
   // Las rutas públicas se renderizan siempre: no dependen del estado de auth y

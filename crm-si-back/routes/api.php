@@ -569,14 +569,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('messages/{message}/media', [MessageMediaController::class, 'show']);
     Route::post('messages/{message}/link-preview', [LinkPreviewController::class, 'store'])->middleware('throttle:link-preview');
 
-    Route::get('instagram-comments', [InstagramCommentController::class, 'index']);
-    Route::get('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'show']);
-    Route::patch('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'assign']);
-    Route::post('instagram-comments/{instagramComment}/reply', [InstagramCommentController::class, 'publicReply']);
-    Route::post('instagram-comments/{instagramComment}/private-reply', [InstagramCommentController::class, 'privateReply']);
-    Route::post('instagram-comments/{instagramComment}/hide', [InstagramCommentController::class, 'hide']);
-    Route::post('instagram-comments/{instagramComment}/unhide', [InstagramCommentController::class, 'unhide']);
-    Route::delete('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'destroy']);
+    Route::middleware('section:instagram_comments')->group(function (): void {
+        Route::get('instagram-comments', [InstagramCommentController::class, 'index']);
+        Route::get('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'show']);
+        Route::patch('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'assign']);
+        Route::post('instagram-comments/{instagramComment}/reply', [InstagramCommentController::class, 'publicReply']);
+        Route::post('instagram-comments/{instagramComment}/private-reply', [InstagramCommentController::class, 'privateReply']);
+        Route::post('instagram-comments/{instagramComment}/hide', [InstagramCommentController::class, 'hide']);
+        Route::post('instagram-comments/{instagramComment}/unhide', [InstagramCommentController::class, 'unhide']);
+        Route::delete('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'destroy']);
+    });
 
     Route::apiResource('message-hotkeys', MessageHotkeyController::class)->except(['show']);
 

@@ -12,7 +12,8 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "@/hooks/useTranslation"
-import { NAVIGATION_ITEMS, resolveNavigationLabel } from "@/data/navigation"
+import { resolveNavigationLabel } from "@/data/navigation"
+import { accessibleNavigationItems } from "@/lib/section-access"
 
 interface MobileBottomNavProps {
   className?: string
@@ -29,6 +30,8 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const token = useAuthStore((state) => state.token)
   const navigationLabels = useAuthStore((state) => state.user?.tenant?.navigation_labels)
+  const permissions = useAuthStore((state) => state.permissions)
+  const role = useAuthStore((state) => state.role)
   const logoutStore = useAuthStore((state) => state.logout)
   const tasks = useTaskStore((state) => state.tasks)
   const isTasksLoading = useTaskStore((state) => state.isLoading)
@@ -111,7 +114,8 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
 
   const formatBadgeCount = (count: number) => (count > 99 ? "99+" : String(count))
 
-  const mainNavItems = NAVIGATION_ITEMS
+  const accessibleItems = accessibleNavigationItems(permissions, role)
+  const mainNavItems = accessibleItems
     .filter((item) => ["dashboard", "chats", "contacts", "pipeline", "tasks"].includes(item.key))
     .map((item) => ({
       ...item,
@@ -120,8 +124,8 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
       badge: item.key === "chats" ? unreadChats : item.key === "tasks" ? pendingTasks : 0,
     }))
 
-  const menuItems = NAVIGATION_ITEMS
-    .filter((item) => ["catalog", "broadcasts", "settings"].includes(item.key))
+  const menuItems = accessibleItems
+    .filter((item) => ["instagram_comments", "catalog", "broadcasts", "settings"].includes(item.key))
     .map((item) => ({ ...item, label: resolveNavigationLabel(item, navigationLabels, t) }))
 
   return (

@@ -12,6 +12,7 @@ import { useAuthStore } from "@/store/useAuthStore"
 import { setWorkspaceId } from "@/lib/api/auth-token"
 import { getInvitationByToken, acceptInvitation, type InvitationDetails } from "@/lib/api/invitations"
 import { useTranslation } from "@/hooks/useTranslation"
+import { firstAccessibleSection } from "@/lib/section-access"
 
 function AcceptInvitationContent() {
   const router = useRouter()
@@ -57,8 +58,11 @@ function AcceptInvitationContent() {
 
     if (workspace?.id) {
       setWorkspaceId(workspace.id)
-      if (newToken && newUser) setAuth(newUser, newToken, false, !!newUser.email_verified_at, role ?? null, permissions ?? [])
-      router.push("/chats")
+    }
+
+    if (newToken && newUser) {
+      setAuth(newUser, newToken, false, !!newUser.email_verified_at, role ?? null, permissions ?? [])
+      router.push(firstAccessibleSection(permissions ?? [], role ?? null)?.href ?? "/sin-acceso")
     }
   }
 
