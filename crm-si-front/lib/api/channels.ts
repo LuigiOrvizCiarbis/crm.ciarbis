@@ -1,5 +1,5 @@
 import { Channel } from "@/data/types";
-import { getAuthToken } from "./auth-token";
+import { getAuthToken, workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 import { ChannelError } from "@/lib/channel-error";
 
@@ -92,6 +92,7 @@ export async function getChannels(): Promise<Channel[]> {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      ...workspaceHeaders(),
     },
   });
 

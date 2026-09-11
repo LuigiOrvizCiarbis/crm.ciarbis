@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { reportApiFailure, reportConnectionFailure } from "@/lib/observability/sentry";
 
 type ProxyObservabilityOptions = {
@@ -126,7 +126,12 @@ export async function proxyToLaravel(
         "Accept": "application/json",
         "Authorization": authHeader,
       };
-      const workspaceId = (await cookies()).get("active-workspace-id")?.value;
+      // El cookie es un fallback para navegaciones. El header lo envía cada
+      // pestaña desde sessionStorage y evita que un cambio en otra pestaña
+      // altere el contexto de la petición actual.
+      const requestHeaders = await headers();
+      const workspaceId = requestHeaders.get("x-workspace-id")
+        ?? (await cookies()).get("active-workspace-id")?.value;
       if (workspaceId) defaultHeaders["X-Workspace-Id"] = workspaceId;
       if (!rawBody) {
         defaultHeaders["Content-Type"] = "application/json";
