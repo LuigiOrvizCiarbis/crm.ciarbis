@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Tenant;
 use App\Models\User;
+use App\Models\TenantMembership;
 use App\Support\RoleProvisioner;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\PermissionRegistrar;
@@ -47,5 +48,9 @@ class UserSeeder extends Seeder
         // If the user exists but somehow belongs to another tenant or has stale
         // attributes, refuse to overwrite — the seeder is for fresh dev DBs.
         $user->syncRoles([$roleName]);
+        TenantMembership::firstOrCreate(
+            ['tenant_id' => $tenant->id, 'user_id' => $user->id],
+            ['joined_at' => $user->created_at ?? now()],
+        );
     }
 }

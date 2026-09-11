@@ -18,6 +18,7 @@ use App\Models\WhatsAppTemplate;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -582,7 +583,7 @@ class ConversationController extends Controller
             'user_id' => [
                 'required',
                 'integer',
-                Rule::exists('users', 'id')->where(fn ($q) => $q->where('tenant_id', $tenantId)),
+                Rule::exists('users', 'id')->where(fn ($q) => $q->whereIn('id', DB::table('tenant_memberships')->select('user_id')->where('tenant_id', $tenantId)->whereNull('removed_at'))),
             ],
         ]);
 

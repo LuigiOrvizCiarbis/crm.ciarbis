@@ -164,6 +164,24 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->belongsTo(Tenant::class);
     }
 
+    public function memberships(): HasMany
+    {
+        return $this->hasMany(TenantMembership::class);
+    }
+
+    public function activeMemberships(): HasMany
+    {
+        return $this->memberships()->whereNull('removed_at');
+    }
+
+    public function tenants(): BelongsToMany
+    {
+        return $this->belongsToMany(Tenant::class, 'tenant_memberships')
+            ->wherePivotNull('removed_at')
+            ->withPivot(['id', 'branch_id', 'joined_at', 'removed_at'])
+            ->withTimestamps();
+    }
+
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);

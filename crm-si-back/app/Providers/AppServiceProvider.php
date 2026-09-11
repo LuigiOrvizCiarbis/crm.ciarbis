@@ -24,6 +24,7 @@ use App\Models\WhatsAppTemplate;
 use App\Observers\ContactAutomationObserver;
 use App\Observers\ConversationAutomationObserver;
 use App\Observers\MessageObserver;
+use App\Support\CurrentWorkspace;
 use App\Policies\BranchPolicy;
 use App\Policies\ChannelPolicy;
 use App\Policies\ContactPolicy;
@@ -57,6 +58,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->scoped(CurrentWorkspace::class, fn () => new CurrentWorkspace);
         $this->app->singleton(AutomationRegistry::class, fn ($app) => new AutomationRegistry(
             triggers: [
                 new EventTriggerHandler('contact.created', 'Contacto creado', 'contact'),

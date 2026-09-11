@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useAuthStore } from "@/store/useAuthStore"
+import { setWorkspaceId } from "@/lib/api/auth-token"
 import { getInvitationByToken, acceptInvitation, type InvitationDetails } from "@/lib/api/invitations"
 import { useTranslation } from "@/hooks/useTranslation"
 import { firstAccessibleSection } from "@/lib/section-access"
@@ -48,11 +49,15 @@ function AcceptInvitationContent() {
     if (!token) return
     setAccepting(true)
 
-    const { token: newToken, user: newUser, role, permissions, error: err } = await acceptInvitation(token)
+    const { token: newToken, user: newUser, workspace, role, permissions, error: err } = await acceptInvitation(token)
     if (err) {
       setError(err)
       setAccepting(false)
       return
+    }
+
+    if (workspace?.id) {
+      setWorkspaceId(workspace.id)
     }
 
     if (newToken && newUser) {

@@ -1,5 +1,5 @@
 import Pusher from "pusher-js";
-import { getAuthToken } from "@/lib/api/auth-token";
+import { getAuthToken, workspaceHeaders } from "@/lib/api/auth-token";
 
 let pusherInstance: Pusher | null = null;
 
@@ -27,6 +27,7 @@ export function getPusher(): Pusher {
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
             Authorization: `Bearer ${getAuthToken()}`,
+            ...workspaceHeaders(),
           },
           body: new URLSearchParams({ socket_id: socketId, channel_name: channel.name }),
         })
