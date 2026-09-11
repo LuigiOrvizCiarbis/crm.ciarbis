@@ -16,7 +16,7 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const { isAuthenticated, emailVerified, token, _hasHydrated, setEmailVerified, updateUser, setRoleAndPermissions } = useAuthStore()
+  const { isAuthenticated, emailVerified, token, _hasHydrated, setEmailVerified, updateUser, setRoleAndPermissions, setWorkspaces } = useAuthStore()
   const [isChecking, setIsChecking] = useState(true)
   const [hasCompletedInitialCheck, setHasCompletedInitialCheck] = useState(false)
   const [refreshNonce, setRefreshNonce] = useState(0)
@@ -75,6 +75,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
           }
 
           const data = await res.json()
+          if (Array.isArray(data.workspaces)) setWorkspaces(data.workspaces)
 
           // Refrescar role y permissions desde el backend en cada chequeo
           if (data.role !== undefined || data.permissions !== undefined) {
@@ -142,6 +143,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
     setEmailVerified,
     updateUser,
     setRoleAndPermissions,
+    setWorkspaces,
     hasCompletedInitialCheck,
     isPublicRoute,
     isAuthOnlyRoute,

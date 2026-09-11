@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
       const user = data?.user ?? data
       const role = data?.role ?? null
       const permissions = data?.permissions ?? []
-      return NextResponse.json({ authenticated: true, user, role, permissions })
+      return NextResponse.json({ authenticated: true, user, role, permissions, workspaces: data?.workspaces ?? [] })
     }
 
     return NextResponse.json(

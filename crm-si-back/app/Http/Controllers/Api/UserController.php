@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AssignRoleRequest;
 use App\Models\Tenant;
+use App\Models\TenantMembership;
 use App\Models\User;
 use App\Support\RolePayload;
 use Illuminate\Http\Request;
@@ -22,7 +23,8 @@ class UserController extends Controller
         $tenantId = $request->user()->tenant_id;
 
         $users = User::query()
-            ->where('tenant_id', $tenantId)
+            ->withoutGlobalScopes()
+            ->whereHas('memberships', fn ($query) => $query->where('tenant_id', $tenantId)->whereNull('removed_at'))
             ->with(['roles' => fn ($q) => $q->where('roles.tenant_id', $tenantId)])
             ->orderBy('name')
             ->get()
@@ -31,24 +33,29 @@ class UserController extends Controller
         return response()->json(['data' => $users]);
     }
 
-    public function show(Request $request, User $user): JsonResponse
+    public function show(Request $request, int $user): JsonResponse
     {
-        $this->authorize('view', $user);
-
         $tenantId = $request->user()->tenant_id;
-        $user->load(['roles' => fn ($q) => $q->where('roles.tenant_id', $tenantId)]);
+        $member = User::withoutGlobalScopes()->whereKey($user)
+            ->whereHas('memberships', fn ($query) => $query->where('tenant_id', $tenantId)->whereNull('removed_at'))
+            ->firstOrFail();
+        $member->setAttribute('tenant_id', $tenantId);
+        $this->authorize('view', $member);
+        $member->load(['roles' => fn ($q) => $q->where('roles.tenant_id', $tenantId)]);
 
-        return response()->json(['data' => $this->transform($user, $tenantId)]);
+        return response()->json(['data' => $this->transform($member, $tenantId)]);
     }
 
-    public function assignRole(AssignRoleRequest $request, User $user, PermissionRegistrar $registrar): JsonResponse
+    public function assignRole(AssignRoleRequest $request, int $user, PermissionRegistrar $registrar): JsonResponse
     {
+        $user = User::withoutGlobalScopes()->findOrFail($user);
+        $user->setAttribute('tenant_id', $request->user()->tenant_id);
         $this->authorize('assignRole', $user);
 
         $actor = $request->user();
         $tenantId = $actor->tenant_id;
 
-        if ((int) $user->tenant_id !== (int) $tenantId) {
+        if (! TenantMembership::active()->where('tenant_id', $tenantId)->where('user_id', $user->id)->exists()) {
             abort(403, 'Usuario fuera del tenant');
         }
 
@@ -86,7 +93,7 @@ class UserController extends Controller
         // Prevent leaving the tenant without any Owner.
         if ($targetIsOwner && ! $newRoleIsOwner) {
             $remainingOwners = User::query()
-                ->where('tenant_id', $tenantId)
+                ->whereHas('memberships', fn ($q) => $q->where('tenant_id', $tenantId)->whereNull('removed_at'))
                 ->where('id', '!=', $user->id)
                 ->whereHas('roles', fn ($q) => $q->where('roles.tenant_id', $tenantId)->where('roles.id', $ownerRoleId))
                 ->count();
@@ -104,14 +111,16 @@ class UserController extends Controller
         return response()->json(['data' => $this->transform($user, $tenantId)]);
     }
 
-    public function assignBranch(Request $request, User $user): JsonResponse
+    public function assignBranch(Request $request, int $user): JsonResponse
     {
+        $user = User::withoutGlobalScopes()->findOrFail($user);
+        $user->setAttribute('tenant_id', $request->user()->tenant_id);
         $this->authorize('update', $user);
 
         $actor = $request->user();
         $tenantId = $actor->tenant_id;
 
-        if ((int) $user->tenant_id !== (int) $tenantId) {
+        if (! TenantMembership::active()->where('tenant_id', $tenantId)->where('user_id', $user->id)->exists()) {
             abort(403, 'Usuario fuera del tenant');
         }
 
@@ -127,7 +136,11 @@ class UserController extends Controller
             ],
         ]);
 
-        $user->forceFill(['branch_id' => $validated['branch_id'] ?? null])->save();
+        TenantMembership::active()
+            ->where('tenant_id', $tenantId)
+            ->where('user_id', $user->id)
+            ->update(['branch_id' => $validated['branch_id'] ?? null]);
+        $user->forceFill(['branch_id' => $validated['branch_id'] ?? null]);
         $user->load(['roles' => fn ($q) => $q->where('roles.tenant_id', $tenantId)]);
 
         return response()->json(['data' => $this->transform($user, $tenantId)]);
@@ -140,13 +153,14 @@ class UserController extends Controller
     {
         $role = $user->roles->first();
         $tenant = Tenant::query()->whereKey($tenantId)->first();
+        $membership = TenantMembership::active()->where('tenant_id', $tenantId)->where('user_id', $user->id)->first();
 
         return [
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
-            'tenant_id' => $user->tenant_id,
-            'branch_id' => $user->branch_id,
+            'tenant_id' => $tenantId,
+            'branch_id' => $membership?->branch_id,
             'avatar_url' => $user->avatarUrl(),
             'role' => RolePayload::transform($role, $tenant),
             'created_at' => $user->created_at,

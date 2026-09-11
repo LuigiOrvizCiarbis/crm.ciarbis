@@ -43,6 +43,7 @@ use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\WebhookEndpointController;
+use App\Http\Controllers\Api\WorkspaceController;
 use App\Http\Controllers\Api\WhatsAppGroupController;
 use App\Http\Controllers\Api\WhatsAppGroupInvitationController;
 use App\Http\Controllers\Api\WhatsAppTemplateController;
@@ -167,6 +168,12 @@ Route::post('register', function (Request $request): JsonResponse {
             'email' => $request->email,
             'password' => Hash::make($request->password),
             'tenant_id' => $tenant->id,
+        ]);
+
+        \App\Models\TenantMembership::create([
+            'tenant_id' => $tenant->id,
+            'user_id' => $user->id,
+            'joined_at' => now(),
         ]);
 
         if ($isNewTenant) {
@@ -363,6 +370,15 @@ Route::post('reset-password', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function () {
 
+    Route::get('workspaces', [WorkspaceController::class, 'index']);
+    Route::post('workspaces', [WorkspaceController::class, 'store']);
+    Route::patch('workspaces/{workspace}', [WorkspaceController::class, 'update']);
+    Route::delete('workspaces/{workspace}', [WorkspaceController::class, 'destroy']);
+    Route::post('workspaces/{workspace}/restore', [WorkspaceController::class, 'restore']);
+    Route::post('workspaces/{workspace}/leave', [WorkspaceController::class, 'leave']);
+    Route::get('workspaces/{workspace}/audit', [WorkspaceController::class, 'audit']);
+    Route::delete('workspaces/{workspace}/members/{user}', [WorkspaceController::class, 'removeMember']);
+
     Route::get('broadcasts', [BroadcastCampaignController::class, 'index']);
     Route::get('broadcasts/{id}/results', [BroadcastCampaignController::class, 'results']);
     Route::get('broadcasts/{id}/recipients', [BroadcastCampaignController::class, 'recipients']);
@@ -373,11 +389,26 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('user', function (Request $request): JsonResponse {
         $user = $request->user()->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name']);
         $role = $user->roles()->where('roles.tenant_id', $user->tenant_id)->first();
+        $workspaceRoles = DB::table('model_has_roles')->join('roles', 'roles.id', '=', 'model_has_roles.role_id')
+            ->where('model_has_roles.model_id', $user->id)->where('model_has_roles.model_type', User::class)
+            ->pluck('roles.name', 'model_has_roles.tenant_id');
+        $workspaces = $user->activeMemberships()->with('tenant.plan')->get()->map(fn ($membership) => [
+            'id' => $membership->tenant_id,
+            'name' => $membership->tenant->name,
+            'role' => $workspaceRoles->get($membership->tenant_id),
+            'branch_id' => $membership->branch_id,
+            'trial_ends_at' => $membership->tenant->trial_ends_at,
+            'plan' => $membership->tenant->plan ? [
+                'key' => $membership->tenant->plan->key,
+                'name' => $membership->tenant->plan->name,
+            ] : null,
+        ])->values();
 
         return response()->json([
             'user' => new UserResource($user),
             'role' => RolePayload::transform($role, $user->tenant),
             'permissions' => $user->getAllPermissions()->pluck('name')->values(),
+            'workspaces' => $workspaces,
         ]);
     });
 

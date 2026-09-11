@@ -82,7 +82,7 @@ export async function getInvitationByToken(token: string): Promise<{ data?: Invi
 
 export async function acceptInvitation(
   invitationToken: string,
-): Promise<{ token?: string; user?: any; role?: UserRole | null; permissions?: string[]; error?: string }> {
+): Promise<{ token?: string; user?: any; workspace?: { id: number; name: string }; role?: UserRole | null; permissions?: string[]; error?: string }> {
   const authToken = getAuthToken()
   if (!authToken) return { error: "No auth" }
 
@@ -98,5 +98,5 @@ export async function acceptInvitation(
 
   const json = await res.json()
   if (!res.ok) return { error: json.message || "Error" }
-  return { token: json.token, user: json.user, role: json.role ?? null, permissions: json.permissions ?? [] }
+  return { token: json.token, user: json.user, workspace: json.workspace, role: json.role ?? null, permissions: json.permissions ?? [] }
 }

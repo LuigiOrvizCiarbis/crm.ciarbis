@@ -2,7 +2,7 @@
 
 use App\Http\Middleware\EnsureTrialNotExpired;
 use App\Http\Middleware\EnsureSectionAccess;
-use App\Http\Middleware\SetSpatieTeamId;
+use App\Http\Middleware\ResolveWorkspaceContext;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
@@ -34,7 +34,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'api/*',
             'webhooks/*',
         ]);
-        $middleware->appendToGroup('api', SetSpatieTeamId::class);
+        $middleware->appendToGroup('api', ResolveWorkspaceContext::class);
         $middleware->appendToGroup('api', EnsureTrialNotExpired::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

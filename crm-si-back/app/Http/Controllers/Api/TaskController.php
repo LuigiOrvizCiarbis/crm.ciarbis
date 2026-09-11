@@ -308,7 +308,7 @@ class TaskController extends Controller
             'type' => [$task ? 'sometimes' : 'nullable', Rule::enum(TaskType::class)],
             'deadline' => ['nullable', 'date'],
             'description' => ['nullable', 'string'],
-            'assigned_to' => [...$meetingRule('assigned_to'), 'integer', Rule::exists('users', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
+            'assigned_to' => [...$meetingRule('assigned_to'), 'integer', Rule::exists('users', 'id')->where(fn ($query) => $query->whereIn('id', DB::table('tenant_memberships')->select('user_id')->where('tenant_id', $tenantId)->whereNull('removed_at')))],
             'contact_id' => ['nullable', 'integer', Rule::exists('contacts', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
             'conversation_id' => ['nullable', 'integer', Rule::exists('conversations', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
             'opportunity_id' => ['nullable', 'integer', Rule::exists('opportunities', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
