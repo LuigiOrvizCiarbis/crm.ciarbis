@@ -20,6 +20,7 @@ import {
 import { useAuthStore } from "@/store/useAuthStore"
 import { useTranslation } from "@/hooks/useTranslation"
 import { LanguageSwitcher } from "@/components/LanguageSwitcher"
+import { clearWorkspaceId, setWorkspaceId } from "@/lib/api/auth-token"
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -84,6 +85,8 @@ export default function RegisterPage() {
       }
 
       // Email no verificado al registrar
+      clearWorkspaceId()
+      if (data.user?.tenant_id) setWorkspaceId(data.user.tenant_id)
       setAuth(data.user, data.token, false, false, data.role ?? null, data.permissions ?? [])
       router.push("/verify-email?registered=true")
     } catch (err: any) {

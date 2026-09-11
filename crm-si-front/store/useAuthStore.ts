@@ -2,6 +2,7 @@ import { create } from "zustand"
 import { persist, createJSONStorage } from "zustand/middleware"
 import * as Sentry from "@sentry/nextjs"
 import { disconnectPusher } from "@/lib/pusher"
+import { clearWorkspaceId } from "@/lib/api/auth-token"
 import type { NavigationLabels } from "@/data/navigation"
 import type { WorkspaceSummary } from "@/lib/api/workspaces"
 
@@ -149,6 +150,7 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         disconnectPusher()
+        clearWorkspaceId()
         setSentryUser(null)
         set({
           user: null,
@@ -158,6 +160,8 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: false,
           emailVerified: false,
           rememberMe: false,
+          workspaces: [],
+          activeWorkspaceId: null,
         })
       },
 
