@@ -23,9 +23,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ authenticated: true, user, role, permissions, workspaces: data?.workspaces ?? [] })
     }
 
+    // Preservar el status del backend: el cliente necesita distinguir un
+    // workspace vencido (403) de un token inválido (401) para recuperarse.
     return NextResponse.json(
-      { authenticated: false, message: "Sesión inválida" },
-      { status: 401 }
+      { authenticated: false, message: data?.message || "Sesión inválida" },
+      { status }
     )
   } catch (error: any) {
     console.error("[Auth Me Error]:", error)
