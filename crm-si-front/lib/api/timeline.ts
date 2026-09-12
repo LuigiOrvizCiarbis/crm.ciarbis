@@ -1,5 +1,5 @@
 import { throwApiError } from "./api-error"
-import { getAuthToken } from "./auth-token"
+import { getAuthToken, workspaceHeaders } from "./auth-token"
 
 export type TimelineEventType = "note" | "task" | "message" | "stage"
 
@@ -100,6 +100,7 @@ export async function getContactTimeline(
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
+      ...workspaceHeaders(),
     },
     cache: "no-store",
   })
