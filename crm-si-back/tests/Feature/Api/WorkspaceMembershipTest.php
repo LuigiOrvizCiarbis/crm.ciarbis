@@ -2,8 +2,10 @@
 
 namespace Tests\Feature\Api;
 
-use App\Models\TenantMembership;
+use App\Models\Contact;
 use App\Models\Invitation;
+use App\Models\Tenant;
+use App\Models\TenantMembership;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -38,6 +40,49 @@ class WorkspaceMembershipTest extends TestCase
         $this->withHeader('X-Workspace-Id', (string) $other->id)
             ->getJson('/api/user')
             ->assertForbidden();
+    }
+
+    public function test_contact_requests_stay_in_the_selected_workspace(): void
+    {
+        $first = $this->createTenantWithRoles('Primero');
+        $second = $this->createTenantWithRoles('Segundo');
+        $user = User::factory()->create(['tenant_id' => $first->id]);
+        TenantMembership::create(['tenant_id' => $second->id, 'user_id' => $user->id, 'joined_at' => now()]);
+
+        $registrar = app(PermissionRegistrar::class);
+        $registrar->setPermissionsTeamId($first->id);
+        $user->assignRole('Owner');
+        $registrar->setPermissionsTeamId($second->id);
+        $user->assignRole('Owner');
+
+        $firstContact = Contact::withoutGlobalScopes()->create([
+            'tenant_id' => $first->id,
+            'name' => 'Contacto primero',
+            'source' => 'manual',
+            'custom_data' => [],
+        ]);
+        $secondContact = Contact::withoutGlobalScopes()->create([
+            'tenant_id' => $second->id,
+            'name' => 'Contacto segundo',
+            'source' => 'manual',
+            'custom_data' => [],
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->withHeader('X-Workspace-Id', (string) $second->id)
+            ->getJson('/api/contacts')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $secondContact->id);
+
+        $this->withHeader('X-Workspace-Id', (string) $second->id)
+            ->putJson("/api/contacts/{$secondContact->id}", ['name' => 'Contacto actualizado'])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Contacto actualizado');
+
+        $this->withHeader('X-Workspace-Id', (string) $second->id)
+            ->putJson("/api/contacts/{$firstContact->id}", ['name' => 'No debe actualizar'])
+            ->assertNotFound();
     }
 
     public function test_accepting_an_invitation_adds_membership_without_abandoning_current_workspace(): void
@@ -78,7 +123,7 @@ class WorkspaceMembershipTest extends TestCase
         $workspaceId = $response->json('data.id');
 
         $this->assertTrue(TenantMembership::active()->where('tenant_id', $workspaceId)->where('user_id', $user->id)->exists());
-        $this->assertNull(\App\Models\Tenant::findOrFail($workspaceId)->trial_ends_at);
+        $this->assertNull(Tenant::findOrFail($workspaceId)->trial_ends_at);
     }
 
     public function test_member_removal_requires_the_permission_in_the_target_workspace(): void

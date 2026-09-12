@@ -1,4 +1,4 @@
-import { getAuthToken } from "./auth-token";
+import { getAuthToken, workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 import type { Tag } from "./tags";
 
@@ -78,6 +78,7 @@ export async function getContacts(params: GetContactsParams = {}): Promise<Conta
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
+      ...workspaceHeaders(),
     },
     cache: "no-store",
   });
@@ -98,6 +99,7 @@ export async function getContact(contactId: number): Promise<Contact> {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
+      ...workspaceHeaders(),
     },
     cache: "no-store",
   });
@@ -118,6 +120,7 @@ export async function getContactsSummary(): Promise<ContactsSummary> {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
+      ...workspaceHeaders(),
     },
     cache: "no-store",
   });
@@ -140,6 +143,7 @@ export async function updateContact(contactId: number, updates: ContactUpdate): 
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
+      ...workspaceHeaders(),
     },
     body: JSON.stringify(updates),
   });
@@ -176,6 +180,7 @@ export async function bulkUpdateContactTags(req: BulkTagsRequest): Promise<BulkT
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
+      ...workspaceHeaders(),
     },
     body: JSON.stringify(req),
   });

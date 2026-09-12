@@ -21,7 +21,7 @@ import { ImportContactsDialog } from "./import-contacts-dialog"
 import { BulkTagsDialog } from "./contacts/bulk-tags-dialog"
 import { ExtractDocumentDialog } from "./contacts/ExtractDocumentDialog"
 import { DocumentViewerSheet } from "./contacts/DocumentViewerSheet"
-import { getAuthToken, getWorkspaceId } from "@/lib/api/auth-token"
+import { getAuthToken, getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
 import { getPipelineStages } from "@/lib/api/pipeline"
 import { createOpportunity, getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
 import { updateContact, type ContactUpdate } from "@/lib/api/contacts"
@@ -652,7 +652,7 @@ export function ContactsList({
       queryParams.append("sort_dir", sortDirection)
       const token = getAuthToken()
       const response = await fetch(`/api/contacts?${queryParams.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
       })
       if (!response.ok) throw new Error("Error al cargar contactos")
       const result = await response.json()
@@ -713,6 +713,7 @@ export function ContactsList({
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          ...workspaceHeaders(),
         },
         body: JSON.stringify({
           name: formData.name.trim(),
@@ -787,7 +788,7 @@ export function ContactsList({
       const token = getAuthToken()
       const response = await fetch(`/api/contacts/${deleteContact.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
       })
       if (response.ok) {
         setDeleteContact(null)

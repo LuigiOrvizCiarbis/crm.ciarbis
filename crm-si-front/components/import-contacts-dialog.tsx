@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Progress } from "@/components/ui/progress"
 import { Upload, FileText, CheckCircle2, AlertCircle, Info, Loader2, X } from "lucide-react"
-import { getAuthToken } from "@/lib/api/auth-token"
+import { getAuthToken, workspaceHeaders } from "@/lib/api/auth-token"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 
 interface ImportContactsDialogProps {
@@ -255,7 +255,7 @@ export function ImportContactsDialog({ open, onOpenChange, onImportComplete }: I
 
       const response = await fetch("/api/contacts/import", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
         body: formData,
       })
 

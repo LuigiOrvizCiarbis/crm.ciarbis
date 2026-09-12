@@ -1,4 +1,4 @@
-import { getAuthToken } from "./auth-token";
+import { getAuthToken, workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 
 export type ExtractionStatus = "queued" | "processing" | "completed" | "failed" | "confirmed";
@@ -42,6 +42,7 @@ function headers(): HeadersInit {
     Authorization: token ? `Bearer ${token}` : "",
     Accept: "application/json",
     "Content-Type": "application/json",
+    ...workspaceHeaders(),
   };
 }
 
@@ -57,7 +58,7 @@ export async function uploadContactDocument(contactId: number, file: File): Prom
   const response = await fetch(`/api/contacts/${contactId}/documents`, {
     method: "POST",
     // Sin Content-Type: el browser pone el boundary del multipart.
-    headers: { Authorization: token ? `Bearer ${token}` : "" },
+    headers: { Authorization: token ? `Bearer ${token}` : "", ...workspaceHeaders() },
     body: formData,
   });
 
