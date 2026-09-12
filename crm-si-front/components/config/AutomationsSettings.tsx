@@ -456,6 +456,15 @@ function TriggerEditor({ form, onChange, fieldOptions, t }: { form: AutomationPa
   const config = form.trigger_config
   const setConfig = (patch: Record<string, unknown>) => onChange({ ...form, trigger_config: { ...config, ...patch } })
   const watchedField = String(config.field ?? "")
+  const dateField = String(config.field ?? "")
+  // `date.reached` guarda la ruta completa (`contact.custom_data.vencimiento`),
+  // a diferencia de `contact.field_changed`, que guarda la key pelada. El
+  // prefijo sale del subject para que las opciones matcheen lo guardado.
+  const datePrefix = `${String(config.subject ?? "contact")}.`
+  const dateFieldOptions = useMemo(
+    () => fieldOptions.map((option) => ({ value: `${datePrefix}${option.value}`, label: option.label })),
+    [fieldOptions, datePrefix],
+  )
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <Field label={t("settings.automations.event")}>
@@ -481,7 +490,22 @@ function TriggerEditor({ form, onChange, fieldOptions, t }: { form: AutomationPa
       {form.trigger_type === "date.reached" ? (
         <>
           <Field label={t("settings.automations.subject")}><Select value={String(config.subject ?? "contact")} onValueChange={(value) => setConfig({ subject: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="contact">{t("settings.automations.contact")}</SelectItem><SelectItem value="conversation">{t("settings.automations.conversation")}</SelectItem></SelectContent></Select></Field>
-          <Field label={t("settings.automations.dateField")}><Input value={String(config.field ?? "")} onChange={(event) => setConfig({ field: event.target.value })} placeholder="custom_data.fecha_renovacion" /></Field>
+          <Field label={t("settings.automations.dateField")}>
+            {dateFieldOptions.length > 0 ? (
+              <Select value={dateField} onValueChange={(value) => setConfig({ field: value })}>
+                <SelectTrigger><SelectValue placeholder={t("settings.automations.selectField")} /></SelectTrigger>
+                <SelectContent>
+                  {dateFieldOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                  {/* Una regla provisionada puede apuntar a un campo que no está
+                      en la lista (borrado, o de otro subject): se ofrece crudo
+                      para no perderlo al guardar. */}
+                  {dateField && !dateFieldOptions.some((option) => option.value === dateField) ? <SelectItem value={dateField}>{dateField}</SelectItem> : null}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input value={dateField} onChange={(event) => setConfig({ field: event.target.value })} placeholder="contact.custom_data.fecha_renovacion" />
+            )}
+          </Field>
           <Field label={t("settings.automations.offset")}><div className="grid grid-cols-[80px_1fr_1fr] gap-2"><Input type="number" min={0} value={Number(config.offset_value ?? 0)} onChange={(event) => setConfig({ offset_value: Number(event.target.value) })} /><Select value={String(config.offset_unit ?? "days")} onValueChange={(value) => setConfig({ offset_unit: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="days">{t("settings.automations.days")}</SelectItem><SelectItem value="weeks">{t("settings.automations.weeks")}</SelectItem></SelectContent></Select><Select value={String(config.offset_direction ?? "after")} onValueChange={(value) => setConfig({ offset_direction: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="before">{t("settings.automations.before")}</SelectItem><SelectItem value="after">{t("settings.automations.after")}</SelectItem></SelectContent></Select></div></Field>
           <Field label={t("settings.automations.localTime")}><Input type="time" value={String(config.local_time ?? "09:00")} onChange={(event) => setConfig({ local_time: event.target.value })} /></Field>
           <div className="rounded-lg border border-border p-4 md:col-span-2">
