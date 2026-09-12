@@ -48,6 +48,19 @@ function ChoiceMarker({ color }: { color?: string }) {
   return <span aria-hidden className="size-2.5 shrink-0 rounded-full border border-black/10 bg-muted-foreground/40" style={color ? { backgroundColor: color } : undefined} />
 }
 
+function ChoiceBadge({ choice, color }: { choice: string; color?: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className="max-w-full gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium"
+      style={color ? { borderColor: `${color}80`, backgroundColor: `${color}1f` } : undefined}
+    >
+      <ChoiceMarker color={color} />
+      <span className="truncate">{formatCustomChoice(choice)}</span>
+    </Badge>
+  )
+}
+
 interface CustomFieldInputProps {
   /** Contact and product fields share the same shape; either works here. */
   field: ContactField | ProductField
@@ -131,7 +144,8 @@ export function CustomFieldInput({ field, value, onChange, disabled, className, 
             disabled={disabled}
           />
         )
-      case "select":
+      case "select": {
+        const selectedChoice = typeof value === "string" && value ? value : null
         return (
           <Select
             value={(value as string | null | undefined) ?? ""}
@@ -139,7 +153,9 @@ export function CustomFieldInput({ field, value, onChange, disabled, className, 
             disabled={disabled}
           >
             <SelectTrigger id={id}>
-              <SelectValue placeholder="—" />
+              <SelectValue placeholder="—">
+                {selectedChoice ? <ChoiceBadge choice={selectedChoice} color={choiceColor(field, selectedChoice)} /> : null}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {choices.map((choice) => (
@@ -150,6 +166,7 @@ export function CustomFieldInput({ field, value, onChange, disabled, className, 
             </SelectContent>
           </Select>
         )
+      }
       case "multi_select": {
         const selected = Array.isArray(value) ? (value as string[]) : []
         return (
