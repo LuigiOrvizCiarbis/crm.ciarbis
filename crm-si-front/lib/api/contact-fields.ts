@@ -1,4 +1,4 @@
-import { getAuthToken } from "./auth-token";
+import { getAuthToken, workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 
 export type ContactFieldType =
@@ -76,6 +76,7 @@ function headers(): HeadersInit {
     Authorization: token ? `Bearer ${token}` : "",
     Accept: "application/json",
     "Content-Type": "application/json",
+    ...workspaceHeaders(),
   };
 }
 
