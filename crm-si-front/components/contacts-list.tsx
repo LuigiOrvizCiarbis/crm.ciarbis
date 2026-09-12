@@ -25,7 +25,7 @@ import { getAuthToken, getWorkspaceId } from "@/lib/api/auth-token"
 import { getPipelineStages } from "@/lib/api/pipeline"
 import { createOpportunity, getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
 import { updateContact, type ContactUpdate } from "@/lib/api/contacts"
-import { CustomFieldInput, formatCustomChoice } from "@/components/CustomFieldInput"
+import { CustomChoiceBadge, CustomFieldInput, formatCustomChoice } from "@/components/CustomFieldInput"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 import type { Tag } from "@/lib/api/tags"
 import { useAutosave } from "@/lib/hooks/useAutosave"
@@ -1177,7 +1177,7 @@ export function ContactsList({
               {field.type === "select"
                 ? raw === null || raw === undefined || raw === ""
                   ? "—"
-                  : formatCustomChoice(String(raw))
+                  : <CustomChoiceBadge choice={String(raw)} color={field.options?.choice_colors?.[String(raw)]} />
                 : formatCustomValue(raw, field.type, field.options?.currency)}
             </button>
           )

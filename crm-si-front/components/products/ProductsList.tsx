@@ -19,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { DataTable, type DataTableColumn, type DataTableSort } from "@/components/ui/data-table"
-import { CustomFieldInput } from "@/components/CustomFieldInput"
+import { CustomChoiceBadge, CustomFieldInput } from "@/components/CustomFieldInput"
 import { useProductFieldsStore } from "@/store/useProductFieldsStore"
 import type { ProductField } from "@/lib/api/product-fields"
 import {
@@ -367,6 +367,11 @@ export function ProductsList() {
           <button type="button" className="text-left text-sm underline-offset-2 hover:underline" onClick={() => openEdit(product)}>
             {formatCustomValue(product.custom_data?.[field.key], field.type, t)}
           </button>
+        ) : field.type === "select" && product.custom_data?.[field.key] ? (
+          <CustomChoiceBadge
+            choice={String(product.custom_data[field.key])}
+            color={field.options?.choice_colors?.[String(product.custom_data[field.key])]}
+          />
         ) : (
           <span className="text-sm">{formatCustomValue(product.custom_data?.[field.key], field.type, t)}</span>
         )
