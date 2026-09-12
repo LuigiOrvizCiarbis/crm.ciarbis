@@ -21,7 +21,7 @@ import { ImportContactsDialog } from "./import-contacts-dialog"
 import { BulkTagsDialog } from "./contacts/bulk-tags-dialog"
 import { ExtractDocumentDialog } from "./contacts/ExtractDocumentDialog"
 import { DocumentViewerSheet } from "./contacts/DocumentViewerSheet"
-import { getAuthToken } from "@/lib/api/auth-token"
+import { getAuthToken, getWorkspaceId } from "@/lib/api/auth-token"
 import { getPipelineStages } from "@/lib/api/pipeline"
 import { createOpportunity, getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
 import { updateContact, type ContactUpdate } from "@/lib/api/contacts"
@@ -127,6 +127,12 @@ const DEFAULT_COLUMNS: Column[] = [
 
 const COLUMN_ORDER_KEY = "contacts-column-order"
 const COLUMN_WIDTHS_KEY = "contacts-column-widths"
+
+function workspaceStorageKey(base: string, workspaceId: number | null): string {
+  // Columnas custom y sus medidas pertenecen al workspace que definió ese
+  // esquema. No se reutiliza la clave histórica global entre workspaces.
+  return workspaceId ? `${base}:${workspaceId}` : base
+}
 const COLUMN_SORT_FIELDS: Partial<Record<ColumnId, SortField>> = {
   contact: "name",
   phone: "phone",
@@ -154,10 +160,10 @@ function formatCustomValue(value: unknown, type: string | undefined, currency?: 
   return String(value)
 }
 
-function loadColumnOrder(): Column[] {
+function loadColumnOrder(workspaceId: number | null): Column[] {
   if (typeof window === "undefined") return DEFAULT_COLUMNS
   try {
-    const saved = window.localStorage.getItem(COLUMN_ORDER_KEY)
+    const saved = window.localStorage.getItem(workspaceStorageKey(COLUMN_ORDER_KEY, workspaceId))
     if (!saved) return DEFAULT_COLUMNS
     const ids = JSON.parse(saved) as ColumnId[]
     const ordered: Column[] = ids
@@ -177,10 +183,10 @@ function loadColumnOrder(): Column[] {
   }
 }
 
-function loadColumnWidths(): Record<string, string> {
+function loadColumnWidths(workspaceId: number | null): Record<string, string> {
   if (typeof window === "undefined") return {}
   try {
-    const saved = window.localStorage.getItem(COLUMN_WIDTHS_KEY)
+    const saved = window.localStorage.getItem(workspaceStorageKey(COLUMN_WIDTHS_KEY, workspaceId))
     return saved ? (JSON.parse(saved) as Record<string, string>) : {}
   } catch {
     return {}
@@ -358,6 +364,7 @@ export function ContactsList({
 }: ContactsListProps = {}) {
   const { t } = useTranslation()
   const router = useRouter()
+  const workspaceId = getWorkspaceId()
   const { addToast } = useToast()
   const [contacts, setContacts] = useState<Contact[]>([])
   const [page, setPage] = useState(1)
@@ -422,11 +429,11 @@ export function ContactsList({
       contactFields.map((f) => ({
         id: `custom:${f.key}` as ColumnId,
         labelKey: f.label,
-        width: loadColumnWidths()[`custom:${f.key}`] ?? "180px",
+        width: loadColumnWidths(workspaceId)[`custom:${f.key}`] ?? "180px",
         minWidth: "140px",
         draggable: true,
       })),
-    [contactFields],
+    [contactFields, workspaceId],
   )
 
   const [columns, setColumns] = useState<Column[]>(DEFAULT_COLUMNS)
@@ -434,40 +441,47 @@ export function ContactsList({
   const tableRef = useRef<HTMLTableElement | null>(null)
 
   useEffect(() => {
-    const savedWidths = loadColumnWidths()
-    setColumns(loadColumnOrder().map((column) => ({
+    const savedWidths = loadColumnWidths(workspaceId)
+    setColumns(loadColumnOrder(workspaceId).map((column) => ({
       ...column,
       width: savedWidths[column.id] ?? column.width,
     })))
     setColumnsHydrated(true)
-  }, [])
+  }, [workspaceId])
 
   useEffect(() => {
-    if (customFieldColumns.length === 0) return
+    if (!contactFieldsLoaded) return
     setColumns((prev) => {
-      const knownIds = new Set(prev.map((c) => c.id))
+      const validCustomIds = new Set(customFieldColumns.map((column) => column.id))
+      const sanitized = prev.filter(
+        (column) => !column.id.startsWith("custom:") || validCustomIds.has(column.id),
+      )
+      const knownIds = new Set(sanitized.map((c) => c.id))
       const additions = customFieldColumns.filter((c) => !knownIds.has(c.id))
       if (additions.length === 0) {
         // Keep labels in sync (custom field renames).
-        return prev.map((c) => {
+        return sanitized.map((c) => {
           const next = customFieldColumns.find((cf) => cf.id === c.id)
           return next ? { ...c, labelKey: next.labelKey } : c
         })
       }
-      const actionsIndex = prev.findIndex((c) => c.id === "actions")
-      if (actionsIndex === -1) return [...prev, ...additions]
-      return [...prev.slice(0, actionsIndex), ...additions, ...prev.slice(actionsIndex)]
+      const actionsIndex = sanitized.findIndex((c) => c.id === "actions")
+      if (actionsIndex === -1) return [...sanitized, ...additions]
+      return [...sanitized.slice(0, actionsIndex), ...additions, ...sanitized.slice(actionsIndex)]
     })
-  }, [customFieldColumns])
+  }, [contactFieldsLoaded, customFieldColumns])
 
   useEffect(() => {
     if (typeof window === "undefined" || !columnsHydrated) return
-    window.localStorage.setItem(COLUMN_ORDER_KEY, JSON.stringify(columns.map((c) => c.id)))
     window.localStorage.setItem(
-      COLUMN_WIDTHS_KEY,
+      workspaceStorageKey(COLUMN_ORDER_KEY, workspaceId),
+      JSON.stringify(columns.map((c) => c.id)),
+    )
+    window.localStorage.setItem(
+      workspaceStorageKey(COLUMN_WIDTHS_KEY, workspaceId),
       JSON.stringify(Object.fromEntries(columns.map((column) => [column.id, column.width]))),
     )
-  }, [columns, columnsHydrated])
+  }, [columns, columnsHydrated, workspaceId])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
