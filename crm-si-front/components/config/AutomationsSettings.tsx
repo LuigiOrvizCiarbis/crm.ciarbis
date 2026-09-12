@@ -105,6 +105,45 @@ function parametersForTemplate(template: WhatsAppTemplate | undefined): ActionPa
   return params
 }
 const emptyGroup = (): ConditionGroup => ({ operator: "AND", conditions: [] })
+
+/**
+ * `conditions` no siempre llega como grupo: las reglas que provisiona el
+ * backend (cobranzas, por ejemplo) guardan una condición suelta, que el motor
+ * evalúa igual porque distingue grupo de hoja por la clave `conditions`.
+ * Castear a ConditionGroup a ciegas rompía el editor con un `.map()` sobre
+ * undefined, así que acá se normaliza a grupo antes de abrirlo.
+ */
+const toConditionGroup = (raw: unknown): ConditionGroup => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return emptyGroup()
+
+  const node = raw as Record<string, unknown>
+
+  if (Array.isArray(node.conditions)) {
+    return {
+      // El backend compara con strtoupper() y acepta ambas grafías; el select
+      // del editor sólo entiende mayúsculas.
+      operator: String(node.operator ?? "AND").toUpperCase() === "OR" ? "OR" : "AND",
+      conditions: node.conditions as Array<LeafCondition | ConditionGroup>,
+    }
+  }
+
+  if (typeof node.field === "string") {
+    // El editor renderiza `value` en un <Input>: un array (operador `in`) se
+    // aplana a texto para no pasarle un valor no-string a un input controlado.
+    const value = node.value
+    return {
+      operator: "AND",
+      conditions: [{
+        field: node.field,
+        operator: String(node.operator ?? "equals"),
+        value: Array.isArray(value) ? value.join(", ") : String(value ?? ""),
+      }],
+    }
+  }
+
+  return emptyGroup()
+}
+
 const emptyAction = (): AutomationAction => ({ type: "whatsapp_template", config: { parameters: [] } })
 
 // El backend valida contra DateTimeZone::ALL, que rechaza los alias legacy de
@@ -239,7 +278,7 @@ export function AutomationsSettings() {
       timezone: rule.timezone,
       actions: rule.actions.map((action) => ({ type: action.type, config: { ...action.config, parameters: action.config.parameters ?? [] } })),
     })
-    setConditionGroup((rule.conditions as ConditionGroup | null) ?? emptyGroup())
+    setConditionGroup(toConditionGroup(rule.conditions))
     rule.actions.forEach((action) => { if (action.config.channel_id) void loadTemplates(action.config.channel_id) })
     setBuilderOpen(true)
   }
