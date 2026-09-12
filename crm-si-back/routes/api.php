@@ -26,8 +26,8 @@ use App\Http\Controllers\Api\MediaAssetController;
 use App\Http\Controllers\Api\MediaAssetDownloadController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\MessageHotkeyController;
-use App\Http\Controllers\Api\MessageReactionController;
 use App\Http\Controllers\Api\MessageMediaController;
+use App\Http\Controllers\Api\MessageReactionController;
 use App\Http\Controllers\Api\MessageTranslationController;
 use App\Http\Controllers\Api\NavigationLabelController;
 use App\Http\Controllers\Api\NoteController;
@@ -43,11 +43,11 @@ use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\WebhookEndpointController;
-use App\Http\Controllers\Api\WorkspaceController;
 use App\Http\Controllers\Api\WhatsAppGroupController;
 use App\Http\Controllers\Api\WhatsAppGroupInvitationController;
 use App\Http\Controllers\Api\WhatsAppTemplateController;
 use App\Http\Controllers\Api\WooCommerceConfigController;
+use App\Http\Controllers\Api\WorkspaceController;
 use App\Http\Controllers\FacebookDataDeletionController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstagramController;
@@ -58,6 +58,7 @@ use App\Http\Resources\UserResource;
 use App\Models\Invitation;
 use App\Models\Scopes\TenantScope;
 use App\Models\Tenant;
+use App\Models\TenantMembership;
 use App\Models\User;
 use App\Support\ProductFieldProvisioner;
 use App\Support\RolePayload;
@@ -170,7 +171,7 @@ Route::post('register', function (Request $request): JsonResponse {
             'tenant_id' => $tenant->id,
         ]);
 
-        \App\Models\TenantMembership::create([
+        TenantMembership::create([
             'tenant_id' => $tenant->id,
             'user_id' => $user->id,
             'joined_at' => now(),
@@ -523,6 +524,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Config del módulo de cobranzas por tenant (qué campo custom es el
     // vencimiento/estado/contador de mora, ver Fase 3 del plan SI-27).
     Route::get('billing-config', [BillingConfigController::class, 'show']);
+    // Antes de la ruta con parámetro no hay conflicto acá, pero se mantiene el
+    // orden específico-antes-que-genérico por consistencia con el resto.
+    Route::get('billing-config/template-drafts', [BillingConfigController::class, 'templateDrafts']);
     Route::put('billing-config', [BillingConfigController::class, 'update']);
 
     // Config de webhooks entrantes por tenant (el endpoint público de recepción
