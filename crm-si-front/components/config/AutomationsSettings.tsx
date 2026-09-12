@@ -194,6 +194,18 @@ export function AutomationsSettings() {
     ...contactFields.standard.map((field) => ({ value: field.key, label: field.label })),
     ...contactFields.data.map((field) => ({ value: `custom_data.${field.key}`, label: field.label })),
   ], [contactFields])
+
+  /**
+   * El trigger `date.reached` sólo puede agendar sobre una fecha, así que su
+   * selector se arma aparte: ofrecer Nombre o Moneda ahí es ruido que además
+   * produce reglas que nunca disparan. Los timestamps de sistema se suman a
+   * mano porque no son ContactField.
+   */
+  const dateFieldOptions = useMemo(() => [
+    ...contactFields.standard.filter((field) => field.type === "date").map((field) => ({ value: field.key, label: field.label })),
+    ...contactFields.data.filter((field) => field.type === "date").map((field) => ({ value: `custom_data.${field.key}`, label: field.label })),
+    { value: "created_at", label: t("settings.automations.creationDate") },
+  ], [contactFields, t])
   // Campos que pueden alimentar el header de un template: los de tipo archivo
   // (el PDF vive en la app, URL pública garantizada) y los de tipo URL (link
   // externo, se verifica al enviar). La ruta es la que resuelve el backend.
@@ -411,7 +423,7 @@ export function AutomationsSettings() {
             </div>
 
             <BuilderStep number="1" title={t("settings.automations.trigger")} icon={Play}>
-              <TriggerEditor form={form} onChange={setForm} fieldOptions={contactFieldOptions} t={t} />
+              <TriggerEditor form={form} onChange={setForm} fieldOptions={contactFieldOptions} dateFieldOptions={dateFieldOptions} t={t} />
             </BuilderStep>
 
             <BuilderStep number="2" title={t("settings.automations.conditions")} icon={Braces} optional={t("settings.automations.optional")}>
@@ -452,7 +464,7 @@ export function AutomationsSettings() {
   )
 }
 
-function TriggerEditor({ form, onChange, fieldOptions, t }: { form: AutomationPayload; onChange: (value: AutomationPayload) => void; fieldOptions: Array<{ value: string; label: string }>; t: (key: string) => string }) {
+function TriggerEditor({ form, onChange, fieldOptions, dateFieldOptions: rawDateFieldOptions, t }: { form: AutomationPayload; onChange: (value: AutomationPayload) => void; fieldOptions: Array<{ value: string; label: string }>; dateFieldOptions: Array<{ value: string; label: string }>; t: (key: string) => string }) {
   const config = form.trigger_config
   const setConfig = (patch: Record<string, unknown>) => onChange({ ...form, trigger_config: { ...config, ...patch } })
   const watchedField = String(config.field ?? "")
@@ -462,13 +474,13 @@ function TriggerEditor({ form, onChange, fieldOptions, t }: { form: AutomationPa
   // prefijo sale del subject para que las opciones matcheen lo guardado.
   const datePrefix = `${String(config.subject ?? "contact")}.`
   const dateFieldOptions = useMemo(
-    () => fieldOptions.map((option) => ({ value: `${datePrefix}${option.value}`, label: option.label })),
-    [fieldOptions, datePrefix],
+    () => rawDateFieldOptions.map((option) => ({ value: `${datePrefix}${option.value}`, label: option.label })),
+    [rawDateFieldOptions, datePrefix],
   )
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <Field label={t("settings.automations.event")}>
-        <Select value={form.trigger_type} onValueChange={(value) => onChange({ ...form, trigger_type: value, trigger_config: value === "date.reached" ? { subject: "contact", field: "created_at", offset_value: 0, offset_unit: "days", offset_direction: "after", local_time: "09:00" } : {} })}>
+        <Select value={form.trigger_type} onValueChange={(value) => onChange({ ...form, trigger_type: value, trigger_config: value === "date.reached" ? { subject: "contact", field: "contact.created_at", offset_value: 0, offset_unit: "days", offset_direction: "after", local_time: "09:00" } : {} })}>
           <SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{triggers.map(([id, key]) => <SelectItem key={id} value={id}>{t(`settings.automations.triggers.${key}`)}</SelectItem>)}</SelectContent>
         </Select>
       </Field>
