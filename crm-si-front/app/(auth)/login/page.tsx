@@ -21,6 +21,7 @@ import {
 import { useAuthStore } from "@/store/useAuthStore"
 import { LanguageSwitcher } from "@/components/LanguageSwitcher"
 import { firstAccessibleSection } from "@/lib/section-access"
+import { clearWorkspaceId, setWorkspaceId } from "@/lib/api/auth-token"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -54,6 +55,10 @@ export default function LoginPage() {
       }
 
       const emailVerified = data.email_verified || !!data.user?.email_verified_at
+      // El workspace pertenece a la sesión: nunca reutilizar el de una cuenta
+      // anterior que haya quedado en este navegador.
+      clearWorkspaceId()
+      if (data.user?.tenant_id) setWorkspaceId(data.user.tenant_id)
       setAuth(data.user, data.token, rememberMe, emailVerified, data.role ?? null, data.permissions ?? [])
 
       if (redirectTo && redirectTo.startsWith("/")) {

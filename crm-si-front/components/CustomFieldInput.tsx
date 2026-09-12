@@ -30,6 +30,12 @@ import type { ProductField } from "@/lib/api/product-fields"
 import { RepeaterFieldInput } from "@/components/RepeaterFieldInput"
 import { CurrencyInput } from "@/components/CurrencyInput"
 
+/** Keeps the stored choice value stable while presenting a readable label. */
+export function formatCustomChoice(value: string): string {
+  const readable = value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim()
+  return readable ? readable.charAt(0).toUpperCase() + readable.slice(1) : value
+}
+
 interface CustomFieldInputProps {
   /** Contact and product fields share the same shape; either works here. */
   field: ContactField | ProductField
@@ -126,7 +132,7 @@ export function CustomFieldInput({ field, value, onChange, disabled, className, 
             <SelectContent>
               {choices.map((choice) => (
                 <SelectItem key={choice} value={choice}>
-                  {choice}
+                  {formatCustomChoice(choice)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -321,7 +327,7 @@ function MultiSelectField({ id, label, choices, selected, disabled, autoOpen, on
                   variant="secondary"
                   className="h-5 gap-1 rounded-sm px-1.5 font-normal"
                 >
-                  <span className="truncate">{choice}</span>
+                  <span className="truncate">{formatCustomChoice(choice)}</span>
                   <span
                     role="button"
                     tabIndex={-1}
@@ -368,7 +374,7 @@ function MultiSelectField({ id, label, choices, selected, disabled, autoOpen, on
                     >
                       <CheckIcon className="size-3.5" />
                     </span>
-                    <span className="truncate">{choice}</span>
+                    <span className="truncate">{formatCustomChoice(choice)}</span>
                   </CommandItem>
                 )
               })}

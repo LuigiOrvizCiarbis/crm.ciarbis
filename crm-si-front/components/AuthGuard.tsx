@@ -8,6 +8,7 @@ import { authOnlyRoutes, isRouteMatch, publicRoutes, trialExpiredAllowedRoutes, 
 import { isTrialExpired } from "@/lib/trial"
 import { useConfigStore } from "@/store/useConfigStore"
 import { firstAccessibleSection } from "@/lib/section-access"
+import { clearWorkspaceId, setWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -63,9 +64,20 @@ export function AuthGuard({ children }: AuthGuardProps) {
       // Si hay token, verificar estado del usuario
       if (token && !isPublicRoute) {
         try {
-          const res = await fetch("/api/auth/me", {
-            headers: { "Authorization": `Bearer ${token}` },
+          let res = await fetch("/api/auth/me", {
+            headers: { "Authorization": `Bearer ${token}`, ...workspaceHeaders() },
           })
+
+          // Un workspace puede quedar obsoleto si el usuario cambió de cuenta,
+          // fue removido del equipo o abrió un enlace viejo. Eliminamos sólo el
+          // contexto y reintentamos sin header para volver al tenant legado
+          // válido del usuario; no corresponde invalidar su token.
+          if (res.status === 403) {
+            clearWorkspaceId()
+            res = await fetch("/api/auth/me", {
+              headers: { "Authorization": `Bearer ${token}` },
+            })
+          }
           
           if (!res.ok) {
             // Token inválido, limpiar estado y redirigir
@@ -75,6 +87,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
           }
 
           const data = await res.json()
+          if (data.user?.tenant_id) setWorkspaceId(data.user.tenant_id)
           if (Array.isArray(data.workspaces)) setWorkspaces(data.workspaces)
 
           // Refrescar role y permissions desde el backend en cada chequeo
