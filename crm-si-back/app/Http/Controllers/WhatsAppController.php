@@ -3,16 +3,22 @@
 namespace App\Http\Controllers;
 
 use App\Enums\ChannelType;
-use App\Events\MessageStatusUpdated;
+use App\Enums\TemplateStatus;
 use App\Events\BroadcastResultsUpdated;
+use App\Events\MessageStatusUpdated;
 use App\Exceptions\ChannelAlreadyConnectedException;
 use App\Http\Requests\ChannelStoreRequest;
+use App\Jobs\CompleteBillingProvisioningJob;
 use App\Jobs\VerifyContactSyncJob;
 use App\Models\Channel;
 use App\Models\Message;
+use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppConfig;
+use App\Models\WhatsAppTemplate;
 use App\Services\WhatsAppBusinessVerificationService;
 use App\Services\WhatsAppContactSyncService;
+use App\Services\WhatsAppGroupEligibilityService;
+use App\Services\WhatsAppGroupWebhookService;
 use App\Services\WhatsAppMessageService;
 use App\Support\MetaOAuth;
 use Illuminate\Http\JsonResponse;
@@ -59,8 +65,8 @@ class WhatsAppController extends Controller
 
     public function __construct(
         private WhatsAppMessageService $messageService,
-        private \App\Services\WhatsAppGroupWebhookService $groupWebhookService,
-        private \App\Services\WhatsAppGroupEligibilityService $groupEligibilityService,
+        private WhatsAppGroupWebhookService $groupWebhookService,
+        private WhatsAppGroupEligibilityService $groupEligibilityService,
     ) {}
 
     /**
@@ -1229,6 +1235,9 @@ class WhatsAppController extends Controller
 
                     } elseif ($field === 'group_status_update') {
                         $this->groupWebhookService->handleStatusUpdate($value);
+
+                    } elseif ($field === 'message_template_status_update') {
+                        $this->handleTemplateStatusUpdate($value);
                     }
                 }
             }
@@ -1506,5 +1515,103 @@ class WhatsAppController extends Controller
                 'contact_history_sync_error' => $e->getMessage(),
             ])->save();
         }
+    }
+
+    /**
+     * Refleja en la plantilla local el cambio de estado que informa Meta
+     * (APPROVED / REJECTED / DISABLED / PAUSED…).
+     *
+     * Sin esto el CRM sólo se entera de una aprobación cuando alguien entra a
+     * /configuracion y sincroniza a mano: una plantilla recién creada queda en
+     * PENDING para siempre desde el punto de vista del sistema, y todo lo que
+     * exige isApproved() —difusiones, reglas de automatización— la rechaza.
+     *
+     * La plantilla se busca por external_id sin resolver el canal: el id de
+     * Meta es único global, así que no hace falta el waba_id y se evita
+     * perder el evento si el WABA no matchea ninguna config local.
+     */
+    private function handleTemplateStatusUpdate(array $value): void
+    {
+        $externalId = $value['message_template_id'] ?? null;
+        $event = (string) ($value['event'] ?? '');
+
+        if (! $externalId || $event === '') {
+            Log::warning('message_template_status_update: payload incompleto', ['value' => $value]);
+
+            return;
+        }
+
+        $template = WhatsAppTemplate::withoutGlobalScope(TenantScope::class)
+            ->where('external_id', (string) $externalId)
+            ->first();
+
+        if (! $template) {
+            // Plantilla creada fuera del CRM (WhatsApp Manager) y todavía no
+            // sincronizada: no es un error, el sync la va a traer con su
+            // estado actual.
+            Log::info('message_template_status_update: plantilla desconocida', [
+                'external_id' => $externalId,
+                'event' => $event,
+            ]);
+
+            return;
+        }
+
+        // Meta manda eventos que el enum no modela (ARCHIVED, FLAGGED,
+        // LOCKED, REINSTATED): se registran y se deja el estado como está en
+        // vez de degradarlo a Unknown, que bloquearía una plantilla que en
+        // Meta sigue aprobada.
+        $status = TemplateStatus::tryFrom($event);
+
+        if (! $status) {
+            Log::info('message_template_status_update: evento sin mapeo en el enum', [
+                'external_id' => $externalId,
+                'event' => $event,
+                'template_id' => $template->id,
+            ]);
+
+            return;
+        }
+
+        $template->forceFill([
+            'status' => $status,
+            'rejected_reason' => $this->templateRejectionReason($value),
+            'synced_at' => now(),
+        ])->save();
+
+        Log::info('message_template_status_update: plantilla actualizada', [
+            'template_id' => $template->id,
+            'tenant_id' => $template->tenant_id,
+            'name' => $template->name,
+            'event' => $event,
+        ]);
+
+        // Si la plantilla aprobada es una de las que pidió el asistente de
+        // cobranzas, se intenta cerrar el provisioning. El job decide si ya
+        // están todas las necesarias; acá sólo se filtra por nombre para no
+        // encolar trabajo en cada aprobación de cualquier plantilla.
+        if ($status === TemplateStatus::Approved && str_starts_with($template->name, 'cobranza_')) {
+            CompleteBillingProvisioningJob::dispatch($template->tenant_id);
+        }
+    }
+
+    /**
+     * Motivo del rechazo, priorizando el texto explicativo de Meta sobre el
+     * código. `reason` llega como la cadena "NONE" (no null) cuando no hubo
+     * rechazo, así que se descarta explícitamente.
+     */
+    private function templateRejectionReason(array $value): ?string
+    {
+        $detail = $value['rejection_info']['reason'] ?? null;
+        if (is_string($detail) && $detail !== '') {
+            return $detail;
+        }
+
+        $reason = $value['reason'] ?? null;
+        if (! is_string($reason) || $reason === '' || $reason === 'NONE') {
+            return null;
+        }
+
+        return $reason;
     }
 }
