@@ -152,10 +152,17 @@ class TaskController extends Controller
 
         // Reflejamos el reintento en la API antes de que el worker procese el
         // job, así la UI deja de mostrar el error y puede refrescar el estado.
-        TaskCalendarSync::where('task_id', $task->id)->update([
+        // firstOrNew: si el job original nunca llegó a crear la fila (falló
+        // antes de eso), el update() sobre un where sin matches sería un no-op.
+        $sync = TaskCalendarSync::firstOrNew(['task_id' => $task->id], [
+            'tenant_id' => $task->tenant_id,
+            'owner_user_id' => $task->assigned_to,
+            'external_event_id' => '',
+        ]);
+        $sync->fill([
             'status' => 'pending',
             'last_error' => 'retrying',
-        ]);
+        ])->save();
 
         DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatch($task->id, 'upsert'));
 
