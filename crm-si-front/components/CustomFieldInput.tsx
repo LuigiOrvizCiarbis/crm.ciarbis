@@ -48,7 +48,7 @@ function ChoiceMarker({ color }: { color?: string }) {
   return <span aria-hidden className="size-2.5 shrink-0 rounded-full border border-black/10 bg-muted-foreground/40" style={color ? { backgroundColor: color } : undefined} />
 }
 
-function ChoiceBadge({ choice, color }: { choice: string; color?: string }) {
+export function CustomChoiceBadge({ choice, color }: { choice: string; color?: string }) {
   return (
     <Badge
       variant="outline"
@@ -153,9 +153,11 @@ export function CustomFieldInput({ field, value, onChange, disabled, className, 
             disabled={disabled}
           >
             <SelectTrigger id={id}>
-              <SelectValue placeholder="—">
-                {selectedChoice ? <ChoiceBadge choice={selectedChoice} color={choiceColor(field, selectedChoice)} /> : null}
-              </SelectValue>
+              <span className="min-w-0 flex-1 text-left">
+                {selectedChoice
+                  ? <CustomChoiceBadge choice={selectedChoice} color={choiceColor(field, selectedChoice)} />
+                  : <SelectValue placeholder="—" />}
+              </span>
             </SelectTrigger>
             <SelectContent>
               {choices.map((choice) => (
