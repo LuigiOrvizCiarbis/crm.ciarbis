@@ -70,15 +70,18 @@ class WorkspaceMembershipTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        $this->withHeader('X-Workspace-Id', (string) $second->id)
-            ->getJson('/api/contacts')
-            ->assertOk()
-            ->assertJsonPath('data.0.id', $secondContact->id);
-
+        // Debe ser el primer request: así el test comprueba que el workspace
+        // se resuelve antes del route model binding y no depende de una request
+        // previa que haya mutado el User autenticado en memoria.
         $this->withHeader('X-Workspace-Id', (string) $second->id)
             ->putJson("/api/contacts/{$secondContact->id}", ['name' => 'Contacto actualizado'])
             ->assertOk()
             ->assertJsonPath('data.name', 'Contacto actualizado');
+
+        $this->withHeader('X-Workspace-Id', (string) $second->id)
+            ->getJson('/api/contacts')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $secondContact->id);
 
         $this->withHeader('X-Workspace-Id', (string) $second->id)
             ->putJson("/api/contacts/{$firstContact->id}", ['name' => 'No debe actualizar'])
