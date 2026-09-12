@@ -36,6 +36,18 @@ export function formatCustomChoice(value: string): string {
   return readable ? readable.charAt(0).toUpperCase() + readable.slice(1) : value
 }
 
+function safeChoiceColor(color: unknown): string | undefined {
+  return typeof color === "string" && /^#[0-9A-Fa-f]{6}$/.test(color) ? color : undefined
+}
+
+function choiceColor(field: ContactField | ProductField, choice: string): string | undefined {
+  return safeChoiceColor(field.options?.choice_colors?.[choice])
+}
+
+function ChoiceMarker({ color }: { color?: string }) {
+  return <span aria-hidden className="size-2.5 shrink-0 rounded-full border border-black/10 bg-muted-foreground/40" style={color ? { backgroundColor: color } : undefined} />
+}
+
 interface CustomFieldInputProps {
   /** Contact and product fields share the same shape; either works here. */
   field: ContactField | ProductField
@@ -132,7 +144,7 @@ export function CustomFieldInput({ field, value, onChange, disabled, className, 
             <SelectContent>
               {choices.map((choice) => (
                 <SelectItem key={choice} value={choice}>
-                  {formatCustomChoice(choice)}
+                  <span className="flex items-center gap-2"><ChoiceMarker color={choiceColor(field, choice)} />{formatCustomChoice(choice)}</span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -145,6 +157,7 @@ export function CustomFieldInput({ field, value, onChange, disabled, className, 
             id={id}
             label={field.label}
             choices={choices}
+            choiceColors={field.options?.choice_colors}
             selected={selected}
             disabled={disabled}
             autoOpen={autoOpen}
@@ -274,6 +287,7 @@ interface MultiSelectFieldProps {
   id: string
   label: string
   choices: string[]
+  choiceColors?: Record<string, string>
   selected: string[]
   disabled?: boolean
   autoOpen?: boolean
@@ -281,7 +295,7 @@ interface MultiSelectFieldProps {
   onChange: (next: string[]) => void
 }
 
-function MultiSelectField({ id, label, choices, selected, disabled, autoOpen, onPickerClose, onChange }: MultiSelectFieldProps) {
+function MultiSelectField({ id, label, choices, choiceColors, selected, disabled, autoOpen, onPickerClose, onChange }: MultiSelectFieldProps) {
   const [open, setOpen] = useState(Boolean(autoOpen))
 
   const handleOpenChange = (next: boolean) => {
@@ -327,6 +341,7 @@ function MultiSelectField({ id, label, choices, selected, disabled, autoOpen, on
                   variant="secondary"
                   className="h-5 gap-1 rounded-sm px-1.5 font-normal"
                 >
+                  <ChoiceMarker color={safeChoiceColor(choiceColors?.[choice])} />
                   <span className="truncate">{formatCustomChoice(choice)}</span>
                   <span
                     role="button"
@@ -374,6 +389,7 @@ function MultiSelectField({ id, label, choices, selected, disabled, autoOpen, on
                     >
                       <CheckIcon className="size-3.5" />
                     </span>
+                    <ChoiceMarker color={safeChoiceColor(choiceColors?.[choice])} />
                     <span className="truncate">{formatCustomChoice(choice)}</span>
                   </CommandItem>
                 )

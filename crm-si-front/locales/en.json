@@ -1545,6 +1545,8 @@
     "fieldType": "Type",
     "options": "Options (one per line)",
     "optionsPlaceholder": "S\nM\nL",
+    "optionColor": "Color for option {option}",
+    "optionsColorHint": "Choose a color to identify each option in the selector.",
     "required": "Required",
     "unique": "Unique value",
     "typeImmutable": "The type cannot be changed after the field is created.",
