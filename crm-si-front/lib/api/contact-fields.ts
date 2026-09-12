@@ -17,6 +17,8 @@ export type ContactFieldType =
 
 export interface ContactFieldOptions {
   choices?: string[];
+  /** Color opcional por valor de los campos select/multi_select. */
+  choice_colors?: Record<string, string>;
   /** Divisa de un campo tipo moneda (ARS | USD). El valor guardado es el importe pelado. */
   currency?: string;
   fields?: RepeaterSubfield[];

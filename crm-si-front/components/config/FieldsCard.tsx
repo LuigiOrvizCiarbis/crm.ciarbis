@@ -75,6 +75,8 @@ const TYPE_OPTIONS: FieldType[] = [
   "repeater",
 ]
 
+const OPTION_COLORS = ["#2563EB", "#7C3AED", "#DB2777", "#DC2626", "#EA580C", "#CA8A04", "#16A34A", "#0891B2"]
+
 type EntityKey = "contacts" | "products"
 
 interface EntityConfig {
@@ -103,6 +105,7 @@ interface FormState {
   label: string
   type: FieldType
   choices: string
+  choiceColors: Record<string, string>
   currency: CurrencyCode
   is_required: boolean
   is_unique: boolean
@@ -115,6 +118,7 @@ const emptyForm: FormState = {
   label: "",
   type: "text",
   choices: "",
+  choiceColors: {},
   currency: DEFAULT_CURRENCY,
   is_required: false,
   is_unique: false,
@@ -199,6 +203,7 @@ export function FieldsCard() {
       label: field.label,
       type: field.type,
       choices: (field.options?.choices ?? []).join("\n"),
+      choiceColors: field.options?.choice_colors ?? {},
       is_required: field.is_required,
       is_unique: field.is_unique,
       currency: resolveCurrency(field.options?.currency),
@@ -232,6 +237,9 @@ export function FieldsCard() {
 
     setSaving(true)
     const choices = form.choices.split("\n").map((c) => c.trim()).filter(Boolean)
+    const choice_colors = Object.fromEntries(
+      choices.map((choice, index) => [choice, form.choiceColors[choice] ?? OPTION_COLORS[index % OPTION_COLORS.length]]),
+    )
     try {
       if (editing) {
         const result = await update(editing.id, {
@@ -239,7 +247,7 @@ export function FieldsCard() {
           options: editing.type === "repeater"
             ? { fields: form.repeaterFields, min_items: form.min_items, max_items: form.max_items }
             : isCurrency(editing.type) ? { currency: form.currency }
-            : needsOptions(editing.type) ? { choices } : null,
+            : needsOptions(editing.type) ? { choices, choice_colors } : null,
           is_required: form.is_required,
           is_unique: isRepeater(form.type) ? false : form.is_unique,
         })
@@ -254,7 +262,7 @@ export function FieldsCard() {
           options: isRepeater(form.type)
             ? { fields: form.repeaterFields, min_items: form.min_items, max_items: form.max_items }
             : isCurrency(form.type) ? { currency: form.currency }
-            : needsOptions(form.type) ? { choices } : null,
+            : needsOptions(form.type) ? { choices, choice_colors } : null,
           is_required: form.is_required,
           is_unique: isRepeater(form.type) ? false : form.is_unique,
         })
@@ -454,6 +462,25 @@ export function FieldsCard() {
                   onChange={(e) => setForm((f) => ({ ...f, choices: e.target.value }))}
                   placeholder={t("fields.optionsPlaceholder")}
                 />
+                {form.choices.split("\n").map((rawChoice, index) => {
+                  const choice = rawChoice.trim()
+                  if (!choice) return null
+                  const color = form.choiceColors[choice] ?? OPTION_COLORS[index % OPTION_COLORS.length]
+                  return (
+                    <div key={`${choice}-${index}`} className="flex items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-1.5">
+                      <input
+                        type="color"
+                        value={color}
+                        onChange={(e) => setForm((f) => ({ ...f, choiceColors: { ...f.choiceColors, [choice]: e.target.value } }))}
+                        aria-label={t("fields.optionColor", { option: choice })}
+                        className="size-7 cursor-pointer rounded border-0 bg-transparent p-0"
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm">{choice}</span>
+                      <span className="text-xs text-muted-foreground">{color.toUpperCase()}</span>
+                    </div>
+                  )
+                })}
+                <p className="text-xs text-muted-foreground">{t("fields.optionsColorHint")}</p>
               </div>
             ) : null}
 
