@@ -25,7 +25,7 @@ import { getAuthToken, getWorkspaceId } from "@/lib/api/auth-token"
 import { getPipelineStages } from "@/lib/api/pipeline"
 import { createOpportunity, getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
 import { updateContact, type ContactUpdate } from "@/lib/api/contacts"
-import { CustomFieldInput } from "@/components/CustomFieldInput"
+import { CustomFieldInput, formatCustomChoice } from "@/components/CustomFieldInput"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 import type { Tag } from "@/lib/api/tags"
 import { useAutosave } from "@/lib/hooks/useAutosave"
@@ -1174,7 +1174,11 @@ export function ContactsList({
               className="w-full text-left rounded px-1 py-0.5 hover:bg-muted/60 transition-colors truncate text-sm text-foreground"
               onClick={() => setEditingCell({ contactId: contact.id, field: columnId })}
             >
-              {formatCustomValue(raw, field.type, field.options?.currency)}
+              {field.type === "select"
+                ? raw === null || raw === undefined || raw === ""
+                  ? "—"
+                  : formatCustomChoice(String(raw))
+                : formatCustomValue(raw, field.type, field.options?.currency)}
             </button>
           )
         }
