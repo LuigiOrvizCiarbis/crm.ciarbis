@@ -862,6 +862,7 @@
       "actionIncomplete": "Each action needs a channel and a template.",
       "group": "Group",
       "value": "Value",
+      "valueList": "Value 1, value 2",
       "addCondition": "Add condition",
       "addGroup": "Add group",
       "addAction": "Add action",

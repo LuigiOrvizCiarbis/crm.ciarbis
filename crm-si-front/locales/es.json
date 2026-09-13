@@ -862,6 +862,7 @@
       "actionIncomplete": "Cada acción necesita un canal y una plantilla.",
       "group": "Grupo",
       "value": "Valor",
+      "valueList": "Valor 1, valor 2",
       "addCondition": "Agregar condición",
       "addGroup": "Agregar grupo",
       "addAction": "Agregar acción",

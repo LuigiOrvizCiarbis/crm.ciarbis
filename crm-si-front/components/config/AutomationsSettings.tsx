@@ -107,6 +107,32 @@ function parametersForTemplate(template: WhatsAppTemplate | undefined): ActionPa
 const emptyGroup = (): ConditionGroup => ({ operator: "AND", conditions: [] })
 
 /**
+ * Operadores que el motor evalúa contra una lista de valores. `ConditionEvaluator`
+ * hace `(array) $expected`: si le llega el string "a, b" lo castea a UN elemento
+ * ("a, b" literal) que no matchea nada, y la regla queda `conditions_not_met`
+ * para siempre. El editor edita `value` como texto plano, así que la conversión
+ * a lista tiene que pasar justo antes de persistir.
+ */
+const LIST_OPERATORS = new Set(["in"])
+
+/** Texto del editor ("impago, en_prueba") al array que espera el motor. */
+const splitListValue = (value: string): string[] =>
+  value.split(",").map((item) => item.trim()).filter((item) => item !== "")
+
+/**
+ * Deja las condiciones en el formato del motor. Recorre los grupos anidados
+ * porque una condición con `in` puede estar a cualquier profundidad.
+ */
+const serializeConditions = (node: ConditionGroup): ConditionGroup => ({
+  ...node,
+  conditions: node.conditions.map((item) => {
+    if ("conditions" in item) return serializeConditions(item)
+    if (!LIST_OPERATORS.has(item.operator)) return item
+    return { ...item, value: splitListValue(item.value) } as unknown as LeafCondition
+  }),
+})
+
+/**
  * `conditions` no siempre llega como grupo: las reglas que provisiona el
  * backend (cobranzas, por ejemplo) guardan una condición suelta, que el motor
  * evalúa igual porque distingue grupo de hoja por la clave `conditions`.
@@ -299,7 +325,7 @@ export function AutomationsSettings() {
     if (!form.name.trim()) return
     setSaving(true)
     try {
-      const payload = { ...form, name: form.name.trim(), timezone: normalizeTimezone(form.timezone), conditions: conditionGroup.conditions.length ? conditionGroup : null }
+      const payload = { ...form, name: form.name.trim(), timezone: normalizeTimezone(form.timezone), conditions: conditionGroup.conditions.length ? serializeConditions(conditionGroup) : null }
       if (editing) await updateAutomation(editing.id, payload)
       else await createAutomation(payload)
       addToast({ type: "success", title: t(editing ? "settings.automations.updated" : "settings.automations.created") })
@@ -551,7 +577,7 @@ function ConditionEditor({ group, onChange, fieldOptions, t, depth = 0 }: { grou
             </SelectContent>
           </Select>
           <Select value={condition.operator} onValueChange={(operator) => onChange({ ...group, conditions: group.conditions.map((item, itemIndex) => itemIndex === index ? { ...condition, operator } : item) })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{operators.map((operator) => <SelectItem key={operator} value={operator}>{t(`settings.automations.operators.${operator}`)}</SelectItem>)}</SelectContent></Select>
-          <Input disabled={["empty", "not_empty"].includes(condition.operator)} value={condition.value} onChange={(event) => onChange({ ...group, conditions: group.conditions.map((item, itemIndex) => itemIndex === index ? { ...condition, value: event.target.value } : item) })} placeholder={t("settings.automations.value")} />
+          <Input disabled={["empty", "not_empty"].includes(condition.operator)} value={condition.value} onChange={(event) => onChange({ ...group, conditions: group.conditions.map((item, itemIndex) => itemIndex === index ? { ...condition, value: event.target.value } : item) })} placeholder={LIST_OPERATORS.has(condition.operator) ? t("settings.automations.valueList") : t("settings.automations.value")} />
           <Button variant="ghost" size="icon" aria-label={t("settings.automations.removeCondition")} onClick={() => onChange({ ...group, conditions: group.conditions.filter((_, itemIndex) => itemIndex !== index) })}><X className="size-4" /></Button>
         </div>
       ))}

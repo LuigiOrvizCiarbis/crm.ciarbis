@@ -292,7 +292,12 @@ class BillingProvisioner
                 // ya agendados. El ciclo lo avanza billing:roll-cycle.
                 'recurrence' => ['enabled' => false],
             ],
-            'conditions' => $spec['condition'],
+            // El motor distingue grupo de hoja por la clave `conditions` y
+            // evalúa una hoja suelta igual de bien, pero el editor del front
+            // asume grupo: una condición pelada le rompía el `.map()`. Se
+            // envuelve acá para que las reglas nazcan en el formato que ambos
+            // lados entienden.
+            'conditions' => ['operator' => 'AND', 'conditions' => [$spec['condition']]],
             'timezone' => $spec['timezone'],
             'actions' => [[
                 'type' => 'whatsapp_template',
