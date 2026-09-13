@@ -149,7 +149,16 @@ function formatCustomValue(value: unknown, type: string | undefined, currency?: 
   if (typeof value === "boolean") return value ? "Sí" : "No"
   if (type === "date" && typeof value === "string") {
     try {
-      return format(new Date(value), "d MMM yyyy", { locale: es })
+      // Un campo `date` guarda una fecha pelada (`2026-09-14`), sin hora ni
+      // zona. `new Date()` la interpreta como medianoche UTC, así que al
+      // formatearla en hora local cualquier tenant al oeste de Greenwich veía
+      // el día anterior. Se construye la fecha en local para que el día que se
+      // muestra sea el que se guardó.
+      const parts = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+      const parsed = parts
+        ? new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]))
+        : new Date(value)
+      return format(parsed, "d MMM yyyy", { locale: es })
     } catch {
       return value
     }
