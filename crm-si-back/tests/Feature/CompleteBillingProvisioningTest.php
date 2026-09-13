@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Automation\ConditionEvaluator;
 use App\Enums\AutomationRuleStatus;
 use App\Enums\ChannelType;
 use App\Enums\TemplateCategory;
@@ -68,6 +69,59 @@ class CompleteBillingProvisioningTest extends TestCase
         // cargados, dispararía una ráfaga de mensajes que nadie revisó.
         $rules = AutomationRule::withoutGlobalScopes()->where('tenant_id', $tenant->id)->get();
         $this->assertTrue($rules->every(fn (AutomationRule $r) => $r->status === AutomationRuleStatus::Draft));
+    }
+
+    public function test_rules_are_provisioned_as_condition_groups(): void
+    {
+        [$tenant, $config] = $this->context();
+        $drafts = collect(BillingTemplateDrafts::all($tenant))->keyBy('key');
+
+        $this->makeTemplate($tenant, $config, $drafts[BillingTemplateDrafts::REMINDER]['name'], TemplateStatus::Approved);
+        $this->makeTemplate($tenant, $config, $drafts[BillingTemplateDrafts::OVERDUE]['name'], TemplateStatus::Approved);
+
+        (new CompleteBillingProvisioningJob($tenant->id))->handle(app(BillingProvisioner::class));
+
+        // El motor evalúa una hoja suelta igual que un grupo, pero el editor
+        // del front asume grupo y una condición pelada le rompe el `.map()`.
+        foreach (AutomationRule::withoutGlobalScopes()->where('tenant_id', $tenant->id)->get() as $rule) {
+            $this->assertArrayHasKey('conditions', $rule->conditions, "La regla {$rule->name} no es un grupo.");
+            $this->assertSame('AND', $rule->conditions['operator']);
+            $this->assertCount(1, $rule->conditions['conditions']);
+        }
+    }
+
+    public function test_the_reminder_rule_matches_an_overdue_contact(): void
+    {
+        [$tenant, $config] = $this->context();
+        $drafts = collect(BillingTemplateDrafts::all($tenant))->keyBy('key');
+
+        $this->makeTemplate($tenant, $config, $drafts[BillingTemplateDrafts::REMINDER]['name'], TemplateStatus::Approved);
+        $this->makeTemplate($tenant, $config, $drafts[BillingTemplateDrafts::OVERDUE]['name'], TemplateStatus::Approved);
+
+        (new CompleteBillingProvisioningJob($tenant->id))->handle(app(BillingProvisioner::class));
+
+        $reminder = AutomationRule::withoutGlobalScopes()
+            ->where('tenant_id', $tenant->id)
+            ->where('name', BillingProvisioner::RULE_NAMES['reminder'])
+            ->firstOrFail();
+
+        // El operador `in` compara contra `(array) $expected`: si el valor se
+        // guarda como el string "impago, en_prueba" el cast da un solo elemento
+        // que no matchea nada y la regla queda `conditions_not_met` para
+        // siempre. Pasó en producción; el test fija que sea una lista de verdad.
+        $evaluator = new ConditionEvaluator;
+
+        foreach (['impago', 'en_prueba'] as $estado) {
+            $this->assertTrue(
+                $evaluator->evaluate($reminder->conditions, ['contact' => ['custom_data' => ['estado' => $estado]]]),
+                "La regla debería aplicar a un contacto {$estado}.",
+            );
+        }
+
+        $this->assertFalse(
+            $evaluator->evaluate($reminder->conditions, ['contact' => ['custom_data' => ['estado' => 'al_dia']]]),
+            'La regla no debería aplicar a un contacto al día.',
+        );
     }
 
     public function test_waits_while_a_required_template_is_still_pending(): void
