@@ -15,6 +15,7 @@ import { PipelineStagesCard } from "@/components/config/PipelineStagesCard"
 import { RolesCard } from "@/components/config/RolesCard"
 import { SucursalesCard } from "@/components/config/SucursalesCard"
 import { TeamInvitationsCard } from "@/components/config/TeamInvitationsCard"
+import { WorkspaceCard } from "@/components/config/WorkspaceCard"
 import { AutomationsSettings } from "@/components/config/AutomationsSettings"
 import { BillingTemplatesCard } from "@/components/config/BillingTemplatesCard"
 import { IntegrationsSection } from "@/components/config/integrations/IntegrationsSection"
@@ -61,7 +62,7 @@ export default function ConfiguracionPage() {
         label: t("settings.page.organization.title"),
         description: t("settings.page.organization.description"),
         icon: Building2,
-        visible: canViewRoles || canViewBranches || canViewInvitations,
+        visible: true,
       },
       {
         id: "operation",
@@ -78,12 +79,7 @@ export default function ConfiguracionPage() {
         visible: true,
       },
     ],
-    [
-      canViewBranches,
-      canViewInvitations,
-      canViewRoles,
-      t,
-    ],
+    [t],
   )
 
   const { scrollContainerRef, activeSection, visibleSections, navigateToSection } = useSettingsNav(sections)
@@ -122,15 +118,12 @@ export default function ConfiguracionPage() {
               </div>
             ) : (
               <>
-                {(canViewRoles ||
-                  canViewBranches ||
-                  canViewInvitations) && (
-                  <SettingsSectionHeading section={sections[0]}>
-                    {canViewRoles && <RolesCard />}
-                    {canViewBranches && <SucursalesCard />}
-                    {canViewInvitations && <TeamInvitationsCard />}
-                  </SettingsSectionHeading>
-                )}
+                <SettingsSectionHeading section={sections[0]}>
+                  <WorkspaceCard />
+                  {canViewRoles && <RolesCard />}
+                  {canViewBranches && <SucursalesCard />}
+                  {canViewInvitations && <TeamInvitationsCard />}
+                </SettingsSectionHeading>
 
                 <SettingsSectionHeading section={sections[1]}>
                   {canManageNavigationLabels && <NavigationLabelsCard />}

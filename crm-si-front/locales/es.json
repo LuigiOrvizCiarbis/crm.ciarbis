@@ -784,6 +784,37 @@
         "description": "Tu usuario no tiene permisos para ver o modificar esta sección."
       }
     },
+    "workspace": {
+      "title": "Workspace",
+      "description": "El nombre identifica este espacio en el selector y en las invitaciones. Sólo un Owner puede cambiarlo.",
+      "nameLabel": "Nombre del workspace",
+      "nameHint": "Entre 2 y 100 caracteres.",
+      "tooShort": "Escribí al menos 2 caracteres.",
+      "renamed": "Nombre del workspace actualizado",
+      "ownerOnly": "Sólo un Owner puede administrar este workspace.",
+      "danger": {
+        "title": "Zona de peligro",
+        "description": "Acciones que afectan el acceso de todo el equipo. Revisá antes de confirmar.",
+        "leaveTitle": "Salir del workspace",
+        "leaveDescription": "Perdés el acceso a este espacio. Si sos el único Owner, primero designá a otro.",
+        "leaveAction": "Salir",
+        "leaveConfirm": "¿Seguro que querés salir de «{{name}}»? Vas a perder el acceso.",
+        "left": "Saliste del workspace",
+        "deactivateTitle": "Desactivar workspace",
+        "deactivateDescription": "El espacio queda inaccesible y se elimina definitivamente a los 30 días. Podés restaurarlo durante ese plazo.",
+        "deactivateAction": "Desactivar",
+        "deactivateDialogTitle": "Desactivar «{{name}}»",
+        "deactivateDialogDescription": "Se programa la eliminación en 30 días. Durante ese plazo podés restaurarlo. Para confirmar, escribí el nombre exacto y tu contraseña.",
+        "nameConfirmationLabel": "Escribí «{{name}}» para confirmar",
+        "passwordLabel": "Tu contraseña",
+        "nameMismatch": "El nombre no coincide.",
+        "deactivated": "Workspace desactivado",
+        "restoreTitle": "Restaurar workspace",
+        "restoreDescription": "Este espacio está programado para eliminarse. Restauralo para volver a usarlo.",
+        "restoreAction": "Restaurar",
+        "restored": "Workspace restaurado"
+      }
+    },
     "navigationLabels": {
       "title": "Nombres de navegación",
       "description": "Usá el vocabulario de tu equipo en el menú principal. Los cambios se comparten con todo el espacio.",
