@@ -240,7 +240,33 @@ class WhatsAppTemplateActionHandler implements ActionHandler
             return [$this->mediaAssetUrl($raw, $tenantId), true];
         }
 
+        if ($field?->type === ContactFieldType::Date) {
+            return [$this->formatDate($raw), false];
+        }
+
         return [$raw, false];
+    }
+
+    /**
+     * Un campo Date guarda la fecha pelada en ISO (`2026-09-13`), que es lo que
+     * le llegaba al destinatario en el mensaje. Se muestra como `13/09/2026`,
+     * el formato en que se carga y se lee en el resto de la app.
+     *
+     * Se parsea con formato explícito y sin hora: la fecha no tiene zona, así
+     * que convertirla pasando por un timestamp la correría un día para
+     * cualquier tenant al oeste de Greenwich. Si el valor guardado no es una
+     * fecha ISO (dato viejo, import flojo), se devuelve tal cual en vez de
+     * romper el envío.
+     */
+    private function formatDate(mixed $raw): mixed
+    {
+        if (! is_string($raw)) {
+            return $raw;
+        }
+
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $raw);
+
+        return $date ? $date->format('d/m/Y') : $raw;
     }
 
     /**
