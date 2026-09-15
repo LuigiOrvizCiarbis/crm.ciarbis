@@ -68,6 +68,7 @@ export interface Channel {
   }
   conversations_count?: number
   phone?: string
+  handoff_responsible_user_id?: number | null
 
 }
 
@@ -108,6 +109,14 @@ export interface Conversation {
   messages?: Message[]
   tags?: Tag[]
   matchedMessageSnippet?: string
+  humanHandoff?: {
+    id: number
+    status: "pending" | "acknowledged"
+    reason?: string | null
+    summary?: string | null
+    assigned_to?: number | null
+    notifications?: Array<{ destination_type: string; status: string; error?: string | null }>
+  } | null
 }
 
 export interface Tag {

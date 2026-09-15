@@ -53,6 +53,10 @@ class User extends Authenticatable implements MustVerifyEmail
         'email_verified_at',
         'avatar_path',
         'phone',
+        'whatsapp_notification_phone',
+        'whatsapp_notification_phone_normalized',
+        'whatsapp_notification_verified_at',
+        'whatsapp_notification_opted_in_at',
         'job_title',
         'preferences',
     ];
@@ -68,6 +72,8 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return [
             'email_verified_at' => 'datetime',
+            'whatsapp_notification_verified_at' => 'datetime',
+            'whatsapp_notification_opted_in_at' => 'datetime',
             'password' => 'hashed',
             'preferences' => 'array',
         ];

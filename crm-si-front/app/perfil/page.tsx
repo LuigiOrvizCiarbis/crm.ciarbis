@@ -10,6 +10,7 @@ import { ProfileDetailsBlock } from "@/components/profile/ProfileDetailsBlock"
 import { ProfilePasswordBlock } from "@/components/profile/ProfilePasswordBlock"
 import { ProfilePreferencesBlock } from "@/components/profile/ProfilePreferencesBlock"
 import { ProfileSessionsBlock } from "@/components/profile/ProfileSessionsBlock"
+import { ProfileWhatsAppNotificationsBlock } from "@/components/profile/ProfileWhatsAppNotificationsBlock"
 import { useTranslation } from "@/hooks/useTranslation"
 
 type ProfileSectionId = "account" | "security" | "preferences"
@@ -81,6 +82,7 @@ export default function ProfilePage() {
 
             <SettingsSectionHeading section={sections[2]}>
               <ProfilePreferencesBlock />
+              <ProfileWhatsAppNotificationsBlock />
             </SettingsSectionHeading>
           </main>
         </div>

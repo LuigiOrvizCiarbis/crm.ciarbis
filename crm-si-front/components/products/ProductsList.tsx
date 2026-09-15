@@ -643,6 +643,7 @@ export function ProductsList() {
       <ImportProductsDialog
         open={importOpen}
         onOpenChange={setImportOpen}
+        productFields={productFields}
         onImportComplete={() => void load(search.trim() || undefined)}
       />
     </div>

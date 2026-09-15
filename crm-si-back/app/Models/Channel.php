@@ -36,6 +36,7 @@ class Channel extends Model
         'tenant_id',
         'branch_id',
         'user_id',
+        'handoff_responsible_user_id',
         'whatsapp_config_id',
         'instagram_config_id',
         'messenger_config_id',
@@ -69,6 +70,11 @@ class Channel extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function handoffResponsible(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'handoff_responsible_user_id');
     }
 
     /**

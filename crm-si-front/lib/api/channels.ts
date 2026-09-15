@@ -106,6 +106,19 @@ export async function getChannels(): Promise<Channel[]> {
   return json.data ?? [];
 }
 
+export async function updateChannelHandoffResponsible(channel: Channel, userId: number | null): Promise<Channel> {
+  const token = getAuthToken();
+  if (!token) throw new Error("No authentication token found");
+  const response = await fetch(`/api/channels/${channel.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name: channel.name, handoff_responsible_user_id: userId }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throwApiError(response.status, data, "Error al configurar responsable de derivaciones");
+  return data.data ?? data;
+}
+
 export type ContactSyncStatus =
   | "completed"
   | "syncing"
