@@ -165,7 +165,9 @@ class ProductImportService
                 'price' => $priceValue,
                 'description' => $description ?: null,
                 'is_active' => $activeCol !== null ? $this->parseBool($active) : true,
-                'custom_data' => $customData,
+                // Bulk insert bypasses Eloquent casts, so serialize JSON
+                // explicitly before handing the payload to PostgreSQL.
+                'custom_data' => json_encode($customData, JSON_THROW_ON_ERROR),
                 'source' => 'import',
                 'created_at' => $now,
                 'updated_at' => $now,
