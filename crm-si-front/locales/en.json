@@ -784,6 +784,37 @@
         "description": "Your account does not have permission to view or modify this section."
       }
     },
+    "workspace": {
+      "title": "Workspace",
+      "description": "The name identifies this space in the switcher and in invitations. Only an Owner can change it.",
+      "nameLabel": "Workspace name",
+      "nameHint": "Between 2 and 100 characters.",
+      "tooShort": "Enter at least 2 characters.",
+      "renamed": "Workspace name updated",
+      "ownerOnly": "Only an Owner can manage this workspace.",
+      "danger": {
+        "title": "Danger zone",
+        "description": "Actions that affect access for the whole team. Review before confirming.",
+        "leaveTitle": "Leave workspace",
+        "leaveDescription": "You lose access to this space. If you are the only Owner, assign another one first.",
+        "leaveAction": "Leave",
+        "leaveConfirm": "Are you sure you want to leave “{{name}}”? You will lose access.",
+        "left": "You left the workspace",
+        "deactivateTitle": "Deactivate workspace",
+        "deactivateDescription": "The space becomes inaccessible and is permanently deleted after 30 days. You can restore it within that window.",
+        "deactivateAction": "Deactivate",
+        "deactivateDialogTitle": "Deactivate “{{name}}”",
+        "deactivateDialogDescription": "Deletion is scheduled in 30 days. You can restore it during that window. To confirm, type the exact name and your password.",
+        "nameConfirmationLabel": "Type “{{name}}” to confirm",
+        "passwordLabel": "Your password",
+        "nameMismatch": "The name does not match.",
+        "deactivated": "Workspace deactivated",
+        "restoreTitle": "Restore workspace",
+        "restoreDescription": "This space is scheduled for deletion. Restore it to use it again.",
+        "restoreAction": "Restore",
+        "restored": "Workspace restored"
+      }
+    },
     "navigationLabels": {
       "title": "Navigation names",
       "description": "Use your team's vocabulary in the main menu. Changes are shared with the whole workspace.",

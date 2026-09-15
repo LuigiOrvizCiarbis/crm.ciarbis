@@ -33,6 +33,10 @@ class WorkspaceController extends Controller
             'branch_name' => $membership->branch?->name,
             'plan' => $membership->tenant->plan ? ['key' => $membership->tenant->plan->key, 'name' => $membership->tenant->plan->name] : null,
             'trial_ends_at' => $membership->tenant->trial_ends_at,
+            // El front necesita ambos para ofrecer restaurar: sin el estado no
+            // puede distinguir un workspace activo de uno en baja programada.
+            'status' => $membership->tenant->status,
+            'deletion_scheduled_at' => $membership->tenant->deletion_scheduled_at,
             'joined_at' => $membership->joined_at,
         ])]);
     }
