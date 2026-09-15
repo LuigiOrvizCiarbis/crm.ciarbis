@@ -9,13 +9,31 @@ export function HumanHandoffBanner({ conversation, onUpdated }: { conversation: 
   const [loading, setLoading] = useState(false)
   const activeHandoff = conversation.humanHandoff
   if (!activeHandoff) return null
+  const handoffSnapshot: NonNullable<Conversation["humanHandoff"]> = {
+    id: activeHandoff.id,
+    status: activeHandoff.status,
+    reason: activeHandoff.reason,
+    summary: activeHandoff.summary,
+    assigned_to: activeHandoff.assigned_to,
+    notifications: activeHandoff.notifications,
+  }
 
   async function take() {
     if (loading) return
     setLoading(true)
     try {
       await acknowledgeHumanHandoff(conversation.id)
-      onUpdated({ ...conversation, humanHandoff: { ...activeHandoff, status: "acknowledged" } })
+      onUpdated({
+        ...conversation,
+        humanHandoff: {
+          id: handoffSnapshot.id,
+          status: "acknowledged",
+          reason: handoffSnapshot.reason,
+          summary: handoffSnapshot.summary,
+          assigned_to: handoffSnapshot.assigned_to,
+          notifications: handoffSnapshot.notifications,
+        },
+      })
     } finally {
       setLoading(false)
     }
