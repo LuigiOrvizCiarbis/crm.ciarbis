@@ -18,6 +18,7 @@ use App\Services\MailMessageService;
 use App\Services\MessengerMessageService;
 use App\Services\VoiceTranscoder;
 use App\Services\WhatsAppMessageService;
+use App\Services\HumanHandoffService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -59,6 +60,7 @@ class MessageController extends Controller
         private MessengerMessageService $messengerService,
         private MailMessageService $mailService,
         private VoiceTranscoder $voiceTranscoder,
+        private HumanHandoffService $humanHandoffService,
     ) {}
 
     public function index(Request $request, Conversation $conversation): JsonResponse
@@ -340,6 +342,7 @@ class MessageController extends Controller
             return response()->json(['message' => $errorMessage], 422);
         }
 
+        $this->humanHandoffService->resolveForHumanMessage($conversation);
         return response()->json(['data' => $message], 201);
     }
 

@@ -67,6 +67,10 @@ class WhatsAppMessageService
             }
 
             $messageData = $messages[0];
+            if ($this->isSiCrmAlertsPhone($messageData['from'] ?? null)) {
+                Log::info('WhatsApp alert interno ignorado por el pipeline de clientes', ['phone' => $messageData['from']]);
+                return null;
+            }
             $contactData = $value['contacts'][0] ?? null;
             $tenantId = $channel->tenant_id;
             $messageType = $messageData['type'] ?? 'unknown';
@@ -941,6 +945,15 @@ class WhatsAppMessageService
         return $phone;
     }
 
+    private function isSiCrmAlertsPhone(?string $phone): bool
+    {
+        $alerts = preg_replace('/\D+/', '', (string) config('services.si_crm_alerts.display_number'));
+        $candidate = preg_replace('/\D+/', '', (string) $phone);
+        if (str_starts_with($alerts, '549')) $alerts = '54'.substr($alerts, 3);
+        if (str_starts_with($candidate, '549')) $candidate = '54'.substr($candidate, 3);
+        return $alerts !== '' && $candidate !== '' && hash_equals($alerts, $candidate);
+    }
+
     /**
      * @return array{to: string, recipient_type: string, business_phone_id: string, business_token: string}
      */
@@ -1408,6 +1421,9 @@ class WhatsAppMessageService
             if (! $customerPhone) {
                 continue;
             }
+            if ($this->isSiCrmAlertsPhone($customerPhone)) {
+                continue;
+            }
 
             $externalId = $echo['id'] ?? null;
             if ($externalId && Message::where('tenant_id', $tenantId)->where('external_id', $externalId)->exists()) {
@@ -1562,6 +1578,9 @@ class WhatsAppMessageService
         }
 
         $from = $historyMessage['from'] ?? null;
+        if ($this->isSiCrmAlertsPhone($from) || $this->isSiCrmAlertsPhone($historyMessage['to'] ?? null)) {
+            return 'skipped';
+        }
         $fromNormalized = $from ? $this->normalizePhoneForWhatsApp(preg_replace('/\D/', '', $from)) : null;
         $isOutbound = $fromNormalized && in_array($fromNormalized, $businessNumbers, true);
 

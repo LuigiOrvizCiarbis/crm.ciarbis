@@ -15,6 +15,7 @@ import { useState } from 'react'
 import { useTranslation } from '@/hooks/useTranslation'
 import { useAuthStore } from '@/store/useAuthStore'
 import { ChannelType } from '@/data/enums'
+import { HumanHandoffBanner } from './HumanHandoffBanner'
 
 interface ConversationViewProps {
     conversation: Conversation
@@ -112,6 +113,8 @@ export function ConversationView({
                 onBack={onBack}
                 onToggleContactInfo={onOpenInfo}
             />
+
+            <HumanHandoffBanner conversation={conversation} onUpdated={onConversationUpdate} />
 
             <MessageList
                 messages={conversation.messages || []}

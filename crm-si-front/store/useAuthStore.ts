@@ -55,6 +55,7 @@ export interface User {
   tenant?: UserTenant | null
   branch_id?: number | null
   phone?: string | null
+  whatsapp_notification?: { phone?: string | null; verified_at?: string | null; opted_in_at?: string | null }
   job_title?: string | null
   avatar_url?: string | null
   preferences?: UserPreferences | null

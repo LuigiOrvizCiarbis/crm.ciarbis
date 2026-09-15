@@ -6,6 +6,7 @@ use App\Enums\ChannelType;
 use App\Models\AiConfig;
 use App\Models\Conversation;
 use App\Services\AiReplyService;
+use App\Services\HumanHandoffService;
 use App\Services\InstagramMessageService;
 use App\Services\MessengerMessageService;
 use App\Services\MailMessageService;
@@ -53,6 +54,7 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
         InstagramMessageService $instagramMessageService,
         MessengerMessageService $messengerMessageService,
         MailMessageService $mailMessageService,
+        HumanHandoffService $humanHandoffService,
     ): void {
         $conversation = Conversation::withoutGlobalScopes()->find($this->conversationId);
 
@@ -81,7 +83,34 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $reply = $aiReplyService->respond($conversation, $aiConfig);
+        $decision = $aiReplyService->decide($conversation, $aiConfig);
+
+        if ($decision->requestsHandoff()) {
+            $lastInbound = $conversation->messages()->where('direction', 'inbound')->latest('id')->first();
+            $handoff = $humanHandoffService->create(
+                $conversation,
+                $lastInbound,
+                (string) ($decision->handoff['reason'] ?? 'customer_requested_human'),
+                (string) ($decision->handoff['summary'] ?? 'El cliente pidió hablar con una persona.'),
+                (string) ($decision->handoff['customer_locale'] ?? 'es'),
+            );
+            if ($handoff && $conversation->refresh()->ai_autoreply_enabled === false) {
+                $service = match ($conversation->channel?->type) {
+                    ChannelType::WHATSAPP => $whatsAppMessageService,
+                    ChannelType::INSTAGRAM => $instagramMessageService,
+                    ChannelType::FACEBOOK => $messengerMessageService,
+                    ChannelType::MAIL => $mailMessageService,
+                    default => null,
+                };
+                $ack = ($decision->handoff['customer_locale'] ?? 'es') === 'en'
+                    ? 'Of course. I’m transferring you to a team member, who will reply here shortly.'
+                    : 'Claro, te derivo con una persona del equipo. En breve te van a responder por acá.';
+                if ($service) $service->sendSystemTextMessageFromCRM($conversation, $ack);
+            }
+            return;
+        }
+
+        $reply = $decision->reply;
 
         if ($reply === null) {
             Log::warning('GenerateAiReplyJob: sin respuesta de IA', [

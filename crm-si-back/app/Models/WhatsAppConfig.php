@@ -83,6 +83,8 @@ class WhatsAppConfig extends Model
         'groups_eligibility_status',
         'groups_is_oba',
         'groups_platform_type',
+        'is_on_biz_app',
+        'is_on_biz_app_checked_at',
         'groups_eligibility_checked_at',
         'groups_eligibility_error',
     ];
@@ -100,6 +102,8 @@ class WhatsAppConfig extends Model
         'meta_app_usage_at' => 'datetime',
         'groups_is_oba' => 'boolean',
         'groups_eligibility_checked_at' => 'datetime',
+        'is_on_biz_app' => 'boolean',
+        'is_on_biz_app_checked_at' => 'datetime',
     ];
 
     /**

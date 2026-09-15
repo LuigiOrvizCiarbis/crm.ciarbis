@@ -141,6 +141,16 @@ class Conversation extends Model
         return $this->hasMany(Task::class);
     }
 
+    public function humanHandoffs(): HasMany
+    {
+        return $this->hasMany(HumanHandoff::class);
+    }
+
+    public function activeHumanHandoff(): HasOne
+    {
+        return $this->hasOne(HumanHandoff::class)->whereIn('status', ['pending', 'acknowledged'])->latestOfMany();
+    }
+
     /**
      * Scope para conversaciones abiertas
      */

@@ -10,12 +10,14 @@ use App\Jobs\SendBroadcastMessageJob;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
+use App\Models\HumanHandoff;
 use App\Models\ManualAiDraft;
 use App\Models\Message;
 use App\Models\Opportunity;
 use App\Models\PipelineStage;
 use App\Models\WhatsAppTemplate;
 use App\Services\WhatsAppMessageService;
+use App\Services\HumanHandoffService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -46,6 +48,7 @@ class ConversationController extends Controller
                 'messages:id',
                 'tags',
                 'whatsappGroup:id,conversation_id,subject,status,group_id,total_participant_count,invite_link',
+                'activeHumanHandoff',
             ])
             ->withCount(['messages as unread_count' => function ($query) {
                 $query->where('direction', MessageDirection::INBOUND)
@@ -181,6 +184,7 @@ class ConversationController extends Controller
                 'archived_at' => $conversation->archived_at,
                 'archived' => $conversation->archived,
                 'ai_autoreply_enabled' => (bool) $conversation->ai_autoreply_enabled,
+                'human_handoff' => $conversation->activeHumanHandoff,
                 'contact_language' => $conversation->contact_language,
                 'created_at' => $conversation->created_at,
                 'updated_at' => $conversation->updated_at,
@@ -217,6 +221,7 @@ class ConversationController extends Controller
             'channel:id,name,type',
             'tags',
             'whatsappGroup:id,conversation_id,subject,status,group_id,total_participant_count,invite_link',
+            'activeHumanHandoff',
         ])
             ->findOrFail($id);
 
@@ -230,6 +235,7 @@ class ConversationController extends Controller
         // Agregar assigned_to explícitamente
         $data = $conversation->toArray();
         $data['assigned_to'] = $conversation->assigned_to;
+        $data['human_handoff'] = $conversation->activeHumanHandoff;
         if ($conversation->relationLoaded('whatsappGroup') && $conversation->whatsappGroup) {
             $data['group'] = $conversation->whatsappGroup;
         }
@@ -499,7 +505,7 @@ class ConversationController extends Controller
     /**
      * Activa o desactiva la auto-respuesta de IA para la conversación.
      */
-    public function aiAutoreply(Request $request, $id): JsonResponse
+    public function aiAutoreply(Request $request, HumanHandoffService $handoffService, $id): JsonResponse
     {
         $conversation = Conversation::where('id', $id)->firstOrFail();
         $this->authorize('update', $conversation);
@@ -512,6 +518,7 @@ class ConversationController extends Controller
 
         if ($validated['enabled']) {
             $this->cancelManualAiDrafts($conversation);
+            $handoffService->cancelActive($conversation);
         }
 
         return response()->json([
@@ -520,6 +527,15 @@ class ConversationController extends Controller
                 'ai_autoreply_enabled' => $conversation->ai_autoreply_enabled,
             ],
         ]);
+    }
+
+    public function acknowledgeHumanHandoff(Request $request, HumanHandoffService $service, $id): JsonResponse
+    {
+        $conversation = Conversation::query()->with('activeHumanHandoff')->whereKey($id)->firstOrFail();
+        $this->authorize('view', $conversation);
+        $handoff = $conversation->activeHumanHandoff;
+        if (! $handoff) return response()->json(['message' => 'No hay una derivación activa.'], 404);
+        return response()->json(['data' => $service->acknowledge($handoff, $request->user())]);
     }
 
     public function bulkTags(Request $request): JsonResponse
@@ -636,7 +652,7 @@ class ConversationController extends Controller
     /**
      * Activa o desactiva la auto-respuesta de IA para múltiples conversaciones.
      */
-    public function bulkAiAutoreply(Request $request): JsonResponse
+    public function bulkAiAutoreply(Request $request, HumanHandoffService $handoffService): JsonResponse
     {
         $user = $request->user();
 
@@ -654,6 +670,7 @@ class ConversationController extends Controller
             $conversation->update(['ai_autoreply_enabled' => $validated['enabled']]);
             if ($validated['enabled']) {
                 $this->cancelManualAiDrafts($conversation);
+                $handoffService->cancelActive($conversation);
             }
         }
 
