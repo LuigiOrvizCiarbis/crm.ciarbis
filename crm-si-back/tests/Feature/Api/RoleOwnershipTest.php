@@ -113,6 +113,37 @@ class RoleOwnershipTest extends TestCase
         $this->assertNotNull(Role::find($ownerRoleId));
     }
 
+    public function test_owner_role_permissions_cannot_be_stripped_via_api(): void
+    {
+        [$tenant, $owner] = $this->makeOwnerTenant();
+        $ownerRoleId = $tenant->fresh()->owner_role_id;
+        $before = Role::find($ownerRoleId)->permissions->pluck('name')->sort()->values()->all();
+
+        Sanctum::actingAs($owner);
+
+        // Keeping the Owner role at the full catalog is what lets the role
+        // provisioner tell a brand new permission apart from one a tenant
+        // deliberately removed from Admin or Member.
+        $this->postJson("/api/roles/{$ownerRoleId}/permissions", ['permissions' => ['contacts.view']])
+            ->assertForbidden();
+
+        $this->assertSame($before, Role::find($ownerRoleId)->fresh()->permissions->pluck('name')->sort()->values()->all());
+    }
+
+    public function test_owner_role_permissions_cannot_be_stripped_via_update(): void
+    {
+        [$tenant, $owner] = $this->makeOwnerTenant();
+        $ownerRoleId = $tenant->fresh()->owner_role_id;
+        $before = Role::find($ownerRoleId)->permissions->pluck('name')->sort()->values()->all();
+
+        Sanctum::actingAs($owner);
+
+        $this->patchJson("/api/roles/{$ownerRoleId}", ['permissions' => ['contacts.view']])
+            ->assertForbidden();
+
+        $this->assertSame($before, Role::find($ownerRoleId)->fresh()->permissions->pluck('name')->sort()->values()->all());
+    }
+
     public function test_cannot_create_role_with_reserved_system_name(): void
     {
         [, $owner] = $this->makeOwnerTenant();
