@@ -4,6 +4,7 @@ namespace App\Services\Ai\Providers;
 
 use App\Services\Ai\AiExtractionResult;
 use App\Services\Ai\AiProvider;
+use App\Services\Ai\AiReplyDecision;
 use App\Services\Ai\AiVerificationResult;
 use GuzzleHttp\Client as GuzzleClient;
 use Illuminate\Http\Client\Response;
@@ -55,6 +56,41 @@ class OpenAiProvider implements AiProvider
             ]);
 
             return null;
+        }
+    }
+
+    public function decide(array $messages, string $systemPrompt, string $model): AiReplyDecision
+    {
+        try {
+            $client = OpenAI::factory()->withApiKey($this->apiKey)->withHttpClient(new GuzzleClient(['timeout' => (int) config('services.ai.generate_timeout', 60)]))->make();
+            $response = $client->chat()->create([
+                'model' => $model, 'max_tokens' => 1024,
+                'messages' => [['role' => 'system', 'content' => $systemPrompt], ...array_map([$this, 'formatMessage'], $messages)],
+                'tools' => [[
+                    'type' => 'function', 'function' => [
+                        'name' => 'request_human_handoff',
+                        'description' => 'Usá esta herramienta únicamente si el cliente pidió explícitamente hablar con una persona.',
+                        'parameters' => ['type' => 'object', 'additionalProperties' => false, 'properties' => [
+                            'reason' => ['type' => 'string', 'maxLength' => 120],
+                            'summary' => ['type' => 'string', 'maxLength' => 300],
+                            'customer_locale' => ['type' => 'string', 'enum' => ['es', 'en']],
+                        ], 'required' => ['reason', 'summary', 'customer_locale']],
+                    ],
+                ]],
+                'tool_choice' => 'auto',
+            ]);
+            $choice = $response->choices[0] ?? null;
+            $toolCalls = $choice?->message?->toolCalls ?? [];
+            foreach ($toolCalls as $call) {
+                if (($call->function->name ?? null) === 'request_human_handoff') {
+                    $data = json_decode((string) $call->function->arguments, true);
+                    if (is_array($data)) return AiReplyDecision::handoff($data);
+                }
+            }
+            return AiReplyDecision::reply($choice?->message?->content);
+        } catch (\Throwable $e) {
+            Log::error('OpenAiProvider: error decidiendo handoff', ['error' => $e->getMessage()]);
+            return AiReplyDecision::reply(null);
         }
     }
 
