@@ -28,7 +28,9 @@ class ContactImportService
 
         $delimiter = $this->detectDelimiter($handle);
 
-        fgetcsv($handle, 0, $delimiter);
+        if (($mapping['has_headers'] ?? true) !== false) {
+            fgetcsv($handle, 0, $delimiter);
+        }
 
         $existingPhones = [];
         $existingEmails = [];
