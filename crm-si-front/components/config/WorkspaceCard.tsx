@@ -4,6 +4,15 @@ import { type FormEvent, useState } from "react"
 import { Building2, Loader2, TriangleAlert } from "lucide-react"
 
 import { SettingsBlock } from "@/components/config/SettingsBlock"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -65,6 +74,7 @@ export function WorkspaceCard() {
   const [password, setPassword] = useState("")
   const [deactivateError, setDeactivateError] = useState<string | null>(null)
   const [deactivating, setDeactivating] = useState(false)
+  const [leaveOpen, setLeaveOpen] = useState(false)
   const [leaving, setLeaving] = useState(false)
   const [restoring, setRestoring] = useState(false)
 
@@ -131,15 +141,15 @@ export function WorkspaceCard() {
     window.location.assign("/chats")
   }
 
-  async function leave() {
+  async function confirmLeave() {
     if (leaving) return
-    if (!window.confirm(t("settings.workspace.danger.leaveConfirm", { name: currentName }))) return
 
     setLeaving(true)
     const result = await leaveWorkspace(activeId as number)
     setLeaving(false)
 
     if (result.error) {
+      setLeaveOpen(false)
       addToast({ type: "error", title: t("common.error"), description: result.error })
       return
     }
@@ -237,7 +247,13 @@ export function WorkspaceCard() {
                 {t("settings.workspace.danger.leaveDescription")}
               </p>
             </div>
-            <Button type="button" size="sm" variant="outline" onClick={leave} disabled={leaving}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setLeaveOpen(true)}
+              disabled={leaving}
+            >
               {leaving ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : null}
               {t("settings.workspace.danger.leaveAction")}
             </Button>
@@ -282,6 +298,28 @@ export function WorkspaceCard() {
           ) : null}
         </div>
       </div>
+
+      <AlertDialog open={leaveOpen} onOpenChange={(open) => !leaving && setLeaveOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("settings.workspace.danger.leaveTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settings.workspace.danger.leaveConfirm", { name: currentName })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={leaving}>{t("common.cancel")}</AlertDialogCancel>
+            {/*
+              No usamos AlertDialogAction: cierra el diálogo al click y no deja
+              mostrar el estado de carga mientras resuelve el request.
+            */}
+            <Button type="button" variant="destructive" onClick={confirmLeave} disabled={leaving}>
+              {leaving ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : null}
+              {t("settings.workspace.danger.leaveAction")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={deactivateOpen} onOpenChange={handleDeactivateOpenChange}>
         <DialogContent className="sm:max-w-md">
