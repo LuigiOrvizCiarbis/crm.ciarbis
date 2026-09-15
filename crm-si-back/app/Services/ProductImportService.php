@@ -3,8 +3,11 @@
 namespace App\Services;
 
 use App\Models\Product;
+use App\Models\ProductField;
+use App\Rules\ValidProductCustomData;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 
 class ProductImportService
 {
@@ -43,7 +46,10 @@ class ProductImportService
     {
         $delimiter = $this->detectDelimiter($handle);
 
-        fgetcsv($handle, 0, $delimiter);
+        $hasHeaders = ($mapping['has_headers'] ?? true) !== false;
+        if ($hasHeaders) {
+            fgetcsv($handle, 0, $delimiter);
+        }
 
         $existingNames = [];
         Product::where('tenant_id', $tenantId)
@@ -66,6 +72,8 @@ class ProductImportService
         $priceCol = $mapping['price'] ?? null;
         $descCol = $mapping['description'] ?? null;
         $activeCol = $mapping['is_active'] ?? null;
+        $customMapping = is_array($mapping['custom'] ?? null) ? $mapping['custom'] : [];
+        $customFields = ProductField::forTenant($tenantId)->keyBy('key');
 
         while (($row = fgetcsv($handle, 0, $delimiter)) !== false) {
             $rowNumber++;
@@ -74,6 +82,33 @@ class ProductImportService
             $price = $priceCol !== null ? trim($row[$priceCol] ?? '') : '';
             $description = $descCol !== null ? trim($row[$descCol] ?? '') : '';
             $active = $activeCol !== null ? trim($row[$activeCol] ?? '') : '';
+            $customData = [];
+            foreach ($customMapping as $key => $column) {
+                if (! $customFields->has($key)) continue;
+                $raw = trim((string) ($row[$column] ?? ''));
+                if ($raw === '') {
+                    $customData[$key] = null;
+                    continue;
+                }
+                if ($customFields[$key]->type->value === 'boolean' && ! in_array(mb_strtolower($raw), ['1', '0', 'true', 'false', 'si', 'sí', 'no', 'yes', 'activo', 'inactivo'], true)) {
+                    $errors++;
+                    $errorRows[] = ['row' => $rowNumber, 'reason' => "Valor booleano inválido para {$customFields[$key]->label}"];
+                    continue 2;
+                }
+                $customData[$key] = $this->castCustomValue($raw, $customFields[$key]);
+            }
+
+            if ($customData !== []) {
+                $customValidator = Validator::make(
+                    ['custom_data' => $customData],
+                    ['custom_data' => [new ValidProductCustomData(null, array_keys($customData))]],
+                );
+                if ($customValidator->fails()) {
+                    $errors++;
+                    $errorRows[] = ['row' => $rowNumber, 'reason' => $customValidator->errors()->first()];
+                    continue;
+                }
+            }
 
             if ($name === '') {
                 $errors++;
@@ -91,7 +126,7 @@ class ProductImportService
 
             $priceValue = null;
             if ($price !== '') {
-                $normalizedPrice = str_replace(',', '.', $price);
+                $normalizedPrice = $this->normalizePrice($price);
                 if (! is_numeric($normalizedPrice) || (float) $normalizedPrice < 0) {
                     $errors++;
                     $errorRows[] = ['row' => $rowNumber, 'reason' => 'Precio inválido'];
@@ -130,6 +165,9 @@ class ProductImportService
                 'price' => $priceValue,
                 'description' => $description ?: null,
                 'is_active' => $activeCol !== null ? $this->parseBool($active) : true,
+                // Bulk insert bypasses Eloquent casts, so serialize JSON
+                // explicitly before handing the payload to PostgreSQL.
+                'custom_data' => json_encode($customData, JSON_THROW_ON_ERROR),
                 'source' => 'import',
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -163,6 +201,32 @@ class ProductImportService
         }
 
         return in_array(strtolower($raw), ['1', 'true', 'yes', 'si', 'sí', 'activo', 'active'], true);
+    }
+
+    private function normalizePrice(string $value): string
+    {
+        $value = preg_replace('/[^0-9,.-]/', '', trim($value)) ?? '';
+        if (str_contains($value, ',') && str_contains($value, '.')) {
+            $value = str_replace('.', '', $value);
+            return str_replace(',', '.', $value);
+        }
+        if (str_contains($value, ',')) return str_replace(',', '.', $value);
+        return $value;
+    }
+
+    private function castCustomValue(string $raw, ProductField $field): mixed
+    {
+        if ($field->type->value === 'boolean') {
+            return in_array(mb_strtolower($raw), ['1', 'true', 'si', 'sí', 'yes', 'activo'], true);
+        }
+        if (in_array($field->type->value, ['number', 'currency'], true)) {
+            return (float) $this->normalizePrice($raw);
+        }
+        if (in_array($field->type->value, ['multi_select', 'repeater'], true)) {
+            $decoded = json_decode($raw, true);
+            return is_array($decoded) ? $decoded : array_values(array_filter(array_map('trim', explode('|', $raw))));
+        }
+        return $raw;
     }
 
     private function normalizeName(string $name): string
