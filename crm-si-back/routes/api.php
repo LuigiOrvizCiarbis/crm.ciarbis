@@ -54,6 +54,7 @@ use App\Http\Controllers\InstagramController;
 use App\Http\Controllers\MailController;
 use App\Http\Controllers\MessengerController;
 use App\Http\Controllers\WhatsAppController;
+use App\Http\Controllers\WhatsAppAlertsController;
 use App\Http\Resources\UserResource;
 use App\Models\Invitation;
 use App\Models\Scopes\TenantScope;
@@ -442,6 +443,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('users/{user}/branch', [UserController::class, 'assignBranch']);
 
     Route::put('profile', [ProfileController::class, 'update']);
+    Route::post('profile/whatsapp-notifications/verification', [ProfileController::class, 'requestWhatsAppNotificationVerification']);
+    Route::post('profile/whatsapp-notifications/verification/confirm', [ProfileController::class, 'confirmWhatsAppNotificationVerification']);
+    Route::delete('profile/whatsapp-notifications', [ProfileController::class, 'revokeWhatsAppNotification']);
     Route::put('profile/password', [ProfileController::class, 'updatePassword']);
     Route::put('profile/preferences', [ProfileController::class, 'updatePreferences']);
     Route::post('profile/avatar', [ProfileController::class, 'uploadAvatar']);
@@ -634,6 +638,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('conversations/{id}/stage', [ConversationController::class, 'updateStage']);
     Route::patch('conversations/{id}/archive', [ConversationController::class, 'archive']);
     Route::patch('conversations/{id}/ai-autoreply', [ConversationController::class, 'aiAutoreply']);
+    Route::post('conversations/{id}/human-handoff/acknowledge', [ConversationController::class, 'acknowledgeHumanHandoff']);
     Route::post('conversations/{conversation}/translate-draft', [ConversationTranslationController::class, 'translateDraft']);
     Route::patch('conversations/{conversation}/translation-language', [ConversationTranslationController::class, 'updateLanguage']);
     Route::post('conversations/{id}/read', [ConversationController::class, 'markAsRead']);
@@ -672,6 +677,7 @@ Route::get('invitations/by-token/{token}', [InvitationController::class, 'showBy
 Route::get('plans', [PlanController::class, 'index']);
 
 Route::match(['get', 'post'], 'whatsapp-webhook', [WhatsAppController::class, 'webhook']);
+Route::match(['get', 'post'], 'whatsapp-alerts-webhook', [WhatsAppAlertsController::class, 'webhook']);
 
 Route::match(['get', 'post'], 'instagram-webhook', [InstagramController::class, 'webhook']);
 

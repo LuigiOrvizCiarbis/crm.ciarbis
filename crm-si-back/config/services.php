@@ -134,6 +134,25 @@ return [
         'public_media_base_url' => env('META_PUBLIC_MEDIA_BASE_URL', env('APP_URL')),
     ],
 
+    'si_crm_alerts' => [
+        'enabled' => (bool) env('SI_CRM_ALERTS_ENABLED', false),
+        'phone_number_id' => env('SI_CRM_ALERTS_WA_PHONE_NUMBER_ID'),
+        'waba_id' => env('SI_CRM_ALERTS_WA_WABA_ID'),
+        'access_token' => env('SI_CRM_ALERTS_WA_ACCESS_TOKEN'),
+        'app_secret' => env('SI_CRM_ALERTS_WA_APP_SECRET'),
+        'verify_token' => env('SI_CRM_ALERTS_WA_VERIFY_TOKEN'),
+        'display_number' => env('SI_CRM_ALERTS_WA_DISPLAY_NUMBER'),
+        'channel_fallback_enabled' => (bool) env('SI_CRM_ALERTS_CHANNEL_FALLBACK_ENABLED', false),
+        'verification_templates' => [
+            'es' => env('SI_CRM_ALERTS_VERIFICATION_TEMPLATE_ES', 'si_crm_alerts_verification_es'),
+            'en' => env('SI_CRM_ALERTS_VERIFICATION_TEMPLATE_EN', 'si_crm_alerts_verification_en'),
+        ],
+        'handoff_templates' => [
+            'es' => env('SI_CRM_ALERTS_HANDOFF_TEMPLATE_ES', 'si_crm_alerts_handoff_es'),
+            'en' => env('SI_CRM_ALERTS_HANDOFF_TEMPLATE_EN', 'si_crm_alerts_handoff_en'),
+        ],
+    ],
+
     'instagram' => [
         // Permiso exacto de mensajería de Instagram: verificar el nombre vigente
         // en el dashboard de Meta (App Review). Documentado como

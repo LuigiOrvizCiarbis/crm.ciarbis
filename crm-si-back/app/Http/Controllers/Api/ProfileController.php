@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use App\Services\HumanHandoffService;
 use Illuminate\Validation\Rules\Password as PasswordRule;
 
 /**
@@ -36,6 +37,39 @@ class ProfileController extends Controller
         $user->forceFill($validated)->save();
 
         return response()->json(['data' => new UserResource($user)]);
+    }
+
+    public function requestWhatsAppNotificationVerification(Request $request, HumanHandoffService $service): JsonResponse
+    {
+        $validated = $request->validate(['phone' => ['required', 'string', 'max:40'], 'consent' => ['accepted']]);
+        try {
+            $service->requestPhoneVerification($request->user(), $validated['phone']);
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        return response()->json(['message' => 'Código enviado por WhatsApp.']);
+    }
+
+    public function confirmWhatsAppNotificationVerification(Request $request, HumanHandoffService $service): JsonResponse
+    {
+        $validated = $request->validate(['code' => ['required', 'digits:6']]);
+        try {
+            $service->confirmPhoneVerification($request->user(), $validated['code']);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        return response()->json(['data' => new UserResource($request->user()->fresh())]);
+    }
+
+    public function revokeWhatsAppNotification(Request $request): JsonResponse
+    {
+        $request->user()->forceFill([
+            'whatsapp_notification_phone' => null,
+            'whatsapp_notification_phone_normalized' => null,
+            'whatsapp_notification_verified_at' => null,
+            'whatsapp_notification_opted_in_at' => null,
+        ])->save();
+        return response()->json(['message' => 'Notificaciones de WhatsApp desactivadas.']);
     }
 
     public function updatePassword(Request $request): JsonResponse

@@ -8,6 +8,7 @@ use Anthropic\Messages\ToolChoiceTool;
 use App\Services\Ai\AiErrorMapper;
 use App\Services\Ai\AiExtractionResult;
 use App\Services\Ai\AiProvider;
+use App\Services\Ai\AiReplyDecision;
 use App\Services\Ai\AiVerificationResult;
 use GuzzleHttp\Client as GuzzleClient;
 use Illuminate\Http\Client\Response;
@@ -65,6 +66,37 @@ class AnthropicProvider implements AiProvider
 
             return null;
         }
+    }
+
+    public function decide(array $messages, string $systemPrompt, string $model): AiReplyDecision
+    {
+        try {
+            $response = Http::withHeaders(['x-api-key' => $this->apiKey, 'anthropic-version' => '2023-06-01'])
+                ->timeout((int) config('services.ai.generate_timeout', 60))
+                ->post('https://api.anthropic.com/v1/messages', [
+                    'model' => $model, 'max_tokens' => 1024, 'system' => $systemPrompt,
+                    'messages' => array_map([$this, 'formatMessage'], $messages),
+                    'tools' => [[
+                        'name' => 'request_human_handoff',
+                        'description' => 'Usá esta herramienta únicamente si el cliente pidió explícitamente hablar con una persona.',
+                        'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'properties' => [
+                            'reason' => ['type' => 'string', 'maxLength' => 120],
+                            'summary' => ['type' => 'string', 'maxLength' => 300],
+                            'customer_locale' => ['type' => 'string', 'enum' => ['es', 'en']],
+                        ], 'required' => ['reason', 'summary', 'customer_locale']],
+                    ]],
+                ]);
+            if (! $response->successful()) return AiReplyDecision::reply(null);
+            foreach ($response->json('content', []) as $block) {
+                if (($block['type'] ?? null) === 'tool_use' && ($block['name'] ?? null) === 'request_human_handoff' && is_array($block['input'] ?? null)) {
+                    return AiReplyDecision::handoff($block['input']);
+                }
+                if (($block['type'] ?? null) === 'text' && trim((string) ($block['text'] ?? '')) !== '') return AiReplyDecision::reply($block['text']);
+            }
+        } catch (\Throwable $e) {
+            Log::error('AnthropicProvider: error decidiendo handoff', ['error' => $e->getMessage()]);
+        }
+        return AiReplyDecision::reply(null);
     }
 
     public function translate(string $content, string $systemPrompt, string $model): ?string

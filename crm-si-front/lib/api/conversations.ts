@@ -25,7 +25,18 @@ function mapConversation(c: any): Conversation {
     messages: c.messages,
     tags: c.tags,
     matchedMessageSnippet: c.matched_message_snippet ?? undefined,
+    humanHandoff: c.human_handoff ?? null,
   };
+}
+
+export async function acknowledgeHumanHandoff(conversationId: number) {
+  const token = requireToken();
+  const res = await fetch(`/api/conversations/${conversationId}/human-handoff/acknowledge`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throwApiError(res.status, payload, "No se pudo tomar la derivación");
+  return payload.data;
 }
 
 function requireToken(): string {

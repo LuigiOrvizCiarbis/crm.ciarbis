@@ -9,6 +9,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\Product;
 use App\Services\Ai\AiProviderFactory;
+use App\Services\Ai\AiReplyDecision;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -78,6 +79,21 @@ class AiReplyService
         }
 
         return $provider->generate($messages, $this->systemPrompt($config, $conversation->tenant_id), $model);
+    }
+
+    public function decide(Conversation $conversation, AiConfig $config): AiReplyDecision
+    {
+        $model = $config->model ?: $config->provider->defaultModel();
+        $allowImages = $config->provider->modelSupportsVision($model);
+        $messages = $this->buildHistory($conversation, $allowImages);
+        if (empty($messages)) return AiReplyDecision::reply(null);
+        $provider = AiProviderFactory::make($config);
+        if (! $provider) return AiReplyDecision::reply(null);
+        if (method_exists($provider, 'decide')) {
+            /** @var AiReplyDecision $decision */
+            return $provider->decide($messages, $this->systemPrompt($config, $conversation->tenant_id), $model);
+        }
+        return AiReplyDecision::reply($provider->generate($messages, $this->systemPrompt($config, $conversation->tenant_id), $model));
     }
 
     /**
