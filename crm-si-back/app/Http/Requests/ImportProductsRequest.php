@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
+use App\Models\ProductField;
 
 class ImportProductsRequest extends FormRequest
 {
@@ -49,6 +50,23 @@ class ImportProductsRequest extends FormRequest
 
             if (! is_array($mapping) || ! array_key_exists('name', $mapping)) {
                 $validator->errors()->add('mapping', 'El mapeo debe incluir la columna "name".');
+            }
+
+            foreach ($mapping as $key => $index) {
+                if ($key === 'custom' && is_array($index)) {
+                    foreach ($index as $fieldKey => $fieldIndex) {
+                        if (! is_string($fieldKey) || ! is_int($fieldIndex) || $fieldIndex < 0) {
+                            $validator->errors()->add('mapping', 'El mapeo de campos personalizados no es válido.');
+                        } elseif (! ProductField::forTenant((int) ($this->user()?->tenant_id ?? 0))->contains('key', $fieldKey)) {
+                            $validator->errors()->add('mapping', "El campo personalizado '{$fieldKey}' no existe.");
+                        }
+                    }
+                    continue;
+                }
+                if ($key === 'has_headers') continue;
+                if (! is_int($index) || $index < 0) {
+                    $validator->errors()->add('mapping', "La columna '{$key}' no es válida.");
+                }
             }
         });
     }

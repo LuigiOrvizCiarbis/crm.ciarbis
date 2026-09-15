@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -8,11 +8,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Progress } from "@/components/ui/progress"
 import { Upload, FileText, CheckCircle2, AlertCircle, Info, Loader2, X } from "lucide-react"
 import { getAuthToken } from "@/lib/api/auth-token"
+import type { ProductField } from "@/lib/api/product-fields"
 
 interface ImportProductsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onImportComplete: () => void
+  productFields?: ProductField[]
 }
 
 interface ImportResult {
@@ -123,7 +125,7 @@ function parseCSV(text: string): string[][] {
   return rows
 }
 
-export function ImportProductsDialog({ open, onOpenChange, onImportComplete }: ImportProductsDialogProps) {
+export function ImportProductsDialog({ open, onOpenChange, onImportComplete, productFields = [] }: ImportProductsDialogProps) {
   const [step, setStep] = useState<Step>("upload")
   const [file, setFile] = useState<File | null>(null)
   const [headers, setHeaders] = useState<string[]>([])
@@ -132,6 +134,8 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete }: I
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [hasHeaders, setHasHeaders] = useState(true)
+  const [parsedRows, setParsedRows] = useState<string[][]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const reset = useCallback(() => {
@@ -143,6 +147,8 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete }: I
     setResult(null)
     setError(null)
     setDragOver(false)
+    setHasHeaders(true)
+    setParsedRows([])
   }, [])
 
   const handleOpenChange = (open: boolean) => {
@@ -169,17 +175,17 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete }: I
 
       const rows = parseCSV(text)
 
-      if (rows.length < 2) {
-        setError("El archivo debe tener al menos una fila de encabezados y una de datos")
+      if (rows.length < 1) {
+        setError("El archivo no contiene filas válidas")
         return
       }
 
+      setParsedRows(rows)
       const hdrs = rows[0]
-      const data = rows.slice(1, 6)
-
       setHeaders(hdrs)
-      setPreviewRows(data)
+      setPreviewRows(rows.slice(1, 6))
       setColumnMapping(autoDetectMapping(hdrs))
+      setHasHeaders(true)
       setStep("mapping")
     }
     reader.onerror = () => setError("Error al leer el archivo")
@@ -202,11 +208,14 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete }: I
   const handleImport = async () => {
     if (!file) return
 
-    const mapping: Record<string, number> = {}
+    const mapping: Record<string, unknown> = { has_headers: hasHeaders }
+    const custom: Record<string, number> = {}
     columnMapping.forEach((field, index) => {
       if (field === "ignore") return
-      mapping[field] = index
+      if (field.startsWith("custom:")) custom[field.slice(7)] = index
+      else mapping[field] = index
     })
+    if (Object.keys(custom).length) mapping.custom = custom
 
     if (!("name" in mapping)) {
       setError("Debes mapear al menos la columna de Nombre")
@@ -253,6 +262,24 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete }: I
   }
 
   const nameIsMapped = columnMapping.includes("name")
+  const fieldOptions = useMemo(
+    () => [
+      ...FIELD_OPTIONS,
+      ...productFields
+        .filter((f) => !["name", "price", "description", "is_active"].includes(f.key))
+        .map((f) => ({ value: `custom:${f.key}`, label: f.label })),
+    ],
+    [productFields],
+  )
+
+  const changeHeaderMode = (value: boolean) => {
+    setHasHeaders(value)
+    if (!parsedRows.length) return
+    const hdrs = value ? parsedRows[0] : parsedRows[0].map((_, i) => `Columna ${i + 1}`)
+    setHeaders(hdrs)
+    setPreviewRows(value ? parsedRows.slice(1, 6) : parsedRows.slice(0, 5))
+    setColumnMapping(value ? autoDetectMapping(hdrs) : hdrs.map(() => "ignore"))
+  }
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -307,6 +334,13 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete }: I
         {/* Step 2: Mapping */}
         {step === "mapping" && (
           <div className="py-2 space-y-4 min-w-0">
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+              <p className="text-sm font-medium">¿La primera fila contiene encabezados?</p>
+              <div className="flex gap-4 text-sm">
+                <label className="flex items-center gap-2"><input type="radio" checked={hasHeaders === true} onChange={() => changeHeaderMode(true)} /> Sí</label>
+                <label className="flex items-center gap-2"><input type="radio" checked={hasHeaders === false} onChange={() => changeHeaderMode(false)} /> No, son datos</label>
+              </div>
+            </div>
             {file && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <FileText className="w-4 h-4 shrink-0" />
@@ -348,7 +382,7 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete }: I
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {FIELD_OPTIONS.map((opt) => (
+                              {fieldOptions.map((opt) => (
                                 <SelectItem key={opt.value} value={opt.value} className="text-xs">
                                   {opt.label}
                                 </SelectItem>
