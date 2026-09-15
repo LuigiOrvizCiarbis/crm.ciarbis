@@ -46,6 +46,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { ImportProductsDialog } from "@/components/products/import-products-dialog"
 
 interface FormState {
@@ -64,7 +71,8 @@ const EMPTY_FORM: FormState = {
   custom_data: {},
 }
 
-const PAGE_SIZE = 10
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+const DEFAULT_PAGE_SIZE = 25
 
 // Keys that map to real product columns rather than to custom_data. `name` is
 // always fixed; price/description/is_active are seeded ProductField defaults but
@@ -101,6 +109,7 @@ export function ProductsList() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
@@ -265,10 +274,10 @@ export function ProductsList() {
     })
   }, [products, sort])
 
-  const totalPages = Math.max(1, Math.ceil(sortedProducts.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(sortedProducts.length / pageSize))
   const currentPage = Math.min(page, totalPages)
-  const pageStart = (currentPage - 1) * PAGE_SIZE
-  const paginatedProducts = sortedProducts.slice(pageStart, pageStart + PAGE_SIZE)
+  const pageStart = (currentPage - 1) * pageSize
+  const paginatedProducts = sortedProducts.slice(pageStart, pageStart + pageSize)
 
   const formatPrice = (price: string | null) => {
     if (price === null || price === "") return "—"
@@ -493,6 +502,25 @@ export function ProductsList() {
             })}
           </p>
           <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">{t("catalog.perPage")}</span>
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => {
+                setPageSize(Number(value))
+                setPage(1)
+              }}
+            >
+              <SelectTrigger className="h-8 w-20">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZE_OPTIONS.map((option) => (
+                  <SelectItem key={option} value={String(option)}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               variant="outline"
               size="sm"
