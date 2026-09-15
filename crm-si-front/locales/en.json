@@ -66,6 +66,7 @@
     "bulkDeactivated": "Products deactivated",
     "bulkDeleted": "Products deleted",
     "bulkDeleteConfirmBody": "{{count}} product(s) will be removed from the catalog. This action cannot be undone.",
+    "perPage": "Per page",
     "paginationInfo": "{{from}}-{{to}} of {{total}}",
     "previous": "Previous",
     "next": "Next"
