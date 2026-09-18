@@ -2,15 +2,104 @@
 
 namespace App\Services;
 
+use App\Enums\ContactFieldType;
 use App\Models\Contact;
 use App\Models\ContactField;
-use App\Support\ContactCustomDataNormalizer;
+use App\Models\ProductImport;
 use Illuminate\Http\UploadedFile;
+use App\Support\ContactCustomDataNormalizer;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class ContactImportService
 {
+    /** @return array<string, mixed> */
+    public function preview(UploadedFile $file, array $mapping): array
+    {
+        $rows = $this->readImportRows($file->getRealPath());
+        $dataRows = array_slice($rows, 1);
+        $nameColumn = $mapping['name'] ?? null;
+        if (! is_int($nameColumn)) {
+            throw ValidationException::withMessages(['mapping' => 'Debes mapear la columna Nombre.']);
+        }
+        $seen = [];
+        $duplicates = [];
+        foreach ($dataRows as $offset => $row) {
+            $value = strtolower(trim((string) ($row[$nameColumn] ?? '')));
+            if ($value === '') continue;
+            if (isset($seen[$value])) $duplicates[] = $offset + 2;
+            $seen[$value] = true;
+        }
+        return [
+            'total_rows' => count($dataRows),
+            'sample_rows' => array_slice($dataRows, 0, 5),
+            'duplicate_rows' => array_slice($duplicates, 0, 50),
+            'proposed_fields' => count((array) ($mapping['proposed_fields'] ?? [])),
+            'warnings' => $duplicates === [] ? [] : ['Hay nombres repetidos en el archivo.'],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function runQueued(ProductImport $import): array
+    {
+        $mapping = $this->resolveProposedFields($import);
+        $path = Storage::disk('local')->path($import->file_path);
+        $file = new UploadedFile($path, basename($path), 'text/csv', null, true);
+        return $this->import($file, $mapping, $import->tenant_id);
+    }
+
+    /** @return array<string, mixed> */
+    private function resolveProposedFields(ProductImport $import): array
+    {
+        $mapping = $import->mapping;
+        foreach ((array) $import->proposed_fields as $proposal) {
+            if (! is_array($proposal)) continue;
+            $label = trim((string) ($proposal['label'] ?? ''));
+            $type = ContactFieldType::tryFrom((string) ($proposal['type'] ?? 'text'));
+            $id = (string) ($proposal['id'] ?? '');
+            if ($label === '' || $id === '' || ! $type) throw ValidationException::withMessages(['mapping' => 'Hay un campo nuevo inválido.']);
+            $field = $this->findOrCreateField($import->tenant_id, $label, $type, (array) ($proposal['options'] ?? []));
+            foreach ((array) ($mapping['custom'] ?? []) as $key => $column) {
+                if ($key === "proposed:{$id}") {
+                    unset($mapping['custom'][$key]);
+                    $mapping['custom'][$field->key] = $column;
+                }
+            }
+        }
+        return $mapping;
+    }
+
+    private function findOrCreateField(int $tenantId, string $label, ContactFieldType $type, array $options): ContactField
+    {
+        $existing = ContactField::withTrashed()->where('tenant_id', $tenantId)->get()->first(fn (ContactField $field): bool => mb_strtolower(trim($field->label)) === mb_strtolower(trim($label)));
+        if ($existing && ! $existing->trashed() && $existing->type === $type) return $existing;
+        if ($existing) throw ValidationException::withMessages(['mapping' => "El campo '{$label}' ya existe con otro tipo."]);
+        if (in_array($type, [ContactFieldType::Select, ContactFieldType::MultiSelect], true) && empty($options['choices'])) {
+            throw ValidationException::withMessages(['mapping' => "El campo '{$label}' requiere opciones."]);
+        }
+        $base = substr(Str::slug($label, '_') ?: 'field', 0, 50);
+        $key = $base;
+        $suffix = 1;
+        while (ContactField::withTrashed()->where('tenant_id', $tenantId)->where('key', $key)->exists()) $key = $base.'_'.++$suffix;
+        return ContactField::create(['tenant_id' => $tenantId, 'key' => $key, 'label' => $label, 'type' => $type, 'options' => $type->requiresOptions() ? $options : null, 'is_required' => false, 'is_unique' => false, 'display_order' => (int) ContactField::where('tenant_id', $tenantId)->max('display_order') + 1]);
+    }
+
+    /** @return list<array<int, string|null>> */
+    private function readImportRows(string $path): array
+    {
+        $handle = fopen($path, 'r');
+        if ($handle === false) throw new \RuntimeException('No se pudo abrir el archivo.');
+        $first = fgets($handle); rewind($handle);
+        $delimiter = $first !== false && substr_count($first, ';') > substr_count($first, ',') ? ';' : ',';
+        $rows = [];
+        while (($row = fgetcsv($handle, 0, $delimiter)) !== false) if (array_filter($row, fn ($v) => trim((string) $v) !== '') !== []) $rows[] = $row;
+        fclose($handle);
+        return $rows;
+    }
+
     /**
      * Import contacts from a CSV file.
      *
