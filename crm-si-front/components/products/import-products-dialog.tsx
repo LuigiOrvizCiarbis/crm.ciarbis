@@ -18,6 +18,31 @@ type Run = { id: number; status: string; error?: string; result?: { created?: nu
 interface Props { open: boolean; onOpenChange: (value: boolean) => void; onImportComplete: () => void; productFields?: ExistingField[]; resource?: "products" | "contacts"; title?: string; nativeTargets?: { value: string; label: string }[] }
 
 const norm = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/[ _-]/g, "")
+const targetAliases: Record<string, string[]> = {
+  name: ["name", "nombre", "nombrecompleto", "fullname", "producto", "product", "titulo", "title"],
+  phone: ["phone", "telefono", "tel", "celular", "mobile", "whatsapp", "phonenumber"],
+  email: ["email", "mail", "correo", "correoelectronico"],
+  price: ["price", "precio", "importe", "valor", "amount", "costo"],
+  description: ["description", "descripcion", "detalle"],
+  is_active: ["activo", "active", "estado", "status", "habilitado"],
+}
+
+const suggestMapping = (headers: string[], targets: { value: string; label: string }[]) => {
+  const used = new Set<string>()
+  return headers.map((header) => {
+    const normalizedHeader = norm(header)
+    const target = targets.find((candidate) => {
+      if (candidate.value === "ignore" || candidate.value === "create" || used.has(candidate.value)) return false
+      return norm(candidate.label) === normalizedHeader
+        || norm(candidate.value.replace(/^custom:/, "")) === normalizedHeader
+        || (targetAliases[candidate.value] ?? []).includes(normalizedHeader)
+    })
+    if (!target) return "ignore"
+    used.add(target.value)
+    return target.value
+  })
+}
+
 const infer = (values: string[]) => {
   const sample = values.filter(Boolean).slice(0, 200)
   if (!sample.length) return "text"
@@ -46,14 +71,8 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete, pro
     const parsed = XLSX.utils.sheet_to_json<string[]>(XLSX.read(csv, { type: "string" }).Sheets.Sheet1 || XLSX.utils.aoa_to_sheet([]), { header: 1, defval: "" }).map((r) => r.map(String))
     if (!parsed.length) { setError("El archivo no contiene filas válidas"); return }
     const headers = parsed[0]; setHeaders(headers); setRows(parsed.slice(1)); setOriginalName(name)
-    setMapping(headers.map((header) => {
-      const h = norm(header)
-      if (/^(name|nombre|producto|product|titulo|title)$/.test(h)) return "name"
-      if (/^(price|precio|importe|valor|amount|costo)$/.test(h)) return "price"
-      if (/^(description|descripcion|detalle)$/.test(h)) return "description"
-      if (/^(activo|active|estado|status|habilitado)$/.test(h)) return "is_active"
-      return "ignore"
-    }))
+    const availableTargets = [...nativeTargets, ...productFields.map((field) => ({ value: "custom:" + field.key, label: field.label }))]
+    setMapping(suggestMapping(headers, availableTargets))
     setFile(new File([csv], name.replace(/\.[^.]+$/, "") + ".csv", { type: "text/csv" })); setStep("mapping")
   }
   const chooseSheet = (workbook: XLSX.WorkBook, name: string, original: string) => { setSheet(name); setBook(workbook); applyCsv(XLSX.utils.sheet_to_csv(workbook.Sheets[name]), original); setSheet(name) }
