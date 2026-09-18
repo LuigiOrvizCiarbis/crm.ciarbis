@@ -92,7 +92,7 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete, pro
       return
     }
     setBusy(true); setError("")
-    const form = new FormData(); form.append("file", file); form.append("mapping", JSON.stringify(payload(proposedFields))); form.append("mode", mode); form.append("match_field", matchField); form.append("preserve_empty", String(preserveEmpty)); form.append("original_filename", originalName); if (sheet) form.append("sheet_name", sheet)
+    const form = new FormData(); form.append("file", file); form.append("mapping", JSON.stringify(payload(proposedFields))); form.append("mode", mode); form.append("match_field", matchField); form.append("preserve_empty", preserveEmpty ? "1" : "0"); form.append("original_filename", originalName); if (sheet) form.append("sheet_name", sheet)
     try {
       const response = await fetch("/api/products/import/" + action, { method: "POST", headers: { Authorization: "Bearer " + getAuthToken() }, body: form }), json = await response.json()
       if (!response.ok) throw new Error(json.message || (json.errors?.mapping?.[0]) || "No se pudo procesar la importación")
