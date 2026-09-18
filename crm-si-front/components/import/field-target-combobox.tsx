@@ -23,8 +23,11 @@ export function FieldTargetCombobox({ value, options, onChange, className }: Pro
   const selected = options.find((option) => option.value === value)
   const regular = options.filter((option) => option.value !== "ignore" && option.value !== "create")
 
+  // Non-modal is required because this combobox lives inside a modal Dialog;
+  // otherwise Radix's focus/pointer guard treats the portaled list as outside
+  // the dialog and makes its rows appear visible but unclickable.
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover modal={false} open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" role="combobox" aria-expanded={open} className={cn("h-8 w-52 justify-between font-normal", className)}>
           <span className={cn("truncate", !selected && "text-muted-foreground")}>{selected?.label || "Seleccionar destino"}</span>
