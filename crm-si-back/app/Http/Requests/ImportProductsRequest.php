@@ -25,7 +25,10 @@ class ImportProductsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'file' => 'required|file|mimes:csv|max:10240',
+            // Los navegadores/proxies envían CSV con MIME text/csv, text/plain
+            // o application/octet-stream. La extensión es la señal estable y
+            // el contenido se vuelve a parsear como CSV en el servicio.
+            'file' => 'required|file|extensions:csv|max:10240',
             'mapping' => 'required|string',
         ];
     }
@@ -79,7 +82,7 @@ class ImportProductsRequest extends FormRequest
         return [
             'file.required' => 'El archivo es requerido.',
             'file.file' => 'Debe ser un archivo válido.',
-            'file.mimes' => 'El archivo debe ser CSV.',
+            'file.extensions' => 'El archivo debe ser CSV.',
             'file.max' => 'El archivo no puede superar los 10 MB.',
             'mapping.required' => 'El mapeo de columnas es requerido.',
             'mapping.string' => 'El mapeo debe ser una cadena JSON.',
