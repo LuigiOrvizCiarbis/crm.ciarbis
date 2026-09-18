@@ -25,7 +25,7 @@ class ImportProductsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'file' => 'required|file|mimes:csv,txt|max:5120',
+            'file' => 'required|file|mimes:csv|max:10240',
             'mapping' => 'required|string',
         ];
     }
@@ -57,13 +57,11 @@ class ImportProductsRequest extends FormRequest
                     foreach ($index as $fieldKey => $fieldIndex) {
                         if (! is_string($fieldKey) || ! is_int($fieldIndex) || $fieldIndex < 0) {
                             $validator->errors()->add('mapping', 'El mapeo de campos personalizados no es válido.');
-                        } elseif (! ProductField::forTenant((int) ($this->user()?->tenant_id ?? 0))->contains('key', $fieldKey)) {
-                            $validator->errors()->add('mapping', "El campo personalizado '{$fieldKey}' no existe.");
                         }
                     }
                     continue;
                 }
-                if ($key === 'has_headers') continue;
+                if ($key === 'has_headers' || $key === 'proposed_fields') continue;
                 if (! is_int($index) || $index < 0) {
                     $validator->errors()->add('mapping', "La columna '{$key}' no es válida.");
                 }
@@ -81,8 +79,8 @@ class ImportProductsRequest extends FormRequest
         return [
             'file.required' => 'El archivo es requerido.',
             'file.file' => 'Debe ser un archivo válido.',
-            'file.mimes' => 'El archivo debe ser CSV (.csv o .txt).',
-            'file.max' => 'El archivo no puede superar los 5 MB.',
+            'file.mimes' => 'El archivo debe ser CSV.',
+            'file.max' => 'El archivo no puede superar los 10 MB.',
             'mapping.required' => 'El mapeo de columnas es requerido.',
             'mapping.string' => 'El mapeo debe ser una cadena JSON.',
         ];
