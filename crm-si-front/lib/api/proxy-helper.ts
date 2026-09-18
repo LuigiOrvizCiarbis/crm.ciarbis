@@ -12,6 +12,7 @@ type ProxyObservabilityOptions = {
 
 type ProxyToLaravelOptions = RequestInit & {
   rawBody?: boolean;
+  responseType?: "json" | "text";
   baseUrls?: string[];
   observability?: ProxyObservabilityOptions;
   /**
@@ -111,7 +112,7 @@ export async function proxyToLaravel(
   ].filter(Boolean);
 
   const bases = (options.baseUrls || defaultBases).map(stripSlash).filter(Boolean);
-  const { rawBody, baseUrls, observability, timeoutMs, ...fetchOptions } = options;
+  const { rawBody, responseType = "json", baseUrls, observability, timeoutMs, ...fetchOptions } = options;
   const perRequestTimeout = timeoutMs ?? 15000;
   const tried: string[] = [];
   let lastConnectionError: unknown;
@@ -147,7 +148,13 @@ export async function proxyToLaravel(
         },
       });
 
-      const data = await res.json().catch(() => ({}));
+      const data = responseType === "text"
+        ? await res.text()
+        : await res.json().catch(() => ({}));
+      const responseHeaders = {
+        contentType: res.headers.get("content-type"),
+        contentDisposition: res.headers.get("content-disposition"),
+      };
 
       if (!res.ok) {
         reportProxyResponseError({
@@ -163,13 +170,13 @@ export async function proxyToLaravel(
 
       // Retornar si es exitoso o error cliente (400-499)
       if (res.ok || (res.status >= 400 && res.status < 500)) {
-        return { data, status: res.status };
+        return { data, status: res.status, ...responseHeaders };
       }
 
       // No reintentar mutaciones: evita duplicar escrituras cuando el backend
       // creó el recurso pero falló en un paso posterior (por ejemplo, email).
       if (!isRetryableMethod) {
-        return { data, status: res.status };
+        return { data, status: res.status, ...responseHeaders };
       }
 
       // 5xx: intentar siguiente backend para métodos idempotentes
@@ -209,5 +216,7 @@ export async function proxyToLaravel(
   return {
     data: { message: "Ocurrió un error interno. Inténtalo de nuevo más tarde." },
     status: 502,
+    contentType: null,
+    contentDisposition: null,
   };
 }

@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\PipelineStageController;
 use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\ProductImportController;
 use App\Http\Controllers\Api\ProductFieldController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\RoleController;
@@ -427,6 +428,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::apiResource('tags', TagController::class);
     Route::post('products/import', [ProductController::class, 'import']);
+    Route::post('products/import/preview', [ProductImportController::class, 'preview']);
+    Route::post('products/import/queue', [ProductImportController::class, 'queue']);
+    Route::get('products/import/{productImport}', [ProductImportController::class, 'show']);
+    Route::post('products/import/{productImport}/cancel', [ProductImportController::class, 'cancel']);
+    Route::get('products/import/{productImport}/errors', [ProductImportController::class, 'errors']);
     Route::get('product-fields', [ProductFieldController::class, 'index']);
     Route::post('product-fields/reorder', [ProductFieldController::class, 'reorder']);
     Route::post('product-fields', [ProductFieldController::class, 'store']);
