@@ -11,7 +11,7 @@ class ProductImport extends Model
     use BelongsToTenant;
 
     protected $fillable = [
-        'tenant_id', 'requested_by', 'original_filename', 'file_path', 'sheet_name',
+        'tenant_id', 'resource', 'requested_by', 'original_filename', 'file_path', 'sheet_name',
         'status', 'mode', 'match_field', 'preserve_empty', 'mapping', 'proposed_fields',
         'preview', 'result', 'created_fields', 'error', 'queued_at', 'started_at',
         'finished_at', 'expires_at',

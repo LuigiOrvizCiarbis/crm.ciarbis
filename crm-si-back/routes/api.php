@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\BroadcastCampaignController;
 use App\Http\Controllers\Api\ChannelController;
 use App\Http\Controllers\Api\ContactController;
+use App\Http\Controllers\Api\ContactImportController;
 use App\Http\Controllers\Api\ContactFieldController;
 use App\Http\Controllers\Api\ContactHistoryController;
 use App\Http\Controllers\Api\ContactTimelineController;
@@ -496,6 +497,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('contacts/summary', [ContactController::class, 'summary']);
     Route::post('contacts', [ContactController::class, 'store']);
     Route::post('contacts/import', [ContactController::class, 'import']);
+    Route::post('contacts/import/preview', [ContactImportController::class, 'preview']);
+    Route::post('contacts/import/queue', [ContactImportController::class, 'queue']);
+    Route::get('contacts/import/{productImport}', [ContactImportController::class, 'show']);
+    Route::post('contacts/import/{productImport}/cancel', [ContactImportController::class, 'cancel']);
     Route::post('contacts/bulk-tags', [ContactController::class, 'bulkTags']);
     Route::get('contacts/{contact}', [ContactController::class, 'show']);
     Route::put('contacts/{contact}', [ContactController::class, 'update']);

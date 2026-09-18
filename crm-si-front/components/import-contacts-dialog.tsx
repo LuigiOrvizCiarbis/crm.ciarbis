@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress"
 import { Upload, FileText, CheckCircle2, AlertCircle, Info, Loader2, X } from "lucide-react"
 import { getAuthToken, workspaceHeaders } from "@/lib/api/auth-token"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
+import { readImportFile } from "@/lib/import/import-file"
 
 interface ImportContactsDialogProps {
   open: boolean
@@ -24,7 +25,8 @@ interface ImportResult {
   total: number
 }
 
-type Step = "upload" | "mapping" | "importing" | "results"
+type Step = "upload" | "mapping" | "importing" | "queued" | "results"
+type ImportRun = { id: number; status: string; error?: string; result?: ImportResult }
 
 // Priority-ordered patterns per field: first match wins, each field assigned at most once
 const FIELD_PATTERNS: Array<{ field: string; priority: number; pattern: RegExp }> = [
@@ -36,7 +38,6 @@ const FIELD_PATTERNS: Array<{ field: string; priority: number; pattern: RegExp }
   { field: "email", priority: 1, pattern: /^(email|e-mail|correo|correo\s*electr[oó]nico|mail)$/ },
 ]
 
-const CSV_FILE_REGEX = /\.(csv|txt)$/i
 
 function autoDetectMapping(headers: string[]): string[] {
   // Collect all candidate matches: { field, columnIndex, priority }
@@ -69,61 +70,6 @@ function autoDetectMapping(headers: string[]): string[] {
   return headers.map((_, i) => colToField.get(i) ?? "ignore")
 }
 
-function detectDelimiter(firstLine: string): string {
-  const semicolons = (firstLine.match(/;/g) || []).length
-  const commas = (firstLine.match(/,/g) || []).length
-  return semicolons > commas ? ";" : ","
-}
-
-function parseCSV(text: string): string[][] {
-  const firstLine = text.split(/\r?\n/)[0] || ""
-  const delimiter = detectDelimiter(firstLine)
-
-  const rows: string[][] = []
-  let current = ""
-  let inQuotes = false
-  let row: string[] = []
-
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i]
-    const next = text[i + 1]
-
-    if (inQuotes) {
-      if (char === '"' && next === '"') {
-        current += '"'
-        i++
-      } else if (char === '"') {
-        inQuotes = false
-      } else {
-        current += char
-      }
-    } else {
-      if (char === '"') {
-        inQuotes = true
-      } else if (char === delimiter) {
-        row.push(current)
-        current = ""
-      } else if (char === "\n" || (char === "\r" && next === "\n")) {
-        row.push(current)
-        current = ""
-        if (row.some((cell) => cell.trim() !== "")) rows.push(row)
-        row = []
-        if (char === "\r") i++
-      } else {
-        current += char
-      }
-    }
-  }
-
-  // Last row
-  if (current !== "" || row.length > 0) {
-    row.push(current)
-    if (row.some((cell) => cell.trim() !== "")) rows.push(row)
-  }
-
-  return rows
-}
-
 export function ImportContactsDialog({ open, onOpenChange, onImportComplete }: ImportContactsDialogProps) {
   const contactFields = useContactFieldsStore((s) => s.fields)
   const fetchContactFields = useContactFieldsStore((s) => s.fetch)
@@ -150,6 +96,7 @@ export function ImportContactsDialog({ open, onOpenChange, onImportComplete }: I
   const [previewRows, setPreviewRows] = useState<string[][]>([])
   const [columnMapping, setColumnMapping] = useState<string[]>([])
   const [result, setResult] = useState<ImportResult | null>(null)
+  const [run, setRun] = useState<ImportRun | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -161,6 +108,7 @@ export function ImportContactsDialog({ open, onOpenChange, onImportComplete }: I
     setPreviewRows([])
     setColumnMapping([])
     setResult(null)
+    setRun(null)
     setError(null)
     setDragOver(false)
   }, [])
@@ -170,55 +118,31 @@ export function ImportContactsDialog({ open, onOpenChange, onImportComplete }: I
     onOpenChange(open)
   }
 
-  const processFile = (f: File) => {
-    if (!CSV_FILE_REGEX.test(f.name)) {
-      setError("Solo se permiten archivos CSV (.csv o .txt)")
-      return
-    }
-
+  const processFile = async (f: File) => {
     setError(null)
-    setFile(f)
-
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const text = e.target?.result as string
-      if (!text) {
-        setError("No se pudo leer el archivo")
-        return
-      }
-
-      const rows = parseCSV(text)
-
-      if (rows.length < 2) {
-        setError("El archivo debe tener al menos una fila de encabezados y una de datos")
-        return
-      }
-
-      const hdrs = rows[0]
-      const data = rows.slice(1, 6) // Preview first 5 data rows
-
-      setHeaders(hdrs)
-      setPreviewRows(data)
-
-      // Auto-detect column mapping (each field assigned at most once)
-      setColumnMapping(autoDetectMapping(hdrs))
-
+    try {
+      const parsed = await readImportFile(f)
+      if (parsed.rows.length === 0) throw new Error("El archivo debe tener al menos una fila de datos")
+      setFile(parsed.file)
+      setHeaders(parsed.headers)
+      setPreviewRows(parsed.rows.slice(0, 5))
+      setColumnMapping(autoDetectMapping(parsed.headers))
       setStep("mapping")
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo leer el archivo")
     }
-    reader.onerror = () => setError("Error al leer el archivo")
-    reader.readAsText(f, "UTF-8")
   }
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
     const f = e.dataTransfer.files[0]
-    if (f) processFile(f)
+    if (f) void processFile(f)
   }
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
-    if (f) processFile(f)
+    if (f) void processFile(f)
   }
 
   const handleImport = async () => {
@@ -253,7 +177,7 @@ export function ImportContactsDialog({ open, onOpenChange, onImportComplete }: I
       formData.append("file", file)
       formData.append("mapping", JSON.stringify(mapping))
 
-      const response = await fetch("/api/contacts/import", {
+      const response = await fetch("/api/contacts/import/queue", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
         body: formData,
@@ -268,13 +192,29 @@ export function ImportContactsDialog({ open, onOpenChange, onImportComplete }: I
         return
       }
 
-      setResult(json.data)
-      setStep("results")
+      setRun(json.data)
+      setStep("queued")
     } catch {
       setError("Error de conexión al importar")
       setStep("mapping")
     }
   }
+
+  useEffect(() => {
+    if (step !== "queued" || !run) return
+    const timer = window.setInterval(async () => {
+      const response = await fetch(`/api/contacts/import/${run.id}`, { headers: { Authorization: `Bearer ${getAuthToken()}`, ...workspaceHeaders() } })
+      if (!response.ok) return
+      const json = await response.json()
+      setRun(json.data)
+      if (["completed", "failed", "cancelled"].includes(json.data.status)) {
+        if (json.data.result) setResult(json.data.result)
+        setStep("results")
+        if (json.data.status === "completed") onImportComplete()
+      }
+    }, 1500)
+    return () => window.clearInterval(timer)
+  }, [step, run?.id, onImportComplete])
 
   const handleClose = () => {
     if (result && result.imported > 0) {
@@ -293,7 +233,8 @@ export function ImportContactsDialog({ open, onOpenChange, onImportComplete }: I
           <DialogDescription>
             {step === "upload" && "Selecciona un archivo CSV para importar contactos"}
             {step === "mapping" && "Mapea las columnas del archivo a los campos de contacto"}
-            {step === "importing" && "Importando contactos..."}
+            {step === "importing" && "Preparando importación..."}
+            {step === "queued" && "Importando contactos en segundo plano..."}
             {step === "results" && "Resultados de la importación"}
           </DialogDescription>
         </DialogHeader>
@@ -315,12 +256,12 @@ export function ImportContactsDialog({ open, onOpenChange, onImportComplete }: I
                 Arrastra tu archivo CSV aquí o haz clic para seleccionar
               </p>
               <p className="text-xs text-muted-foreground">
-                Formatos aceptados: .csv, .txt (máximo 5 MB)
+                Formatos aceptados: .csv o .xlsx (máximo 10 MB)
               </p>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.txt"
+                accept=".csv,.xlsx"
                 className="hidden"
                 onChange={handleFileInput}
               />
@@ -332,6 +273,13 @@ export function ImportContactsDialog({ open, onOpenChange, onImportComplete }: I
                 {error}
               </p>
             )}
+          </div>
+        )}
+
+        {step === "queued" && (
+          <div className="py-10 text-center">
+            <Loader2 className="w-7 h-7 animate-spin text-primary mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">La importación continúa aunque cierres esta ventana.</p>
           </div>
         )}
 
