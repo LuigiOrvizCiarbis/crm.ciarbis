@@ -9,6 +9,7 @@ use App\Models\ProductImport;
 use Illuminate\Http\UploadedFile;
 use App\Support\ContactCustomDataNormalizer;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -16,19 +17,24 @@ use Illuminate\Validation\ValidationException;
 
 class ContactImportService
 {
-    /** @return array<string, mixed> */
-    public function preview(UploadedFile $file, array $mapping): array
+    /**
+     * El identificador puede ser un campo nativo (name, phone, email) o uno
+     * personalizado marcado como único ("custom:<key>").
+     *
+     * @return array<string, mixed>
+     */
+    public function preview(UploadedFile $file, array $mapping, string $matchField = 'name'): array
     {
         $rows = $this->readImportRows($file->getRealPath());
         $dataRows = array_slice($rows, 1);
-        $nameColumn = $mapping['name'] ?? null;
-        if (! is_int($nameColumn)) {
-            throw ValidationException::withMessages(['mapping' => 'Debes mapear la columna Nombre.']);
+        $identifierColumn = $this->identifierColumn($mapping, $matchField);
+        if (! is_int($identifierColumn)) {
+            throw ValidationException::withMessages(['mapping' => 'Debes mapear la columna usada como identificador.']);
         }
         $seen = [];
         $duplicates = [];
         foreach ($dataRows as $offset => $row) {
-            $value = strtolower(trim((string) ($row[$nameColumn] ?? '')));
+            $value = $this->normalizeIdentity((string) ($row[$identifierColumn] ?? ''), $matchField);
             if ($value === '') continue;
             if (isset($seen[$value])) $duplicates[] = $offset + 2;
             $seen[$value] = true;
@@ -38,17 +44,302 @@ class ContactImportService
             'sample_rows' => array_slice($dataRows, 0, 5),
             'duplicate_rows' => array_slice($duplicates, 0, 50),
             'proposed_fields' => count((array) ($mapping['proposed_fields'] ?? [])),
-            'warnings' => $duplicates === [] ? [] : ['Hay nombres repetidos en el archivo.'],
+            'warnings' => $duplicates === [] ? [] : ['Hay identificadores repetidos en el archivo.'],
         ];
+    }
+
+    private function identifierColumn(array $mapping, string $matchField): mixed
+    {
+        return str_starts_with($matchField, 'custom:')
+            ? data_get($mapping, 'custom.'.Str::after($matchField, 'custom:'))
+            : ($mapping[$matchField] ?? null);
+    }
+
+    /** El teléfono se compara sin separadores; el resto, en minúsculas. */
+    private function normalizeIdentity(string $value, string $matchField): string
+    {
+        $value = trim($value);
+        if ($value === '') return '';
+
+        return $matchField === 'phone' ? $this->normalizePhone($value) : mb_strtolower($value);
     }
 
     /** @return array<string, mixed> */
     public function runQueued(ProductImport $import): array
     {
-        $mapping = $this->resolveProposedFields($import);
-        $path = Storage::disk('local')->path($import->file_path);
-        $file = new UploadedFile($path, basename($path), 'text/csv', null, true);
-        return $this->import($file, $mapping, $import->tenant_id);
+        return DB::transaction(function () use ($import): array {
+            $mapping = $this->resolveProposedFields($import);
+            $result = $this->processRows(
+                $this->readImportRows(Storage::disk('local')->path($import->file_path)),
+                $mapping,
+                $import->tenant_id,
+                (string) ($import->mode ?: 'create'),
+                (string) ($import->match_field ?: 'name'),
+                (bool) $import->preserve_empty,
+            );
+            $import->update(['mapping' => $mapping]);
+
+            return $result;
+        });
+    }
+
+    /**
+     * Recorre las filas aplicando el modo elegido. A diferencia del importador
+     * legacy (`import()`), acá un contacto existente puede actualizarse en vez
+     * de descartarse.
+     *
+     * @param  list<array<int, string|null>>  $rows
+     * @param  array<string, mixed>  $mapping
+     * @return array<string, mixed>
+     */
+    private function processRows(array $rows, array $mapping, int $tenantId, string $mode, string $matchField, bool $preserveEmpty): array
+    {
+        array_shift($rows);
+        $fields = ContactField::query()->where('tenant_id', $tenantId)->whereNull('deleted_at')->get()->keyBy('key');
+        $existing = $this->existingIndex($tenantId, $matchField);
+        $taken = $this->takenNativeValues($tenantId);
+        $takenUnique = $this->takenUniqueValues($tenantId, $fields);
+        $seen = [];
+        $created = 0;
+        $updated = 0;
+        $duplicates = 0;
+        $errors = 0;
+        $errorRows = [];
+
+        foreach ($rows as $offset => $row) {
+            $rowNumber = $offset + 2;
+            $values = $this->rowValues($row, $mapping, $fields);
+            $identityRaw = str_starts_with($matchField, 'custom:')
+                ? (string) ($values['raw'][Str::after($matchField, 'custom:')] ?? '')
+                : (string) ($values['raw'][$matchField] ?? '');
+            $identity = $this->normalizeIdentity($identityRaw, $matchField);
+
+            if ($identity === '') {
+                $errors++;
+                $errorRows[] = ['row' => $rowNumber, 'reason' => 'Falta el identificador seleccionado'];
+                continue;
+            }
+            if (isset($seen[$identity])) {
+                $errors++;
+                $errorRows[] = ['row' => $rowNumber, 'reason' => 'Identificador repetido dentro del archivo'];
+                continue;
+            }
+            $seen[$identity] = true;
+
+            $contact = $existing[$identity] ?? null;
+            if ($contact && $mode === 'create') { $duplicates++; continue; }
+            if (! $contact && $mode === 'update') { $duplicates++; continue; }
+
+            $error = $this->validateRow($values, $mapping, $fields, $contact, $preserveEmpty, $taken, $takenUnique);
+            if ($error !== null) {
+                $errors++;
+                $errorRows[] = ['row' => $rowNumber, 'reason' => $error];
+                continue;
+            }
+
+            if ($contact) {
+                $this->applyUpdate($contact, $values, $mapping, $preserveEmpty);
+                $this->rememberNativeValues($taken, $values, $contact->id);
+                $this->rememberUniqueValues($takenUnique, $values, $contact->id);
+                $updated++;
+                continue;
+            }
+
+            $contact = Contact::withoutGlobalScopes()->create([
+                'tenant_id' => $tenantId,
+                'name' => $values['name'],
+                'phone' => $values['phone'] ?: null,
+                'email' => $values['email'] ?: null,
+                'source' => 'manual',
+                'custom_data' => array_filter($values['custom'], fn ($value): bool => $value !== null),
+            ]);
+            $existing[$identity] = $contact;
+            $this->rememberNativeValues($taken, $values, $contact->id);
+            $this->rememberUniqueValues($takenUnique, $values, $contact->id);
+            $created++;
+        }
+
+        return [
+            'imported' => $created,
+            'created' => $created,
+            'updated' => $updated,
+            'duplicates' => $duplicates,
+            'errors' => $errors,
+            'error_rows' => array_slice($errorRows, 0, 50),
+            'total' => $created + $updated + $duplicates + $errors,
+        ];
+    }
+
+    /**
+     * Valores nativos ya usados en el tenant, para detectar colisiones de
+     * teléfono/email contra otro contacto distinto al que se actualiza.
+     *
+     * @return array{phone: array<string, int>, email: array<string, int>}
+     */
+    private function takenNativeValues(int $tenantId): array
+    {
+        $taken = ['phone' => [], 'email' => []];
+        Contact::withoutGlobalScopes()->where('tenant_id', $tenantId)->select('id', 'phone', 'email')
+            ->each(function (Contact $contact) use (&$taken): void {
+                if ($contact->phone !== null && $contact->phone !== '') $taken['phone'][$this->normalizePhone($contact->phone)] = $contact->id;
+                if ($contact->email !== null && $contact->email !== '') $taken['email'][mb_strtolower(trim($contact->email))] = $contact->id;
+            });
+
+        return $taken;
+    }
+
+    /** @param array{phone: array<string, int>, email: array<string, int>} $taken */
+    private function rememberNativeValues(array &$taken, array $values, int $contactId): void
+    {
+        if ($values['phone'] !== '') $taken['phone'][$this->normalizePhone($values['phone'])] = $contactId;
+        if ($values['email'] !== '') $taken['email'][mb_strtolower($values['email'])] = $contactId;
+    }
+
+    /** @param array<string, array<string, int>> $takenUnique */
+    private function rememberUniqueValues(array &$takenUnique, array $values, int $contactId): void
+    {
+        foreach ($takenUnique as $key => $_) {
+            $value = $values['custom'][$key] ?? null;
+            if ($value === null || $value === '') continue;
+            $takenUnique[$key][$this->uniqueHash($value)] = $contactId;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $values
+     * @param  array<string, mixed>  $mapping
+     * @param  Collection<string, ContactField>  $fields
+     * @param  array{phone: array<string, int>, email: array<string, int>}  $taken
+     * @param  array<string, array<string, int>>  $takenUnique
+     */
+    private function validateRow(array $values, array $mapping, $fields, ?Contact $contact, bool $preserveEmpty, array $taken, array $takenUnique): ?string
+    {
+        $name = $values['name'];
+        if ($name === '' && ! $contact) return 'Nombre vacío';
+        if (mb_strlen($name) > 255) return 'Nombre excede 255 caracteres';
+        if ($values['email'] !== '' && ! filter_var($values['email'], FILTER_VALIDATE_EMAIL)) return 'Email inválido';
+        if (mb_strlen($values['phone']) > 50) return 'Teléfono excede 50 caracteres';
+
+        foreach (['phone' => $this->normalizePhone($values['phone']), 'email' => mb_strtolower($values['email'])] as $key => $normalized) {
+            if ($normalized === '') continue;
+            $owner = $taken[$key][$normalized] ?? null;
+            if ($owner !== null && $owner !== $contact?->id) {
+                return $key === 'phone' ? 'Teléfono ya usado por otro contacto' : 'Email ya usado por otro contacto';
+            }
+        }
+
+        foreach ((array) ($mapping['custom'] ?? []) as $key => $column) {
+            if (! is_int($column) || ! isset($fields[$key])) continue;
+            $field = $fields[$key];
+            $raw = (string) ($values['raw'][$key] ?? '');
+            if ($raw === '') {
+                if ($preserveEmpty && $contact !== null) continue;
+                if ($field->is_required) return "Campo requerido vacío: {$field->label}";
+                continue;
+            }
+
+            $value = $this->castRawValue($raw, $field);
+            $rules = ['value' => $field->type->valueRules($field->options)];
+            if (($itemRules = $field->type->itemRules($field->options)) !== null) $rules['value.*'] = $itemRules;
+            if (Validator::make(['value' => $value], $rules)->fails()) return "Valor inválido para {$field->label}";
+
+            if ($field->is_unique) {
+                $owner = $takenUnique[$key][$this->uniqueHash($value)] ?? null;
+                if ($owner !== null && $owner !== $contact?->id) {
+                    return "Valor duplicado para campo único: {$field->label}";
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Índice en memoria de los valores ya usados en campos únicos. Se arma una
+     * sola vez por corrida: consultar por celda haría una query por fila y por
+     * campo, y el `custom_data -> key` de Postgres no corre en los tests.
+     *
+     * @param  Collection<string, ContactField>  $fields
+     * @return array<string, array<string, int>>
+     */
+    private function takenUniqueValues(int $tenantId, $fields): array
+    {
+        $uniqueKeys = $fields->filter(fn (ContactField $field): bool => (bool) $field->is_unique)->keys()->all();
+        if ($uniqueKeys === []) return [];
+
+        $taken = array_fill_keys($uniqueKeys, []);
+        Contact::withoutGlobalScopes()->where('tenant_id', $tenantId)->whereNotNull('custom_data')
+            ->select('id', 'custom_data')
+            ->each(function (Contact $contact) use (&$taken, $uniqueKeys): void {
+                $data = $contact->custom_data ?? [];
+                foreach ($uniqueKeys as $key) {
+                    $value = $data[$key] ?? null;
+                    if ($value === null || $value === '') continue;
+                    $taken[$key][$this->uniqueHash($value)] = $contact->id;
+                }
+            });
+
+        return $taken;
+    }
+
+    /**
+     * @param  array<int, string|null>  $row
+     * @param  array<string, mixed>  $mapping
+     * @param  Collection<string, ContactField>  $fields
+     * @return array{name:string,phone:string,email:string,custom:array<string,mixed>,raw:array<string,string>}
+     */
+    private function rowValues(array $row, array $mapping, $fields): array
+    {
+        $raw = fn (string $key): string => isset($mapping[$key]) && is_int($mapping[$key]) ? trim((string) ($row[$mapping[$key]] ?? '')) : '';
+        $custom = [];
+        $customRaw = [];
+        foreach ((array) ($mapping['custom'] ?? []) as $key => $column) {
+            if (! is_int($column) || ! isset($fields[$key])) continue;
+            $value = trim((string) ($row[$column] ?? ''));
+            $customRaw[$key] = $value;
+            $custom[$key] = $value === '' ? null : $this->castRawValue($value, $fields[$key]);
+        }
+
+        return [
+            'name' => $raw('name'), 'phone' => $raw('phone'), 'email' => $raw('email'), 'custom' => $custom,
+            'raw' => ['name' => $raw('name'), 'phone' => $raw('phone'), 'email' => $raw('email'), ...$customRaw],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $values
+     * @param  array<string, mixed>  $mapping
+     */
+    private function applyUpdate(Contact $contact, array $values, array $mapping, bool $preserveEmpty): void
+    {
+        $payload = [];
+        foreach (['name', 'phone', 'email'] as $key) {
+            if (! isset($mapping[$key])) continue;
+            $raw = (string) ($values['raw'][$key] ?? '');
+            if ($raw === '' && ($preserveEmpty || $key === 'name')) continue;
+            $payload[$key] = $raw === '' ? null : $values[$key];
+        }
+        $custom = $contact->custom_data ?? [];
+        foreach ($values['custom'] as $key => $value) {
+            if ($preserveEmpty && ($values['raw'][$key] ?? '') === '') continue;
+            $custom[$key] = $value;
+        }
+        if ($values['custom'] !== []) $payload['custom_data'] = $custom;
+        if ($payload !== []) $contact->update($payload);
+    }
+
+    /** @return array<string, Contact> */
+    private function existingIndex(int $tenantId, string $matchField): array
+    {
+        $index = [];
+        foreach (Contact::withoutGlobalScopes()->where('tenant_id', $tenantId)->get() as $contact) {
+            $value = str_starts_with($matchField, 'custom:')
+                ? data_get($contact->custom_data, Str::after($matchField, 'custom:'))
+                : $contact->{$matchField};
+            if (is_scalar($value) && (string) $value !== '') $index[$this->normalizeIdentity((string) $value, $matchField)] = $contact;
+        }
+
+        return $index;
     }
 
     /** @return array<string, mixed> */
