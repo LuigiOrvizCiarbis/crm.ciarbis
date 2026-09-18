@@ -17,7 +17,7 @@ import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw } from "lucide-react"
 import type { RangeFilterValue } from "./contacts/RangeFilterMenu"
-import { ImportContactsDialog } from "./import-contacts-dialog"
+import { UniversalImportDialog } from "./import/universal-import-dialog"
 import { BulkTagsDialog } from "./contacts/bulk-tags-dialog"
 import { ExtractDocumentDialog } from "./contacts/ExtractDocumentDialog"
 import { DocumentViewerSheet } from "./contacts/DocumentViewerSheet"
@@ -1729,9 +1729,13 @@ export function ContactsList({
       </Sheet>
 
       {/* Dialog Importar CSV */}
-      <ImportContactsDialog
+      <UniversalImportDialog
         open={importOpen}
         onOpenChange={setImportOpen}
+        resource="contacts"
+        title="Importar clientes"
+        productFields={contactFields}
+        nativeTargets={[{ value: "ignore", label: "Ignorar" }, { value: "name", label: "Nombre" }, { value: "phone", label: "Teléfono" }, { value: "email", label: "Email" }]}
         onImportComplete={() => fetchContacts()}
       />
 

@@ -53,7 +53,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { ImportProductsDialog } from "@/components/products/import-products-dialog"
+import { UniversalImportDialog } from "@/components/import/universal-import-dialog"
 
 interface FormState {
   name: string
@@ -668,7 +668,7 @@ export function ProductsList() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <ImportProductsDialog
+      <UniversalImportDialog
         open={importOpen}
         onOpenChange={setImportOpen}
         productFields={productFields}
