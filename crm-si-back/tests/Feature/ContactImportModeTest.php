@@ -206,6 +206,92 @@ class ContactImportModeTest extends TestCase
     }
 
     /**
+     * El caso que motivó el cambio: un CSV exportado de otra plataforma trae
+     * miles de filas sin teléfono, y al identificar por teléfono el importador
+     * las rechazaba todas aunque en modo `create` no pueden colisionar.
+     */
+    public function test_modo_create_importa_las_filas_sin_identificador(): void
+    {
+        $tenant = Tenant::create(['name' => 'Acme']);
+
+        $result = $this->runImport($tenant, "nombre,telefono,email\nAna,,ana@acme.com\nBeto,,beto@acme.com\n", 'create', 'phone');
+
+        $this->assertSame(2, $result['created']);
+        $this->assertSame(0, $result['errors']);
+        $this->assertSame(2, $result['without_identifier']);
+        $this->assertSame(2, Contact::where('tenant_id', $tenant->id)->count());
+        $this->assertNull(Contact::where('tenant_id', $tenant->id)->firstWhere('name', 'Ana')->phone);
+    }
+
+    /** Sin clave no hay contra qué emparejar, así que update sí debe rechazarlas. */
+    public function test_modo_update_sigue_rechazando_las_filas_sin_identificador(): void
+    {
+        $tenant = Tenant::create(['name' => 'Acme']);
+        Contact::create(['tenant_id' => $tenant->id, 'name' => 'Ana', 'phone' => '+5491122223333', 'source' => 'manual']);
+
+        $result = $this->runImport($tenant, "nombre,telefono,email\nAna Nueva,,ana@acme.com\n", 'update', 'phone');
+
+        $this->assertSame(1, $result['errors']);
+        $this->assertSame(0, $result['updated']);
+        $this->assertSame('Falta el identificador seleccionado', $result['error_rows'][0]['reason']);
+    }
+
+    /**
+     * Varias filas sin identificador no deben reportarse como repetidas entre
+     * sí: la clave vacía no se registra en el índice de vistos.
+     */
+    public function test_las_filas_sin_identificador_no_se_marcan_como_repetidas(): void
+    {
+        $tenant = Tenant::create(['name' => 'Acme']);
+
+        $result = $this->runImport($tenant, "nombre,telefono,email\nAna,,a@acme.com\nBeto,,b@acme.com\nCeci,,c@acme.com\n", 'create', 'phone');
+
+        $this->assertSame(3, $result['created']);
+        $this->assertSame(0, $result['errors']);
+    }
+
+    /** Un email en la columna de teléfono es una columna mal mapeada, no un dato faltante. */
+    public function test_distingue_el_identificador_vacio_del_que_se_vacia_al_normalizar(): void
+    {
+        $tenant = Tenant::create(['name' => 'Acme']);
+
+        $result = $this->runImport($tenant, "nombre,telefono,email\nAna,ana@acme.com,ana@acme.com\n", 'update', 'phone');
+
+        $this->assertSame(1, $result['errors']);
+        $this->assertStringContainsString('no tiene dígitos', $result['error_rows'][0]['reason']);
+    }
+
+    public function test_el_resultado_resume_los_errores_por_motivo(): void
+    {
+        $tenant = Tenant::create(['name' => 'Acme']);
+        Contact::create(['tenant_id' => $tenant->id, 'name' => 'Ana', 'phone' => '+5491122223333', 'source' => 'manual']);
+
+        $csv = "nombre,telefono,email\nAna,,a@acme.com\nBeto,,b@acme.com\nCeci,+5491199998888,c@acme.com\nCeci Bis,+54 9 11 9999-8888,d@acme.com\n";
+        $result = $this->runImport($tenant, $csv, 'update', 'phone');
+
+        $motivos = collect($result['error_summary'])->pluck('count', 'reason');
+        $this->assertSame(2, $motivos['Falta el identificador seleccionado']);
+        $this->assertSame(1, $motivos['Identificador repetido dentro del archivo']);
+    }
+
+    /** La descarga necesita todas las filas, no las primeras 50 de la tabla. */
+    public function test_guarda_todas_las_filas_con_error_para_la_descarga(): void
+    {
+        $tenant = Tenant::create(['name' => 'Acme']);
+        $csv = "nombre,telefono,email\n";
+        for ($i = 0; $i < 60; $i++) {
+            $csv .= "Cliente {$i},,c{$i}@acme.com\n";
+        }
+
+        $result = $this->runImport($tenant, $csv, 'update', 'phone');
+
+        $this->assertSame(60, $result['errors']);
+        $this->assertCount(50, $result['error_rows']);
+        $this->assertCount(60, $result['error_rows_all']);
+        $this->assertFalse($result['error_rows_truncated']);
+    }
+
+    /**
      * @param  array<string, mixed>|null  $mapping
      * @return array<string, mixed>
      */

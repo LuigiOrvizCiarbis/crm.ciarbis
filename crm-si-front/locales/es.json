@@ -213,6 +213,14 @@
       "errors": {
         "loadTags": "No se pudieron cargar las etiquetas",
         "apply": "No se pudo aplicar el cambio"
+      },
+      "delete": {
+        "action": "Eliminar",
+        "confirmTitle": "Eliminar contactos",
+        "confirmBody": "Se eliminarán {{count}} contacto(s). Esta acción no se puede deshacer.",
+        "success": "{{count}} contacto(s) eliminado(s)",
+        "partial": "{{deleted}} eliminado(s), {{failed}} sin permiso",
+        "error": "No se pudieron eliminar los contactos"
       }
     },
     "customFields": {

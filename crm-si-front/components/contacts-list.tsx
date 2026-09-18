@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw } from "lucide-react"
+import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw, Trash2 } from "lucide-react"
 import type { RangeFilterValue } from "./contacts/RangeFilterMenu"
 import { UniversalImportDialog } from "./import/universal-import-dialog"
 import { BulkTagsDialog } from "./contacts/bulk-tags-dialog"
@@ -425,6 +425,8 @@ export function ContactsList({
   const [addingToPipelineId, setAddingToPipelineId] = useState<number | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [bulkTagsOpen, setBulkTagsOpen] = useState(false)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const profileResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -807,6 +809,42 @@ export function ContactsList({
       // silently fail
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setBulkDeleting(true)
+    try {
+      const token = getAuthToken()
+      const results = await Promise.allSettled(
+        ids.map((id) =>
+          fetch(`/api/contacts/${id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+          }).then((response) => {
+            if (!response.ok) throw new Error(String(response.status))
+            return response
+          })
+        )
+      )
+      const deleted = results.filter((result) => result.status === "fulfilled").length
+      const failed = results.length - deleted
+
+      if (failed === 0) {
+        addToast({ type: "success", title: t("contactsPage.bulk.delete.success", { count: deleted }) })
+      } else if (deleted === 0) {
+        addToast({ type: "error", title: t("contactsPage.bulk.delete.error") })
+      } else {
+        addToast({ type: "info", title: t("contactsPage.bulk.delete.partial", { deleted, failed }) })
+      }
+
+      setBulkDeleteOpen(false)
+      setSelectedIds(new Set())
+      fetchContacts()
+    } finally {
+      setBulkDeleting(false)
     }
   }
 
@@ -1288,6 +1326,15 @@ export function ContactsList({
               <Tags className="w-3 h-3 mr-1" />
               {t("contactsPage.bulk.editTags")}
             </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={bulkDeleting}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <Trash2 className="w-3 h-3 mr-1" />
+              {t("contactsPage.bulk.delete.action")}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>
               <X className="w-3 h-3 mr-1" />
               Cancelar
@@ -1738,6 +1785,31 @@ export function ContactsList({
         nativeTargets={[{ value: "ignore", label: "Ignorar" }, { value: "name", label: "Nombre" }, { value: "phone", label: "Teléfono" }, { value: "email", label: "Email" }]}
         onImportComplete={() => fetchContacts()}
       />
+
+      {/* AlertDialog Eliminar en lote */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={(open) => { if (!bulkDeleting) setBulkDeleteOpen(open) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("contactsPage.bulk.delete.confirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("contactsPage.bulk.delete.confirmBody", { count: selectedIds.size })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting}>{t("contactsPage.bulk.dialog.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void handleBulkDelete()
+              }}
+              disabled={bulkDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : t("contactsPage.bulk.delete.action")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* AlertDialog Eliminar */}
       <AlertDialog open={!!deleteContact} onOpenChange={(open) => { if (!open) setDeleteContact(null) }}>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import * as XLSX from "xlsx"
-import { AlertCircle, CheckCircle2, Loader2, Upload } from "lucide-react"
+import { AlertCircle, CheckCircle2, Download, Loader2, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -14,7 +14,7 @@ import { FieldTargetCombobox } from "@/components/import/field-target-combobox"
 type Step = "upload" | "mapping" | "review" | "queued" | "results"
 type Field = { id: string; label: string; type: ImportFieldType; options?: { choices?: string[]; currency?: string } }
 type ExistingField = { key: string; label: string; is_unique?: boolean }
-type Run = { id: number; status: string; error?: string; result?: { created?: number; updated?: number; imported?: number; duplicates: number; errors: number; error_rows: { row: number; reason: string }[] } }
+type Run = { id: number; status: string; error?: string; result?: { created?: number; updated?: number; imported?: number; duplicates: number; errors: number; error_rows: { row: number; reason: string }[]; error_summary?: { reason: string; count: number }[]; error_rows_truncated?: boolean; without_identifier?: number } }
 interface Props { open: boolean; onOpenChange: (value: boolean) => void; onImportComplete: () => void; productFields?: ExistingField[]; resource?: "products" | "contacts"; title?: string; nativeTargets?: { value: string; label: string }[] }
 
 const norm = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/[ _-]/g, "")
@@ -64,9 +64,32 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete, pro
   const [book, setBook] = useState<XLSX.WorkBook | null>(null), [sheet, setSheet] = useState("")
   const [headers, setHeaders] = useState<string[]>([]), [rows, setRows] = useState<string[][]>([]), [mapping, setMapping] = useState<string[]>([])
   const [fields, setFields] = useState<Field[]>([]), [mode, setMode] = useState("create"), [matchField, setMatchField] = useState(resource === "contacts" ? "phone" : "name"), [preserveEmpty, setPreserveEmpty] = useState(true)
-  const [preview, setPreview] = useState<{ total_rows: number; duplicate_rows: number[]; warnings: string[] } | null>(null), [run, setRun] = useState<Run | null>(null)
-  const [error, setError] = useState(""), [busy, setBusy] = useState(false)
+  const [preview, setPreview] = useState<{ total_rows: number; duplicate_rows: number[]; duplicate_count?: number; missing_identifier_count?: number; importable_rows?: number; warnings: string[] } | null>(null), [run, setRun] = useState<Run | null>(null)
+  const [error, setError] = useState(""), [busy, setBusy] = useState(false), [downloading, setDownloading] = useState(false)
   const input = useRef<HTMLInputElement>(null)
+
+  // El resultado guarda sólo las primeras 50 filas con error para la tabla; la
+  // descarga trae la lista completa, que es lo que sirve para corregir el archivo.
+  const downloadErrors = async () => {
+    if (!run) return
+    setDownloading(true)
+    try {
+      const response = await fetch(apiBase + "/" + run.id + "/errors", { headers: { Authorization: "Bearer " + getAuthToken() } })
+      if (!response.ok) { setError("No se pudo descargar el detalle de errores"); return }
+      const url = URL.createObjectURL(await response.blob())
+      const link = document.createElement("a")
+      link.href = url
+      link.download = "errores-importacion-" + run.id + ".csv"
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      setError("Error de conexión al descargar los errores")
+    } finally {
+      setDownloading(false)
+    }
+  }
   const reset = () => { setStep("upload"); setFile(null); setOriginalName(""); setBook(null); setSheet(""); setHeaders([]); setRows([]); setMapping([]); setFields([]); setPreview(null); setRun(null); setError("") }
   const close = () => { if (run?.status === "completed") onImportComplete(); reset(); onOpenChange(false) }
   const applyCsv = (csv: string, name: string) => {
@@ -135,12 +158,28 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete, pro
     {step === "upload" && <div className="py-8"><button type="button" className="w-full rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 p-12 text-center hover:border-primary" onClick={() => input.current?.click()}><Upload className="mx-auto mb-3 h-9 w-9 text-primary" /><span className="block font-medium">Elegí un archivo</span><span className="text-sm text-muted-foreground">CSV o XLSX · hasta 10 MB · TXT no admitido</span></button><input ref={input} className="hidden" type="file" accept=".csv,.xlsx" onChange={(e) => { const selected = e.target.files?.[0]; if (selected) void readFile(selected); e.target.value = "" }} /></div>}
     {step === "mapping" && <div className="space-y-3 py-2">
       {book && book.SheetNames.length > 1 && <div className="flex items-center gap-2 text-sm">Hoja <Select value={sheet} onValueChange={(name) => chooseSheet(book, name, originalName)}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent>{book.SheetNames.map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent></Select></div>}
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 p-3 text-sm"><span>Modo</span><Select value={mode} onValueChange={setMode}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="create">Crear solamente</SelectItem><SelectItem value="update">Actualizar solamente</SelectItem><SelectItem value="upsert">Crear y actualizar</SelectItem></SelectContent></Select>{mode !== "create" && <><span>Identificar por</span><Select value={matchField} onValueChange={setMatchField}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent>{(isContactImport ? contactMatchTargets : productMatchTargets).map((target) => <SelectItem key={target.value} value={target.value}>{target.label}</SelectItem>)}{productFields.filter((f) => f.is_unique).map((f) => <SelectItem key={f.key} value={"custom:" + f.key}>{f.label}</SelectItem>)}</SelectContent></Select></>}<label className="flex items-center gap-2"><input type="checkbox" checked={preserveEmpty} onChange={(e) => setPreserveEmpty(e.target.checked)} /> Conservar vacíos</label></div>
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 p-3 text-sm"><span>Modo</span><Select value={mode} onValueChange={setMode}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="create">Crear solamente</SelectItem><SelectItem value="update">Actualizar solamente</SelectItem><SelectItem value="upsert">Crear y actualizar</SelectItem></SelectContent></Select><><span>Identificar por</span><Select value={matchField} onValueChange={setMatchField}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent>{(isContactImport ? contactMatchTargets : productMatchTargets).map((target) => <SelectItem key={target.value} value={target.value}>{target.label}</SelectItem>)}{productFields.filter((f) => f.is_unique).map((f) => <SelectItem key={f.key} value={"custom:" + f.key}>{f.label}</SelectItem>)}</SelectContent></Select></><label className="flex items-center gap-2"><input type="checkbox" checked={preserveEmpty} onChange={(e) => setPreserveEmpty(e.target.checked)} /> Conservar vacíos</label></div>
       <div className="max-h-100 overflow-auto rounded-lg border"><Table><TableHeader><TableRow><TableHead>Columna</TableHead><TableHead>Destino</TableHead><TableHead>Campo nuevo</TableHead><TableHead>Ejemplos</TableHead></TableRow></TableHeader><TableBody>{headers.map((header, index) => { const field = fields.find((item) => item.id === "column-" + index); return <TableRow key={index}><TableCell>{header || <span className="text-destructive">Sin encabezado</span>}</TableCell><TableCell><FieldTargetCombobox value={mapping[index] || "ignore"} options={targets} onChange={(value) => updateTarget(index, value)} /></TableCell><TableCell>{field && <div className="flex flex-wrap gap-2"><input className="h-8 w-32 rounded border bg-background px-2 text-sm" value={field.label} onChange={(e) => updateField(field.id, { label: e.target.value })} /><Select value={field.type} onValueChange={(type) => updateField(field.id, { type: type as ImportFieldType })}><SelectTrigger className="h-8 w-28"><SelectValue /></SelectTrigger><SelectContent>{[["text", "Texto"], ["number", "Número"], ["currency", "Moneda"], ["date", "Fecha"], ["boolean", "Sí/No"], ["email", "Email"], ["url", "URL"], ["select", "Selección"]].map(([type, label]) => <SelectItem key={type} value={type}>{label}</SelectItem>)}</SelectContent></Select>{field.type === "currency" && <Select value={field.options?.currency || "ARS"} onValueChange={(currency) => updateField(field.id, { options: { ...field.options, currency } })}><SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ARS">ARS</SelectItem><SelectItem value="USD">USD</SelectItem></SelectContent></Select>}</div>}</TableCell><TableCell className="max-w-52 text-xs text-muted-foreground">{rows.slice(0, 3).map((row) => row[index]).filter(Boolean).join(" · ")}</TableCell></TableRow> })}</TableBody></Table></div>
     </div>}
-    {step === "review" && preview && <div className="grid grid-cols-3 gap-3 py-5"><div className="rounded-lg border p-4"><b className="text-2xl">{preview.total_rows}</b><p className="text-sm text-muted-foreground">filas detectadas</p></div><div className="rounded-lg border p-4"><b className="text-2xl">{fields.length}</b><p className="text-sm text-muted-foreground">campos a crear</p></div><div className="rounded-lg border p-4"><b className="text-2xl text-amber-600">{preview.duplicate_rows.length}</b><p className="text-sm text-muted-foreground">duplicados en archivo</p></div></div>}
+    {step === "review" && preview && <div className="space-y-3 py-5">
+      <div className="grid grid-cols-4 gap-3">
+        <div className="rounded-lg border p-4"><b className="text-2xl">{preview.total_rows}</b><p className="text-sm text-muted-foreground">filas detectadas</p></div>
+        <div className="rounded-lg border p-4"><b className="text-2xl text-green-600">{preview.importable_rows ?? preview.total_rows}</b><p className="text-sm text-muted-foreground">se importarán</p></div>
+        <div className="rounded-lg border p-4"><b className="text-2xl">{fields.length}</b><p className="text-sm text-muted-foreground">campos a crear</p></div>
+        <div className="rounded-lg border p-4"><b className="text-2xl text-amber-600">{preview.duplicate_count ?? preview.duplicate_rows.length}</b><p className="text-sm text-muted-foreground">duplicados en archivo</p></div>
+      </div>
+      {preview.warnings.length > 0 && <div className="space-y-2">{preview.warnings.map((warning) => <p key={warning} className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />{warning}</p>)}</div>}
+    </div>}
     {step === "queued" && <div className="py-12 text-center"><Loader2 className="mx-auto mb-3 h-7 w-7 animate-spin text-primary" /><p>{run?.status === "queued" ? "Esperando worker…" : isContactImport ? "Importando contactos…" : "Importando productos…"}</p></div>}
-    {step === "results" && <div className="space-y-4 py-4">{run?.status === "completed" ? <div className="grid grid-cols-4 gap-3">{[["Creados", run.result?.created ?? run.result?.imported], ["Actualizados", run.result?.updated], ["Omitidos", run.result?.duplicates], ["Errores", run.result?.errors]].map(([label, value]) => <div key={String(label)} className="rounded-lg border p-3 text-center"><b className="text-2xl">{value || 0}</b><p className="text-xs">{label}</p></div>)}</div> : <p className="text-destructive">{run?.error || "La importación fue cancelada."}</p>}</div>}
+    {step === "results" && <div className="space-y-4 py-4">{run?.status === "completed" ? <>
+      <div className="grid grid-cols-4 gap-3">{[["Creados", run.result?.created ?? run.result?.imported], ["Actualizados", run.result?.updated], ["Omitidos", run.result?.duplicates], ["Errores", run.result?.errors]].map(([label, value]) => <div key={String(label)} className="rounded-lg border p-3 text-center"><b className="text-2xl">{value || 0}</b><p className="text-xs">{label}</p></div>)}</div>
+      {(run.result?.without_identifier ?? 0) > 0 && <p className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm">{run.result?.without_identifier} fila(s) se importaron sin el identificador elegido, así que no se comprobó si ya existían.</p>}
+      {(run.result?.error_summary?.length ?? 0) > 0 && <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium">Errores por motivo</p><Button variant="outline" size="sm" disabled={downloading} onClick={() => void downloadErrors()}><Download className="mr-1 h-3 w-3" />Descargar CSV</Button></div>
+        {run.result?.error_summary?.map((item) => <div key={item.reason} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-xs"><span className="text-muted-foreground">{item.reason}</span><b className="shrink-0 tabular-nums">{item.count}</b></div>)}
+        {run.result?.error_rows_truncated && <p className="text-xs text-muted-foreground">La descarga incluye las primeras 10.000 filas con error.</p>}
+      </div>}
+    </> : <p className="text-destructive">{run?.error || "La importación fue cancelada."}</p>}</div>}
     {error && <p className="flex items-center gap-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" />{error}</p>}<DialogFooter>{step === "upload" && <Button variant="outline" onClick={close}>Cancelar</Button>}{step === "mapping" && <><Button variant="outline" onClick={reset}>Cambiar archivo</Button><Button disabled={busy} onClick={() => void send("preview")}>{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Revisar</Button></>}{step === "review" && <><Button variant="outline" onClick={() => setStep("mapping")}>Volver</Button><Button disabled={busy} onClick={() => void send("queue")}>Confirmar e importar</Button></>}{step === "queued" && run?.status === "queued" && <Button variant="outline" onClick={() => fetch(apiBase + "/" + run.id + "/cancel", { method: "POST", headers: { Authorization: "Bearer " + getAuthToken() } })}>Cancelar</Button>}{step === "results" && <Button onClick={close}><CheckCircle2 className="mr-2 h-4 w-4" />Cerrar</Button>}</DialogFooter>
   </DialogContent></Dialog>
 }

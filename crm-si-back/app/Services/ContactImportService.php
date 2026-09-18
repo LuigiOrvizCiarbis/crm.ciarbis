@@ -6,8 +6,8 @@ use App\Enums\ContactFieldType;
 use App\Models\Contact;
 use App\Models\ContactField;
 use App\Models\ProductImport;
-use Illuminate\Http\UploadedFile;
 use App\Support\ContactCustomDataNormalizer;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -18,12 +18,25 @@ use Illuminate\Validation\ValidationException;
 class ContactImportService
 {
     /**
+     * Techo de filas con error que se guardan en `result` para la descarga.
+     * El JSON vive en una columna de la tabla de importaciones, así que un
+     * archivo enteramente inválido no puede crecer sin límite: ~1500 filas
+     * rondan los 170 KB, y este tope acota el peor caso a algo del orden de
+     * 1 MB. Al superarlo se marca `error_rows_truncated`.
+     */
+    private const MAX_STORED_ERROR_ROWS = 10000;
+
+    /**
+     * El preview tiene que anticipar lo que hará `processRows`: antes contaba
+     * los identificadores repetidos pero descartaba en silencio las filas sin
+     * identificador, que son las que después el import rechazaba en masa.
+     *
      * El identificador puede ser un campo nativo (name, phone, email) o uno
      * personalizado marcado como único ("custom:<key>").
      *
      * @return array<string, mixed>
      */
-    public function preview(UploadedFile $file, array $mapping, string $matchField = 'name'): array
+    public function preview(UploadedFile $file, array $mapping, string $matchField = 'name', string $mode = 'create'): array
     {
         $rows = $this->readImportRows($file->getRealPath());
         $dataRows = array_slice($rows, 1);
@@ -33,19 +46,54 @@ class ContactImportService
         }
         $seen = [];
         $duplicates = [];
+        $missing = [];
         foreach ($dataRows as $offset => $row) {
             $value = $this->normalizeIdentity((string) ($row[$identifierColumn] ?? ''), $matchField);
-            if ($value === '') continue;
-            if (isset($seen[$value])) $duplicates[] = $offset + 2;
+            if ($value === '') {
+                $missing[] = $offset + 2;
+
+                continue;
+            }
+            if (isset($seen[$value])) {
+                $duplicates[] = $offset + 2;
+            }
             $seen[$value] = true;
         }
+
+        $label = $this->matchFieldLabel($matchField);
+        $warnings = [];
+        if ($missing !== []) {
+            $warnings[] = $mode === 'create'
+                ? count($missing)." fila(s) no tienen {$label} y se importarán como contactos nuevos, sin deduplicar."
+                : count($missing)." fila(s) no tienen {$label} y se descartarán: en modo \"{$mode}\" no hay contra qué emparejarlas.";
+        }
+        if ($duplicates !== []) {
+            $warnings[] = count($duplicates).' fila(s) repiten el identificador dentro del archivo y se descartarán.';
+        }
+
         return [
             'total_rows' => count($dataRows),
             'sample_rows' => array_slice($dataRows, 0, 5),
             'duplicate_rows' => array_slice($duplicates, 0, 50),
+            'duplicate_count' => count($duplicates),
+            'missing_identifier_rows' => array_slice($missing, 0, 50),
+            'missing_identifier_count' => count($missing),
+            // Cuántas filas llegarán a procesarse, que es el número que el
+            // usuario necesita ver antes de confirmar.
+            'importable_rows' => count($dataRows) - count($duplicates) - ($mode === 'create' ? 0 : count($missing)),
             'proposed_fields' => count((array) ($mapping['proposed_fields'] ?? [])),
-            'warnings' => $duplicates === [] ? [] : ['Hay identificadores repetidos en el archivo.'],
+            'warnings' => $warnings,
         ];
+    }
+
+    private function matchFieldLabel(string $matchField): string
+    {
+        return match ($matchField) {
+            'name' => 'nombre',
+            'phone' => 'teléfono',
+            'email' => 'email',
+            default => 'identificador',
+        };
     }
 
     private function identifierColumn(array $mapping, string $matchField): mixed
@@ -59,7 +107,9 @@ class ContactImportService
     private function normalizeIdentity(string $value, string $matchField): string
     {
         $value = trim($value);
-        if ($value === '') return '';
+        if ($value === '') {
+            return '';
+        }
 
         return $matchField === 'phone' ? $this->normalizePhone($value) : mb_strtolower($value);
     }
@@ -105,6 +155,7 @@ class ContactImportService
         $duplicates = 0;
         $errors = 0;
         $errorRows = [];
+        $withoutIdentifier = 0;
 
         foreach ($rows as $offset => $row) {
             $rowNumber = $offset + 2;
@@ -115,25 +166,45 @@ class ContactImportService
             $identity = $this->normalizeIdentity($identityRaw, $matchField);
 
             if ($identity === '') {
-                $errors++;
-                $errorRows[] = ['row' => $rowNumber, 'reason' => 'Falta el identificador seleccionado'];
-                continue;
-            }
-            if (isset($seen[$identity])) {
+                // Sin clave no hay con qué emparejar: `update` y `upsert` no
+                // tienen a qué contacto aplicar la fila. En `create`, en cambio,
+                // la ausencia de clave garantiza que no puede colisionar con
+                // nada, así que la fila entra como contacto nuevo.
+                if ($mode !== 'create') {
+                    $errors++;
+                    $errorRows[] = ['row' => $rowNumber, 'reason' => self::missingIdentifierReason($identityRaw, $matchField)];
+
+                    continue;
+                }
+                $withoutIdentifier++;
+            } elseif (isset($seen[$identity])) {
                 $errors++;
                 $errorRows[] = ['row' => $rowNumber, 'reason' => 'Identificador repetido dentro del archivo'];
+
+                continue;
+            } else {
+                // Sólo las filas con clave se recuerdan: marcar '' haría que la
+                // segunda fila sin identificador se reportara como repetida.
+                $seen[$identity] = true;
+            }
+
+            $contact = $identity === '' ? null : ($existing[$identity] ?? null);
+            if ($contact && $mode === 'create') {
+                $duplicates++;
+
                 continue;
             }
-            $seen[$identity] = true;
+            if (! $contact && $mode === 'update') {
+                $duplicates++;
 
-            $contact = $existing[$identity] ?? null;
-            if ($contact && $mode === 'create') { $duplicates++; continue; }
-            if (! $contact && $mode === 'update') { $duplicates++; continue; }
+                continue;
+            }
 
             $error = $this->validateRow($values, $mapping, $fields, $contact, $preserveEmpty, $taken, $takenUnique);
             if ($error !== null) {
                 $errors++;
                 $errorRows[] = ['row' => $rowNumber, 'reason' => $error];
+
                 continue;
             }
 
@@ -142,6 +213,7 @@ class ContactImportService
                 $this->rememberNativeValues($taken, $values, $contact->id);
                 $this->rememberUniqueValues($takenUnique, $values, $contact->id);
                 $updated++;
+
                 continue;
             }
 
@@ -165,9 +237,56 @@ class ContactImportService
             'updated' => $updated,
             'duplicates' => $duplicates,
             'errors' => $errors,
+            'without_identifier' => $withoutIdentifier,
+            // `error_rows` alimenta la tabla del diálogo y se acota para no
+            // inflar el JSON; la descarga CSV usa `error_rows_all`, que es la
+            // lista completa y es lo único que sirve para corregir el archivo.
             'error_rows' => array_slice($errorRows, 0, 50),
+            'error_rows_all' => array_slice($errorRows, 0, self::MAX_STORED_ERROR_ROWS),
+            'error_rows_truncated' => count($errorRows) > self::MAX_STORED_ERROR_ROWS,
+            'error_summary' => self::summarizeReasons($errorRows),
             'total' => $created + $updated + $duplicates + $errors,
         ];
+    }
+
+    /**
+     * Distingue la celda vacía del valor que se vacía al normalizarse: un
+     * "teléfono" como `juan@mail.com` es casi siempre una columna mal mapeada,
+     * y el mensaje genérico no deja verlo.
+     */
+    private static function missingIdentifierReason(string $raw, string $matchField): string
+    {
+        if (trim($raw) === '') {
+            return 'Falta el identificador seleccionado';
+        }
+
+        return $matchField === 'phone'
+            ? 'El teléfono no tiene dígitos: revisá si la columna está bien mapeada'
+            : 'El identificador quedó vacío al normalizarse';
+    }
+
+    /**
+     * Cuántas filas cayó cada motivo, para que el resumen diga qué arreglar en
+     * vez de un total sin desglose.
+     *
+     * @param  list<array{row: int, reason: string}>  $errorRows
+     * @return list<array{reason: string, count: int}>
+     */
+    private static function summarizeReasons(array $errorRows): array
+    {
+        $counts = [];
+        foreach ($errorRows as $row) {
+            $reason = (string) $row['reason'];
+            $counts[$reason] = ($counts[$reason] ?? 0) + 1;
+        }
+        arsort($counts);
+
+        $summary = [];
+        foreach ($counts as $reason => $count) {
+            $summary[] = ['reason' => $reason, 'count' => $count];
+        }
+
+        return $summary;
     }
 
     /**
@@ -181,8 +300,12 @@ class ContactImportService
         $taken = ['phone' => [], 'email' => []];
         Contact::withoutGlobalScopes()->where('tenant_id', $tenantId)->select('id', 'phone', 'email')
             ->each(function (Contact $contact) use (&$taken): void {
-                if ($contact->phone !== null && $contact->phone !== '') $taken['phone'][$this->normalizePhone($contact->phone)] = $contact->id;
-                if ($contact->email !== null && $contact->email !== '') $taken['email'][mb_strtolower(trim($contact->email))] = $contact->id;
+                if ($contact->phone !== null && $contact->phone !== '') {
+                    $taken['phone'][$this->normalizePhone($contact->phone)] = $contact->id;
+                }
+                if ($contact->email !== null && $contact->email !== '') {
+                    $taken['email'][mb_strtolower(trim($contact->email))] = $contact->id;
+                }
             });
 
         return $taken;
@@ -191,8 +314,12 @@ class ContactImportService
     /** @param array{phone: array<string, int>, email: array<string, int>} $taken */
     private function rememberNativeValues(array &$taken, array $values, int $contactId): void
     {
-        if ($values['phone'] !== '') $taken['phone'][$this->normalizePhone($values['phone'])] = $contactId;
-        if ($values['email'] !== '') $taken['email'][mb_strtolower($values['email'])] = $contactId;
+        if ($values['phone'] !== '') {
+            $taken['phone'][$this->normalizePhone($values['phone'])] = $contactId;
+        }
+        if ($values['email'] !== '') {
+            $taken['email'][mb_strtolower($values['email'])] = $contactId;
+        }
     }
 
     /** @param array<string, array<string, int>> $takenUnique */
@@ -200,7 +327,9 @@ class ContactImportService
     {
         foreach ($takenUnique as $key => $_) {
             $value = $values['custom'][$key] ?? null;
-            if ($value === null || $value === '') continue;
+            if ($value === null || $value === '') {
+                continue;
+            }
             $takenUnique[$key][$this->uniqueHash($value)] = $contactId;
         }
     }
@@ -215,13 +344,23 @@ class ContactImportService
     private function validateRow(array $values, array $mapping, $fields, ?Contact $contact, bool $preserveEmpty, array $taken, array $takenUnique): ?string
     {
         $name = $values['name'];
-        if ($name === '' && ! $contact) return 'Nombre vacío';
-        if (mb_strlen($name) > 255) return 'Nombre excede 255 caracteres';
-        if ($values['email'] !== '' && ! filter_var($values['email'], FILTER_VALIDATE_EMAIL)) return 'Email inválido';
-        if (mb_strlen($values['phone']) > 50) return 'Teléfono excede 50 caracteres';
+        if ($name === '' && ! $contact) {
+            return 'Nombre vacío';
+        }
+        if (mb_strlen($name) > 255) {
+            return 'Nombre excede 255 caracteres';
+        }
+        if ($values['email'] !== '' && ! filter_var($values['email'], FILTER_VALIDATE_EMAIL)) {
+            return 'Email inválido';
+        }
+        if (mb_strlen($values['phone']) > 50) {
+            return 'Teléfono excede 50 caracteres';
+        }
 
         foreach (['phone' => $this->normalizePhone($values['phone']), 'email' => mb_strtolower($values['email'])] as $key => $normalized) {
-            if ($normalized === '') continue;
+            if ($normalized === '') {
+                continue;
+            }
             $owner = $taken[$key][$normalized] ?? null;
             if ($owner !== null && $owner !== $contact?->id) {
                 return $key === 'phone' ? 'Teléfono ya usado por otro contacto' : 'Email ya usado por otro contacto';
@@ -229,19 +368,30 @@ class ContactImportService
         }
 
         foreach ((array) ($mapping['custom'] ?? []) as $key => $column) {
-            if (! is_int($column) || ! isset($fields[$key])) continue;
+            if (! is_int($column) || ! isset($fields[$key])) {
+                continue;
+            }
             $field = $fields[$key];
             $raw = (string) ($values['raw'][$key] ?? '');
             if ($raw === '') {
-                if ($preserveEmpty && $contact !== null) continue;
-                if ($field->is_required) return "Campo requerido vacío: {$field->label}";
+                if ($preserveEmpty && $contact !== null) {
+                    continue;
+                }
+                if ($field->is_required) {
+                    return "Campo requerido vacío: {$field->label}";
+                }
+
                 continue;
             }
 
             $value = $this->castRawValue($raw, $field);
             $rules = ['value' => $field->type->valueRules($field->options)];
-            if (($itemRules = $field->type->itemRules($field->options)) !== null) $rules['value.*'] = $itemRules;
-            if (Validator::make(['value' => $value], $rules)->fails()) return "Valor inválido para {$field->label}";
+            if (($itemRules = $field->type->itemRules($field->options)) !== null) {
+                $rules['value.*'] = $itemRules;
+            }
+            if (Validator::make(['value' => $value], $rules)->fails()) {
+                return "Valor inválido para {$field->label}";
+            }
 
             if ($field->is_unique) {
                 $owner = $takenUnique[$key][$this->uniqueHash($value)] ?? null;
@@ -265,7 +415,9 @@ class ContactImportService
     private function takenUniqueValues(int $tenantId, $fields): array
     {
         $uniqueKeys = $fields->filter(fn (ContactField $field): bool => (bool) $field->is_unique)->keys()->all();
-        if ($uniqueKeys === []) return [];
+        if ($uniqueKeys === []) {
+            return [];
+        }
 
         $taken = array_fill_keys($uniqueKeys, []);
         Contact::withoutGlobalScopes()->where('tenant_id', $tenantId)->whereNotNull('custom_data')
@@ -274,7 +426,9 @@ class ContactImportService
                 $data = $contact->custom_data ?? [];
                 foreach ($uniqueKeys as $key) {
                     $value = $data[$key] ?? null;
-                    if ($value === null || $value === '') continue;
+                    if ($value === null || $value === '') {
+                        continue;
+                    }
                     $taken[$key][$this->uniqueHash($value)] = $contact->id;
                 }
             });
@@ -294,7 +448,9 @@ class ContactImportService
         $custom = [];
         $customRaw = [];
         foreach ((array) ($mapping['custom'] ?? []) as $key => $column) {
-            if (! is_int($column) || ! isset($fields[$key])) continue;
+            if (! is_int($column) || ! isset($fields[$key])) {
+                continue;
+            }
             $value = trim((string) ($row[$column] ?? ''));
             $customRaw[$key] = $value;
             $custom[$key] = $value === '' ? null : $this->castRawValue($value, $fields[$key]);
@@ -314,18 +470,28 @@ class ContactImportService
     {
         $payload = [];
         foreach (['name', 'phone', 'email'] as $key) {
-            if (! isset($mapping[$key])) continue;
+            if (! isset($mapping[$key])) {
+                continue;
+            }
             $raw = (string) ($values['raw'][$key] ?? '');
-            if ($raw === '' && ($preserveEmpty || $key === 'name')) continue;
+            if ($raw === '' && ($preserveEmpty || $key === 'name')) {
+                continue;
+            }
             $payload[$key] = $raw === '' ? null : $values[$key];
         }
         $custom = $contact->custom_data ?? [];
         foreach ($values['custom'] as $key => $value) {
-            if ($preserveEmpty && ($values['raw'][$key] ?? '') === '') continue;
+            if ($preserveEmpty && ($values['raw'][$key] ?? '') === '') {
+                continue;
+            }
             $custom[$key] = $value;
         }
-        if ($values['custom'] !== []) $payload['custom_data'] = $custom;
-        if ($payload !== []) $contact->update($payload);
+        if ($values['custom'] !== []) {
+            $payload['custom_data'] = $custom;
+        }
+        if ($payload !== []) {
+            $contact->update($payload);
+        }
     }
 
     /** @return array<string, Contact> */
@@ -336,7 +502,9 @@ class ContactImportService
             $value = str_starts_with($matchField, 'custom:')
                 ? data_get($contact->custom_data, Str::after($matchField, 'custom:'))
                 : $contact->{$matchField};
-            if (is_scalar($value) && (string) $value !== '') $index[$this->normalizeIdentity((string) $value, $matchField)] = $contact;
+            if (is_scalar($value) && (string) $value !== '') {
+                $index[$this->normalizeIdentity((string) $value, $matchField)] = $contact;
+            }
         }
 
         return $index;
@@ -347,11 +515,15 @@ class ContactImportService
     {
         $mapping = $import->mapping;
         foreach ((array) $import->proposed_fields as $proposal) {
-            if (! is_array($proposal)) continue;
+            if (! is_array($proposal)) {
+                continue;
+            }
             $label = trim((string) ($proposal['label'] ?? ''));
             $type = ContactFieldType::tryFrom((string) ($proposal['type'] ?? 'text'));
             $id = (string) ($proposal['id'] ?? '');
-            if ($label === '' || $id === '' || ! $type) throw ValidationException::withMessages(['mapping' => 'Hay un campo nuevo inválido.']);
+            if ($label === '' || $id === '' || ! $type) {
+                throw ValidationException::withMessages(['mapping' => 'Hay un campo nuevo inválido.']);
+            }
             $field = $this->findOrCreateField($import->tenant_id, $label, $type, (array) ($proposal['options'] ?? []));
             foreach ((array) ($mapping['custom'] ?? []) as $key => $column) {
                 if ($key === "proposed:{$id}") {
@@ -360,21 +532,29 @@ class ContactImportService
                 }
             }
         }
+
         return $mapping;
     }
 
     private function findOrCreateField(int $tenantId, string $label, ContactFieldType $type, array $options): ContactField
     {
         $existing = ContactField::withTrashed()->where('tenant_id', $tenantId)->get()->first(fn (ContactField $field): bool => mb_strtolower(trim($field->label)) === mb_strtolower(trim($label)));
-        if ($existing && ! $existing->trashed() && $existing->type === $type) return $existing;
-        if ($existing) throw ValidationException::withMessages(['mapping' => "El campo '{$label}' ya existe con otro tipo."]);
+        if ($existing && ! $existing->trashed() && $existing->type === $type) {
+            return $existing;
+        }
+        if ($existing) {
+            throw ValidationException::withMessages(['mapping' => "El campo '{$label}' ya existe con otro tipo."]);
+        }
         if (in_array($type, [ContactFieldType::Select, ContactFieldType::MultiSelect], true) && empty($options['choices'])) {
             throw ValidationException::withMessages(['mapping' => "El campo '{$label}' requiere opciones."]);
         }
         $base = substr(Str::slug($label, '_') ?: 'field', 0, 50);
         $key = $base;
         $suffix = 1;
-        while (ContactField::withTrashed()->where('tenant_id', $tenantId)->where('key', $key)->exists()) $key = $base.'_'.++$suffix;
+        while (ContactField::withTrashed()->where('tenant_id', $tenantId)->where('key', $key)->exists()) {
+            $key = $base.'_'.++$suffix;
+        }
+
         return ContactField::create(['tenant_id' => $tenantId, 'key' => $key, 'label' => $label, 'type' => $type, 'options' => $type->requiresOptions() ? $options : null, 'is_required' => false, 'is_unique' => false, 'display_order' => (int) ContactField::where('tenant_id', $tenantId)->max('display_order') + 1]);
     }
 
@@ -382,12 +562,22 @@ class ContactImportService
     private function readImportRows(string $path): array
     {
         $handle = fopen($path, 'r');
-        if ($handle === false) throw new \RuntimeException('No se pudo abrir el archivo.');
-        $first = fgets($handle); rewind($handle);
+        if ($handle === false) {
+            throw new \RuntimeException('No se pudo abrir el archivo.');
+        }
+        $first = fgets($handle);
+        rewind($handle);
         $delimiter = $first !== false && substr_count($first, ';') > substr_count($first, ',') ? ';' : ',';
         $rows = [];
-        while (($row = fgetcsv($handle, 0, $delimiter)) !== false) if (array_filter($row, fn ($v) => trim((string) $v) !== '') !== []) $rows[] = $row;
+        // El `escape` explícito evita el deprecation de PHP 8.4, que se emite
+        // una vez por fila y ahoga la salida en archivos grandes.
+        while (($row = fgetcsv($handle, 0, $delimiter, '"', '\\')) !== false) {
+            if (array_filter($row, fn ($v) => trim((string) $v) !== '') !== []) {
+                $rows[] = $row;
+            }
+        }
         fclose($handle);
+
         return $rows;
     }
 
