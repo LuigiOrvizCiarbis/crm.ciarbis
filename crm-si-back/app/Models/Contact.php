@@ -155,6 +155,64 @@ class Contact extends Model
         return $query;
     }
 
+    /**
+     * Ordena por un campo custom guardado en `custom_data`.
+     *
+     * El cast depende del tipo, igual que en scopeWhereCustomFieldRange: los
+     * numéricos se comparan como número (si no, "9" > "10"), los booleanos como
+     * 0/1, y el resto como texto — las fechas ya se guardan normalizadas en ISO
+     * por ContactCustomDataNormalizer, así que el orden lexicográfico coincide
+     * con el cronológico.
+     *
+     * Los contactos sin el campo cargado van siempre al final, en cualquiera de
+     * las dos direcciones: un valor ausente no es "el más chico", es la falta de
+     * dato, y mezclarlo arriba al invertir el orden vacía la primera página.
+     */
+    public function scopeOrderByCustomField(Builder $query, string $key, ContactFieldType $type, string $direction): Builder
+    {
+        $direction = strtolower($direction) === 'asc' ? 'asc' : 'desc';
+
+        $isNumeric = in_array($type, [ContactFieldType::Number, ContactFieldType::Currency], true);
+
+        // Cada rama declara su SQL junto a sus bindings. Contar los `?` de la
+        // expresión para deducirlos no sirve: el patrón numérico lleva `?`
+        // dentro de un literal y esos no son placeholders.
+        if ($isNumeric) {
+            // CAST(x AS REAL) es portable entre el SQLite de los tests y el
+            // Postgres de producción. En Postgres un valor no numérico cargado
+            // a mano rompe el cast, así que se neutraliza antes con un CASE
+            // sobre el patrón (SQLite castea a 0 sin fallar y no lo necesita).
+            if ($query->getConnection()->getDriverName() === 'pgsql') {
+                $expression = "CASE WHEN custom_data ->> ? ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN CAST(custom_data ->> ? AS REAL) END";
+                $bindings = [$key, $key];
+            } else {
+                $expression = 'CAST(custom_data ->> ? AS REAL)';
+                $bindings = [$key];
+            }
+        } elseif ($type === ContactFieldType::Boolean) {
+            // El operador ->> no devuelve lo mismo en los dos motores: Postgres
+            // entrega el texto 'true'/'false' y el SQLite de los tests un 1/0
+            // entero. Comparar contra el texto castea el valor en ambos casos,
+            // así que las dos formas de "verdadero" ordenan igual.
+            $expression = "CASE WHEN CAST(custom_data ->> ? AS TEXT) IN ('true', '1') THEN 1 ELSE 0 END";
+            $bindings = [$key];
+        } else {
+            $expression = 'custom_data ->> ?';
+            $bindings = [$key];
+        }
+
+        // NULLS LAST no existe en SQLite, así que el "sin dato al final" se
+        // expresa con una columna de orden previa (0 = tiene valor, 1 = no).
+        $query->orderByRaw(
+            "CASE WHEN custom_data ->> ? IS NULL OR custom_data ->> ? = '' THEN 1 ELSE 0 END",
+            [$key, $key]
+        );
+
+        return $query
+            ->orderByRaw("{$expression} {$direction}", $bindings)
+            ->orderBy('id');
+    }
+
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         if ($user->can('contacts.view_any')) {

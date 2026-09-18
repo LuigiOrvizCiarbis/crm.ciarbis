@@ -103,7 +103,7 @@ const sourceLabels: Record<string, string> = {
 }
 
 type ColumnId = "select" | "contact" | "phone" | "email" | "source" | "tags" | "lastContact" | "actions" | `custom:${string}`
-type SortField = "name" | "phone" | "email" | "source" | "updated_at"
+type SortField = "name" | "phone" | "email" | "source" | "updated_at" | `custom:${string}`
 type SortDirection = "asc" | "desc"
 
 interface Column {
@@ -139,6 +139,16 @@ const COLUMN_SORT_FIELDS: Partial<Record<ColumnId, SortField>> = {
   email: "email",
   source: "source",
   lastContact: "updated_at",
+}
+
+/**
+ * Campo de orden que corresponde a una columna, o `null` si no es ordenable.
+ * Las columnas custom ordenan por `custom:<key>`, que el backend resuelve
+ * contra la definición del campo para castear el JSON según su tipo.
+ */
+function sortFieldForColumn(columnId: ColumnId): SortField | null {
+  if (columnId.startsWith("custom:")) return columnId as SortField
+  return COLUMN_SORT_FIELDS[columnId] ?? null
 }
 
 function formatCustomValue(value: unknown, type: string | undefined, currency?: unknown): string {
@@ -312,7 +322,7 @@ function SortableHeader({
     )
   }
 
-  const columnSortField = COLUMN_SORT_FIELDS[column.id]
+  const columnSortField = sortFieldForColumn(column.id)
   const isSorted = columnSortField === sortField
   const SortIcon = isSorted ? (sortDirection === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
 
@@ -482,6 +492,16 @@ export function ContactsList({
     })
   }, [contactFieldsLoaded, customFieldColumns])
 
+  // Si el campo por el que se estaba ordenando se eliminó, el backend cae a su
+  // orden por defecto pero el front seguiría marcando una columna que ya no
+  // existe. Se vuelve al orden inicial para que lo mostrado y lo pedido coincidan.
+  useEffect(() => {
+    if (!contactFieldsLoaded || !sortField.startsWith("custom:")) return
+    if (customFieldColumns.some((column) => column.id === sortField)) return
+    setSortField("updated_at")
+    setSortDirection("desc")
+  }, [contactFieldsLoaded, customFieldColumns, sortField])
+
   useEffect(() => {
     if (typeof window === "undefined" || !columnsHydrated) return
     window.localStorage.setItem(
@@ -543,7 +563,7 @@ export function ContactsList({
   }
 
   const handleSort = (columnId: ColumnId): void => {
-    const nextSortField = COLUMN_SORT_FIELDS[columnId]
+    const nextSortField = sortFieldForColumn(columnId)
     if (!nextSortField) return
 
     if (nextSortField === sortField) {

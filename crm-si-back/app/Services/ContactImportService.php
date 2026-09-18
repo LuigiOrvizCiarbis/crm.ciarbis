@@ -20,11 +20,12 @@ class ContactImportService
     /**
      * Techo de filas con error que se guardan en `result` para la descarga.
      * El JSON vive en una columna de la tabla de importaciones, así que un
-     * archivo enteramente inválido no puede crecer sin límite: ~1500 filas
-     * rondan los 170 KB, y este tope acota el peor caso a algo del orden de
-     * 1 MB. Al superarlo se marca `error_rows_truncated`.
+     * archivo enteramente inválido no puede crecer sin límite. Cada fila lleva
+     * nombre, teléfono, email e identificador para que el reporte sirva, lo que
+     * ronda los 220 bytes: con este tope el peor caso queda por debajo de 1 MB.
+     * Al superarlo se marca `error_rows_truncated`.
      */
-    private const MAX_STORED_ERROR_ROWS = 10000;
+    private const MAX_STORED_ERROR_ROWS = 5000;
 
     /**
      * El preview tiene que anticipar lo que hará `processRows`: antes contaba
@@ -172,20 +173,27 @@ class ContactImportService
                 // nada, así que la fila entra como contacto nuevo.
                 if ($mode !== 'create') {
                     $errors++;
-                    $errorRows[] = ['row' => $rowNumber, 'reason' => self::missingIdentifierReason($identityRaw, $matchField)];
+                    $errorRows[] = self::errorRow($rowNumber, self::missingIdentifierReason($identityRaw, $matchField), $values, $identityRaw);
 
                     continue;
                 }
                 $withoutIdentifier++;
             } elseif (isset($seen[$identity])) {
                 $errors++;
-                $errorRows[] = ['row' => $rowNumber, 'reason' => 'Identificador repetido dentro del archivo'];
+                $errorRows[] = self::errorRow(
+                    $rowNumber,
+                    "Identificador repetido: ya aparece en la fila {$seen[$identity]}",
+                    $values,
+                    $identityRaw,
+                    $seen[$identity],
+                );
 
                 continue;
             } else {
-                // Sólo las filas con clave se recuerdan: marcar '' haría que la
-                // segunda fila sin identificador se reportara como repetida.
-                $seen[$identity] = true;
+                // Se guarda el número de fila, no un booleano, para poder decir
+                // contra cuál choca el duplicado: sin eso el reporte no permite
+                // decidir cuál de las dos conservar.
+                $seen[$identity] = $rowNumber;
             }
 
             $contact = $identity === '' ? null : ($existing[$identity] ?? null);
@@ -203,7 +211,7 @@ class ContactImportService
             $error = $this->validateRow($values, $mapping, $fields, $contact, $preserveEmpty, $taken, $takenUnique);
             if ($error !== null) {
                 $errors++;
-                $errorRows[] = ['row' => $rowNumber, 'reason' => $error];
+                $errorRows[] = self::errorRow($rowNumber, $error, $values, $identityRaw);
 
                 continue;
             }
@@ -250,6 +258,28 @@ class ContactImportService
     }
 
     /**
+     * Fila del reporte de errores. Además del número lleva los datos que
+     * identifican al contacto: con miles de filas, "fila 166" no alcanza para
+     * encontrar el registro en el archivo original ni para decidir qué hacer
+     * con él.
+     *
+     * @param  array<string, mixed>  $values
+     * @return array{row: int, reason: string, name: string, phone: string, email: string, identifier: string, conflicts_with_row: int|null}
+     */
+    private static function errorRow(int $rowNumber, string $reason, array $values, string $identifierRaw, ?int $conflictsWith = null): array
+    {
+        return [
+            'row' => $rowNumber,
+            'reason' => $reason,
+            'name' => (string) ($values['name'] ?? ''),
+            'phone' => (string) ($values['phone'] ?? ''),
+            'email' => (string) ($values['email'] ?? ''),
+            'identifier' => $identifierRaw,
+            'conflicts_with_row' => $conflictsWith,
+        ];
+    }
+
+    /**
      * Distingue la celda vacía del valor que se vacía al normalizarse: un
      * "teléfono" como `juan@mail.com` es casi siempre una columna mal mapeada,
      * y el mensaje genérico no deja verlo.
@@ -276,7 +306,10 @@ class ContactImportService
     {
         $counts = [];
         foreach ($errorRows as $row) {
-            $reason = (string) $row['reason'];
+            // El motivo de un duplicado nombra la fila con la que choca, así que
+            // agrupar por el texto crudo daría un renglón por error. El resumen
+            // necesita la causa, no el caso puntual.
+            $reason = preg_replace('/^Identificador repetido: .*/', 'Identificador repetido dentro del archivo', (string) $row['reason']) ?? (string) $row['reason'];
             $counts[$reason] = ($counts[$reason] ?? 0) + 1;
         }
         arsort($counts);
@@ -539,14 +572,31 @@ class ContactImportService
     private function findOrCreateField(int $tenantId, string $label, ContactFieldType $type, array $options): ContactField
     {
         $existing = ContactField::withTrashed()->where('tenant_id', $tenantId)->get()->first(fn (ContactField $field): bool => mb_strtolower(trim($field->label)) === mb_strtolower(trim($label)));
-        if ($existing && ! $existing->trashed() && $existing->type === $type) {
+        if ($existing && ! $existing->trashed()) {
+            if ($existing->type !== $type) {
+                throw ValidationException::withMessages(['mapping' => "El campo '{$label}' ya existe con otro tipo."]);
+            }
+
             return $existing;
         }
-        if ($existing) {
-            throw ValidationException::withMessages(['mapping' => "El campo '{$label}' ya existe con otro tipo."]);
-        }
+
         if (in_array($type, [ContactFieldType::Select, ContactFieldType::MultiSelect], true) && empty($options['choices'])) {
             throw ValidationException::withMessages(['mapping' => "El campo '{$label}' requiere opciones."]);
+        }
+
+        // El campo borrado sigue ocupando su (tenant_id, key) en el índice
+        // único, así que se restaura en vez de rechazar el import: el label
+        // "ya existe" solo para la base, no para quien lo eliminó y está
+        // reimportando la misma planilla.
+        if ($existing) {
+            $existing->restore();
+            if ($existing->type !== $type) {
+                $existing->type = $type;
+                $existing->options = $type->requiresOptions() ? $options : null;
+                $existing->save();
+            }
+
+            return $existing;
         }
         $base = substr(Str::slug($label, '_') ?: 'field', 0, 50);
         $key = $base;

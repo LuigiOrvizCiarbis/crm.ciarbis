@@ -89,6 +89,56 @@ function formatCustomValue(raw: unknown, type: ProductField["type"], t: Translat
   return String(raw)
 }
 
+/**
+ * Compara dos valores de un campo custom para ordenar la tabla.
+ *
+ * El criterio depende del tipo, igual que el orden server-side de contactos:
+ * numéricos y moneda como número (si no, "9" > "10"), booleanos por
+ * verdadero/falso, fechas por su ISO (que ordena igual que cronológicamente) y
+ * el resto por texto con locale. Los valores vacíos van siempre al final, en
+ * ambas direcciones: la ausencia de dato no es "el valor más chico".
+ */
+function compareCustomValues(
+  a: unknown,
+  b: unknown,
+  type: ProductField["type"],
+  dir: number,
+): number {
+  const isEmpty = (v: unknown) =>
+    v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0)
+
+  const aEmpty = isEmpty(a)
+  const bEmpty = isEmpty(b)
+  if (aEmpty && bEmpty) return 0
+  if (aEmpty) return 1
+  if (bEmpty) return -1
+
+  if (type === "number" || type === "currency") {
+    const av = Number(a)
+    const bv = Number(b)
+    // Un valor no numérico cargado a mano no puede compararse; se trata como
+    // vacío para que no altere el orden del resto.
+    if (Number.isNaN(av) && Number.isNaN(bv)) return 0
+    if (Number.isNaN(av)) return 1
+    if (Number.isNaN(bv)) return -1
+    return (av - bv) * dir
+  }
+
+  if (type === "boolean") {
+    return (Number(Boolean(a)) - Number(Boolean(b))) * dir
+  }
+
+  if (type === "repeater" || type === "multi_select") {
+    // Colecciones: ordenar por cantidad de elementos es lo único comparable,
+    // y coincide con lo que muestra la celda.
+    const av = Array.isArray(a) ? a.length : 0
+    const bv = Array.isArray(b) ? b.length : 0
+    return (av - bv) * dir
+  }
+
+  return String(a).localeCompare(String(b), undefined, { numeric: true }) * dir
+}
+
 const sourceColors: Record<string, string> = {
   manual: "bg-gray-500/10 text-gray-600 border-gray-200 dark:border-gray-700",
   import: "bg-blue-500/10 text-blue-600 border-blue-200 dark:border-blue-800",
@@ -148,6 +198,14 @@ export function ProductsList() {
     () => productFields.filter((f) => !NATIVE_FIELD_KEYS.has(f.key)),
     [productFields],
   )
+
+  // Un campo custom eliminado deja el sort apuntando a una columna que ya no
+  // se renderiza; se descarta para no mostrar un orden que no está aplicado.
+  useEffect(() => {
+    if (!fieldsLoaded || !sort?.columnId.startsWith("custom:")) return
+    if (customFields.some((f) => `custom:${f.key}` === sort.columnId)) return
+    setSort(null)
+  }, [fieldsLoaded, customFields, sort])
 
   const load = useCallback(
     async (searchTerm?: string) => {
@@ -255,6 +313,22 @@ export function ProductsList() {
   const sortedProducts = useMemo(() => {
     if (!sort) return products
     const dir = sort.direction === "asc" ? 1 : -1
+    const customField = sort.columnId.startsWith("custom:")
+      ? customFields.find((f) => `custom:${f.key}` === sort.columnId)
+      : undefined
+
+    if (customField) {
+      return [...products].sort(
+        (a, b) =>
+          compareCustomValues(
+            a.custom_data?.[customField.key],
+            b.custom_data?.[customField.key],
+            customField.type,
+            dir,
+          ),
+      )
+    }
+
     return [...products].sort((a, b) => {
       switch (sort.columnId) {
         case "name":
@@ -272,7 +346,7 @@ export function ProductsList() {
           return 0
       }
     })
-  }, [products, sort])
+  }, [products, sort, customFields])
 
   const totalPages = Math.max(1, Math.ceil(sortedProducts.length / pageSize))
   const currentPage = Math.min(page, totalPages)
@@ -370,6 +444,7 @@ export function ProductsList() {
     ...customFields.map<DataTableColumn<Product>>((field) => ({
       id: `custom:${field.key}`,
       header: field.label,
+      sortable: true,
       minWidth: "140px",
       cell: (product) => (
         field.type === "repeater" ? (

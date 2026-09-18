@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ImportProductsRequest;
 use App\Jobs\ProcessProductImportJob;
+use App\Models\ProductField;
 use App\Models\ProductImport;
 use App\Services\ProductImportService;
 use Illuminate\Http\JsonResponse;
@@ -19,6 +20,7 @@ class ProductImportController extends Controller
         $mapping = $request->decodedMapping();
         $this->validateOptions($request, $mapping);
         $this->validateMatchField($request);
+
         return response()->json(['data' => $service->preview($request->file('file'), $mapping, (string) $request->input('match_field', 'name'))]);
     }
 
@@ -28,7 +30,9 @@ class ProductImportController extends Controller
         $mapping = $request->decodedMapping();
         $this->validateOptions($request, $mapping);
         $this->validateMatchField($request);
-        if ((array) ($mapping['proposed_fields'] ?? []) !== [] && ! $request->user()?->can('product_fields.manage')) abort(403, 'No tenés permiso para crear campos.');
+        if ((array) ($mapping['proposed_fields'] ?? []) !== [] && ! $request->user()?->can('product_fields.manage')) {
+            abort(403, 'No tenés permiso para crear campos.');
+        }
         $user = $request->user();
         $import = ProductImport::withoutGlobalScopes()->create([
             'tenant_id' => $user->tenant_id, 'requested_by' => $user->id,
@@ -41,48 +45,108 @@ class ProductImportController extends Controller
             'queued_at' => now(), 'expires_at' => now()->addDays(7),
         ]);
         ProcessProductImportJob::dispatch($import->id, $user->tenant_id);
+
         return response()->json(['data' => $this->serialize($import)], 202);
     }
 
     public function show(Request $request, ProductImport $productImport): JsonResponse
     {
-        $this->authorizeProducts($request); $this->authorizeTenant($request, $productImport);
+        $this->authorizeProducts($request);
+        $this->authorizeTenant($request, $productImport);
+
         return response()->json(['data' => $this->serialize($productImport)]);
     }
 
     public function cancel(Request $request, ProductImport $productImport): JsonResponse
     {
-        $this->authorizeProducts($request); $this->authorizeTenant($request, $productImport);
-        if (! $productImport->cancel()) return response()->json(['message' => 'La importación ya comenzó.'], 409);
+        $this->authorizeProducts($request);
+        $this->authorizeTenant($request, $productImport);
+        if (! $productImport->cancel()) {
+            return response()->json(['message' => 'La importación ya comenzó.'], 409);
+        }
+
         return response()->json(['data' => $this->serialize($productImport->refresh())]);
     }
 
     public function errors(Request $request, ProductImport $productImport)
     {
-        $this->authorizeProducts($request); $this->authorizeTenant($request, $productImport);
+        $this->authorizeProducts($request);
+        $this->authorizeTenant($request, $productImport);
         $content = "fila,motivo\n";
         foreach ((array) data_get($productImport->result, 'error_rows', []) as $row) {
-            $content .= ((int) ($row['row'] ?? 0)).',"'.str_replace('"', '""', (string) ($row['reason'] ?? '')).'"'.PHP_EOL;
+            $content .= ((int) ($row['row'] ?? 0)).','.self::csvCell($row['reason'] ?? '').PHP_EOL;
         }
+
         return response($content, 200, ['Content-Type' => 'text/csv; charset=UTF-8', 'Content-Disposition' => "attachment; filename=errores-importacion-{$productImport->id}.csv"]);
+    }
+
+    /**
+     * Celda de CSV con texto derivado del archivo importado (el motivo incluye
+     * etiquetas de campo y mensajes de validación cargados por el usuario).
+     *
+     * El apóstrofo inicial evita que Excel y LibreOffice interpreten como
+     * fórmula una celda que arranque con `=`, `+`, `-` o `@`.
+     */
+    /**
+     * Un teléfono internacional (`+54 9 11 2222-3333`) arranca con `+`, pero
+     * sin operadores después del prefijo ninguna planilla lo evalúa. Se exceptúa
+     * para no llenar de apóstrofos la columna más común del reporte; cualquier
+     * otra cosa que empiece con un carácter peligroso sí se escapa, incluida la
+     * aritmética como `-2+3`.
+     */
+    private static function isPhoneLike(string $text): bool
+    {
+        return preg_match('/^\+[\d\s().-]+$/', $text) === 1;
+    }
+
+    private static function csvCell(mixed $value): string
+    {
+        $text = (string) $value;
+        if ($text !== '' && str_contains("=+-@\t\r", $text[0]) && ! self::isPhoneLike($text)) {
+            $text = "'".$text;
+        }
+
+        return '"'.str_replace('"', '""', $text).'"';
     }
 
     private function validateOptions(Request $request, array $mapping): void
     {
         $request->validate(['mode' => ['nullable', Rule::in(['create', 'update', 'upsert'])], 'match_field' => ['nullable', 'string', 'max:80'], 'preserve_empty' => ['nullable', 'boolean'], 'original_filename' => ['nullable', 'string', 'max:255'], 'sheet_name' => ['nullable', 'string', 'max:120']]);
-        if (($mapping['proposed_fields'] ?? []) !== [] && ! is_array($mapping['proposed_fields'])) abort(422, 'Los campos propuestos no son válidos.');
+        if (($mapping['proposed_fields'] ?? []) !== [] && ! is_array($mapping['proposed_fields'])) {
+            abort(422, 'Los campos propuestos no son válidos.');
+        }
     }
-    private function authorizeProducts(Request $request): void { if (! $request->user()?->can('products.manage')) abort(403); }
+
+    private function authorizeProducts(Request $request): void
+    {
+        if (! $request->user()?->can('products.manage')) {
+            abort(403);
+        }
+    }
+
     private function validateMatchField(Request $request): void
     {
         $match = (string) $request->input('match_field', 'name');
-        if ($match === 'name') return;
-        if (! str_starts_with($match, 'custom:')) abort(422, 'El identificador no es válido.');
+        if ($match === 'name') {
+            return;
+        }
+        if (! str_starts_with($match, 'custom:')) {
+            abort(422, 'El identificador no es válido.');
+        }
         $key = substr($match, 7);
-        $field = \App\Models\ProductField::forTenant((int) $request->user()->tenant_id)->firstWhere('key', $key);
-        if (! $field?->is_unique) abort(422, 'El identificador debe ser un campo único.');
+        $field = ProductField::forTenant((int) $request->user()->tenant_id)->firstWhere('key', $key);
+        if (! $field?->is_unique) {
+            abort(422, 'El identificador debe ser un campo único.');
+        }
     }
-    private function authorizeTenant(Request $request, ProductImport $import): void { if ($import->tenant_id !== $request->user()?->tenant_id) abort(404); }
+
+    private function authorizeTenant(Request $request, ProductImport $import): void
+    {
+        if ($import->tenant_id !== $request->user()?->tenant_id) {
+            abort(404);
+        }
+    }
+
     /** @return array<string, mixed> */
     private function serialize(ProductImport $import): array
     {

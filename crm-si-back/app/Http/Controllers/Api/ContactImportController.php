@@ -114,15 +114,60 @@ class ContactImportController extends Controller
         $rows = data_get($productImport->result, 'error_rows_all')
             ?? data_get($productImport->result, 'error_rows', []);
 
-        $content = "fila,motivo\n";
+        // BOM para que Excel reconozca UTF-8 y no rompa los acentos.
+        $content = "\xEF\xBB\xBF";
+        $content .= implode(',', ['fila', 'nombre', 'telefono', 'email', 'identificador', 'fila_en_conflicto', 'motivo']).PHP_EOL;
         foreach ((array) $rows as $row) {
-            $content .= ((int) ($row['row'] ?? 0)).',"'.str_replace('"', '""', (string) ($row['reason'] ?? '')).'"'.PHP_EOL;
+            $content .= implode(',', [
+                (int) ($row['row'] ?? 0),
+                self::csvCell($row['name'] ?? ''),
+                self::csvCell($row['phone'] ?? ''),
+                self::csvCell($row['email'] ?? ''),
+                self::csvCell($row['identifier'] ?? ''),
+                (int) ($row['conflicts_with_row'] ?? 0) ?: '',
+                self::csvCell($row['reason'] ?? ''),
+            ]).PHP_EOL;
         }
 
         return response($content, 200, [
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Content-Disposition' => "attachment; filename=errores-importacion-{$productImport->id}.csv",
         ]);
+    }
+
+    /**
+     * Celda de CSV con los datos del archivo importado, que son texto ajeno.
+     *
+     * Además de escapar las comillas, neutraliza la inyección de fórmulas:
+     * Excel y LibreOffice interpretan como fórmula toda celda que arranque con
+     * `=`, `+`, `-` o `@`, así que un contacto llamado `=cmd|...` se ejecutaría
+     * al abrir el reporte. El apóstrofo inicial fuerza la lectura como texto y
+     * las dos planillas lo ocultan al mostrarlo.
+     *
+     * Un teléfono como `+5491122223333` empieza con `+` pero es sólo dígitos y
+     * separadores, y ninguna planilla lo evalúa: se deja intacto para no llenar
+     * de apóstrofos la columna más común del reporte.
+     */
+    /**
+     * Un teléfono internacional (`+54 9 11 2222-3333`) arranca con `+`, pero
+     * sin operadores después del prefijo ninguna planilla lo evalúa. Se exceptúa
+     * para no llenar de apóstrofos la columna más común del reporte; cualquier
+     * otra cosa que empiece con un carácter peligroso sí se escapa, incluida la
+     * aritmética como `-2+3`.
+     */
+    private static function isPhoneLike(string $text): bool
+    {
+        return preg_match('/^\+[\d\s().-]+$/', $text) === 1;
+    }
+
+    private static function csvCell(mixed $value): string
+    {
+        $text = (string) $value;
+        if ($text !== '' && str_contains("=+-@\t\r", $text[0]) && ! self::isPhoneLike($text)) {
+            $text = "'".$text;
+        }
+
+        return '"'.str_replace('"', '""', $text).'"';
     }
 
     private function serialize(ProductImport $import): array
