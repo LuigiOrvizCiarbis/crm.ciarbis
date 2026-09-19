@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw } from "lucide-react"
+import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw, Trash2 } from "lucide-react"
 import type { RangeFilterValue } from "./contacts/RangeFilterMenu"
 import { UniversalImportDialog } from "./import/universal-import-dialog"
 import { BulkTagsDialog } from "./contacts/bulk-tags-dialog"
@@ -103,7 +103,7 @@ const sourceLabels: Record<string, string> = {
 }
 
 type ColumnId = "select" | "contact" | "phone" | "email" | "source" | "tags" | "lastContact" | "actions" | `custom:${string}`
-type SortField = "name" | "phone" | "email" | "source" | "updated_at"
+type SortField = "name" | "phone" | "email" | "source" | "updated_at" | `custom:${string}`
 type SortDirection = "asc" | "desc"
 
 interface Column {
@@ -139,6 +139,16 @@ const COLUMN_SORT_FIELDS: Partial<Record<ColumnId, SortField>> = {
   email: "email",
   source: "source",
   lastContact: "updated_at",
+}
+
+/**
+ * Campo de orden que corresponde a una columna, o `null` si no es ordenable.
+ * Las columnas custom ordenan por `custom:<key>`, que el backend resuelve
+ * contra la definición del campo para castear el JSON según su tipo.
+ */
+function sortFieldForColumn(columnId: ColumnId): SortField | null {
+  if (columnId.startsWith("custom:")) return columnId as SortField
+  return COLUMN_SORT_FIELDS[columnId] ?? null
 }
 
 function formatCustomValue(value: unknown, type: string | undefined, currency?: unknown): string {
@@ -312,7 +322,7 @@ function SortableHeader({
     )
   }
 
-  const columnSortField = COLUMN_SORT_FIELDS[column.id]
+  const columnSortField = sortFieldForColumn(column.id)
   const isSorted = columnSortField === sortField
   const SortIcon = isSorted ? (sortDirection === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
 
@@ -425,6 +435,8 @@ export function ContactsList({
   const [addingToPipelineId, setAddingToPipelineId] = useState<number | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [bulkTagsOpen, setBulkTagsOpen] = useState(false)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const profileResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -479,6 +491,16 @@ export function ContactsList({
       return [...sanitized.slice(0, actionsIndex), ...additions, ...sanitized.slice(actionsIndex)]
     })
   }, [contactFieldsLoaded, customFieldColumns])
+
+  // Si el campo por el que se estaba ordenando se eliminó, el backend cae a su
+  // orden por defecto pero el front seguiría marcando una columna que ya no
+  // existe. Se vuelve al orden inicial para que lo mostrado y lo pedido coincidan.
+  useEffect(() => {
+    if (!contactFieldsLoaded || !sortField.startsWith("custom:")) return
+    if (customFieldColumns.some((column) => column.id === sortField)) return
+    setSortField("updated_at")
+    setSortDirection("desc")
+  }, [contactFieldsLoaded, customFieldColumns, sortField])
 
   useEffect(() => {
     if (typeof window === "undefined" || !columnsHydrated) return
@@ -541,7 +563,7 @@ export function ContactsList({
   }
 
   const handleSort = (columnId: ColumnId): void => {
-    const nextSortField = COLUMN_SORT_FIELDS[columnId]
+    const nextSortField = sortFieldForColumn(columnId)
     if (!nextSortField) return
 
     if (nextSortField === sortField) {
@@ -807,6 +829,42 @@ export function ContactsList({
       // silently fail
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setBulkDeleting(true)
+    try {
+      const token = getAuthToken()
+      const results = await Promise.allSettled(
+        ids.map((id) =>
+          fetch(`/api/contacts/${id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+          }).then((response) => {
+            if (!response.ok) throw new Error(String(response.status))
+            return response
+          })
+        )
+      )
+      const deleted = results.filter((result) => result.status === "fulfilled").length
+      const failed = results.length - deleted
+
+      if (failed === 0) {
+        addToast({ type: "success", title: t("contactsPage.bulk.delete.success", { count: deleted }) })
+      } else if (deleted === 0) {
+        addToast({ type: "error", title: t("contactsPage.bulk.delete.error") })
+      } else {
+        addToast({ type: "info", title: t("contactsPage.bulk.delete.partial", { deleted, failed }) })
+      }
+
+      setBulkDeleteOpen(false)
+      setSelectedIds(new Set())
+      fetchContacts()
+    } finally {
+      setBulkDeleting(false)
     }
   }
 
@@ -1288,6 +1346,15 @@ export function ContactsList({
               <Tags className="w-3 h-3 mr-1" />
               {t("contactsPage.bulk.editTags")}
             </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={bulkDeleting}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <Trash2 className="w-3 h-3 mr-1" />
+              {t("contactsPage.bulk.delete.action")}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>
               <X className="w-3 h-3 mr-1" />
               Cancelar
@@ -1738,6 +1805,31 @@ export function ContactsList({
         nativeTargets={[{ value: "ignore", label: "Ignorar" }, { value: "name", label: "Nombre" }, { value: "phone", label: "Teléfono" }, { value: "email", label: "Email" }]}
         onImportComplete={() => fetchContacts()}
       />
+
+      {/* AlertDialog Eliminar en lote */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={(open) => { if (!bulkDeleting) setBulkDeleteOpen(open) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("contactsPage.bulk.delete.confirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("contactsPage.bulk.delete.confirmBody", { count: selectedIds.size })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting}>{t("contactsPage.bulk.dialog.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void handleBulkDelete()
+              }}
+              disabled={bulkDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : t("contactsPage.bulk.delete.action")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* AlertDialog Eliminar */}
       <AlertDialog open={!!deleteContact} onOpenChange={(open) => { if (!open) setDeleteContact(null) }}>

@@ -213,6 +213,14 @@
       "errors": {
         "loadTags": "Could not load tags",
         "apply": "Could not apply the change"
+      },
+      "delete": {
+        "action": "Delete",
+        "confirmTitle": "Delete contacts",
+        "confirmBody": "{{count}} contact(s) will be deleted. This action cannot be undone.",
+        "success": "{{count}} contact(s) deleted",
+        "partial": "{{deleted}} deleted, {{failed}} not permitted",
+        "error": "Could not delete the contacts"
       }
     },
     "customFields": {

@@ -108,11 +108,29 @@ class ContactController extends Controller
         $sortDir = strtolower((string) $request->query('sort_dir', 'desc')) === 'asc' ? 'asc' : 'desc';
         $sortableColumns = ['name', 'phone', 'email', 'source', 'created_at', 'updated_at'];
 
-        if (! in_array($sortBy, $sortableColumns, true)) {
-            $sortBy = 'updated_at';
+        // Las columnas custom llegan como `custom:<key>`. La key se valida
+        // contra los campos del tenant antes de tocar el SQL: nunca se
+        // interpola, pero una key inexistente ordenaría por un JSON vacío y
+        // devolvería el listado en orden arbitrario en vez de fallar visible.
+        $customSortKey = str_starts_with($sortBy, 'custom:') ? substr($sortBy, 7) : null;
+        $customSortField = $customSortKey !== null
+            ? ContactField::forCurrentTenant()->firstWhere('key', $customSortKey)
+            : null;
+
+        if ($customSortField !== null) {
+            $q->orderByCustomField($customSortField->key, $customSortField->type, $sortDir);
+        } else {
+            if (! in_array($sortBy, $sortableColumns, true)) {
+                // Se descarta también la dirección pedida: era para otra columna,
+                // y conservarla dejaba el fallback en `updated_at asc`, o sea los
+                // contactos más viejos primero.
+                $sortBy = 'updated_at';
+                $sortDir = 'desc';
+            }
+            $q->orderBy($sortBy, $sortDir);
         }
 
-        $contacts = $q->orderBy($sortBy, $sortDir)->paginate(
+        $contacts = $q->paginate(
             (int) $request->query('per_page', 20)
         );
 
