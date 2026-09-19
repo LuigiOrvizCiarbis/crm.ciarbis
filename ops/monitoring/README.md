@@ -175,6 +175,23 @@ docker system df                    # ver cuánto ocupa
 docker builder prune                # liberar el reclamable
 ```
 
+### Postgres: límite subido de 256 MB a 1 GB (2026-09-19)
+
+Monitoreando se detectó que `crm-si-back-db-1` vivía al **97% real** de sus 256 MB (`docker stats` mostraba 71% porque no cuenta el page cache) con **12.645 eventos de `memory.max` throttling** y cero OOM kills. Postgres tocaba el techo del cgroup constantemente y tiraba caché que necesitaba, releyéndola del disco: problema de rendimiento, no de estabilidad — por eso llevaba 11 días sin caerse.
+
+Cambios en `crm-si-back/docker-compose.prod.yml`:
+
+| Parámetro | Antes | Ahora | Por qué |
+|---|---|---|---|
+| `memory` | 256M | **1G** | El host tiene 15,9 GB y sólo 2,9 GB limitados |
+| `max_connections` | 200 | **100** | Se midieron 8 conexiones reales; PHP no usa pool persistente |
+| `effective_cache_size` | 4GB (default) | **768M** | No reserva memoria: le dice al planner cuánta caché suponer. Sobreestimaba 16× |
+| `shared_buffers` | 128MB (implícito) | **128MB** (explícito) | Ya era correcto; se fija para que no dependa del default |
+
+**Resultado medido:** throttling de 12.645 → **0**. Uso estabilizado en ~6% de 1 GB.
+
+> Cuidado al editar el `command:` de ese servicio: con `command: >` (escalar plegado) los flags `-c` se colapsan y Postgres arranca con la config por defecto **sin avisar**. Va como lista YAML explícita.
+
 ### El scheduler y su límite de 128 MB
 
 La primera medición mostró `crm-si-back-scheduler-1` al **95,64%** de sus 128 MB, lo que parecía un container al borde del OOM. Midiendo 20 minutos con Netdata dio **12,5–13 MiB estables (~10%)**: aquel 95% fue un pico puntual del deploy (el container tenía 54 minutos de vida), no su estado normal.
