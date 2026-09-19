@@ -39,6 +39,10 @@ services:
       # vienen con "to: silent" y no notificarian nada).
       - ./health.d:/etc/netdata/health.d:ro
 
+      # Habilita el colector docker (viene comentado por default) y apaga los
+      # de postgres/redis que solo generan timeouts. Ver el archivo.
+      - ./go.d.conf:/etc/netdata/go.d.conf:ro
+
       # Credenciales SMTP. Vive SOLO en el VPS (tiene la password de
       # info@sicrmapp.com), nunca en git - el repo trae msmtprc.example.
       # La imagen ya incluye msmtp: /usr/sbin/sendmail -> /usr/bin/msmtp.
