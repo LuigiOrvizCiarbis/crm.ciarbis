@@ -1,0 +1,91 @@
+# Netdata - monitoreo de containers de PRODUCCION
+#
+# Solo observa los 7 containers de prod. Staging y erp-woo-sync se excluyen
+# por DOS lados (ver README): netdata.conf [plugin:cgroups] para CPU/RAM, y
+# health.d/docker.conf para las alertas de estado. Falta uno y se cuela ruido.
+#
+# Levantar:  docker compose -f docker-compose.netdata.yml up -d
+# Ver:       https://monitor.sicrmapp.com  (nginx + basic auth)
+
+services:
+  netdata:
+    image: netdata/netdata:v2.11.1
+    container_name: netdata
+    hostname: srv1191218
+    restart: always
+
+    # Solo loopback: UFW bloquea el 19999 desde afuera y nginx es la unica
+    # puerta de entrada. Exponer 0.0.0.0 publicaria el dashboard sin auth.
+    ports:
+      - "127.0.0.1:19999:19999"
+
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+
+    volumes:
+      # Config y datos propios (nombrados: sobreviven al recreate)
+      - netdata-lib:/var/lib/netdata
+      - netdata-cache:/var/cache/netdata
+
+      # Config versionada en el repo. Read-only: si hay que cambiar algo se
+      # edita el archivo del repo y se recrea, no se toca adentro del container.
+      - ./netdata.conf:/etc/netdata/netdata.conf:ro
+      - ./health_alarm_notify.conf:/etc/netdata/health_alarm_notify.conf:ro
+
+      # Umbrales de alertas. Sobreescriben las stock (que para containers
+      # vienen con "to: silent" y no notificarian nada).
+      - ./health.d:/etc/netdata/health.d:ro
+
+      # Credenciales SMTP. Vive SOLO en el VPS (tiene la password de
+      # info@sicrmapp.com), nunca en git - el repo trae msmtprc.example.
+      # La imagen ya incluye msmtp: /usr/sbin/sendmail -> /usr/bin/msmtp.
+      # Debe ser 600 y root:root o msmtp lo rechaza por permisos inseguros.
+      - /etc/netdata-msmtprc:/etc/msmtprc:ro
+
+      # Metricas del host. Todo :ro - Netdata solo lee.
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /var/log:/host/var/log:ro
+
+      # docker.sock: resuelve nombres de containers en vez de IDs de cgroup
+      # (sin esto el dashboard muestra hashes ilegibles).
+      #
+      # OJO: acceso al socket equivale a root en el host, aun montado :ro
+      # (el :ro lo protege de escritura en el FS, no limita la API de Docker).
+      # Por eso este container NO expone puerto publico y el acceso pasa
+      # siempre por nginx con basic auth.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    # El monitoreo no puede ser lo que tire el host. 4 cores / 15GB totales
+    # compartidos con prod y staging.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:19999/api/v1/info"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    networks:
+      - monitoring
+
+volumes:
+  netdata-lib:
+    driver: local
+  netdata-cache:
+    driver: local
+
+# Red propia. No se une a laravel-network: Netdata lee metricas via cgroups
+# y /proc, no necesita alcanzar los containers por red.
+networks:
+  monitoring:
+    driver: bridge
