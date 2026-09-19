@@ -232,7 +232,34 @@ services:
   db:
     image: postgres:16-alpine
     restart: always
-    command: postgres -c max_connections=200
+    # Tuning de memoria. Medido en prod (2026-09-19): el container vivia al 97%
+    # de sus 256M con 12.645 eventos de memory.max throttling (sin OOM kills):
+    # Postgres tocaba el techo del cgroup y tiraba page cache que necesitaba,
+    # releyendo del disco. Problema de rendimiento, no de estabilidad.
+    #
+    #  - max_connections 200 -> 100: se midieron 8 conexiones reales (1 activa).
+    #    PHP no usa conexiones persistentes (config/database.php), asi que el
+    #    techo real son los workers de Apache + 3 procesos artisan. 100 sigue
+    #    siendo el doble de cualquier pico plausible y cada slot reserva memoria.
+    #  - shared_buffers 128MB (default) explicito: con memory 1G queda en ~12%,
+    #    holgado. La guia de Postgres sugiere 25% de la RAM disponible; se deja
+    #    en 128MB porque la DB entera son 223MB y ya entra casi completa.
+    #  - effective_cache_size 4GB -> 768M: NO reserva memoria, le dice al planner
+    #    cuanta cache del SO puede suponer. Con 4GB (default) sobreestimaba por
+    #    16x y elegia planes pensando que todo estaba cacheado.
+    #  - work_mem se deja en 4MB: solo 1 temp file en 11 dias, alcanza.
+    # Lista explicita, no "command: >": el escalar plegado colapsa los flags
+    # y postgres arranca con la config por defecto sin avisar.
+    command:
+      - postgres
+      - -c
+      - max_connections=100
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - maintenance_work_mem=64MB
     environment:
       POSTGRES_DB: ${DB_DATABASE}
       POSTGRES_USER: ${DB_USERNAME}
@@ -243,7 +270,10 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: 256M
+          # 256M -> 1G. El host tiene 15.9GB y solo 2.9GB estan limitados;
+          # sobra margen. Con 1G, shared_buffers (128MB) + conexiones + page
+          # cache del volumen (223MB de datos) entran sin pelear por espacio.
+          memory: 1G
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
