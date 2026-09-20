@@ -229,6 +229,71 @@ services:
     networks:
       - laravel-network
 
+  # Pulse: toma una muestra por segundo del estado del sistema. Emite IsolatedBeat
+  # (protegido por lock en Redis -> solo una instancia global lo dispara, aunque
+  # se escale este servicio) y SharedBeat (una fila por host). Sin este proceso
+  # las cards "Reverb Connections" y "Servers" del dashboard quedan siempre vacias:
+  # los recorders que las alimentan escuchan esos eventos y nadie los emite.
+  #
+  # No va en el scheduler: CheckCommand es un while(true) que duerme hasta el
+  # proximo segundo, no una tarea que termina. Con --once cada minuto se perderian
+  # 59 de cada 60 muestras (Reverb samplea en second % 15 == 0, 4 veces por minuto).
+  pulse-check:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    restart: always
+    user: www-data
+    command: php artisan pulse:check
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      SENTRY_ENVIRONMENT: production
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PORT: "6379"
+      BROADCAST_CONNECTION: reverb
+      # El recorder de Reverb consulta la API /connections del servidor: sin estas
+      # tres vars apunta a localhost (este container) y no encuentra a Reverb.
+      REVERB_HOST: reverb
+      REVERB_PORT: "8080"
+      REVERB_SCHEME: "http"
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      # Nombre fijo: por defecto es gethostname(), que en Docker es el ID del
+      # container y cambia en cada redeploy -> un "servidor" nuevo y fantasma
+      # en el dashboard cada vez que se despliega.
+      PULSE_SERVER_NAME: crm-si-prod
+    env_file:
+      - .env
+    volumes:
+      - app-storage:/var/www/html/storage
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'pulse:check' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - laravel-network
+
   db:
     image: postgres:16-alpine
     restart: always
