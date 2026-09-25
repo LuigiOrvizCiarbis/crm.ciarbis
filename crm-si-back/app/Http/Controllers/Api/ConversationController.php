@@ -33,6 +33,8 @@ class ConversationController extends Controller
 
         $request->validate([
             'search' => 'sometimes|string|min:2|max:100',
+            'per_page' => 'sometimes|integer|min:1|max:100',
+            'cursor_mode' => 'sometimes|boolean',
         ]);
 
         $contactId = $request->query('contact_id');
@@ -46,7 +48,6 @@ class ConversationController extends Controller
             ->with([
                 'contact:id,name,phone',
                 'channel:id,name,type',
-                'messages:id',
                 'tags',
                 'whatsappGroup:id,conversation_id,subject,status,group_id,total_participant_count,invite_link',
                 'activeHumanHandoff',
@@ -159,9 +160,19 @@ class ConversationController extends Controller
             ]);
         }
 
-        $q->orderByDesc('last_message_at');
+        // CursorPaginator no puede construir un cursor fiable con columnas
+        // NULL. Una conversación nueva puede no tener mensajes todavía, por
+        // eso se ordena por su fecha de creación en ese caso. El id deja el
+        // orden determinista cuando dos filas comparten fecha.
+        $q->addSelect(DB::raw('COALESCE(conversations.last_message_at, conversations.created_at) as inbox_cursor_at'))
+            ->orderByDesc('inbox_cursor_at')
+            ->orderByDesc('id');
 
-        $conversations = $q->paginate((int) $request->query('per_page', 20));
+        $perPage = (int) $request->query('per_page', 20);
+        $usesCursor = $request->boolean('cursor_mode') || $request->filled('cursor');
+        $conversations = $usesCursor
+            ? $q->cursorPaginate($perPage)
+            : $q->paginate($perPage);
 
         $data = $conversations->items();
 
@@ -189,7 +200,9 @@ class ConversationController extends Controller
                 'contact_language' => $conversation->contact_language,
                 'created_at' => $conversation->created_at,
                 'updated_at' => $conversation->updated_at,
-                'messages' => $conversation->messages,
+                // El detalle carga sus mensajes desde show(); traerlos para
+                // cada tarjeta de la bandeja escala con todo el historial.
+                'messages' => [],
                 'tags' => $conversation->tags,
                 'matched_message_snippet' => $conversation->matched_message_snippet !== null
                     ? Str::limit($conversation->matched_message_snippet, 120)
@@ -199,11 +212,17 @@ class ConversationController extends Controller
 
         return response()->json([
             'data' => $transformed,
-            'meta' => [
-                'total' => $conversations->total(),
-                'current_page' => $conversations->currentPage(),
-                'last_page' => $conversations->lastPage(),
-            ],
+            'meta' => $usesCursor
+                ? [
+                    'next_cursor' => $conversations->nextCursor()?->encode(),
+                    'previous_cursor' => $conversations->previousCursor()?->encode(),
+                    'has_more' => $conversations->hasMorePages(),
+                ]
+                : [
+                    'total' => $conversations->total(),
+                    'current_page' => $conversations->currentPage(),
+                    'last_page' => $conversations->lastPage(),
+                ],
         ]);
     }
 
