@@ -16,7 +16,9 @@ use App\Support\BranchRuleResolver;
 use App\Support\ContactCustomDataNormalizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class ContactController extends Controller
 {
@@ -370,6 +372,103 @@ class ContactController extends Controller
             'updated' => $authorized->count(),
             'failed' => count($validated['ids']) - $authorized->count(),
             'action' => $validated['action'],
+        ]);
+    }
+
+    /**
+     * Updates the same set of simple fields for a selection of contacts.
+     *
+     * Each contact is authorized and validated independently. This preserves
+     * the same rules as the single-contact editor while allowing permitted
+     * contacts to succeed when another selected contact cannot be updated.
+     */
+    public function bulkFields(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:500'],
+            'ids.*' => ['integer', 'distinct'],
+            'updates' => ['required', 'array', 'min:1'],
+            'updates.name' => ['sometimes', 'required', 'string', 'max:255'],
+            'updates.phone' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'updates.email' => ['sometimes', 'nullable', 'email', 'max:255'],
+            'updates.source' => ['sometimes', 'required', 'string', 'in:whatsapp,instagram,facebook,manual'],
+            'updates.custom_data' => ['sometimes', 'array'],
+        ]);
+
+        $updates = $validated['updates'];
+        $allowedUpdateKeys = ['name', 'phone', 'email', 'source', 'custom_data'];
+        $unknownUpdateKeys = array_diff(array_keys($updates), $allowedUpdateKeys);
+        if ($unknownUpdateKeys !== []) {
+            throw ValidationException::withMessages([
+                'updates' => ['Contiene campos que no se pueden editar en lote.'],
+            ]);
+        }
+
+        $customUpdates = (array) ($updates['custom_data'] ?? []);
+        $fieldsByKey = ContactField::forTenant($user->tenant_id)->keyBy('key');
+        foreach (array_keys($customUpdates) as $key) {
+            $field = $fieldsByKey->get($key);
+            if ($field === null) {
+                throw ValidationException::withMessages([
+                    "updates.custom_data.{$key}" => ['El campo no existe en este espacio.'],
+                ]);
+            }
+
+            if ($field->is_unique || in_array($field->type, [ContactFieldType::File, ContactFieldType::Repeater], true)) {
+                throw ValidationException::withMessages([
+                    "updates.custom_data.{$key}" => ['Este campo no se puede editar en lote.'],
+                ]);
+            }
+        }
+
+        $contacts = Contact::query()->whereIn('id', $validated['ids'])->get()->keyBy('id');
+        $updated = 0;
+        $failures = [];
+
+        foreach ($validated['ids'] as $id) {
+            /** @var Contact|null $contact */
+            $contact = $contacts->get($id);
+            if ($contact === null || ! $user->can('update', $contact)) {
+                $failures[] = ['id' => $id, 'reason' => 'No tienes permiso para actualizar este contacto.'];
+
+                continue;
+            }
+
+            $payload = $updates;
+            $providedCustomKeys = array_keys($customUpdates);
+            if (array_key_exists('custom_data', $updates)) {
+                $payload['custom_data'] = array_merge(
+                    $contact->custom_data ?? [],
+                    ContactCustomDataNormalizer::normalize($customUpdates, $contact->tenant_id),
+                );
+            }
+
+            $validator = Validator::make($payload, $this->contactRules(
+                partial: true,
+                contactId: $contact->id,
+                providedCustomKeys: $providedCustomKeys,
+            ));
+
+            if ($validator->fails()) {
+                $failures[] = ['id' => $id, 'reason' => $validator->errors()->first()];
+
+                continue;
+            }
+
+            try {
+                $contact->update($validator->validated());
+                $updated++;
+            } catch (\Throwable $e) {
+                report($e);
+                $failures[] = ['id' => $id, 'reason' => 'No se pudo actualizar este contacto.'];
+            }
+        }
+
+        return response()->json([
+            'updated' => $updated,
+            'failed' => count($failures),
+            'failures' => $failures,
         ]);
     }
 

@@ -229,6 +229,27 @@ export function ConversationList({
     return map
   }, [channels])
 
+  // A conversation can be returned more than once while API and realtime
+  // updates overlap. Render each conversation only once so its React identity
+  // remains stable; preserve the API's first (highest-ranked) occurrence.
+  const uniqueConversations = useMemo(() => {
+    const seenIds = new Set<number>()
+    return conversations.filter((conversation) => {
+      if (seenIds.has(conversation.id)) return false
+      seenIds.add(conversation.id)
+      return true
+    })
+  }, [conversations])
+
+  const uniqueMessageResults = useMemo(() => {
+    const seenIds = new Set<number>()
+    return messageResults.filter((conversation) => {
+      if (seenIds.has(conversation.id)) return false
+      seenIds.add(conversation.id)
+      return true
+    })
+  }, [messageResults])
+
   if (isLoading) {
     return (
       <div className="flex-1 p-4 overflow-y-auto">
@@ -237,9 +258,9 @@ export function ConversationList({
     )
   }
 
-  const hasMessageResults = messageResults.length > 0
+  const hasMessageResults = uniqueMessageResults.length > 0
 
-  if (conversations.length === 0 && !hasMessageResults && !isSearchingMessages) {
+  if (uniqueConversations.length === 0 && !hasMessageResults && !isSearchingMessages) {
     return (
       <div className="flex-1 p-4 overflow-y-auto">
         <EmptyState
@@ -254,7 +275,7 @@ export function ConversationList({
   return (
     <div className="flex-1 p-4 overflow-y-auto">
       <div className="space-y-2">
-        {conversations.map((conversation) => (
+        {uniqueConversations.map((conversation) => (
           <ConversationCard
             key={conversation.id}
             conversation={conversation}
@@ -276,7 +297,7 @@ export function ConversationList({
             {isSearchingMessages && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
           </div>
           <div className="space-y-2">
-            {messageResults.map((conversation) => (
+            {uniqueMessageResults.map((conversation) => (
               <ConversationCard
                 key={`message-result-${conversation.id}`}
                 conversation={

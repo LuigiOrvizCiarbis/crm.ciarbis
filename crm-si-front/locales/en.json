@@ -188,6 +188,7 @@
       "actions": "Actions"
     },
     "bulk": {
+      "editFields": "Edit fields",
       "editTags": "Edit tags",
       "dialog": {
         "title": "Bulk edit tags",
@@ -213,6 +214,20 @@
       "errors": {
         "loadTags": "Could not load tags",
         "apply": "Could not apply the change"
+      },
+      "fields": {
+        "title": "Bulk edit fields",
+        "subtitle": "{{count}} selected contacts",
+        "hint": "Select the fields to replace. Unselected fields will not be changed.",
+        "clear": "Clear",
+        "apply": "Apply changes",
+        "result": {
+          "success": "{{updated}} contacts updated",
+          "partial": "{{updated}} updated, {{failed}} unchanged"
+        },
+        "errors": {
+          "apply": "Could not update contacts"
+        }
       },
       "delete": {
         "action": "Delete",
