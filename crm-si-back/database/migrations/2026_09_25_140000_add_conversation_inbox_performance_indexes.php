@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /** PostgreSQL cannot create/drop an index concurrently inside a transaction. */
-    public bool $withinTransaction = false;
+    public $withinTransaction = false;
 
     public function up(): void
     {
