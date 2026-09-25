@@ -16,8 +16,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw, Trash2 } from "lucide-react"
+import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw, Trash2, Pencil } from "lucide-react"
 import type { RangeFilterValue } from "./contacts/RangeFilterMenu"
+import { BulkFieldsDialog } from "./contacts/bulk-fields-dialog"
 import { getAuthToken, getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
 import { getPipelineStages } from "@/lib/api/pipeline"
 import { createOpportunity, getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
@@ -476,6 +477,7 @@ export function ContactsList({
   const [addingToPipelineId, setAddingToPipelineId] = useState<number | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [bulkTagsOpen, setBulkTagsOpen] = useState(false)
+  const [bulkFieldsOpen, setBulkFieldsOpen] = useState(false)
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [bulkDeleting, setBulkDeleting] = useState(false)
 
@@ -1380,6 +1382,10 @@ export function ContactsList({
             {selectedIds.size} contacto{selectedIds.size !== 1 ? "s" : ""} seleccionado{selectedIds.size !== 1 ? "s" : ""}
           </Badge>
           <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => setBulkFieldsOpen(true)}>
+              <Pencil className="w-3 h-3 mr-1" />
+              {t("contactsPage.bulk.editFields")}
+            </Button>
             <Button size="sm" onClick={() => setBulkTagsOpen(true)}>
               <Tags className="w-3 h-3 mr-1" />
               {t("contactsPage.bulk.editTags")}
@@ -1457,6 +1463,18 @@ export function ContactsList({
           }}
         />
       ) : null}
+
+      <BulkFieldsDialog
+        key={bulkFieldsOpen ? "open" : "closed"}
+        open={bulkFieldsOpen}
+        onOpenChange={setBulkFieldsOpen}
+        selectedIds={Array.from(selectedIds)}
+        fields={contactFields}
+        onSuccess={(failedIds) => {
+          setSelectedIds(new Set(failedIds))
+          fetchContacts()
+        }}
+      />
 
 
       {isInitialLoading ? (

@@ -188,6 +188,7 @@
       "actions": "Acciones"
     },
     "bulk": {
+      "editFields": "Editar campos",
       "editTags": "Editar etiquetas",
       "dialog": {
         "title": "Editar etiquetas en lote",
@@ -213,6 +214,20 @@
       "errors": {
         "loadTags": "No se pudieron cargar las etiquetas",
         "apply": "No se pudo aplicar el cambio"
+      },
+      "fields": {
+        "title": "Editar campos en lote",
+        "subtitle": "{{count}} contactos seleccionados",
+        "hint": "Marcá los campos que querés reemplazar. Los campos no marcados no se modificarán.",
+        "clear": "Vaciar",
+        "apply": "Aplicar cambios",
+        "result": {
+          "success": "{{updated}} contactos actualizados",
+          "partial": "{{updated}} actualizados, {{failed}} sin cambios"
+        },
+        "errors": {
+          "apply": "No se pudieron actualizar los contactos"
+        }
       },
       "delete": {
         "action": "Eliminar",
