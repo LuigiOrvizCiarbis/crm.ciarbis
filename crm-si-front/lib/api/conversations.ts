@@ -69,6 +69,47 @@ async function fetchConversationsPage(params: URLSearchParams, token: string) {
   };
 }
 
+export type ConversationsCursorPage = {
+  data: Conversation[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+/** Una página para la bandeja; no descarga todas las conversaciones del tenant. */
+export async function getConversationsCursorPage(options: {
+  cursor?: string | null;
+  channelId?: number | null;
+  perPage?: number;
+} = {}): Promise<ConversationsCursorPage> {
+  const params = new URLSearchParams({
+    per_page: String(options.perPage ?? 50),
+    cursor_mode: "1",
+  });
+  // La primera página no debe enviar cursor vacío: Laravel intentaría
+  // decodificarlo. cursor_mode selecciona CursorPaginator explícitamente.
+  if (options.cursor) params.set("cursor", options.cursor);
+  if (options.channelId) params.set("channel_id", String(options.channelId));
+
+  const token = requireToken();
+  const query = params.toString();
+  const response = await fetch(`/api/conversations?${query}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throwApiError(response.status, error, "Error al cargar conversaciones");
+  }
+
+  const json = await response.json();
+  return {
+    data: (json.data || []).map(mapConversation),
+    nextCursor: json.meta?.next_cursor ?? null,
+    hasMore: Boolean(json.meta?.has_more),
+  };
+}
+
 async function getAllConversations(params: URLSearchParams = new URLSearchParams()): Promise<Conversation[]> {
   const token = requireToken();
   const perPage = params.get("per_page") || "100";
