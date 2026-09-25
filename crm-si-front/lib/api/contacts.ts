@@ -170,6 +170,40 @@ export interface BulkTagsResponse {
   action: BulkTagAction;
 }
 
+export interface BulkFieldsRequest {
+  ids: number[];
+  updates: ContactUpdate;
+}
+
+export interface BulkFieldsResponse {
+  updated: number;
+  failed: number;
+  failures: Array<{ id: number; reason: string }>;
+}
+
+export async function bulkUpdateContactFields(req: BulkFieldsRequest): Promise<BulkFieldsResponse> {
+  const token = getAuthToken();
+  if (!token) throw new Error("No authentication token found");
+
+  const response = await fetch("/api/contacts/bulk-fields", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...workspaceHeaders(),
+    },
+    body: JSON.stringify(req),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throwApiError(response.status, payload, "Error al actualizar contactos en lote");
+  }
+
+  return payload as BulkFieldsResponse;
+}
+
 export async function bulkUpdateContactTags(req: BulkTagsRequest): Promise<BulkTagsResponse> {
   const token = getAuthToken();
   if (!token) throw new Error("No authentication token found");
