@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react"
+import { memo, useEffect, useMemo, useRef } from "react"
 import { Card } from "@/components/ui/card"
 import { ContactAvatar } from "@/components/contact-avatar"
 import { Badge } from "@/components/ui/badge"
@@ -199,6 +199,9 @@ interface ConversationListProps {
   onToggleSelect?: (conversationId: number) => void
   messageResults?: Conversation[]
   isSearchingMessages?: boolean
+  hasMore?: boolean
+  isLoadingMore?: boolean
+  onLoadMore?: () => void
 }
 
 export function ConversationList({
@@ -213,6 +216,9 @@ export function ConversationList({
   onToggleSelect,
   messageResults = [],
   isSearchingMessages = false,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: ConversationListProps) {
   const { t } = useTranslation()
   const resolvedEmptyState = emptyState ?? {
@@ -228,6 +234,18 @@ export function ConversationList({
     }
     return map
   }, [channels])
+
+  const loadMoreRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const target = loadMoreRef.current
+    if (!target || !hasMore || isLoadingMore || !onLoadMore) return
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) onLoadMore()
+    }, { rootMargin: "240px" })
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [hasMore, isLoadingMore, onLoadMore])
 
   if (isLoading) {
     return (
@@ -267,6 +285,11 @@ export function ConversationList({
           />
         ))}
       </div>
+      {hasMore && (
+        <div ref={loadMoreRef} className="flex h-16 items-center justify-center" aria-live="polite">
+          {isLoadingMore && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
+        </div>
+      )}
       {(hasMessageResults || isSearchingMessages) && (
         <div className="mt-4">
           <div className="flex items-center gap-2 px-1 pb-2">
