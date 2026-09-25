@@ -39,9 +39,8 @@ import {
   bulkAiAutoreplyConversations,
   bulkDeleteConversations,
   bulkMarkReadConversations,
-  getChannelConversations,
   getConversationMessages,
-  getConversations,
+  getConversationsCursorPage,
   getConversationWithMessages,
   markConversationAsRead,
   markConversationAsUnread,
@@ -419,7 +418,13 @@ export default function ChatsPage() {
 
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
-  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false)
+  const [hasMoreConversations, setHasMoreConversations] = useState(false)
+  const [isLoadingMoreConversations, setIsLoadingMoreConversations] = useState(false)
+  const conversationRequestVersion = useRef(0)
+  const conversationCursorRef = useRef<string | null>(null)
+  const hasMoreConversationsRef = useRef(false)
+  const isLoadingMoreConversationsRef = useRef(false)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [aiDraft, setAiDraft] = useState<ManualAiDraft | null>(null)
 
@@ -437,6 +442,49 @@ export default function ChatsPage() {
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
+
+  const loadConversationPage = useCallback(async (reset = false) => {
+    if (!reset && (!hasMoreConversationsRef.current || isLoadingMoreConversationsRef.current)) return
+
+    const requestVersion = reset ? ++conversationRequestVersion.current : conversationRequestVersion.current
+    if (reset) {
+      setIsLoading(true)
+      conversationCursorRef.current = null
+      setHasMoreConversations(false)
+      hasMoreConversationsRef.current = false
+    } else {
+      setIsLoadingMoreConversations(true)
+      isLoadingMoreConversationsRef.current = true
+    }
+
+    try {
+      const result = await getConversationsCursorPage({
+        cursor: reset ? null : conversationCursorRef.current,
+        channelId: selectedChannelId,
+      })
+      if (requestVersion !== conversationRequestVersion.current) return
+
+      setConversations((current) => {
+        if (reset) return result.data
+        const knownIds = new Set(current.map((conversation) => conversation.id))
+        return [...current, ...result.data.filter((conversation) => !knownIds.has(conversation.id))]
+      })
+      conversationCursorRef.current = result.nextCursor
+      setHasMoreConversations(result.hasMore)
+      hasMoreConversationsRef.current = result.hasMore
+    } catch {
+      if (requestVersion === conversationRequestVersion.current) {
+        addToast({ type: "error", title: t("chats.loadConversationsError") })
+        if (reset) setConversations([])
+      }
+    } finally {
+      if (requestVersion === conversationRequestVersion.current) {
+        setIsLoading(false)
+        setIsLoadingMoreConversations(false)
+        isLoadingMoreConversationsRef.current = false
+      }
+    }
+  }, [addToast, selectedChannelId, t])
 
   const isTemplateFallbackContent = useCallback((content?: string) => {
     if (!content) return false;
@@ -647,11 +695,13 @@ export default function ChatsPage() {
       // New conversation — refetch respecting the active channel filter
       const channelId = selectedChannelIdRef.current;
       const version = ++tenantRefreshVersionRef.current;
-      const fetcher = channelId ? getChannelConversations(channelId) : getConversations();
-      fetcher.then(data => {
+      getConversationsCursorPage({ channelId }).then(data => {
         if (version !== tenantRefreshVersionRef.current) return;
         if (selectedChannelIdRef.current !== channelId) return;
-        setConversations(data);
+        setConversations(data.data);
+        conversationCursorRef.current = data.nextCursor;
+        setHasMoreConversations(data.hasMore);
+        hasMoreConversationsRef.current = data.hasMore;
       }).catch(() => {});
       // Refresh channel list so conversations_count stays in sync after a new chat lands
       getChannels().then(setChannels).catch(() => {});
@@ -664,9 +714,9 @@ export default function ChatsPage() {
   });
 
   const handleLoadMoreMessages = async () => {
-    if (!selectedConversationId || isLoadingMore || !hasMore) return
+    if (!selectedConversationId || isLoadingMoreMessages || !hasMore) return
 
-    setIsLoadingMore(true)
+    setIsLoadingMoreMessages(true)
     try {
       const nextPage = page + 1
       // Llamamos a la API pidiendo la siguiente página
@@ -698,7 +748,7 @@ export default function ChatsPage() {
       console.error("Error cargando más mensajes:", error)
       addToast({ type: "error", title: t("chats.loadHistoryError") })
     } finally {
-      setIsLoadingMore(false)
+      setIsLoadingMoreMessages(false)
     }
   }
 
@@ -816,15 +866,13 @@ export default function ChatsPage() {
     })
   }, [messageSearchResults, visibleConversations, searchQuery, activeFilter, channels, tagFilterSlugs, viewType])
 
-  // Parallel initial fetch: channels + conversations (independent — partial success OK)
+  // Channels and the first lightweight cursor page are independent.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setIsLoading(true)
       setIsChannelsLoading(true)
-      const [channelsResult, conversationsResult] = await Promise.allSettled([
+      const [channelsResult] = await Promise.allSettled([
         getChannels(),
-        getConversations(),
       ])
       if (cancelled) return
 
@@ -834,13 +882,6 @@ export default function ChatsPage() {
         addToast({ type: "error", title: t("chats.loadAccountsError"), description: t("chats.loadAccountsErrorDesc") })
       }
 
-      if (conversationsResult.status === "fulfilled") {
-        setConversations(conversationsResult.value)
-      } else {
-        addToast({ type: "error", title: t("chats.loadConversationsError") })
-      }
-
-      setIsLoading(false)
       setIsChannelsLoading(false)
     })()
     return () => { cancelled = true }
@@ -893,31 +934,10 @@ export default function ChatsPage() {
     }
   }, [chatIdFromUrl])
 
-  // Fetch conversations when channel selection changes (or clears to "all")
-  const isInitialMountRef = useRef(true);
+  // Reset the cursor whenever the active channel changes.
   useEffect(() => {
-    if (isInitialMountRef.current) {
-      isInitialMountRef.current = false;
-      return;
-    }
-
-    let cancelled = false;
-    (async () => {
-      try {
-        setIsLoading(true);
-        const data = selectedChannelId
-          ? await getChannelConversations(selectedChannelId)
-          : await getConversations();
-        if (!cancelled) setConversations(data);
-      } catch (e) {
-        addToast({ type: "error", title: t("chats.loadConversationsError") });
-        if (!cancelled) setConversations([]);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => { cancelled = true };
-  }, [selectedChannelId]);
+    void loadConversationPage(true)
+  }, [loadConversationPage, selectedChannelId]);
 
   // Single effect: fetch conversation with messages when selected
   useEffect(() => {
@@ -1662,15 +1682,8 @@ export default function ChatsPage() {
 
 
   const refreshConversations = useCallback(async () => {
-    try {
-      const data = selectedChannelId
-        ? await getChannelConversations(selectedChannelId)
-        : await getConversations()
-      setConversations(data)
-    } catch {
-      addToast({ type: "error", title: t("chats.loadConversationsError") })
-    }
-  }, [selectedChannelId, addToast, t])
+    await loadConversationPage(true)
+  }, [loadConversationPage])
 
   const handleToggleSelectionMode = useCallback(() => {
     setSelectionMode((prev) => {
@@ -2225,6 +2238,9 @@ export default function ChatsPage() {
                 onToggleSelect={handleToggleSelectConversation}
                 messageResults={messageOnlyResults}
                 isSearchingMessages={isSearchingMessages}
+                hasMore={hasMoreConversations}
+                isLoadingMore={isLoadingMoreConversations}
+                onLoadMore={() => { void loadConversationPage() }}
                 emptyState={{
                   title: searchQuery ? t("chats.noSearchResults") : t("chats.noConversations"),
                   description: searchQuery
@@ -2283,7 +2299,7 @@ export default function ChatsPage() {
                 messages={currentConversation?.messages || []}
                 onLoadMore={handleLoadMoreMessages}
                 hasMore={hasMore}
-                isLoadingMore={isLoadingMore}
+                isLoadingMore={isLoadingMoreMessages}
                 onEditMessage={handleEditMessage}
                 onDeleteMessage={handleDeleteMessage}
                 onReactMessage={handleReactToMessage}
