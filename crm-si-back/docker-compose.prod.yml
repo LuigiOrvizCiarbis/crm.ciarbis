@@ -46,7 +46,15 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
+          # Medido en prod (2026-09-19): throttled el 15-23% de los periodos.
+          # Este container atiende los requests HTTP, asi que cada periodo
+          # frenado es latencia que siente el usuario.
+          #
+          # 1.5 y no 2.0: el host tiene 4 cores con overcommit (5.0 asignadas
+          # + staging sin limite). 1.5 cubre los picos de Apache sin dejar
+          # al resto sin CPU cuando coinciden.
+          cpus: "1.5"
+          # RAM sin cambios: pico de 3h 216M de 512M (42%), sin throttling.
           memory: 512M
     healthcheck:
       # /api/health valida DB + Redis (no solo que PHP responda). 503 si algo está caído.
@@ -212,8 +220,25 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.25"
-          memory: 128M
+          # Medido en prod (2026-09-19): con 0.25 CPU el scheduler estaba
+          # THROTTLED EL 51.8% de los periodos (251 de 485). La mitad del
+          # tiempo que queria trabajar, el kernel lo frenaba.
+          #
+          # No es que este colgado: schedule:list muestra 3 tareas POR MINUTO
+          # (automations:dispatch-due, broadcasts:dispatch-due,
+          # mail:sync-channels). Cada una levanta un proceso PHP nuevo que
+          # carga el framework entero. Con 0.25 CPU no alcanza para arrancar
+          # 3 procesos PHP por minuto, y las tareas llegan tarde.
+          #
+          # 1.0 en vez de 2.0 a proposito: el host tiene 4 cores y ya hay
+          # 5.0 CPUs asignadas (overcommit). Como el scheduler trabaja a
+          # rafagas cortas, 1.0 le da margen para el pico sin competir de
+          # forma sostenida con el backend.
+          cpus: "1.0"
+          # 128M -> 256M: el pico de 3h fue 126M de 128M (181 eventos de
+          # throttling de memoria). Los procesos PHP hijos son los que
+          # empujan el pico; el proceso base solo usa ~8M.
+          memory: 256M
     healthcheck:
       # Verifica que el proceso del scheduler siga vivo.
       test: ["CMD-SHELL", "pgrep -f 'schedule:work' || exit 1"]
@@ -352,7 +377,24 @@ services:
   redis:
     image: redis:alpine
     restart: always
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    # maxmemory: sin esto Redis venia con "maxmemory 0" (sin techo) y
+    # "noeviction". Crecia hasta chocar con el limite del container y ahi
+    # Docker lo mata: se pierden los jobs encolados, no solo el cache.
+    #
+    # 96mb = 75% del limite de 128M, para que Redis empiece a liberar ANTES
+    # de que el cgroup lo mate. Uso real medido: 1.85M (pico 6h: 9M), asi
+    # que el techo es holgado.
+    #
+    # volatile-lru y NO allkeys-lru: Laravel usa db0 para colas/sesiones y
+    # db1 para cache (config/database.php: REDIS_DB=0, REDIS_CACHE_DB=1),
+    # pero maxmemory-policy es global, no por base. volatile-lru solo
+    # desaloja claves CON TTL: el cache lo tiene, los jobs encolados no.
+    # Con allkeys-lru, Redis borraria jobs pendientes al llenarse.
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 96mb
+      --maxmemory-policy volatile-lru
     deploy:
       resources:
         limits:

@@ -1,0 +1,14 @@
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  },
+  "builder": {
+    "gc": {
+      "enabled": true,
+      "defaultReservedSpace": "6GB",
+      "maxUsedSpace": "10GB"
+    }
+  }
+}
