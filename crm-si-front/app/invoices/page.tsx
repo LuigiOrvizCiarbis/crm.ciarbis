@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ArrowDownToLine, Check, ChevronDown, CircleAlert, Clock3, FileText, Plus, RefreshCw, Repeat2, Search, Settings2, Wallet } from "lucide-react"
+import { ArrowDownToLine, Building2, Check, ChevronDown, CircleAlert, Clock3, FileCheck2, FileText, MessageCircle, Plus, RefreshCw, Repeat2, Search, Settings2, Wallet } from "lucide-react"
 import { SidebarLayout } from "@/components/SidebarLayout"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Switch } from "@/components/ui/switch"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/Toast"
 import { getContacts, type Contact } from "@/lib/api/contacts"
 import { getChannels } from "@/lib/api/channels"
@@ -40,6 +42,7 @@ export default function InvoicesPage() {
   const [busy, setBusy] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsFormError, setSettingsFormError] = useState("")
   const [recurrenceToCancel, setRecurrenceToCancel] = useState<number | null>(null)
   const [recurrenceToEdit, setRecurrenceToEdit] = useState<InvoiceRecurrenceRecord | null>(null)
   const [recurrenceEdit, setRecurrenceEdit] = useState({ concept: "", amount: "", interval_count: "1", interval_unit: "months", payment_term_days: "10", ends_on: "" })
@@ -122,7 +125,19 @@ export default function InvoicesPage() {
   }
 
   async function updateSettings(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!settings) return; setBusy(true)
+    event.preventDefault(); if (!settings) return
+    if (!Number.isInteger(settings.payment_term_days) || settings.payment_term_days < 0 || settings.payment_term_days > 365) {
+      setSettingsFormError("Los días para pagar deben estar entre 0 y 365."); return
+    }
+    if (!Number.isInteger(settings.send_hour) || settings.send_hour < 0 || settings.send_hour > 23) {
+      setSettingsFormError("La hora de envío debe estar entre 0 y 23."); return
+    }
+    try { new Intl.DateTimeFormat("es-AR", { timeZone: settings.timezone }) }
+    catch { setSettingsFormError("Ingresá una zona horaria válida, por ejemplo America/Argentina/Buenos_Aires."); return }
+    if (settings.enabled && (!settings.business_name?.trim() || !settings.whatsapp_channel_id || !settings.whatsapp_template_id || !settings.reminder_template_id)) {
+      setSettingsFormError("Para activar los envíos, completá el nombre del negocio y elegí el canal y las dos plantillas aprobadas."); return
+    }
+    setSettingsFormError(""); setBusy(true)
     try { await saveInvoiceSettings(settings); addToast({ type: "success", title: "Configuración guardada" }); setShowSettings(false); await reload() }
     catch (error) { addToast({ type: "error", title: "No se pudo guardar la configuración", description: error instanceof Error ? error.message : "Revisá las plantillas y el canal." }) }
     finally { setBusy(false) }
@@ -200,25 +215,73 @@ export default function InvoicesPage() {
             <p className="text-sm text-muted-foreground md:text-base">Enviá solicitudes de pago y seguí cada saldo desde el CRM.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {canConfigure && <Button variant="outline" onClick={() => setShowSettings((shown) => !shown)}><Settings2 className="mr-2 size-4" /> Configurar</Button>}
+            {canConfigure && <Button variant="outline" onClick={() => { setSettingsFormError(""); setShowSettings((shown) => !shown) }}><Settings2 className="mr-2 size-4" /> Configurar</Button>}
             {canManage && <Button onClick={() => setShowCreate(true)}><Plus className="mr-2 size-4" /> Nuevo cobro</Button>}
           </div>
         </header>
 
         {settings && !settings.enabled && <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm"><CircleAlert className="mt-0.5 size-5 shrink-0 text-amber-600" /><div><p className="font-medium">Configurá WhatsApp para habilitar los envíos automáticos</p><p className="mt-1 text-muted-foreground">Podés guardar borradores ahora; la emisión queda deshabilitada hasta elegir plantillas aprobadas.</p></div></div>}
 
-        {canConfigure && showSettings && settings && <Card className="border-primary/20 shadow-sm"><CardHeader><CardTitle>Configuración de cobros</CardTitle><p className="text-sm text-muted-foreground">Estos datos aparecen en los PDF y rigen las fechas de emisión.</p></CardHeader><CardContent><form onSubmit={updateSettings} className="grid gap-4 md:grid-cols-2">
-          <label className="space-y-1.5 text-sm">Nombre del negocio<Input required value={settings.business_name ?? ""} onChange={(event) => setSettings({ ...settings, business_name: event.target.value })} /></label>
-          <label className="space-y-1.5 text-sm">Canal de WhatsApp<select required className="h-10 rounded-md border bg-background px-3" value={settings.whatsapp_channel_id ?? ""} onChange={async (event) => { const channelId = event.target.value ? Number(event.target.value) : null; setSettings({ ...settings, whatsapp_channel_id: channelId, whatsapp_template_id: null, reminder_template_id: null }); if (channelId) { const token = getAuthToken(); const response = await fetch(`/api/channels/${channelId}/templates?status=all`, { headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() } }); const data = await response.json().catch(() => []); setTemplates((Array.isArray(data) ? data : data.data ?? []).filter((item: { status: string }) => item.status === "approved").map((item: { id: number; name: string; components?: Array<{ type: string; format?: string }>; expected_body_parameters?: string[] }) => ({ id: item.id, name: item.name, header_format: item.components?.find((part) => part.type.toUpperCase() === "HEADER")?.format ?? null, parameters: item.expected_body_parameters ?? [] }))) } }}><option value="">Seleccionar canal</option>{channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label>
-          <label className="space-y-1.5 text-sm">Plantilla de invoice<select required className="h-10 rounded-md border bg-background px-3" value={settings.whatsapp_template_id ?? ""} onChange={(event) => setSettings({ ...settings, whatsapp_template_id: event.target.value ? Number(event.target.value) : null })}><option value="">Elegí plantilla aprobada con documento</option>{templatesForChannel.filter((template) => template.header_format === "DOCUMENT").map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>
-          <label className="space-y-1.5 text-sm">Plantilla de recordatorio<select required className="h-10 rounded-md border bg-background px-3" value={settings.reminder_template_id ?? ""} onChange={(event) => setSettings({ ...settings, reminder_template_id: event.target.value ? Number(event.target.value) : null })}><option value="">Elegí plantilla aprobada sin archivo</option>{templatesForChannel.filter((template) => !template.header_format).map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>
-          <label className="space-y-1.5 text-sm">Días para pagar<Input type="number" min="0" max="365" value={settings.payment_term_days} onChange={(event) => setSettings({ ...settings, payment_term_days: Number(event.target.value) })} /></label>
-          <label className="space-y-1.5 text-sm">Hora de envíos (hora local)<Input type="number" min="0" max="23" value={settings.send_hour} onChange={(event) => setSettings({ ...settings, send_hour: Number(event.target.value) })} /></label>
-          <label className="space-y-1.5 text-sm">Zona horaria<Input required value={settings.timezone} onChange={(event) => setSettings({ ...settings, timezone: event.target.value })} /></label>
-          <label className="space-y-1.5 text-sm md:col-span-2">Instrucciones de pago<Textarea className="resize-none" rows={3} value={settings.payment_instructions ?? ""} onChange={(event) => setSettings({ ...settings, payment_instructions: event.target.value })} /></label>
-          <label className="flex items-center gap-2 text-sm md:col-span-2"><input type="checkbox" checked={settings.enabled} onChange={(event) => setSettings({ ...settings, enabled: event.target.checked })} /> Activar Invoices y sus envíos automáticos</label>
-          <div className="flex justify-end gap-2 md:col-span-2"><Button type="button" variant="ghost" onClick={() => setShowSettings(false)}>Cancelar</Button><Button disabled={busy}>{busy ? "Guardando…" : "Guardar configuración"}</Button></div>
-        </form></CardContent></Card>}
+        {canConfigure && showSettings && settings && <Card className="overflow-hidden border-border/70 shadow-sm">
+          <CardHeader className="flex flex-row items-start gap-4 border-b bg-muted/20 px-5 py-5 sm:px-7">
+            <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Settings2 className="size-5" /></span>
+            <div className="min-w-0 space-y-1">
+              <CardTitle className="text-lg">Configuración de cobros</CardTitle>
+              <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">Definí cómo se emiten los cobros, desde qué canal se envían y qué datos aparecen en el comprobante.</p>
+            </div>
+          </CardHeader>
+          <CardContent className="px-5 py-5 sm:px-7 sm:py-6">
+            <form onSubmit={updateSettings} noValidate className="space-y-6">
+              {settingsFormError && <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><CircleAlert className="mt-0.5 size-4 shrink-0" /><p>{settingsFormError}</p></div>}
+              <section aria-labelledby="invoice-business-heading" className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <span className="grid size-9 place-items-center rounded-lg bg-muted text-muted-foreground"><Building2 className="size-4" /></span>
+                  <div><h3 id="invoice-business-heading" className="text-sm font-semibold">Datos del negocio y envío</h3><p className="text-xs text-muted-foreground">Identidad del comprobante y plantillas de WhatsApp.</p></div>
+                </div>
+                <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
+                  <label htmlFor="invoice-business-name" className="block space-y-1.5 text-sm font-medium">Nombre del negocio<Input id="invoice-business-name" required value={settings.business_name ?? ""} onChange={(event) => setSettings({ ...settings, business_name: event.target.value })} placeholder="Nombre que aparecerá en el comprobante" className="mt-1 w-full" /></label>
+                  <div className="block space-y-1.5 text-sm font-medium"><span id="invoice-channel-label" className="block">Canal de WhatsApp</span><Select value={settings.whatsapp_channel_id ? String(settings.whatsapp_channel_id) : "none"} onValueChange={async (value) => { const channelId = value === "none" ? null : Number(value); setSettings({ ...settings, whatsapp_channel_id: channelId, whatsapp_template_id: null, reminder_template_id: null }); setTemplates([]); if (channelId) { try { const token = getAuthToken(); const response = await fetch(`/api/channels/${channelId}/templates?status=all`, { headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() } }); if (!response.ok) throw new Error("No se pudieron cargar las plantillas del canal."); const data = await response.json().catch(() => []); setTemplates((Array.isArray(data) ? data : data.data ?? []).filter((item: { status: string }) => item.status === "approved").map((item: { id: number; name: string; components?: Array<{ type: string; format?: string }>; expected_body_parameters?: string[] }) => ({ id: item.id, name: item.name, header_format: item.components?.find((part) => part.type.toUpperCase() === "HEADER")?.format ?? null, parameters: item.expected_body_parameters ?? [] }))) } catch (error) { addToast({ type: "error", title: "No se pudieron cargar las plantillas", description: error instanceof Error ? error.message : "Intentá de nuevo." }) } } }}><SelectTrigger id="invoice-channel" aria-labelledby="invoice-channel-label" className="mt-1 w-full"><SelectValue placeholder="Seleccioná un canal" /></SelectTrigger><SelectContent><SelectItem value="none">Sin canal seleccionado</SelectItem>{channels.map((channel) => <SelectItem key={channel.id} value={String(channel.id)}>{channel.name}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="block space-y-1.5 text-sm font-medium"><span id="invoice-template-label" className="block">Plantilla del cobro</span><Select value={settings.whatsapp_template_id ? String(settings.whatsapp_template_id) : "none"} onValueChange={(value) => setSettings({ ...settings, whatsapp_template_id: value === "none" ? null : Number(value) })}><SelectTrigger id="invoice-template" aria-labelledby="invoice-template-label" className="mt-1 w-full"><SelectValue placeholder="Elegí una plantilla aprobada" /></SelectTrigger><SelectContent><SelectItem value="none">Sin plantilla seleccionada</SelectItem>{templatesForChannel.filter((template) => template.header_format === "DOCUMENT").map((template) => <SelectItem key={template.id} value={String(template.id)}>{template.name}</SelectItem>)}</SelectContent></Select><p className="text-xs font-normal text-muted-foreground">Usá una plantilla aprobada que incluya un documento.</p></div>
+                  <div className="block space-y-1.5 text-sm font-medium"><span id="invoice-reminder-template-label" className="block">Plantilla de recordatorio</span><Select value={settings.reminder_template_id ? String(settings.reminder_template_id) : "none"} onValueChange={(value) => setSettings({ ...settings, reminder_template_id: value === "none" ? null : Number(value) })}><SelectTrigger id="invoice-reminder-template" aria-labelledby="invoice-reminder-template-label" className="mt-1 w-full"><SelectValue placeholder="Elegí una plantilla aprobada" /></SelectTrigger><SelectContent><SelectItem value="none">Sin plantilla seleccionada</SelectItem>{templatesForChannel.filter((template) => !template.header_format).map((template) => <SelectItem key={template.id} value={String(template.id)}>{template.name}</SelectItem>)}</SelectContent></Select><p className="text-xs font-normal text-muted-foreground">Usá una plantilla aprobada sin archivo adjunto.</p></div>
+                </div>
+              </section>
+
+              <section aria-labelledby="invoice-schedule-heading" className="space-y-4 border-t pt-6">
+                <div className="flex items-center gap-3">
+                  <span className="grid size-9 place-items-center rounded-lg bg-muted text-muted-foreground"><Clock3 className="size-4" /></span>
+                  <div><h3 id="invoice-schedule-heading" className="text-sm font-semibold">Plazos y horario</h3><p className="text-xs text-muted-foreground">Los horarios se interpretan en la zona horaria elegida.</p></div>
+                </div>
+                <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <label htmlFor="invoice-payment-days" className="block space-y-1.5 text-sm font-medium">Días para pagar<Input id="invoice-payment-days" type="number" min="0" max="365" value={settings.payment_term_days} onChange={(event) => setSettings({ ...settings, payment_term_days: Number(event.target.value) })} className="mt-1 w-full" /><span className="block text-xs font-normal text-muted-foreground">Plazo desde la fecha de emisión.</span></label>
+                  <label htmlFor="invoice-send-hour" className="block space-y-1.5 text-sm font-medium">Hora de envío<Input id="invoice-send-hour" type="number" min="0" max="23" value={settings.send_hour} onChange={(event) => setSettings({ ...settings, send_hour: Number(event.target.value) })} className="mt-1 w-full" /><span className="block text-xs font-normal text-muted-foreground">Hora local, entre 0 y 23.</span></label>
+                  <label htmlFor="invoice-timezone" className="block space-y-1.5 text-sm font-medium sm:col-span-2 lg:col-span-1">Zona horaria<Input id="invoice-timezone" required value={settings.timezone} onChange={(event) => setSettings({ ...settings, timezone: event.target.value })} className="mt-1 w-full" placeholder="America/Argentina/Buenos_Aires" /><span className="block text-xs font-normal text-muted-foreground">Ejemplo: America/Argentina/Buenos_Aires.</span></label>
+                </div>
+              </section>
+
+              <section aria-labelledby="invoice-payment-heading" className="space-y-4 border-t pt-6">
+                <div className="flex items-center gap-3">
+                  <span className="grid size-9 place-items-center rounded-lg bg-muted text-muted-foreground"><FileCheck2 className="size-4" /></span>
+                  <div><h3 id="invoice-payment-heading" className="text-sm font-semibold">Instrucciones de pago</h3><p className="text-xs text-muted-foreground">Agregá los datos que el cliente necesita para pagar.</p></div>
+                </div>
+                <label htmlFor="invoice-payment-instructions" className="sr-only">Instrucciones de pago</label>
+                <Textarea id="invoice-payment-instructions" className="min-h-28 w-full resize-none" rows={4} value={settings.payment_instructions ?? ""} onChange={(event) => setSettings({ ...settings, payment_instructions: event.target.value })} placeholder="Alias, CBU u otros pasos para completar el pago…" />
+              </section>
+
+              <div className="flex flex-col gap-4 rounded-xl border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                <div className="flex items-start gap-3">
+                  <span className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg ${settings.enabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}><MessageCircle className="size-4" /></span>
+                  <div><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">Envíos automáticos</p><Badge variant={settings.enabled ? "secondary" : "outline"}>{settings.enabled ? "Activos" : "Pausados"}</Badge></div><p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">Al activar, los cobros emitidos se enviarán por WhatsApp según estas plantillas y horarios.</p></div>
+                </div>
+                <div className="flex items-center gap-3 self-end sm:self-center"><span className="text-xs text-muted-foreground">{settings.enabled ? "Activado" : "Desactivado"}</span><Switch checked={settings.enabled} onCheckedChange={(enabled) => setSettings({ ...settings, enabled })} aria-label="Activar Invoices y sus envíos automáticos" /></div>
+              </div>
+
+              <div className="flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row sm:justify-end">
+                <Button type="button" variant="ghost" onClick={() => { setSettingsFormError(""); setShowSettings(false) }} className="sm:min-w-28">Cancelar</Button>
+                <Button disabled={busy} className="sm:min-w-48">{busy ? "Guardando…" : "Guardar configuración"}</Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>}
 
         <div className="grid gap-3 sm:grid-cols-3"><Card><CardContent className="flex items-center gap-4 p-5"><span className="grid size-10 place-items-center rounded-xl bg-amber-500/10 text-amber-600"><Wallet className="size-5" /></span><div><p className="text-xs text-muted-foreground">Saldo pendiente</p><p className="mt-1 text-xl font-semibold">{money(balance)}</p></div></CardContent></Card><Card><CardContent className="flex items-center gap-4 p-5"><span className="grid size-10 place-items-center rounded-xl bg-red-500/10 text-red-600"><Clock3 className="size-5" /></span><div><p className="text-xs text-muted-foreground">Cobros vencidos</p><p className="mt-1 text-xl font-semibold">{overdue}</p></div></CardContent></Card><Card><CardContent className="flex items-center gap-4 p-5"><span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><Repeat2 className="size-5" /></span><div><p className="text-xs text-muted-foreground">Recurrencias activas</p><p className="mt-1 text-xl font-semibold">{recurrences.filter((item) => item.status === "active").length}</p></div></CardContent></Card></div>
 
