@@ -166,14 +166,27 @@ Todas con `delay` de varios minutos: un pico de 10 segundos no dispara mail.
 
 ## Notas operativas
 
-### Build cache de Docker
+### Build cache de Docker (resuelto 2026-09-19)
 
-Al momento de instalar esto: **16 GB de build cache**, 12,7 reclamables, sobre un disco de 193 GB al 23%. Crece en cada deploy a `preprod` y nadie lo estaba mirando — es parte de por qué existe la alerta de disco.
+Llegó a **18 GB** creciendo ~2 GB/día con los deploys. Ya existía un cron semanal (`/etc/cron.d/docker-builder-prune`) que corría bien pero **no limpiaba casi nada**: había caché de hasta 7 meses.
 
-```bash
-docker system df                    # ver cuánto ocupa
-docker builder prune                # liberar el reclamable
-```
+Dos causas, y la segunda no es obvia:
+
+1. **Frecuencia insuficiente.** Semanal contra ~2 GB/día acumula 14 GB entre corridas.
+2. **`--filter until=` no sirve para esto.** Filtra por *último uso*, y las capas base se tocan en cada build: Docker las considera "usadas hoy" aunque el contenido tenga meses. Medido: con `until=168h` sobre 18 GB liberó **168 MB**.
+
+Lo que sí funciona es **`--reserved-space`**, un techo duro que conserva los N GB más recientes sin importar cuándo se usaron. Con 6 GB liberó **9,72 GB** (caché 17,9 → 8,2 GB; disco 24% → 19%).
+
+**Configuración actual, en dos capas:**
+
+| Capa | Dónde | Qué hace |
+|---|---|---|
+| Cron diario 05:38 | `/etc/cron.d/docker-builder-prune` → `/usr/local/bin/docker-prune.sh` | `docker builder prune -af --reserved-space 6GB`, loguea a `/var/log/docker-prune.log` |
+| Techo del daemon | `/etc/docker/daemon.json` → `builder.gc` | `defaultReservedSpace: 6GB`, `maxUsedSpace: 10GB` — Docker se autorregula aunque el cron falle |
+
+> **Nombres de flags según versión (Docker 29 aquí):** en CLI es `--reserved-space`, **no** `--keep-storage` (removido). En `daemon.json` son `defaultReservedSpace` / `maxUsedSpace`, **no** `defaultKeepStorage` (obsoleto). Con el nombre viejo el daemon ignora la config **sin avisar**.
+
+El cron anterior mandaba todo a `/dev/null`; por eso nadie notó en meses que no alcanzaba. Ahora deja rastro en `/var/log/docker-prune.log`.
 
 ### Postgres: límite subido de 256 MB a 1 GB (2026-09-19)
 
@@ -192,11 +205,53 @@ Cambios en `crm-si-back/docker-compose.prod.yml`:
 
 > Cuidado al editar el `command:` de ese servicio: con `command: >` (escalar plegado) los flags `-c` se colapsan y Postgres arranca con la config por defecto **sin avisar**. Va como lista YAML explícita.
 
-### El scheduler y su límite de 128 MB
+### CPU del scheduler y del backend (2026-09-19)
 
-La primera medición mostró `crm-si-back-scheduler-1` al **95,64%** de sus 128 MB, lo que parecía un container al borde del OOM. Midiendo 20 minutos con Netdata dio **12,5–13 MiB estables (~10%)**: aquel 95% fue un pico puntual del deploy (el container tenía 54 minutos de vida), no su estado normal.
+Netdata y `cpu.stat` mostraron que dos containers estaban **CPU-throttled**: el kernel los frenaba contra su cuota.
 
-Por eso los umbrales de RAM quedaron en 75/85 y no más arriba. **Si algún container empieza a vivir cerca de su límite, la respuesta correcta es subirle el límite en su compose, no subir el umbral de la alerta.**
+| Container | Antes | Ahora | Throttling |
+|---|---|---|---|
+| `scheduler` | 0.25 CPU / 128M | **1.0 CPU / 256M** | 51,8% → **3,0%** |
+| `app` (backend) | 1.0 CPU / 512M | **1.5 CPU** / 512M | 15,3% → **0,0%** |
+
+**Por qué el scheduler gastaba tanto:** `schedule:list` muestra **3 tareas por minuto** (`automations:dispatch-due`, `broadcasts:dispatch-due`, `mail:sync-channels`). Cada una levanta un proceso PHP nuevo que carga el framework entero. Con 0.25 CPU no alcanzaba, y las tareas llegaban tarde.
+
+Su patrón es **de ráfaga**: 0,13% de CPU en reposo, pico de ~200% durante un segundo al disparar. La cuota nueva absorbe el pico sin frenarlo.
+
+**Efecto colateral:** el load del host **bajó** de 1,67 a 1,03. Al no frenarlos, terminan antes y liberan CPU.
+
+> **Sobre el overcommit:** hay 5,75 CPUs asignadas sobre 4 físicas, más staging sin límite. Es intencional — ninguno usa su cuota de forma sostenida. Por eso `scheduler` quedó en 1.0 y no 2.0, y `app` en 1.5: dar margen al pico sin competir de forma sostenida.
+
+### Redis: techo de memoria (2026-09-19)
+
+Venía con **`maxmemory 0`** (sin techo) y **`noeviction`**: crecía hasta chocar con el límite del container y ahí Docker lo mataba. No es sólo caché — Redis guarda **sesiones y la cola de jobs**, así que un OOM se lleva los jobs encolados.
+
+Ahora: `--maxmemory 96mb --maxmemory-policy volatile-lru` (uso real: 1,85 MB; pico 6 h: 9 MB, así que el techo es holgado). 96 MB = 75% del límite de 128 MB, para que Redis libere **antes** de que el cgroup lo mate.
+
+> **`volatile-lru`, no `allkeys-lru`.** Laravel usa db0 para colas/sesiones y db1 para caché (`config/database.php`: `REDIS_DB=0`, `REDIS_CACHE_DB=1`), pero `maxmemory-policy` es **global, no por base**. `volatile-lru` desaloja sólo claves con TTL: el caché lo tiene, los jobs encolados no. Con `allkeys-lru`, Redis borraría jobs pendientes al llenarse.
+
+### Volúmenes huérfanos (2026-09-19)
+
+Había 41 volúmenes sin container asociado. Se borraron **39** (`node_modules` y `vendor` de builds viejos): **4,3 GB liberados**, disco 19% → 16%.
+
+> **No usar `docker volume prune` a ciegas acá.** Entre los huérfanos había dos volúmenes con **datos reales** — `crm-si-back_postgres-data-staging` y `crm-si-back_redis-data-staging` — que figuran como huérfanos porque los containers de staging corriendo usan otros. Un prune genérico los habría borrado. Conviene revisar el contenido antes y excluir lo que tenga datos.
+
+### Límites que quedaron holgados a propósito
+
+`queue-worker` (27% de 256M), `front-app` (16% de 512M) y `reverb` (50% de 128M) están sobredimensionados. **Se dejaron así**: el host tiene 13 GB libres, bajarlos no gana nada y un límite ajustado sólo agrega riesgo de OOM en un pico.
+
+### Por qué los umbrales de RAM están en 75/85
+
+Historia útil para no re-tocarlos a ciegas.
+
+La primera medición mostró el scheduler al **95,64%** de sus 128 MB. Veinte minutos después daba **12,5 MiB (~10%)**, y se concluyó que había sido un pico del deploy. Con más datos resultó que **ninguna de las dos lecturas era la historia completa**: su patrón es de ráfaga — casi nada en reposo, picos de hasta 126 MB al disparar tareas. Un muestreo corto lo pinta relajado o al borde según cuándo mire.
+
+Dos lecciones que valen para cualquier container de este stack:
+
+1. **Una medición puntual no define un límite.** Hay que mirar el pico sobre horas (`group=max`), no el valor instantáneo.
+2. **`docker stats` no alcanza para diagnosticar.** No cuenta el page cache ni muestra throttling. Los datos que importan están en `/sys/fs/cgroup/`: `memory.events` (campo `max`) y `cpu.stat` (`nr_throttled` vs `nr_periods`).
+
+Los umbrales 75/85 avisan con tiempo de reacción. **Si un container empieza a vivir cerca de su límite, la respuesta correcta es subirle el límite en su compose, no subir el umbral de la alerta** — que es lo que se hizo con Postgres y el scheduler.
 
 ### Métricas de red por container
 
