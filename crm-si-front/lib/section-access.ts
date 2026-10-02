@@ -12,6 +12,7 @@ export function canAccessSection(
   permissions: string[] | null | undefined,
   role: UserRole | null | undefined,
 ): boolean {
+  if (key === "invoices") return role?.is_owner === true || permissions?.some((permission) => ["invoices.view", "invoices.manage"].includes(permission)) === true
   return role?.is_owner === true || permissions?.includes(sectionPermission(key)) === true
 }
 

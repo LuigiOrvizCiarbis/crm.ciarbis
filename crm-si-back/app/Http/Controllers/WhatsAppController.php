@@ -12,6 +12,9 @@ use App\Jobs\CompleteBillingProvisioningJob;
 use App\Jobs\VerifyContactSyncJob;
 use App\Models\Channel;
 use App\Models\Message;
+use App\Models\Invoice;
+use App\Models\InvoiceEvent;
+use App\Models\InvoiceSetting;
 use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
@@ -28,6 +31,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Carbon\CarbonImmutable;
 
 class WhatsAppController extends Controller
 {
@@ -1209,7 +1213,7 @@ class WhatsAppController extends Controller
                     $value = $change['value'] ?? [];
 
                     if ($field === 'messages' && isset($value['statuses'])) {
-                        $this->processStatusUpdates($value['statuses']);
+                        $this->processStatusUpdates($value['statuses'], $value['metadata']['phone_number_id'] ?? null);
                     }
 
                     if ($field === 'messages' && isset($value['messages'])) {
@@ -1255,8 +1259,12 @@ class WhatsAppController extends Controller
      * (p. ej. template de documento sin filename) quedaba invisible y el mensaje
      * seguía figurando como enviado en el CRM.
      */
-    private function processStatusUpdates(array $statuses): void
+    private function processStatusUpdates(array $statuses, ?string $phoneNumberId): void
     {
+        if (! $phoneNumberId) {
+            return;
+        }
+
         foreach ($statuses as $status) {
             $wamid = $status['id'] ?? null;
             $state = $status['status'] ?? null;
@@ -1265,7 +1273,17 @@ class WhatsAppController extends Controller
                 continue;
             }
 
-            $message = Message::where('external_id', $wamid)->first();
+            $message = Message::withoutGlobalScope(TenantScope::class)
+                ->where('external_id', $wamid)
+                ->whereHas('conversation', function ($query) use ($phoneNumberId) {
+                    $query->withoutGlobalScope(TenantScope::class)
+                        ->whereColumn('conversations.tenant_id', 'messages.tenant_id')
+                        ->whereHas('channel', function ($query) use ($phoneNumberId) {
+                            $query->withoutGlobalScope(TenantScope::class)
+                                ->whereColumn('channels.tenant_id', 'conversations.tenant_id')
+                                ->whereHas('whatsappConfig', fn ($query) => $query->where('phone_number_id', $phoneNumberId));
+                        });
+                })->first();
 
             if (! $message) {
                 // El status puede llegar antes de que persistamos el mensaje, o
@@ -1279,6 +1297,28 @@ class WhatsAppController extends Controller
             }
 
             $changed = false;
+
+            $invoiceEvent = InvoiceEvent::withoutGlobalScope(TenantScope::class)
+                ->where('tenant_id', $message->tenant_id)
+                ->where('type', 'message_accepted')
+                ->where('details->external_id', $wamid)->latest('id')->first();
+            $invoice = $invoiceEvent ? Invoice::withoutGlobalScopes()->where('tenant_id', $invoiceEvent->tenant_id)->find($invoiceEvent->invoice_id) : null;
+            if ($invoice && in_array($state, ['delivered', 'read'], true)) {
+                $initializeReminderSchedule = $invoice->delivery_status !== 'delivered' && $invoice->reminders_sent === 0;
+                $invoice->update(['delivery_status' => 'delivered', 'delivered_at' => now(), 'delivery_error' => null]);
+                if ($initializeReminderSchedule) {
+                    $invoiceSettings = InvoiceSetting::withoutGlobalScopes()->where('tenant_id', $invoice->tenant_id)->first();
+                    $days = $invoiceSettings?->reminder_days ?? [0, 3, 7];
+                    $sortedDays = collect($days)->sort()->values();
+                    if ($sortedDays->isNotEmpty()) {
+                        $first = (int) $sortedDays->first();
+                        $reminderAt = CarbonImmutable::parse((string) $invoice->due_on, $invoiceSettings?->timezone ?? 'America/Argentina/Buenos_Aires')->addDays($first)->setTime($invoiceSettings?->send_hour ?? 9, 0)->utc();
+                        $invoice->update(['next_reminder_at' => $reminderAt]);
+                    }
+                }
+            } elseif ($invoice && $state === 'failed') {
+                $invoice->update(['delivery_status' => 'failed', 'delivery_error' => $this->describeStatusError($status['errors'] ?? [])]);
+            }
 
             switch ($state) {
                 case 'delivered':
