@@ -12,7 +12,7 @@ type ProxyObservabilityOptions = {
 
 type ProxyToLaravelOptions = RequestInit & {
   rawBody?: boolean;
-  responseType?: "json" | "text";
+  responseType?: "json" | "text" | "arrayBuffer";
   baseUrls?: string[];
   observability?: ProxyObservabilityOptions;
   /**
@@ -150,7 +150,9 @@ export async function proxyToLaravel(
 
       const data = responseType === "text"
         ? await res.text()
-        : await res.json().catch(() => ({}));
+        : responseType === "arrayBuffer"
+          ? await res.arrayBuffer()
+          : await res.json().catch(() => ({}));
       const responseHeaders = {
         contentType: res.headers.get("content-type"),
         contentDisposition: res.headers.get("content-disposition"),

@@ -71,6 +71,11 @@ class Contact extends Model
         return $this->hasMany(Conversation::class);
     }
 
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
     public function opportunities(): HasMany
     {
         return $this->hasMany(Opportunity::class);
