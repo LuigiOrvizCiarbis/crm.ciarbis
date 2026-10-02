@@ -44,7 +44,7 @@ class InvoiceController extends Controller
     {
         $this->authorizeInvoice($request, 'invoices.view');
         $this->sameTenant($request, $invoice);
-        return ['data' => $invoice->load(['contact', 'payments', 'events', 'recurrence']) + ['paid_cents' => $invoice->paidCents(), 'balance_cents' => $invoice->balanceCents(), 'payment_state' => $invoice->paymentState()]];
+        return ['data' => array_merge($invoice->load(['contact', 'payments', 'events', 'recurrence'])->toArray(), ['paid_cents' => $invoice->paidCents(), 'balance_cents' => $invoice->balanceCents(), 'payment_state' => $invoice->paymentState()])];
     }
 
     public function update(Request $request, Invoice $invoice)
