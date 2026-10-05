@@ -18,7 +18,7 @@ import { getChannels } from "@/lib/api/channels"
 import { ChannelType } from "@/data/enums"
 import { useAuthStore } from "@/store/useAuthStore"
 import { getAuthToken, workspaceHeaders } from "@/lib/api/auth-token"
-import { createInvoice, createRecurrence, getInvoice, getInvoiceSettings, issueInvoice, listInvoiceRecurrences, listInvoices, recordInvoicePayment, recurrenceAction, resendInvoice, reverseInvoicePayment, saveInvoiceSettings, updateInvoice, updateRecurrence, voidInvoice, type InvoiceRecord, type InvoiceRecurrenceRecord, type InvoiceSettingsRecord } from "@/lib/api/invoices"
+import { createInvoice, createRecurrence, getInvoice, getInvoiceSettings, issueInvoice, listInvoiceRecurrences, listInvoices, provisionInvoiceTemplates, recordInvoicePayment, recurrenceAction, resendInvoice, reverseInvoicePayment, saveInvoiceSettings, updateInvoice, updateRecurrence, voidInvoice, type InvoiceRecord, type InvoiceRecurrenceRecord, type InvoiceSettingsRecord, type InvoiceTemplateProvisioningRecord } from "@/lib/api/invoices"
 
 const money = (cents: number) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(cents / 100)
 const date = (value?: string | null) => value ? new Intl.DateTimeFormat("es-AR", { dateStyle: "medium" }).format(new Date(`${value.slice(0, 10)}T12:00:00`)) : "—"
@@ -29,11 +29,14 @@ export default function InvoicesPage() {
   const isOwner = role?.is_owner === true
   const canManage = isOwner || permissions.includes("invoices.manage")
   const canConfigure = isOwner || permissions.includes("invoices.configure")
+  const canCreateTemplates = isOwner || permissions.includes("templates.create")
   const canPay = isOwner || permissions.includes("invoices.payments")
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([])
   const [recurrences, setRecurrences] = useState<InvoiceRecurrenceRecord[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
   const [settings, setSettings] = useState<InvoiceSettingsRecord | null>(null)
+  const [templateProvisioning, setTemplateProvisioning] = useState<InvoiceTemplateProvisioningRecord | null>(null)
+  const [provisioningBusy, setProvisioningBusy] = useState(false)
   const [templates, setTemplates] = useState<Array<{ id: number; name: string; header_format: string | null; parameters: string[] }>>([])
   const [channels, setChannels] = useState<Array<{ id: number; name: string; type: number; status: string }>>([])
   const [loading, setLoading] = useState(true)
@@ -63,7 +66,7 @@ export default function InvoicesPage() {
     try {
       const [invoiceResult, recurrenceRows, contactRows, config, channelRows] = await Promise.all([listInvoices(invoicePage), listInvoiceRecurrences(), getContacts({ per_page: 100 }), getInvoiceSettings(), getChannels()])
       setInvoices(invoiceResult.rows); setInvoicePages(invoiceResult.pages); setRecurrences(recurrenceRows); setContacts(contactRows)
-      setSettings(config.settings); setTemplates(config.templates)
+      setSettings(config.settings); setTemplates(config.templates); setTemplateProvisioning(config.template_provisioning)
       setChannels(channelRows.filter((channel) => channel.type === ChannelType.WHATSAPP) as typeof channelRows)
     } catch (error) {
       addToast({ type: "error", title: "No se pudo cargar Invoices", description: error instanceof Error ? error.message : "Intentá de nuevo." })
@@ -71,6 +74,27 @@ export default function InvoicesPage() {
   }, [addToast, invoicePage])
 
   useEffect(() => { void reload() }, [reload])
+
+  const isTemplateProvisioningActive = Boolean(templateProvisioning && ["queued", "creating", "pending_review"].includes(templateProvisioning.state))
+  useEffect(() => {
+    if (!showSettings || !settings?.whatsapp_channel_id || !isTemplateProvisioningActive) return
+    let active = true
+    const timer = window.setInterval(async () => {
+      try {
+        const config = await getInvoiceSettings()
+        if (!active || config.settings.whatsapp_channel_id !== settings.whatsapp_channel_id) return
+        setTemplateProvisioning(config.template_provisioning)
+        setTemplates(config.templates)
+        setSettings((current) => {
+          if (!current || current.whatsapp_channel_id !== settings.whatsapp_channel_id) return current
+          const invoiceId = config.template_provisioning?.invoice?.status === "APPROVED" ? config.template_provisioning.invoice.id : null
+          const reminderId = config.template_provisioning?.reminder?.status === "APPROVED" ? config.template_provisioning.reminder.id : null
+          return { ...current, whatsapp_template_id: current.whatsapp_template_id ?? invoiceId, reminder_template_id: current.reminder_template_id ?? reminderId }
+        })
+      } catch { /* a later poll can recover transient network errors */ }
+    }, 4000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [showSettings, settings?.whatsapp_channel_id, isTemplateProvisioningActive])
 
   const visibleInvoices = useMemo(() => invoices.filter((invoice) => `${invoice.number} ${invoice.concept} ${invoice.contact?.name ?? ""}`.toLowerCase().includes(search.toLowerCase())), [invoices, search])
   const issued = invoices.filter((invoice) => invoice.status === "issued")
@@ -124,6 +148,11 @@ export default function InvoicesPage() {
     finally { setBusy(false) }
   }
 
+  function updateSettingsDraft(patch: Partial<InvoiceSettingsRecord>) {
+    setSettingsFormError("")
+    setSettings((current) => current ? { ...current, ...patch } : current)
+  }
+
   async function updateSettings(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!settings) return
     if (!Number.isInteger(settings.payment_term_days) || settings.payment_term_days < 0 || settings.payment_term_days > 365) {
@@ -141,6 +170,19 @@ export default function InvoicesPage() {
     try { await saveInvoiceSettings(settings); addToast({ type: "success", title: "Configuración guardada" }); setShowSettings(false); await reload() }
     catch (error) { addToast({ type: "error", title: "No se pudo guardar la configuración", description: error instanceof Error ? error.message : "Revisá las plantillas y el canal." }) }
     finally { setBusy(false) }
+  }
+
+  async function startTemplateProvisioning() {
+    const channelId = settings?.whatsapp_channel_id
+    if (!channelId) return
+    setProvisioningBusy(true)
+    try {
+      const provisioning = await provisionInvoiceTemplates(channelId)
+      setTemplateProvisioning(provisioning)
+      addToast({ type: "success", title: "Plantillas solicitadas", description: "Meta las revisará antes de que se puedan usar. Los envíos automáticos siguen bajo tu control." })
+    } catch (error) {
+      addToast({ type: "error", title: "No se pudieron crear las plantillas", description: error instanceof Error ? error.message : "Verificá la conexión de WhatsApp y tus permisos." })
+    } finally { setProvisioningBusy(false) }
   }
 
   async function downloadPdf(id: number) {
@@ -239,11 +281,17 @@ export default function InvoicesPage() {
                   <div><h3 id="invoice-business-heading" className="text-sm font-semibold">Datos del negocio y envío</h3><p className="text-xs text-muted-foreground">Identidad del comprobante y plantillas de WhatsApp.</p></div>
                 </div>
                 <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
-                  <label htmlFor="invoice-business-name" className="block space-y-1.5 text-sm font-medium">Nombre del negocio<Input id="invoice-business-name" required value={settings.business_name ?? ""} onChange={(event) => setSettings({ ...settings, business_name: event.target.value })} placeholder="Nombre que aparecerá en el comprobante" className="mt-1 w-full" /></label>
-                  <div className="block space-y-1.5 text-sm font-medium"><span id="invoice-channel-label" className="block">Canal de WhatsApp</span><Select value={settings.whatsapp_channel_id ? String(settings.whatsapp_channel_id) : "none"} onValueChange={async (value) => { const channelId = value === "none" ? null : Number(value); setSettings({ ...settings, whatsapp_channel_id: channelId, whatsapp_template_id: null, reminder_template_id: null }); setTemplates([]); if (channelId) { try { const token = getAuthToken(); const response = await fetch(`/api/channels/${channelId}/templates?status=all`, { headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() } }); if (!response.ok) throw new Error("No se pudieron cargar las plantillas del canal."); const data = await response.json().catch(() => []); setTemplates((Array.isArray(data) ? data : data.data ?? []).filter((item: { status: string }) => item.status === "approved").map((item: { id: number; name: string; components?: Array<{ type: string; format?: string }>; expected_body_parameters?: string[] }) => ({ id: item.id, name: item.name, header_format: item.components?.find((part) => part.type.toUpperCase() === "HEADER")?.format ?? null, parameters: item.expected_body_parameters ?? [] }))) } catch (error) { addToast({ type: "error", title: "No se pudieron cargar las plantillas", description: error instanceof Error ? error.message : "Intentá de nuevo." }) } } }}><SelectTrigger id="invoice-channel" aria-labelledby="invoice-channel-label" className="mt-1 w-full"><SelectValue placeholder="Seleccioná un canal" /></SelectTrigger><SelectContent><SelectItem value="none">Sin canal seleccionado</SelectItem>{channels.map((channel) => <SelectItem key={channel.id} value={String(channel.id)}>{channel.name}</SelectItem>)}</SelectContent></Select></div>
-                  <div className="block space-y-1.5 text-sm font-medium"><span id="invoice-template-label" className="block">Plantilla del cobro</span><Select value={settings.whatsapp_template_id ? String(settings.whatsapp_template_id) : "none"} onValueChange={(value) => setSettings({ ...settings, whatsapp_template_id: value === "none" ? null : Number(value) })}><SelectTrigger id="invoice-template" aria-labelledby="invoice-template-label" className="mt-1 w-full"><SelectValue placeholder="Elegí una plantilla aprobada" /></SelectTrigger><SelectContent><SelectItem value="none">Sin plantilla seleccionada</SelectItem>{templatesForChannel.filter((template) => template.header_format === "DOCUMENT").map((template) => <SelectItem key={template.id} value={String(template.id)}>{template.name}</SelectItem>)}</SelectContent></Select><p className="text-xs font-normal text-muted-foreground">Usá una plantilla aprobada que incluya un documento.</p></div>
-                  <div className="block space-y-1.5 text-sm font-medium"><span id="invoice-reminder-template-label" className="block">Plantilla de recordatorio</span><Select value={settings.reminder_template_id ? String(settings.reminder_template_id) : "none"} onValueChange={(value) => setSettings({ ...settings, reminder_template_id: value === "none" ? null : Number(value) })}><SelectTrigger id="invoice-reminder-template" aria-labelledby="invoice-reminder-template-label" className="mt-1 w-full"><SelectValue placeholder="Elegí una plantilla aprobada" /></SelectTrigger><SelectContent><SelectItem value="none">Sin plantilla seleccionada</SelectItem>{templatesForChannel.filter((template) => !template.header_format).map((template) => <SelectItem key={template.id} value={String(template.id)}>{template.name}</SelectItem>)}</SelectContent></Select><p className="text-xs font-normal text-muted-foreground">Usá una plantilla aprobada sin archivo adjunto.</p></div>
+                  <label htmlFor="invoice-business-name" className="block space-y-1.5 text-sm font-medium">Nombre del negocio<Input id="invoice-business-name" required value={settings.business_name ?? ""} onChange={(event) => updateSettingsDraft({ business_name: event.target.value })} placeholder="Nombre que aparecerá en el comprobante" className="mt-1 w-full" /></label>
+                  <div className="block space-y-1.5 text-sm font-medium"><span id="invoice-channel-label" className="block">Canal de WhatsApp</span><Select value={settings.whatsapp_channel_id ? String(settings.whatsapp_channel_id) : "none"} onValueChange={async (value) => { const channelId = value === "none" ? null : Number(value); updateSettingsDraft({ whatsapp_channel_id: channelId, whatsapp_template_id: null, reminder_template_id: null }); setTemplates([]); setTemplateProvisioning(null); if (channelId) { try { const token = getAuthToken(); const response = await fetch(`/api/channels/${channelId}/templates?status=all`, { headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() } }); if (!response.ok) throw new Error("No se pudieron cargar las plantillas del canal."); const data = await response.json().catch(() => []); setTemplates((Array.isArray(data) ? data : data.data ?? []).filter((item: { status: string }) => item.status.toUpperCase() === "APPROVED").map((item: { id: number; name: string; components?: Array<{ type: string; format?: string }>; expected_body_parameters?: string[] }) => ({ id: item.id, name: item.name, header_format: item.components?.find((part) => part.type.toUpperCase() === "HEADER")?.format ?? null, parameters: item.expected_body_parameters ?? [] }))) } catch (error) { addToast({ type: "error", title: "No se pudieron cargar las plantillas", description: error instanceof Error ? error.message : "Intentá de nuevo." }) } } }}><SelectTrigger id="invoice-channel" aria-labelledby="invoice-channel-label" className="mt-1 w-full"><SelectValue placeholder="Seleccioná un canal" /></SelectTrigger><SelectContent><SelectItem value="none">Sin canal seleccionado</SelectItem>{channels.map((channel) => <SelectItem key={channel.id} value={String(channel.id)}>{channel.name}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="block space-y-1.5 text-sm font-medium"><span id="invoice-template-label" className="block">Plantilla del cobro</span><Select value={settings.whatsapp_template_id ? String(settings.whatsapp_template_id) : "none"} onValueChange={(value) => updateSettingsDraft({ whatsapp_template_id: value === "none" ? null : Number(value) })}><SelectTrigger id="invoice-template" aria-labelledby="invoice-template-label" className="mt-1 w-full"><SelectValue placeholder="Elegí una plantilla aprobada" /></SelectTrigger><SelectContent><SelectItem value="none">Sin plantilla seleccionada</SelectItem>{templatesForChannel.filter((template) => template.header_format === "DOCUMENT").map((template) => <SelectItem key={template.id} value={String(template.id)}>{template.name}</SelectItem>)}</SelectContent></Select><p className="text-xs font-normal text-muted-foreground">Usá una plantilla aprobada que incluya un documento.</p></div>
+                  <div className="block space-y-1.5 text-sm font-medium"><span id="invoice-reminder-template-label" className="block">Plantilla de recordatorio</span><Select value={settings.reminder_template_id ? String(settings.reminder_template_id) : "none"} onValueChange={(value) => updateSettingsDraft({ reminder_template_id: value === "none" ? null : Number(value) })}><SelectTrigger id="invoice-reminder-template" aria-labelledby="invoice-reminder-template-label" className="mt-1 w-full"><SelectValue placeholder="Elegí una plantilla aprobada" /></SelectTrigger><SelectContent><SelectItem value="none">Sin plantilla seleccionada</SelectItem>{templatesForChannel.filter((template) => !template.header_format).map((template) => <SelectItem key={template.id} value={String(template.id)}>{template.name}</SelectItem>)}</SelectContent></Select><p className="text-xs font-normal text-muted-foreground">Usá una plantilla aprobada sin archivo adjunto.</p></div>
                 </div>
+                {settings.whatsapp_channel_id && <div className="space-y-3 rounded-xl border bg-muted/15 p-4">
+                  <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><p className="text-sm font-semibold">Plantillas de cobro para WhatsApp</p><p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">Creamos el cobro con PDF de ejemplo y el recordatorio. Meta debe aprobarlos antes de que puedas usarlos; esto no activa los envíos automáticos.</p></div><Button type="button" variant="outline" disabled={!canCreateTemplates || provisioningBusy || ["ready", "rejected"].includes(templateProvisioning?.state ?? "") || !channels.find((channel) => channel.id === settings.whatsapp_channel_id && channel.status === "active")} onClick={() => void startTemplateProvisioning()} className="shrink-0"><MessageCircle className="mr-2 size-4" />{provisioningBusy ? "Solicitando…" : templateProvisioning?.state === "partial" ? "Reintentar faltantes" : "Crear plantillas"}</Button></div>
+                  {!canCreateTemplates && <p className="text-xs text-muted-foreground">Necesitás permiso para crear plantillas de WhatsApp.</p>}
+                  {templateProvisioning && templateProvisioning.channel_id === settings.whatsapp_channel_id && <div role="status" className="grid gap-2 sm:grid-cols-2">{([['invoice', 'Cobro'], ['reminder', 'Recordatorio']] as const).map(([roleKey, label]) => { const template = templateProvisioning[roleKey]; const error = templateProvisioning[`${roleKey}_error` as "invoice_error" | "reminder_error"]; const status = template?.status ?? (error ? "ERROR" : ["queued", "creating"].includes(templateProvisioning.state) ? "CREATING" : "PENDING"); const description = status === "CREATING" ? (templateProvisioning.state === "queued" ? "En cola para crear" : "Creando plantilla") : status === "APPROVED" ? "Aprobada y seleccionada" : status === "REJECTED" ? `Rechazada${template?.rejected_reason ? `: ${template.rejected_reason}` : " por Meta"}` : status === "ERROR" ? error : status === "PENDING" ? "En revisión de Meta" : status.replaceAll("_", " "); return <div key={roleKey} className="rounded-lg border bg-background p-3"><div className="flex items-center justify-between gap-2"><p className="text-xs font-medium">{label}</p><Badge variant={status === "APPROVED" ? "secondary" : status === "REJECTED" || status === "ERROR" ? "destructive" : "outline"}>{status === "APPROVED" ? "Aprobada" : status === "REJECTED" ? "Rechazada" : status === "ERROR" ? "Error" : status === "CREATING" ? "Creando" : "En revisión"}</Badge></div><p className="mt-1 break-words text-xs text-muted-foreground">{description}</p></div> })}</div>}
+                  {templateProvisioning?.state === "ready" && <p className="text-xs text-muted-foreground">Podés activar los envíos automáticos cuando quieras desde el control de abajo.</p>}
+                </div>}
               </section>
 
               <section aria-labelledby="invoice-schedule-heading" className="space-y-4 border-t pt-6">
@@ -252,9 +300,9 @@ export default function InvoicesPage() {
                   <div><h3 id="invoice-schedule-heading" className="text-sm font-semibold">Plazos y horario</h3><p className="text-xs text-muted-foreground">Los horarios se interpretan en la zona horaria elegida.</p></div>
                 </div>
                 <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
-                  <label htmlFor="invoice-payment-days" className="block space-y-1.5 text-sm font-medium">Días para pagar<Input id="invoice-payment-days" type="number" min="0" max="365" value={settings.payment_term_days} onChange={(event) => setSettings({ ...settings, payment_term_days: Number(event.target.value) })} className="mt-1 w-full" /><span className="block text-xs font-normal text-muted-foreground">Plazo desde la fecha de emisión.</span></label>
-                  <label htmlFor="invoice-send-hour" className="block space-y-1.5 text-sm font-medium">Hora de envío<Input id="invoice-send-hour" type="number" min="0" max="23" value={settings.send_hour} onChange={(event) => setSettings({ ...settings, send_hour: Number(event.target.value) })} className="mt-1 w-full" /><span className="block text-xs font-normal text-muted-foreground">Hora local, entre 0 y 23.</span></label>
-                  <label htmlFor="invoice-timezone" className="block space-y-1.5 text-sm font-medium sm:col-span-2 lg:col-span-1">Zona horaria<Input id="invoice-timezone" required value={settings.timezone} onChange={(event) => setSettings({ ...settings, timezone: event.target.value })} className="mt-1 w-full" placeholder="America/Argentina/Buenos_Aires" /><span className="block text-xs font-normal text-muted-foreground">Ejemplo: America/Argentina/Buenos_Aires.</span></label>
+                  <label htmlFor="invoice-payment-days" className="block space-y-1.5 text-sm font-medium">Días para pagar<Input id="invoice-payment-days" type="number" min="0" max="365" value={settings.payment_term_days} onChange={(event) => updateSettingsDraft({ payment_term_days: Number(event.target.value) })} className="mt-1 w-full" /><span className="block text-xs font-normal text-muted-foreground">Plazo desde la fecha de emisión.</span></label>
+                  <label htmlFor="invoice-send-hour" className="block space-y-1.5 text-sm font-medium">Hora de envío<Input id="invoice-send-hour" type="number" min="0" max="23" value={settings.send_hour} onChange={(event) => updateSettingsDraft({ send_hour: Number(event.target.value) })} className="mt-1 w-full" /><span className="block text-xs font-normal text-muted-foreground">Hora local, entre 0 y 23.</span></label>
+                  <label htmlFor="invoice-timezone" className="block space-y-1.5 text-sm font-medium sm:col-span-2 lg:col-span-1">Zona horaria<Input id="invoice-timezone" required value={settings.timezone} onChange={(event) => updateSettingsDraft({ timezone: event.target.value })} className="mt-1 w-full" placeholder="America/Argentina/Buenos_Aires" /><span className="block text-xs font-normal text-muted-foreground">Ejemplo: America/Argentina/Buenos_Aires.</span></label>
                 </div>
               </section>
 
@@ -264,7 +312,7 @@ export default function InvoicesPage() {
                   <div><h3 id="invoice-payment-heading" className="text-sm font-semibold">Instrucciones de pago</h3><p className="text-xs text-muted-foreground">Agregá los datos que el cliente necesita para pagar.</p></div>
                 </div>
                 <label htmlFor="invoice-payment-instructions" className="sr-only">Instrucciones de pago</label>
-                <Textarea id="invoice-payment-instructions" className="min-h-28 w-full resize-none" rows={4} value={settings.payment_instructions ?? ""} onChange={(event) => setSettings({ ...settings, payment_instructions: event.target.value })} placeholder="Alias, CBU u otros pasos para completar el pago…" />
+                <Textarea id="invoice-payment-instructions" className="min-h-28 w-full resize-none" rows={4} value={settings.payment_instructions ?? ""} onChange={(event) => updateSettingsDraft({ payment_instructions: event.target.value })} placeholder="Alias, CBU u otros pasos para completar el pago…" />
               </section>
 
               <div className="flex flex-col gap-4 rounded-xl border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
@@ -272,7 +320,7 @@ export default function InvoicesPage() {
                   <span className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg ${settings.enabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}><MessageCircle className="size-4" /></span>
                   <div><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">Envíos automáticos</p><Badge variant={settings.enabled ? "secondary" : "outline"}>{settings.enabled ? "Activos" : "Pausados"}</Badge></div><p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">Al activar, los cobros emitidos se enviarán por WhatsApp según estas plantillas y horarios.</p></div>
                 </div>
-                <div className="flex items-center gap-3 self-end sm:self-center"><span className="text-xs text-muted-foreground">{settings.enabled ? "Activado" : "Desactivado"}</span><Switch checked={settings.enabled} onCheckedChange={(enabled) => setSettings({ ...settings, enabled })} aria-label="Activar Invoices y sus envíos automáticos" /></div>
+                <div className="flex items-center gap-3 self-end sm:self-center"><span className="text-xs text-muted-foreground">{settings.enabled ? "Activado" : "Desactivado"}</span><Switch checked={settings.enabled} onCheckedChange={(enabled) => updateSettingsDraft({ enabled })} aria-label="Activar Invoices y sus envíos automáticos" /></div>
               </div>
 
               <div className="flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row sm:justify-end">

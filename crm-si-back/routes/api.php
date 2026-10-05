@@ -552,6 +552,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('invoices', [InvoiceController::class, 'store']);
     Route::get('invoices/settings', [InvoiceController::class, 'settings']);
     Route::put('invoices/settings', [InvoiceController::class, 'updateSettings']);
+    Route::post('invoices/templates/provision', [InvoiceController::class, 'provisionTemplates']);
     Route::get('invoices/{invoice}', [InvoiceController::class, 'show']);
     Route::put('invoices/{invoice}', [InvoiceController::class, 'update']);
     Route::post('invoices/{invoice}/issue', [InvoiceController::class, 'issue']);
