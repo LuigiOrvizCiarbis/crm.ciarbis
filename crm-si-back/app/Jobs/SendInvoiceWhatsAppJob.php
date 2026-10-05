@@ -2,8 +2,8 @@
 
 namespace App\Jobs;
 
-use App\Enums\TemplateStatus;
 use App\Enums\TemplateCategory;
+use App\Enums\TemplateStatus;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Invoice;
@@ -11,15 +11,16 @@ use App\Models\InvoiceEvent;
 use App\Models\InvoiceSetting;
 use App\Models\WhatsAppTemplate;
 use App\Services\BroadcastConversationResolver;
+use App\Services\InvoiceService;
 use App\Services\WhatsAppTemplateService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Http\Client\ConnectionException;
 use Throwable;
 
 class SendInvoiceWhatsAppJob implements ShouldQueue
@@ -27,15 +28,19 @@ class SendInvoiceWhatsAppJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+
     public array $backoff = [30, 120];
+
     public int $timeout = 90;
 
     public function __construct(public int $invoiceId, public int $tenantId) {}
 
-    public function handle(WhatsAppTemplateService $templates, BroadcastConversationResolver $conversations): void
+    public function handle(WhatsAppTemplateService $templates, BroadcastConversationResolver $conversations, InvoiceService $invoiceService): void
     {
         $invoice = Invoice::withoutGlobalScopes()->where('tenant_id', $this->tenantId)->find($this->invoiceId);
-        if (! $invoice || $invoice->status !== 'issued' || $invoice->delivery_status === 'delivered') return;
+        if (! $invoice || $invoice->status !== 'issued' || $invoice->delivery_status === 'delivered') {
+            return;
+        }
         $settings = InvoiceSetting::withoutGlobalScopes()->where('tenant_id', $this->tenantId)->first();
         $channel = $settings?->whatsapp_channel_id
             ? Channel::withoutGlobalScopes()->with('whatsappConfig')->where('tenant_id', $this->tenantId)->find($settings->whatsapp_channel_id)
@@ -44,12 +49,17 @@ class SendInvoiceWhatsAppJob implements ShouldQueue
             ? WhatsAppTemplate::withoutGlobalScopes()->where('tenant_id', $this->tenantId)->find($settings->whatsapp_template_id)
             : null;
         $contact = Contact::withoutGlobalScopes()->where('tenant_id', $this->tenantId)->find($invoice->contact_id);
-        if (! $channel || ! $channel->isActive() || ! $template || $template->status !== TemplateStatus::Approved || $template->category !== TemplateCategory::Utility || $template->headerMediaFormat() !== 'DOCUMENT' || ! $contact?->phone || ! $invoice->pdf_path) {
+        if (! $channel || ! $channel->isActive() || ! $template || $template->status !== TemplateStatus::Approved || $template->category !== TemplateCategory::Utility || $template->headerMediaFormat() !== 'DOCUMENT' || ! $contact?->phone) {
             $this->failInvoice($invoice, 'Falta un canal activo, teléfono, PDF o plantilla Utility aprobada con encabezado PDF.');
+
             return;
         }
 
-        $path = Storage::disk('local')->path($invoice->pdf_path);
+        $pdfPath = $invoiceService->ensurePdfExists($invoice);
+        $path = Storage::disk('local')->path($pdfPath);
+        if (! is_file($path)) {
+            throw new \RuntimeException("No se encontró el PDF generado para el invoice {$invoice->number}.");
+        }
         $file = new UploadedFile($path, $invoice->number.'.pdf', 'application/pdf', null, true);
         $mediaId = $templates->uploadMedia($channel->whatsappConfig, $file);
         $conversation = $conversations->findOrCreate($contact, $channel);
@@ -69,6 +79,7 @@ class SendInvoiceWhatsAppJob implements ShouldQueue
             $value = ctype_digit($key) ? ($positionalValues[((int) $key) - 1] ?? null) : ($values[$key] ?? null);
             if ($value === null) {
                 $this->failInvoice($invoice, "La plantilla requiere una variable no soportada: {$key}.");
+
                 return;
             }
             $bodyParameters[] = ['type' => 'text', ...(ctype_digit($key) ? [] : ['parameter_name' => $key]), 'text' => (string) $value];
@@ -76,7 +87,9 @@ class SendInvoiceWhatsAppJob implements ShouldQueue
         $components = [
             ['type' => 'header', 'parameters' => [['type' => 'document', 'document' => ['id' => $mediaId, 'filename' => $invoice->number.'.pdf']]]],
         ];
-        if ($bodyParameters) $components[] = ['type' => 'body', 'parameters' => $bodyParameters];
+        if ($bodyParameters) {
+            $components[] = ['type' => 'body', 'parameters' => $bodyParameters];
+        }
 
         try {
             $message = $templates->sendSystemTemplateMessage($conversation, $template, $components);
@@ -85,10 +98,14 @@ class SendInvoiceWhatsAppJob implements ShouldQueue
             // retry automatically or expose a manual retry for this state.
             $invoice->update(['delivery_status' => 'unknown', 'delivery_error' => 'Meta no confirmó si recibió el mensaje. Verificá WhatsApp antes de reenviar.']);
             InvoiceEvent::create(['tenant_id' => $this->tenantId, 'invoice_id' => $invoice->id, 'type' => 'message_unknown', 'details' => ['error' => mb_substr($exception->getMessage(), 0, 500)]]);
+
             return;
         } catch (\RuntimeException $exception) {
-            if (str_contains($exception->getMessage(), '429') || preg_match('/\b5\d\d\b/', $exception->getMessage())) throw $exception;
+            if (str_contains($exception->getMessage(), '429') || preg_match('/\b5\d\d\b/', $exception->getMessage())) {
+                throw $exception;
+            }
             $this->failInvoice($invoice, $exception->getMessage());
+
             return;
         }
         $invoice->update(['delivery_status' => 'accepted', 'sent_at' => now(), 'delivery_error' => null]);
@@ -103,7 +120,9 @@ class SendInvoiceWhatsAppJob implements ShouldQueue
 
     private function failInvoice(?Invoice $invoice, string $reason): void
     {
-        if (! $invoice) return;
+        if (! $invoice) {
+            return;
+        }
         $invoice->update(['delivery_status' => 'failed', 'delivery_error' => mb_substr($reason, 0, 250)]);
         InvoiceEvent::create(['tenant_id' => $invoice->tenant_id, 'invoice_id' => $invoice->id, 'type' => 'message_failed', 'details' => ['error' => mb_substr($reason, 0, 500)]]);
     }
