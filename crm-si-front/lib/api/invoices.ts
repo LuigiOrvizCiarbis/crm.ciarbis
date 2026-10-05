@@ -19,6 +19,12 @@ export interface InvoiceSettingsRecord {
   payment_term_days: number; reminder_days: number[]; enabled: boolean
   send_hour: number
 }
+export interface InvoiceTemplateProvisioningRecord {
+  id: number; channel_id: number; state: string
+  invoice: { id: number; name: string; status: string; rejected_reason: string | null } | null
+  reminder: { id: number; name: string; status: string; rejected_reason: string | null } | null
+  invoice_error: string | null; reminder_error: string | null
+}
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAuthToken()
@@ -49,9 +55,13 @@ export async function updateRecurrence(id: number, input: Record<string, unknown
 export async function recurrenceAction(id: number, action: string): Promise<void> {
   await api(`/api/invoice-recurrences/${id}/${action}`, { method: 'POST', body: '{}' })
 }
-export async function getInvoiceSettings(): Promise<{ settings: InvoiceSettingsRecord; templates: Array<{ id: number; name: string; header_format: string | null; parameters: string[] }> }> {
-  const payload = await api<{ data: InvoiceSettingsRecord; templates: Array<{ id: number; name: string; header_format: string | null; parameters: string[] }> }>('/api/invoices/settings')
-  return { settings: payload.data, templates: payload.templates ?? [] }
+export async function getInvoiceSettings(): Promise<{ settings: InvoiceSettingsRecord; templates: Array<{ id: number; name: string; header_format: string | null; parameters: string[] }>; template_provisioning: InvoiceTemplateProvisioningRecord | null }> {
+  const payload = await api<{ data: InvoiceSettingsRecord; templates: Array<{ id: number; name: string; header_format: string | null; parameters: string[] }>; template_provisioning: InvoiceTemplateProvisioningRecord | null }>('/api/invoices/settings')
+  return { settings: payload.data, templates: payload.templates ?? [], template_provisioning: payload.template_provisioning ?? null }
+}
+export async function provisionInvoiceTemplates(channel_id: number): Promise<InvoiceTemplateProvisioningRecord> {
+  const payload = await api<{ data: InvoiceTemplateProvisioningRecord }>('/api/invoices/templates/provision', { method: 'POST', body: JSON.stringify({ channel_id }) })
+  return payload.data
 }
 export async function saveInvoiceSettings(settings: InvoiceSettingsRecord): Promise<void> {
   await api('/api/invoices/settings', { method: 'PUT', body: JSON.stringify(settings) })
