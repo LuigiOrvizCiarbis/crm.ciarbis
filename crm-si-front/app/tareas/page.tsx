@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { useTaskStore } from "@/store/useTaskStore"
+import { getUsers, type SystemUser } from "@/lib/api/users"
 import type { Task, TaskStatus, TaskType } from "@/lib/types/task"
 import { useIsMobile } from "@/hooks/use-mobile"
 import type { TaskFilters } from "@/lib/types/task-filters"
@@ -39,6 +40,7 @@ export default function TareasPage() {
   const [filteredTasks, setFilteredTasks] = useState(tasks)
   const [showNewTask, setShowNewTask] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
+  const [users, setUsers] = useState<SystemUser[]>([])
   const [filters, setFilters] = useState<TaskFilters>({
     status: [],
     assignees: [],
@@ -50,6 +52,10 @@ export default function TareasPage() {
   useEffect(() => {
     fetchTasks()
   }, [fetchTasks])
+
+  useEffect(() => {
+    getUsers().then(setUsers)
+  }, [])
 
   const hasCalendarSyncInFlight = tasks.some((task) => {
     if (task.type !== "reunion") return false
@@ -308,24 +314,25 @@ export default function TareasPage() {
             <div className="space-y-3">
               <Label className="text-sm font-medium">Responsable</Label>
               <div className="space-y-2">
-                {["Ana Gómez", "Carlos Ruiz", "María López", "Juan Pérez", "Laura Torres"].map((assignee) => (
-                  <div key={assignee} className="flex items-center space-x-2">
+                {users.map((user) => (
+                  <div key={user.id} className="flex items-center space-x-2">
                     <Checkbox
-                      id={`assignee-${assignee}`}
-                      checked={filters.assignees.includes(assignee)}
+                      id={`assignee-${user.id}`}
+                      checked={filters.assignees.includes(user.name)}
                       onCheckedChange={(checked) => {
                         if (checked) {
-                          setFilters({ ...filters, assignees: [...filters.assignees, assignee] })
+                          setFilters({ ...filters, assignees: [...filters.assignees, user.name] })
                         } else {
-                          setFilters({ ...filters, assignees: filters.assignees.filter((a) => a !== assignee) })
+                          setFilters({ ...filters, assignees: filters.assignees.filter((a) => a !== user.name) })
                         }
                       }}
                     />
-                    <label htmlFor={`assignee-${assignee}`} className="text-sm cursor-pointer">
-                      {assignee}
+                    <label htmlFor={`assignee-${user.id}`} className="text-sm cursor-pointer">
+                      {user.name}
                     </label>
                   </div>
                 ))}
+                {users.length === 0 && <p className="text-sm text-muted-foreground">No hay responsables disponibles</p>}
               </div>
             </div>
 
