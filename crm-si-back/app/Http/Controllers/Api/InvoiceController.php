@@ -103,13 +103,14 @@ class InvoiceController extends Controller
         return ['data' => $invoice->fresh()];
     }
 
-    public function pdf(Request $request, Invoice $invoice)
+    public function pdf(Request $request, Invoice $invoice, InvoiceService $service)
     {
         $this->authorizeInvoice($request, 'invoices.view');
         $this->sameTenant($request, $invoice);
-        abort_unless($invoice->pdf_path && Storage::disk('local')->exists($invoice->pdf_path), 404);
+        abort_unless($invoice->status === 'issued', 404);
+        $path = $service->ensurePdfExists($invoice);
 
-        return Storage::disk('local')->download($invoice->pdf_path, $invoice->number.'.pdf');
+        return Storage::disk('local')->download($path, $invoice->number.'.pdf');
     }
 
     public function pay(Request $request, Invoice $invoice, InvoiceService $service)

@@ -2,16 +2,18 @@
 
 namespace App\Services;
 
+use App\Jobs\SendInvoiceWhatsAppJob;
 use App\Models\Contact;
 use App\Models\Invoice;
 use App\Models\InvoiceEvent;
 use App\Models\InvoiceSetting;
 use App\Models\User;
-use App\Jobs\SendInvoiceWhatsAppJob;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Carbon\CarbonImmutable;
+use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 class InvoiceService
 {
@@ -49,7 +51,7 @@ class InvoiceService
         $contact = Contact::where('tenant_id', $invoice->tenant_id)->findOrFail($invoice->contact_id);
         $settings = InvoiceSetting::firstOrCreate(['tenant_id' => $invoice->tenant_id]);
         if (! $settings->enabled || ! $settings->whatsapp_channel_id || ! $settings->whatsapp_template_id) {
-            throw \Illuminate\Validation\ValidationException::withMessages(['invoice' => 'Activá Invoices y configurá canal y plantilla aprobada antes de emitir un cobro.']);
+            throw ValidationException::withMessages(['invoice' => 'Activá Invoices y configurá canal y plantilla aprobada antes de emitir un cobro.']);
         }
         $today = $invoice->issued_on?->format('Y-m-d') ?? now($settings->timezone)->toDateString();
         $issuer = ['name' => $settings->business_name ?: $invoice->tenant?->name, 'instructions' => $settings->payment_instructions];
@@ -63,16 +65,46 @@ class InvoiceService
             'contact_snapshot' => $customer,
         ]);
 
-        $pdf = Pdf::loadView('invoices.pdf', ['invoice' => $invoice, 'issuer' => $issuer, 'customer' => $customer]);
         $path = "invoices/{$invoice->tenant_id}/{$invoice->number}.pdf";
-        Storage::disk('local')->put($path, $pdf->output());
         $invoice->pdf_path = $path;
         $invoice->delivery_status = 'pending';
         $invoice->save();
+        $this->ensurePdfExists($invoice);
         $this->event($invoice, 'issued', $user, ['issued_on' => $today, 'due_on' => $invoice->due_on->format('Y-m-d')]);
         SendInvoiceWhatsAppJob::dispatch($invoice->id, $invoice->tenant_id)->afterCommit();
 
         return $invoice->fresh();
+    }
+
+    public function ensurePdfExists(Invoice $invoice): string
+    {
+        $disk = Storage::disk('local');
+        $path = $invoice->pdf_path ?: "invoices/{$invoice->tenant_id}/{$invoice->number}.pdf";
+
+        if (! $disk->exists($path)) {
+            $settings = InvoiceSetting::withoutGlobalScopes()->where('tenant_id', $invoice->tenant_id)->first();
+            $contact = Contact::withoutGlobalScopes()->where('tenant_id', $invoice->tenant_id)->find($invoice->contact_id);
+            $issuer = array_replace([
+                'name' => $settings?->business_name ?: $invoice->tenant?->name,
+                'instructions' => $settings?->payment_instructions,
+            ], $invoice->issuer_snapshot ?? []);
+            $customer = array_replace([
+                'name' => $contact?->name ?? '',
+                'phone' => $contact?->phone ?? '',
+                'email' => $contact?->email ?? '',
+            ], $invoice->contact_snapshot ?? []);
+            $contents = Pdf::loadView('invoices.pdf', compact('invoice', 'issuer', 'customer'))->output();
+
+            if (! $disk->put($path, $contents)) {
+                throw new RuntimeException("No se pudo guardar el PDF del invoice {$invoice->number}.");
+            }
+        }
+
+        if ($invoice->pdf_path !== $path) {
+            $invoice->forceFill(['pdf_path' => $path])->save();
+        }
+
+        return $path;
     }
 
     public function event(Invoice $invoice, string $type, ?User $user, array $details = []): void
