@@ -1,0 +1,3 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><style>body{font-family:DejaVu Sans,sans-serif;color:#222;padding:40px}h1{font-size:24px}table{width:100%;border-collapse:collapse;margin-top:32px}td{padding:12px;border-bottom:1px solid #ddd}.muted{color:#666}</style></head>
+<body><h1>Ejemplo de cobro</h1><p class="muted">Documento de muestra para revisión de plantilla. No es un comprobante fiscal.</p><table><tr><td>Negocio</td><td>Comercio de ejemplo</td></tr><tr><td>Cliente</td><td>Cliente de prueba</td></tr><tr><td>Concepto</td><td>Servicio mensual</td></tr><tr><td>Importe</td><td>$ 10.000,00</td></tr><tr><td>Vencimiento</td><td>15/10/2026</td></tr></table></body></html>

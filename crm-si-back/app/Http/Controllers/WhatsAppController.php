@@ -11,10 +11,11 @@ use App\Http\Requests\ChannelStoreRequest;
 use App\Jobs\CompleteBillingProvisioningJob;
 use App\Jobs\VerifyContactSyncJob;
 use App\Models\Channel;
-use App\Models\Message;
 use App\Models\Invoice;
 use App\Models\InvoiceEvent;
 use App\Models\InvoiceSetting;
+use App\Models\InvoiceTemplateProvisioning;
+use App\Models\Message;
 use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
@@ -24,6 +25,7 @@ use App\Services\WhatsAppGroupEligibilityService;
 use App\Services\WhatsAppGroupWebhookService;
 use App\Services\WhatsAppMessageService;
 use App\Support\MetaOAuth;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -31,7 +33,6 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Carbon\CarbonImmutable;
 
 class WhatsAppController extends Controller
 {
@@ -1618,6 +1619,27 @@ class WhatsAppController extends Controller
             'rejected_reason' => $this->templateRejectionReason($value),
             'synced_at' => now(),
         ])->save();
+
+        $invoiceProvisionings = InvoiceTemplateProvisioning::withoutGlobalScope(TenantScope::class)
+            ->where(fn ($query) => $query->where('invoice_template_id', $template->id)->orWhere('reminder_template_id', $template->id))
+            ->get();
+        foreach ($invoiceProvisionings as $provisioning) {
+            if ($status === TemplateStatus::Approved) {
+                $settings = InvoiceSetting::withoutGlobalScope(TenantScope::class)
+                    ->where('tenant_id', $provisioning->tenant_id)
+                    ->where('whatsapp_channel_id', $provisioning->channel_id)
+                    ->first();
+                if ($settings) {
+                    if ($provisioning->invoice_template_id === $template->id && in_array($settings->whatsapp_template_id, [null, $template->id], true)) {
+                        $settings->forceFill(['whatsapp_template_id' => $template->id])->save();
+                    }
+                    if ($provisioning->reminder_template_id === $template->id && in_array($settings->reminder_template_id, [null, $template->id], true)) {
+                        $settings->forceFill(['reminder_template_id' => $template->id])->save();
+                    }
+                }
+            }
+            $provisioning->refreshState();
+        }
 
         Log::info('message_template_status_update: plantilla actualizada', [
             'template_id' => $template->id,
