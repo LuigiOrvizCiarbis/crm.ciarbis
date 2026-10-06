@@ -83,6 +83,10 @@ class Invoice extends Model
             return $overdue ? 'partial_overdue' : 'partial';
         }
 
+        if (in_array($this->collection_status_override, ['pending', 'overdue'], true)) {
+            return $this->collection_status_override;
+        }
+
         return $overdue ? 'overdue' : 'pending';
     }
 }

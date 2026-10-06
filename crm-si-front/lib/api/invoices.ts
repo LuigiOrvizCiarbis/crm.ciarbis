@@ -90,6 +90,9 @@ export async function resendInvoice(id: number): Promise<void> { await api(`/api
 export async function recordInvoicePayment(id: number, input: { amount_cents: number; paid_on: string; method?: string; note?: string }): Promise<void> {
   await api(`/api/invoices/${id}/payments`, { method: 'POST', body: JSON.stringify(input) })
 }
+export async function setInvoiceCollectionStatus(id: number, status: "pending" | "overdue" | "paid"): Promise<void> {
+  await api(`/api/invoices/${id}/collection-status`, { method: "PUT", body: JSON.stringify({ status }) })
+}
 export async function voidInvoice(id: number, reason: string): Promise<void> { await api(`/api/invoices/${id}/void`, { method: 'POST', body: JSON.stringify({ reason }) }) }
 export async function reverseInvoicePayment(invoiceId: number, paymentId: number, reason: string): Promise<void> {
   await api(`/api/invoices/${invoiceId}/payments/${paymentId}/reverse`, { method: 'POST', body: JSON.stringify({ reason }) })
