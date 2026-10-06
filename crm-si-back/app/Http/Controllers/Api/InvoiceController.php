@@ -64,7 +64,7 @@ class InvoiceController extends Controller
         ]);
         $query->when($request->filled('collection_status'), function ($query) use ($request, $paidExpression, $partialBalance, $today) {
             $collectionStatus = (string) $request->input('collection_status');
-            $query->where('invoices.status', 'issued');
+            $query->where('invoices.status', '!=', 'void');
 
             match ($collectionStatus) {
                 'pending' => $query->whereRaw("{$paidExpression} = 0")
@@ -93,7 +93,7 @@ class InvoiceController extends Controller
             ->leftJoinSub($paidTotals, 'payment_totals', fn ($join) => $join
                 ->on('payment_totals.invoice_id', '=', 'invoices.id')
                 ->on('payment_totals.tenant_id', '=', 'invoices.tenant_id'))
-            ->where('invoices.status', 'issued')
+            ->where('invoices.status', '!=', 'void')
             ->selectRaw("COALESCE(SUM(CASE WHEN invoices.amount_cents > {$paidExpression} THEN invoices.amount_cents - {$paidExpression} ELSE 0 END), 0) AS outstanding_cents")
             ->selectRaw("COALESCE(SUM(CASE WHEN invoices.due_on < ? AND invoices.amount_cents > {$paidExpression} THEN invoices.amount_cents - {$paidExpression} ELSE 0 END), 0) AS overdue_balance_cents", [$today])
             ->selectRaw("COALESCE(SUM(CASE WHEN invoices.due_on < ? AND {$paidExpression} < invoices.amount_cents THEN 1 ELSE 0 END), 0) AS overdue_count", [$today])
@@ -155,7 +155,16 @@ class InvoiceController extends Controller
         if ($invoice->status === 'scheduled' && array_key_exists('scheduled_at', $data) && empty($data['scheduled_at'])) {
             throw ValidationException::withMessages(['scheduled_at' => 'Elegí fecha y hora para programar la emisión.']);
         }
-        $invoice->update($data);
+        DB::transaction(function () use ($invoice, $data): void {
+            $locked = Invoice::where('tenant_id', $invoice->tenant_id)->whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+            if (! in_array($locked->status, ['draft', 'scheduled'], true)) {
+                throw ValidationException::withMessages(['invoice' => 'Un invoice emitido se corrige anulándolo y creando uno nuevo.']);
+            }
+            if (isset($data['amount_cents']) && $data['amount_cents'] < $locked->paidCents()) {
+                throw ValidationException::withMessages(['amount_cents' => 'El importe no puede ser menor que los pagos ya registrados.']);
+            }
+            $locked->update($data);
+        });
 
         return ['data' => $invoice->fresh('contact')];
     }
@@ -196,8 +205,8 @@ class InvoiceController extends Controller
         $data = $request->validate(['amount_cents' => ['required', 'integer', 'min:1'], 'paid_on' => ['required', 'date'], 'method' => ['nullable', 'string', 'max:40'], 'note' => ['nullable', 'string', 'max:2000']]);
         $payment = DB::transaction(function () use ($request, $invoice, $data, $service) {
             $locked = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
-            if ($locked->status !== 'issued') {
-                throw ValidationException::withMessages(['invoice' => 'Solo se pueden registrar pagos en cobros emitidos.']);
+            if (! in_array($locked->status, ['draft', 'scheduled', 'issued'], true)) {
+                throw ValidationException::withMessages(['invoice' => 'No se pueden registrar pagos en cobros anulados.']);
             }
             $balance = $locked->balanceCents();
             if ($data['amount_cents'] > $balance) {
@@ -244,11 +253,14 @@ class InvoiceController extends Controller
         $this->authorizeInvoice($request, 'invoices.manage');
         $this->sameTenant($request, $invoice);
         $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']]);
-        if ($invoice->payments()->whereNull('reversed_at')->exists()) {
-            throw ValidationException::withMessages(['invoice' => 'Revertí los pagos antes de anular el cobro.']);
-        }
-        $invoice->update(['status' => 'void', 'void_reason' => $data['reason'], 'next_reminder_at' => null]);
-        $service->event($invoice, 'voided', $request->user(), ['reason' => $data['reason']]);
+        DB::transaction(function () use ($invoice, $request, $data, $service): void {
+            $locked = Invoice::where('tenant_id', $invoice->tenant_id)->whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+            if ($locked->payments()->whereNull('reversed_at')->exists()) {
+                throw ValidationException::withMessages(['invoice' => 'Revertí los pagos antes de anular el cobro.']);
+            }
+            $locked->update(['status' => 'void', 'void_reason' => $data['reason'], 'next_reminder_at' => null]);
+            $service->event($locked, 'voided', $request->user(), ['reason' => $data['reason']]);
+        });
 
         return ['data' => $invoice->fresh()];
     }
