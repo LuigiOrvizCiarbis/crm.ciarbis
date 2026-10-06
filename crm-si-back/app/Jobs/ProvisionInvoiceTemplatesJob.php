@@ -63,9 +63,7 @@ class ProvisionInvoiceTemplatesJob implements ShouldQueue
                 continue;
             }
 
-            $name = $role === 'invoice'
-                ? "si_invoice_{$provisioning->tenant_id}_cobro_v{$provisioning->version}"
-                : "si_invoice_{$provisioning->tenant_id}_recordatorio_v{$provisioning->version}";
+            $name = $role === 'invoice' ? 'plantilla_cobro' : 'recordatorio';
 
             try {
                 // Stable name lets a retry recover a create accepted by Meta before a worker/network failure.
