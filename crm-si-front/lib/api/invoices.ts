@@ -4,9 +4,17 @@ import { throwApiError } from "@/lib/api/api-error"
 export interface InvoiceRecord {
   id: number; number: string; concept: string; amount_cents: number; currency: string; status: string
   delivery_status: string; due_on: string | null; scheduled_at: string | null; contact?: { id: number; name: string }
-  paid_cents?: number; balance_cents?: number; payment_state?: string
+  paid_cents?: number; balance_cents?: number; payment_state?: string; collection_status?: InvoiceCollectionStatus | null
   payments?: Array<{ id: number; amount_cents: number; paid_on: string; method: string | null; note: string | null; reversed_at: string | null; reversal_reason: string | null }>
   events?: Array<{ id: number; type: string; details: Record<string, unknown>; created_at: string }>
+}
+
+export type InvoiceCollectionStatus = "pending" | "overdue" | "partial" | "partial_overdue" | "paid"
+
+export interface InvoiceSummary {
+  outstanding_cents: number
+  overdue_balance_cents: number
+  overdue_count: number
 }
 
 export interface InvoiceRecurrenceRecord {
@@ -35,9 +43,12 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T
 }
 
-export async function listInvoices(page = 1): Promise<{ rows: InvoiceRecord[]; pages: number }> {
-  const payload = await api<{ data: InvoiceRecord[]; meta?: { last_page: number }; last_page?: number }>(`/api/invoices?per_page=50&page=${page}`)
-  return { rows: payload.data, pages: payload.meta?.last_page ?? payload.last_page ?? 1 }
+export async function listInvoices(page = 1, search = "", collectionStatus = "all"): Promise<{ rows: InvoiceRecord[]; pages: number; summary: InvoiceSummary }> {
+  const query = new URLSearchParams({ per_page: "50", page: String(page) })
+  if (search) query.set("q", search)
+  if (collectionStatus !== "all") query.set("collection_status", collectionStatus)
+  const payload = await api<{ data: InvoiceRecord[]; meta?: { last_page: number }; last_page?: number; summary: InvoiceSummary }>(`/api/invoices?${query.toString()}`)
+  return { rows: payload.data, pages: payload.meta?.last_page ?? payload.last_page ?? 1, summary: payload.summary }
 }
 export async function listInvoiceRecurrences(): Promise<InvoiceRecurrenceRecord[]> {
   const payload = await api<{ data: InvoiceRecurrenceRecord[] }>('/api/invoice-recurrences?per_page=50')
