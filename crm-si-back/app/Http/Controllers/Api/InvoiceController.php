@@ -28,15 +28,82 @@ class InvoiceController extends Controller
     public function index(Request $request)
     {
         $this->authorizeInvoice($request, 'invoices.view');
-        $query = Invoice::with('contact')->withSum(['payments as paid_cents' => fn ($q) => $q->whereNull('reversed_at')], 'amount_cents')->latest('id');
+        $tenantId = (int) $request->user()->tenant_id;
+        $timezone = InvoiceSetting::where('tenant_id', $tenantId)->value('timezone') ?: 'America/Argentina/Buenos_Aires';
+        $today = now($timezone)->toDateString();
+        $paidTotals = InvoicePayment::query()
+            ->select(['tenant_id', 'invoice_id'])
+            ->selectRaw('SUM(amount_cents) AS paid_cents')
+            ->where('invoice_payments.tenant_id', $tenantId)
+            ->whereNull('reversed_at')
+            ->groupBy(['tenant_id', 'invoice_id']);
+        $paidExpression = 'COALESCE(payment_totals.paid_cents, 0)';
+        $partialBalance = "{$paidExpression} > 0 AND {$paidExpression} < invoices.amount_cents";
+        $query = Invoice::query()
+            ->leftJoinSub($paidTotals, 'payment_totals', fn ($join) => $join
+                ->on('payment_totals.invoice_id', '=', 'invoices.id')
+                ->on('payment_totals.tenant_id', '=', 'invoices.tenant_id'))
+            ->select('invoices.*')
+            ->selectRaw("{$paidExpression} AS paid_cents")
+            ->with('contact')
+            ->latest('invoices.id');
+
         if ($request->filled('status')) {
-            $query->where('status', $request->string('status'));
+            $query->where('invoices.status', $request->string('status'));
         }
         if ($request->filled('q')) {
-            $query->where(fn ($q) => $q->where('number', 'ilike', '%'.$request->string('q').'%')->orWhere('concept', 'ilike', '%'.$request->string('q').'%')->orWhereHas('contact', fn ($c) => $c->where('name', 'ilike', '%'.$request->string('q').'%')));
+            $search = '%'.mb_strtolower(trim((string) $request->string('q'))).'%';
+            $query->where(fn ($q) => $q
+                ->whereRaw('LOWER(invoices.number) LIKE ?', [$search])
+                ->orWhereRaw('LOWER(invoices.concept) LIKE ?', [$search])
+                ->orWhereHas('contact', fn ($contact) => $contact->whereRaw('LOWER(name) LIKE ?', [$search])));
         }
 
-        return $query->paginate(min(100, max(10, (int) $request->input('per_page', 25))));
+        $request->validate([
+            'collection_status' => ['nullable', 'in:pending,overdue,partial,partial_overdue,paid'],
+        ]);
+        $query->when($request->filled('collection_status'), function ($query) use ($request, $paidExpression, $partialBalance, $today) {
+            $collectionStatus = (string) $request->input('collection_status');
+            $query->where('invoices.status', 'issued');
+
+            match ($collectionStatus) {
+                'pending' => $query->whereRaw("{$paidExpression} = 0")
+                    ->where(fn ($due) => $due->whereNull('invoices.due_on')->orWhereDate('invoices.due_on', '>=', $today)),
+                'overdue' => $query->whereRaw("{$paidExpression} = 0")->whereDate('invoices.due_on', '<', $today),
+                'partial' => $query->whereRaw($partialBalance)
+                    ->where(fn ($due) => $due->whereNull('invoices.due_on')->orWhereDate('invoices.due_on', '>=', $today)),
+                'partial_overdue' => $query->whereRaw($partialBalance)->whereDate('invoices.due_on', '<', $today),
+                'paid' => $query->whereRaw("{$paidExpression} >= invoices.amount_cents"),
+            };
+        });
+
+        $paginator = $query->paginate(min(100, max(10, (int) $request->input('per_page', 25))));
+        $paginator->getCollection()->transform(function (Invoice $invoice) use ($today) {
+            $paid = (int) $invoice->paid_cents;
+            $balance = max(0, (int) $invoice->amount_cents - $paid);
+            $invoice->setAttribute('paid_cents', $paid);
+            $invoice->setAttribute('balance_cents', $balance);
+            $invoice->setAttribute('payment_state', $invoice->paymentState($paid));
+            $invoice->setAttribute('collection_status', $invoice->collectionStatus($paid, $today));
+
+            return $invoice;
+        });
+
+        $summary = Invoice::query()
+            ->leftJoinSub($paidTotals, 'payment_totals', fn ($join) => $join
+                ->on('payment_totals.invoice_id', '=', 'invoices.id')
+                ->on('payment_totals.tenant_id', '=', 'invoices.tenant_id'))
+            ->where('invoices.status', 'issued')
+            ->selectRaw("COALESCE(SUM(CASE WHEN invoices.amount_cents > {$paidExpression} THEN invoices.amount_cents - {$paidExpression} ELSE 0 END), 0) AS outstanding_cents")
+            ->selectRaw("COALESCE(SUM(CASE WHEN invoices.due_on < ? AND invoices.amount_cents > {$paidExpression} THEN invoices.amount_cents - {$paidExpression} ELSE 0 END), 0) AS overdue_balance_cents", [$today])
+            ->selectRaw("COALESCE(SUM(CASE WHEN invoices.due_on < ? AND {$paidExpression} < invoices.amount_cents THEN 1 ELSE 0 END), 0) AS overdue_count", [$today])
+            ->first();
+
+        return [...$paginator->toArray(), 'summary' => [
+            'outstanding_cents' => (int) $summary->outstanding_cents,
+            'overdue_balance_cents' => (int) $summary->overdue_balance_cents,
+            'overdue_count' => (int) $summary->overdue_count,
+        ]];
     }
 
     public function store(Request $request, InvoiceService $service)
@@ -59,7 +126,16 @@ class InvoiceController extends Controller
         $this->authorizeInvoice($request, 'invoices.view');
         $this->sameTenant($request, $invoice);
 
-        return ['data' => array_merge($invoice->load(['contact', 'payments', 'events', 'recurrence'])->toArray(), ['paid_cents' => $invoice->paidCents(), 'balance_cents' => $invoice->balanceCents(), 'payment_state' => $invoice->paymentState()])];
+        $paidCents = $invoice->paidCents();
+        $timezone = InvoiceSetting::where('tenant_id', $invoice->tenant_id)->value('timezone') ?: 'America/Argentina/Buenos_Aires';
+        $today = now($timezone)->toDateString();
+
+        return ['data' => array_merge($invoice->load(['contact', 'payments', 'events', 'recurrence'])->toArray(), [
+            'paid_cents' => $paidCents,
+            'balance_cents' => max(0, $invoice->amount_cents - $paidCents),
+            'payment_state' => $invoice->paymentState($paidCents),
+            'collection_status' => $invoice->collectionStatus($paidCents, $today),
+        ])];
     }
 
     public function update(Request $request, Invoice $invoice)
