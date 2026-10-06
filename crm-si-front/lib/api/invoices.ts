@@ -43,8 +43,9 @@ export async function listInvoiceRecurrences(): Promise<InvoiceRecurrenceRecord[
   const payload = await api<{ data: InvoiceRecurrenceRecord[] }>('/api/invoice-recurrences?per_page=50')
   return payload.data
 }
-export async function createInvoice(input: { contact_id: number; concept: string; amount_cents: number; status: string; scheduled_at?: string }): Promise<void> {
-  await api('/api/invoices', { method: 'POST', body: JSON.stringify(input) })
+export async function createInvoice(input: { contact_id: number; concept: string; amount_cents: number; status: string; scheduled_at?: string }): Promise<InvoiceRecord> {
+  const payload = await api<{ data: InvoiceRecord }>('/api/invoices', { method: 'POST', body: JSON.stringify(input) })
+  return payload.data
 }
 export async function createRecurrence(input: Record<string, unknown>): Promise<void> {
   await api('/api/invoice-recurrences', { method: 'POST', body: JSON.stringify(input) })
@@ -55,8 +56,8 @@ export async function updateRecurrence(id: number, input: Record<string, unknown
 export async function recurrenceAction(id: number, action: string): Promise<void> {
   await api(`/api/invoice-recurrences/${id}/${action}`, { method: 'POST', body: '{}' })
 }
-export async function getInvoiceSettings(): Promise<{ settings: InvoiceSettingsRecord; templates: Array<{ id: number; name: string; header_format: string | null; parameters: string[] }>; template_provisioning: InvoiceTemplateProvisioningRecord | null }> {
-  const payload = await api<{ data: InvoiceSettingsRecord; templates: Array<{ id: number; name: string; header_format: string | null; parameters: string[] }>; template_provisioning: InvoiceTemplateProvisioningRecord | null }>('/api/invoices/settings')
+export async function getInvoiceSettings(): Promise<{ settings: InvoiceSettingsRecord; templates: Array<{ id: number; name: string; category: string; header_format: string | null; parameters: string[] }>; template_provisioning: InvoiceTemplateProvisioningRecord | null }> {
+  const payload = await api<{ data: InvoiceSettingsRecord; templates: Array<{ id: number; name: string; category: string; header_format: string | null; parameters: string[] }>; template_provisioning: InvoiceTemplateProvisioningRecord | null }>('/api/invoices/settings')
   return { settings: payload.data, templates: payload.templates ?? [], template_provisioning: payload.template_provisioning ?? null }
 }
 export async function provisionInvoiceTemplates(channel_id: number): Promise<InvoiceTemplateProvisioningRecord> {
