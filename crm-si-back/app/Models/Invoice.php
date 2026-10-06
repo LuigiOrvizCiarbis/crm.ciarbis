@@ -67,7 +67,7 @@ class Invoice extends Model
 
     public function collectionStatus(?int $paidCents = null, ?string $today = null): ?string
     {
-        if ($this->status !== 'issued') {
+        if ($this->status === 'void') {
             return null;
         }
 
