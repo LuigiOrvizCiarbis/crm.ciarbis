@@ -190,7 +190,9 @@ class WhatsAppTemplateService
                 'status' => $response->status(),
                 'body' => $response->body(),
             ]);
-            throw new \RuntimeException('Meta rechazó la creación de la plantilla: '.$response->json('error.message', $response->body()));
+            $detail = $response->json('error.error_user_msg')
+                ?: $response->json('error.message', $response->body());
+            throw new \RuntimeException('Meta rechazó la creación de la plantilla: '.$detail);
         }
 
         return WhatsAppTemplate::withoutGlobalScope(TenantScope::class)->updateOrCreate(
