@@ -559,6 +559,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('invoices/{invoice}/resend', [InvoiceController::class, 'resend']);
     Route::get('invoices/{invoice}/pdf', [InvoiceController::class, 'pdf']);
     Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'pay']);
+    Route::put('invoices/{invoice}/collection-status', [InvoiceController::class, 'setCollectionStatus']);
     Route::post('invoices/{invoice}/payments/{payment}/reverse', [InvoiceController::class, 'reversePayment']);
     Route::post('invoices/{invoice}/void', [InvoiceController::class, 'void']);
     Route::get('invoice-recurrences', [InvoiceRecurrenceController::class, 'index']);
