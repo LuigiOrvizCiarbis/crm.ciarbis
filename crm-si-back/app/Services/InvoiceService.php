@@ -52,6 +52,9 @@ class InvoiceService
             return $invoice;
         }
         $contact = Contact::where('tenant_id', $invoice->tenant_id)->findOrFail($invoice->contact_id);
+        if (! trim((string) $contact->phone)) {
+            throw ValidationException::withMessages(['contact_id' => 'El contacto necesita un teléfono de WhatsApp para emitir y enviar el cobro.']);
+        }
         $settings = InvoiceSetting::firstOrCreate(['tenant_id' => $invoice->tenant_id]);
         if (! $settings->enabled || ! $settings->whatsapp_channel_id || ! $settings->whatsapp_template_id) {
             throw ValidationException::withMessages(['invoice' => 'Activá Invoices y configurá canal y plantilla aprobada antes de emitir un cobro.']);
