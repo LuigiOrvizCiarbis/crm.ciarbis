@@ -68,8 +68,9 @@ class InvoiceController extends Controller
 
             match ($collectionStatus) {
                 'pending' => $query->whereRaw("{$paidExpression} = 0")
-                    ->where(fn ($due) => $due->whereNull('invoices.due_on')->orWhereDate('invoices.due_on', '>=', $today)),
-                'overdue' => $query->whereRaw("{$paidExpression} = 0")->whereDate('invoices.due_on', '<', $today),
+                    ->where(fn ($status) => $status->where('invoices.collection_status_override', 'pending')->orWhere(fn ($automatic) => $automatic->whereNull('invoices.collection_status_override')->where(fn ($due) => $due->whereNull('invoices.due_on')->orWhereDate('invoices.due_on', '>=', $today)))),
+                'overdue' => $query->whereRaw("{$paidExpression} = 0")
+                    ->where(fn ($status) => $status->where('invoices.collection_status_override', 'overdue')->orWhere(fn ($automatic) => $automatic->whereNull('invoices.collection_status_override')->whereDate('invoices.due_on', '<', $today))),
                 'partial' => $query->whereRaw($partialBalance)
                     ->where(fn ($due) => $due->whereNull('invoices.due_on')->orWhereDate('invoices.due_on', '>=', $today)),
                 'partial_overdue' => $query->whereRaw($partialBalance)->whereDate('invoices.due_on', '<', $today),
@@ -95,8 +96,8 @@ class InvoiceController extends Controller
                 ->on('payment_totals.tenant_id', '=', 'invoices.tenant_id'))
             ->where('invoices.status', '!=', 'void')
             ->selectRaw("COALESCE(SUM(CASE WHEN invoices.amount_cents > {$paidExpression} THEN invoices.amount_cents - {$paidExpression} ELSE 0 END), 0) AS outstanding_cents")
-            ->selectRaw("COALESCE(SUM(CASE WHEN invoices.due_on < ? AND invoices.amount_cents > {$paidExpression} THEN invoices.amount_cents - {$paidExpression} ELSE 0 END), 0) AS overdue_balance_cents", [$today])
-            ->selectRaw("COALESCE(SUM(CASE WHEN invoices.due_on < ? AND {$paidExpression} < invoices.amount_cents THEN 1 ELSE 0 END), 0) AS overdue_count", [$today])
+            ->selectRaw("COALESCE(SUM(CASE WHEN (invoices.collection_status_override = 'overdue' OR (invoices.collection_status_override IS NULL AND invoices.due_on < ?)) AND invoices.amount_cents > {$paidExpression} THEN invoices.amount_cents - {$paidExpression} ELSE 0 END), 0) AS overdue_balance_cents", [$today])
+            ->selectRaw("COALESCE(SUM(CASE WHEN (invoices.collection_status_override = 'overdue' OR (invoices.collection_status_override IS NULL AND invoices.due_on < ?)) AND {$paidExpression} < invoices.amount_cents THEN 1 ELSE 0 END), 0) AS overdue_count", [$today])
             ->first();
 
         return [...$paginator->toArray(), 'summary' => [
@@ -222,6 +223,57 @@ class InvoiceController extends Controller
         });
 
         return response()->json(['data' => $payment], 201);
+    }
+
+    public function setCollectionStatus(Request $request, Invoice $invoice)
+    {
+        $this->authorizeInvoice($request, 'invoices.payments');
+        $this->sameTenant($request, $invoice);
+        $data = $request->validate(['status' => ['required', 'in:pending,overdue,paid']]);
+
+        DB::transaction(function () use ($request, $invoice, $data): void {
+            $locked = Invoice::where('tenant_id', $invoice->tenant_id)->whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status === 'void') {
+                throw ValidationException::withMessages(['invoice' => 'No se puede cambiar el estado de un cobro anulado.']);
+            }
+
+            $paidCents = $locked->paidCents();
+            if ($data['status'] === 'paid') {
+                $balance = $locked->balanceCents();
+                if ($balance > 0) {
+                    $timezone = InvoiceSetting::where('tenant_id', $locked->tenant_id)->value('timezone') ?: 'America/Argentina/Buenos_Aires';
+                    $payment = $locked->payments()->create([
+                        'tenant_id' => $locked->tenant_id,
+                        'amount_cents' => $balance,
+                        'paid_on' => now($timezone)->toDateString(),
+                        'method' => 'Registro manual',
+                        'note' => 'Pago marcado como pagado desde el selector de estado.',
+                        'created_by' => $request->user()->id,
+                    ]);
+                    app(InvoiceService::class)->event($locked, 'payment_recorded', $request->user(), [
+                        'payment_id' => $payment->id,
+                        'amount_cents' => $payment->amount_cents,
+                        'source' => 'collection_status_selector',
+                    ]);
+                }
+                $locked->update(['next_reminder_at' => null]);
+
+                return;
+            }
+
+            if ($paidCents > 0) {
+                throw ValidationException::withMessages(['status' => 'Revertí los pagos parciales antes de marcar el cobro como pendiente o impago.']);
+            }
+
+            $previousStatus = $locked->collection_status_override;
+            $locked->update(['collection_status_override' => $data['status']]);
+            app(InvoiceService::class)->event($locked, 'collection_status_updated', $request->user(), [
+                'from' => $previousStatus,
+                'to' => $data['status'],
+            ]);
+        });
+
+        return response()->noContent();
     }
 
     public function reversePayment(Request $request, Invoice $invoice, InvoicePayment $payment, InvoiceService $service)
