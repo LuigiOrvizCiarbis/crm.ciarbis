@@ -9,12 +9,14 @@ use App\Events\MessageStatusUpdated;
 use App\Exceptions\ChannelAlreadyConnectedException;
 use App\Http\Requests\ChannelStoreRequest;
 use App\Jobs\CompleteBillingProvisioningJob;
+use App\Jobs\ProcessWhatsAppWebhookReceiptJob;
 use App\Jobs\VerifyContactSyncJob;
 use App\Models\Channel;
 use App\Models\Message;
 use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
+use App\Models\WhatsAppWebhookReceipt;
 use App\Services\WhatsAppBusinessVerificationService;
 use App\Services\WhatsAppContactSyncService;
 use App\Services\WhatsAppGroupEligibilityService;
@@ -25,6 +27,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -1203,49 +1206,138 @@ class WhatsAppController extends Controller
         }
 
         try {
-            foreach ($request->input('entry', []) as $entry) {
-                foreach ($entry['changes'] ?? [] as $change) {
-                    $field = $change['field'] ?? '';
-                    $value = $change['value'] ?? [];
-
-                    if ($field === 'messages' && isset($value['statuses'])) {
-                        $this->processStatusUpdates($value['statuses']);
-                    }
-
-                    if ($field === 'messages' && isset($value['messages'])) {
-                        $this->messageService->processIncomingMessage($change);
-
-                    } elseif ($field === 'smb_message_echoes' && isset($value['message_echoes'])) {
-                        $this->messageService->processSmbMessageEchoes($change);
-
-                    } elseif ($field === 'smb_app_state_sync') {
-                        $this->handleSmbAppStateSync($entry['id'] ?? null, $value);
-
-                    } elseif ($field === 'history') {
-                        $this->handleHistorySync($entry['id'] ?? null, $value);
-
-                    } elseif ($field === 'group_lifecycle_update') {
-                        $this->groupWebhookService->handleLifecycleUpdate($value);
-
-                    } elseif ($field === 'group_participants_update') {
-                        $this->groupWebhookService->handleParticipantsUpdate($value);
-
-                    } elseif ($field === 'group_settings_update') {
-                        $this->groupWebhookService->handleSettingsUpdate($value);
-
-                    } elseif ($field === 'group_status_update') {
-                        $this->groupWebhookService->handleStatusUpdate($value);
-
-                    } elseif ($field === 'message_template_status_update') {
-                        $this->handleTemplateStatusUpdate($value);
+            $pendingIds = DB::transaction(function () use ($request): array {
+                $pendingIds = [];
+                foreach ($request->input('entry', []) as $entry) {
+                    foreach ($entry['changes'] ?? [] as $change) {
+                        $queue = in_array($change['field'] ?? '', ['history', 'smb_app_state_sync'], true)
+                            ? 'whatsapp-sync'
+                            : 'whatsapp-webhooks';
+                        $key = hash('sha256', json_encode([$entry['id'] ?? null, $change], JSON_THROW_ON_ERROR));
+                        $receipt = WhatsAppWebhookReceipt::firstOrCreate(
+                            ['dedupe_key' => $key],
+                            ['queue_name' => $queue, 'payload' => ['entry' => [[
+                                'id' => $entry['id'] ?? null,
+                                'changes' => [$change],
+                            ]]]]
+                        );
+                        if ($receipt->status === 'failed') {
+                            $receipt->forceFill([
+                                'status' => 'pending',
+                                'attempts' => 0,
+                                'last_error' => null,
+                                'processing_at' => null,
+                                'processed_at' => null,
+                            ])->save();
+                        }
+                        if ($receipt->wasRecentlyCreated || in_array($receipt->status, ['pending', 'failed'], true)) {
+                            $pendingIds[] = [$receipt->id, $receipt->queue_name];
+                        }
                     }
                 }
+
+                return $pendingIds;
+            });
+
+            foreach ($pendingIds as [$id, $queue]) {
+                ProcessWhatsAppWebhookReceiptJob::dispatch($id, $queue);
             }
         } catch (\Throwable $e) {
-            Log::error('Error processing webhook', $this->describeException($e));
+            Log::error('Error accepting WhatsApp webhook', $this->describeException($e));
+
+            return response()->json(['error' => 'Unable to accept webhook'], 503);
         }
 
         return response()->json(['status' => 'EVENT_RECEIVED'], 200);
+    }
+
+    /** Process one persisted change. Queue failures propagate to Laravel retries. */
+    public function processQueuedWebhookChange(?string $wabaId, array $change): void
+    {
+        $field = $change['field'] ?? '';
+        $value = $change['value'] ?? [];
+
+        if ($field === 'messages' && isset($value['statuses'])) {
+            $this->processStatusUpdates($value['statuses']);
+        }
+
+        if ($field === 'messages' && isset($value['messages'])) {
+            foreach ($value['messages'] as $message) {
+                $contact = collect($value['contacts'] ?? [])->firstWhere('wa_id', $message['from'] ?? null);
+                $this->messageService->processIncomingMessage([
+                    'value' => array_merge($value, [
+                        'messages' => [$message],
+                        'contacts' => $contact ? [$contact] : [],
+                    ]),
+                ]);
+            }
+        } elseif ($field === 'smb_message_echoes' && isset($value['message_echoes'])) {
+            foreach ($value['message_echoes'] as $echo) {
+                $this->messageService->processSmbMessageEchoes([
+                    'value' => array_merge($value, ['message_echoes' => [$echo]]),
+                ]);
+            }
+        } elseif ($field === 'smb_app_state_sync') {
+            $this->handleSmbAppStateSync($wabaId, $value);
+        } elseif ($field === 'history') {
+            $this->handleHistorySync($wabaId, $value);
+        } elseif ($field === 'group_lifecycle_update') {
+            $this->groupWebhookService->handleLifecycleUpdate($value);
+        } elseif ($field === 'group_participants_update') {
+            $this->groupWebhookService->handleParticipantsUpdate($value);
+        } elseif ($field === 'group_settings_update') {
+            $this->groupWebhookService->handleSettingsUpdate($value);
+        } elseif ($field === 'group_status_update') {
+            $this->groupWebhookService->handleStatusUpdate($value);
+        } elseif ($field === 'message_template_status_update') {
+            $this->handleTemplateStatusUpdate($value);
+        }
+    }
+
+    /** Split provider batches into independent, replay-safe queue units. */
+    public function expandQueuedWebhookChange(array $change): array
+    {
+        $field = $change['field'] ?? '';
+        $value = $change['value'] ?? [];
+        $units = [];
+
+        if ($field === 'messages') {
+            foreach (array_chunk($value['statuses'] ?? [], 100) as $statuses) {
+                $units[] = ['field' => $field, 'value' => array_merge($value, ['statuses' => $statuses, 'messages' => []])];
+            }
+            foreach (array_chunk($value['messages'] ?? [], 100) as $messages) {
+                $units[] = ['field' => $field, 'value' => array_merge($value, ['statuses' => [], 'messages' => $messages])];
+            }
+        } elseif ($field === 'smb_message_echoes') {
+            foreach (array_chunk($value['message_echoes'] ?? [], 100) as $echoes) {
+                $units[] = ['field' => $field, 'value' => array_merge($value, ['message_echoes' => $echoes])];
+            }
+        } elseif ($field === 'smb_app_state_sync') {
+            foreach (array_chunk($value['state_sync'] ?? [], 100) as $batch) {
+                $units[] = ['field' => $field, 'value' => array_merge($value, ['state_sync' => $batch])];
+            }
+        } elseif ($field === 'history') {
+            foreach ($value['history'] ?? [] as $chunk) {
+                foreach ($chunk['threads'] ?? [] as $thread) {
+                    foreach (array_chunk($thread['messages'] ?? [], 100) as $messages) {
+                        $historyChunk = $chunk;
+                        $historyChunk['threads'] = [array_merge($thread, ['messages' => $messages])];
+                        $units[] = ['field' => $field, 'value' => array_merge($value, ['history' => [$historyChunk]])];
+                    }
+                }
+            }
+
+            $progress = collect($value['history'] ?? [])
+                ->max(fn (array $chunk): int => (int) data_get($chunk, 'metadata.progress', 0));
+            if (count($units) > 1 && $progress >= 100) {
+                foreach (array_slice($units, 0, -1) as &$unit) {
+                    data_set($unit, 'value.history.0.metadata.progress', 99);
+                }
+                unset($unit);
+            }
+        }
+
+        return $units !== [] ? $units : [$change];
     }
 
     /**
@@ -1514,6 +1606,8 @@ class WhatsAppController extends Controller
                 'contact_history_sync_status' => WhatsAppConfig::SYNC_FAILED,
                 'contact_history_sync_error' => $e->getMessage(),
             ])->save();
+
+            throw $e;
         }
     }
 

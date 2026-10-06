@@ -30,7 +30,9 @@ class MessageObserver
 
     public function updated(Message $message): void
     {
-        $message->conversation?->syncLastMessageSummary();
+        if (array_intersect(array_keys($message->getChanges()), ['content', 'message_type', 'created_at', 'conversation_id']) !== []) {
+            $message->conversation?->syncLastMessageSummary();
+        }
     }
 
     public function deleted(Message $message): void
