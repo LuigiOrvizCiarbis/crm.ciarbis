@@ -21,6 +21,9 @@ class InvoiceService
     {
         return DB::transaction(function () use ($tenantId, $user, $data): Invoice {
             $contact = Contact::where('tenant_id', $tenantId)->findOrFail($data['contact_id']);
+            $requestedStatus = $data['status'] ?? 'draft';
+            // Issue after creation so issue() can perform its state transition,
+            // generate the PDF and dispatch the WhatsApp delivery job.
             $invoice = Invoice::create([
                 'tenant_id' => $tenantId,
                 'contact_id' => $contact->id,
@@ -28,14 +31,14 @@ class InvoiceService
                 'concept' => $data['concept'],
                 'amount_cents' => $data['amount_cents'],
                 'currency' => 'ARS',
-                'status' => $data['status'] ?? 'draft',
+                'status' => $requestedStatus === 'issued' ? 'draft' : $requestedStatus,
                 'scheduled_at' => $data['scheduled_at'] ?? null,
                 'created_by' => $user->id,
             ]);
             $invoice->update(['number' => 'INV-'.str_pad((string) $invoice->id, 8, '0', STR_PAD_LEFT)]);
             $this->event($invoice, 'created', $user, ['status' => $invoice->status]);
 
-            if ($invoice->status === 'issued') {
+            if ($requestedStatus === 'issued') {
                 $this->issue($invoice, $user);
             }
 
