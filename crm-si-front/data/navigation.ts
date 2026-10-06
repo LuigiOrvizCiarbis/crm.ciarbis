@@ -4,6 +4,7 @@ import {
   CheckSquare,
   Megaphone,
   MessageSquare,
+  ReceiptText,
   Package,
   Settings,
   Target,
@@ -19,6 +20,7 @@ export const NAVIGATION_KEYS = [
   "pipeline",
   "tasks",
   "broadcasts",
+  "invoices",
   "settings",
 ] as const
 
@@ -42,6 +44,7 @@ export const NAVIGATION_ITEMS: readonly NavigationItem[] = [
   { key: "pipeline", href: "/oportunidades", emoji: "🎯", icon: Target, labelKey: "nav.pipeline" },
   { key: "tasks", href: "/tareas", emoji: "✅", icon: CheckSquare, labelKey: "nav.tasks" },
   { key: "broadcasts", href: "/difusiones", emoji: "📣", icon: Megaphone, labelKey: "nav.broadcasts" },
+  { key: "invoices", href: "/invoices", emoji: "🧾", icon: ReceiptText, labelKey: "nav.invoices" },
   { key: "settings", href: "/configuracion", emoji: "⚙️", icon: Settings, labelKey: "nav.settings" },
 ]
 

@@ -20,6 +20,8 @@ use App\Http\Controllers\Api\GoogleCalendarConnectionController;
 use App\Http\Controllers\Api\IncomingWebhookController;
 use App\Http\Controllers\Api\InstagramCommentController;
 use App\Http\Controllers\Api\InvitationController;
+use App\Http\Controllers\Api\InvoiceController;
+use App\Http\Controllers\Api\InvoiceRecurrenceController;
 use App\Http\Controllers\Api\LinkPreviewController;
 use App\Http\Controllers\Api\MailIntakeController;
 use App\Http\Controllers\Api\ManualAiDraftController;
@@ -545,6 +547,25 @@ Route::middleware('auth:sanctum')->group(function () {
     // orden específico-antes-que-genérico por consistencia con el resto.
     Route::get('billing-config/template-drafts', [BillingConfigController::class, 'templateDrafts']);
     Route::put('billing-config', [BillingConfigController::class, 'update']);
+
+    Route::get('invoices', [InvoiceController::class, 'index']);
+    Route::post('invoices', [InvoiceController::class, 'store']);
+    Route::get('invoices/settings', [InvoiceController::class, 'settings']);
+    Route::put('invoices/settings', [InvoiceController::class, 'updateSettings']);
+    Route::post('invoices/templates/provision', [InvoiceController::class, 'provisionTemplates']);
+    Route::get('invoices/{invoice}', [InvoiceController::class, 'show']);
+    Route::put('invoices/{invoice}', [InvoiceController::class, 'update']);
+    Route::post('invoices/{invoice}/issue', [InvoiceController::class, 'issue']);
+    Route::post('invoices/{invoice}/resend', [InvoiceController::class, 'resend']);
+    Route::get('invoices/{invoice}/pdf', [InvoiceController::class, 'pdf']);
+    Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'pay']);
+    Route::post('invoices/{invoice}/payments/{payment}/reverse', [InvoiceController::class, 'reversePayment']);
+    Route::post('invoices/{invoice}/void', [InvoiceController::class, 'void']);
+    Route::get('invoice-recurrences', [InvoiceRecurrenceController::class, 'index']);
+    Route::post('invoice-recurrences', [InvoiceRecurrenceController::class, 'store']);
+    Route::put('invoice-recurrences/{recurrence}', [InvoiceRecurrenceController::class, 'update']);
+    Route::post('invoice-recurrences/{recurrence}/activate', [InvoiceRecurrenceController::class, 'activate']);
+    Route::post('invoice-recurrences/{recurrence}/{action}', [InvoiceRecurrenceController::class, 'action']);
 
     // Config de webhooks entrantes por tenant (el endpoint público de recepción
     // está fuera de este grupo, al final del archivo).

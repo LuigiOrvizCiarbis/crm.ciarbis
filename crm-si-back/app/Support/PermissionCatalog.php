@@ -21,6 +21,7 @@ class PermissionCatalog
                 'sections.pipeline',
                 'sections.tasks',
                 'sections.broadcasts',
+                'sections.invoices',
                 'sections.settings',
             ],
             'conversations' => [
@@ -128,6 +129,12 @@ class PermissionCatalog
             'billing' => [
                 'billing.view',
                 'billing.manage',
+            ],
+            'invoices' => [
+                'invoices.view',
+                'invoices.manage',
+                'invoices.payments',
+                'invoices.configure',
             ],
             'templates' => [
                 'templates.view',
