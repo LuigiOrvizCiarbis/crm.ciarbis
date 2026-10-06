@@ -23,7 +23,7 @@ import { createInvoice, createRecurrence, getInvoice, getInvoiceSettings, issueI
 const money = (cents: number) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(cents / 100)
 const date = (value?: string | null) => value ? new Intl.DateTimeFormat("es-AR", { dateStyle: "medium" }).format(new Date(`${value.slice(0, 10)}T12:00:00`)) : "—"
 const paymentStatusLabel = (invoice: InvoiceRecord) => (invoice.paid_cents ?? 0) >= invoice.amount_cents ? "Pagado" : (invoice.paid_cents ?? 0) > 0 ? "Pago parcial" : "Pendiente de pago"
-const deliveryStatusLabel = (status: string) => status === "delivered" ? "WhatsApp entregado" : status === "accepted" ? "WhatsApp enviado" : status === "failed" ? "Falló el envío" : status === "unknown" ? "Verificar envío" : "Envío en cola"
+const deliveryStatusLabel = (status: string) => status === "delivered" ? "WhatsApp entregado" : status === "accepted" ? "WhatsApp enviado" : status === "failed" ? "Falló el envío" : status === "unknown" ? "Entrega sin confirmar" : "Envío pendiente de confirmación"
 
 export default function InvoicesPage() {
   const { addToast } = useToast()
