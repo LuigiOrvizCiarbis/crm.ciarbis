@@ -175,6 +175,108 @@ services:
     networks:
       - laravel-network
 
+  whatsapp-webhook-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    restart: always
+    user: www-data
+    command: php artisan queue:work redis --queue=whatsapp-webhooks --tries=5 --timeout=180 --sleep=1 --max-time=3600
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      SENTRY_ENVIRONMENT: production
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PORT: "6379"
+      REDIS_QUEUE_RETRY_AFTER: "300"
+      BROADCAST_CONNECTION: reverb
+      REVERB_HOST: reverb
+      REVERB_PORT: "8080"
+      REVERB_SCHEME: "http"
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+    env_file:
+      - .env
+    volumes:
+      - app-storage:/var/www/html/storage
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - laravel-network
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'queue:work.*whatsapp-webhooks' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  whatsapp-sync-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    restart: always
+    user: www-data
+    command: php artisan queue:work redis --queue=whatsapp-sync --tries=5 --timeout=180 --sleep=1 --max-time=3600
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      SENTRY_ENVIRONMENT: production
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PORT: "6379"
+      REDIS_QUEUE_RETRY_AFTER: "300"
+      BROADCAST_CONNECTION: reverb
+      REVERB_HOST: reverb
+      REVERB_PORT: "8080"
+      REVERB_SCHEME: "http"
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+    env_file:
+      - .env
+    volumes:
+      - app-storage:/var/www/html/storage
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - laravel-network
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'queue:work.*whatsapp-sync' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   # Scheduler: corre las tareas programadas de routes/console.php (ej. purga de
   # webhook_deliveries vía model:prune). Sin este proceso, Schedule::command()
   # nunca se dispara en producción y la tabla crece sin límite.

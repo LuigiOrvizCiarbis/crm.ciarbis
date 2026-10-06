@@ -210,12 +210,25 @@ class WhatsAppMessageService
             }
 
             return $message;
-        } catch (\Exception $e) {
+        } catch (QueryException $e) {
+            // Meta puede reenviar un mensaje cuyo wamid ya persistió (incluido
+            // el caso de fallo entre el commit y la confirmación del receipt).
+            if (! empty($messageId) && Message::where('external_id', $messageId)->exists()) {
+                Log::info('WhatsApp duplicate message ignored', ['external_id' => $messageId]);
+
+                return null;
+            }
+
+            Log::error('Error procesando mensaje de WhatsApp: '.$e->getMessage(), [
+                'exception' => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        } catch (\Throwable $e) {
             Log::error('Error procesando mensaje de WhatsApp: '.$e->getMessage(), [
                 'exception' => $e->getTraceAsString(),
             ]);
 
-            return null;
+            throw $e;
         }
     }
 
