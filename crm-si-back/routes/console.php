@@ -2,6 +2,8 @@
 
 use App\Models\AutomationRun;
 use App\Models\WebhookDelivery;
+use App\Models\WhatsAppWebhookReceipt;
+use App\Jobs\ProcessWhatsAppWebhookReceiptJob;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -14,6 +16,29 @@ Artisan::command('inspire', function () {
 // (config/webhooks.php). Requiere que el scheduler corra en el deploy
 // (servicio `scheduler` en docker-compose.prod.yml).
 Schedule::command('model:prune', ['--model' => [WebhookDelivery::class]])->daily();
+Schedule::call(function (): void {
+    WhatsAppWebhookReceipt::query()
+        ->where(function ($query): void {
+            $query->where('status', 'pending')
+                ->orWhere(function ($stale): void {
+                    $stale->where('status', 'processing')
+                        ->where('processing_at', '<', now()->subMinutes(4));
+                });
+        })
+        ->orderBy('id')
+        ->limit(100)
+        ->get()
+        ->each(function (WhatsAppWebhookReceipt $receipt): void {
+            ProcessWhatsAppWebhookReceiptJob::dispatch($receipt->id, $receipt->queue_name);
+        });
+
+    WhatsAppWebhookReceipt::query()
+        ->where(function ($query): void {
+            $query->where(fn ($completed) => $completed->where('status', 'completed')->where('processed_at', '<', now()->subDays(7)))
+                ->orWhere(fn ($failed) => $failed->where('status', 'failed')->where('created_at', '<', now()->subDays(30)));
+        })
+        ->delete();
+})->everyMinute();
 // withoutOverlapping(N): expira el lock a los N minutos en vez del default de
 // 24h. Si el scheduler muere a mitad de una corrida, un lock de 24h bloquea el
 // comando todo ese tiempo; con el minutero acotado, se autolibera pronto.
