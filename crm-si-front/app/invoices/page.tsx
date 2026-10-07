@@ -83,6 +83,7 @@ export default function InvoicesPage() {
   const [activeTab, setActiveTab] = useState<"invoices" | "recurrences">("invoices")
   const loadSequence = useRef(0)
   const invoiceSearchInput = useRef<HTMLInputElement>(null)
+  const createDialogContentRef = useRef<HTMLDivElement>(null)
   const [form, setForm] = useState({ contact_id: "", concept: "", amount: "", send: "draft", scheduled_at: "", interval_unit: "months", interval_count: "1", starts_on: new Date().toISOString().slice(0, 10), ends_on: "", payment_term_days: "10" })
 
   const reload = useCallback(async () => {
@@ -485,7 +486,7 @@ export default function InvoicesPage() {
           <div className="mt-6"><h3 className="font-medium">Actividad y envíos</h3><div className="mt-2 space-y-2">{(selectedInvoice.events ?? []).map((event) => <div key={event.id} className="flex justify-between gap-3 rounded-lg bg-muted/35 px-3 py-2 text-xs"><span>{event.type.replaceAll("_", " ")}</span><span className="text-muted-foreground">{new Date(event.created_at).toLocaleString("es-AR")}</span></div>)}</div></div>
         </DialogContent></Dialog>}
 
-        {showCreate && <Dialog open={showCreate} onOpenChange={setShowCreate}><DialogContent className="max-h-[90vh] w-full max-w-xl overflow-y-auto"><DialogHeader><DialogTitle id="invoice-create-title">Nuevo cobro</DialogTitle><p className="text-sm text-muted-foreground">Enviá un cobro ahora o programá su emisión.</p></DialogHeader><form onSubmit={submitCreate} className="space-y-4">
+        {showCreate && <Dialog open={showCreate} onOpenChange={setShowCreate}><DialogContent ref={createDialogContentRef} className="max-h-[90vh] w-full max-w-xl overflow-y-auto"><DialogHeader><DialogTitle id="invoice-create-title">Nuevo cobro</DialogTitle><p className="text-sm text-muted-foreground">Enviá un cobro ahora o programá su emisión.</p></DialogHeader><form onSubmit={submitCreate} className="space-y-4">
           <fieldset className="grid grid-cols-2 gap-2"><legend className="mb-2 text-sm font-medium">Tipo de cobro</legend><Button type="button" variant={kind === "once" ? "default" : "outline"} onClick={() => setKind("once")}>Único</Button><Button type="button" variant={kind === "repeat" ? "default" : "outline"} onClick={() => setKind("repeat")}>Recurrente</Button></fieldset>
           <div className="space-y-1.5 text-sm">
             <label id="invoice-contact-label" className="block">Cliente <span className="text-destructive">*</span></label>
@@ -506,7 +507,7 @@ export default function InvoicesPage() {
                   <ChevronDown aria-hidden="true" className="ml-2 size-4 shrink-0 text-muted-foreground" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-(--radix-popover-trigger-width) min-w-56 p-0">
+              <PopoverContent container={createDialogContentRef.current} align="start" className="min-w-56 p-0" style={{ width: "var(--radix-popover-trigger-width)" }}>
                 <Command>
                   <CommandInput placeholder="Buscar por nombre o teléfono…" value={contactPickerSearch} onValueChange={setContactPickerSearch} />
                   <CommandList id="invoice-contact-options">
