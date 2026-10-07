@@ -40,6 +40,14 @@ const collectionStatusTone = (status: InvoiceCollectionStatus) => status === "pa
       ? "border-orange-500/40 bg-orange-500/10 text-orange-700 hover:bg-orange-500/15 dark:text-orange-300"
       : "border-amber-500/40 bg-amber-500/10 text-amber-800 hover:bg-amber-500/15 dark:text-amber-300"
 const deliveryStatusLabel = (status: string) => status === "delivered" ? "WhatsApp entregado" : status === "accepted" ? "WhatsApp enviado" : status === "failed" ? "Falló el envío" : status === "unknown" ? "Entrega sin confirmar" : "Envío pendiente de confirmación"
+const recurrenceFrequency = (unit: string, count: number) => {
+  const labels: Record<string, [string, string]> = {
+    days: ["día", "días"], weeks: ["semana", "semanas"], months: ["mes", "meses"], years: ["año", "años"],
+  }
+  const period = labels[unit]
+  if (!period) return `Cada ${count} ${unit}`
+  return count === 1 ? `Cada ${period[0]}` : `Cada ${count} ${period[1]}`
+}
 
 export default function InvoicesPage() {
   const { addToast } = useToast()
@@ -439,6 +447,7 @@ export default function InvoicesPage() {
             <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Página {invoicePage} de {invoicePages}</p><div className="flex gap-2"><Button variant="outline" size="sm" disabled={invoicePage <= 1 || loading} onClick={() => setInvoicePage((page) => Math.max(1, page - 1))}>Anterior</Button><Button variant="outline" size="sm" disabled={invoicePage >= invoicePages || loading} onClick={() => setInvoicePage((page) => Math.min(invoicePages, page + 1))}>Siguiente</Button></div></div>
           </TabsContent>
           <TabsContent value="recurrences">
+            {!settings?.enabled && <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">Los cobros recurrentes se generan como borradores para controlar sus pagos. Activá los envíos en Configuración de cobros para mandar los próximos por WhatsApp.</p>}
             <Card className="overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[900px] text-sm">
@@ -449,15 +458,15 @@ export default function InvoicesPage() {
                     {loading ? <tr><td className="px-5 py-12 text-center text-muted-foreground" colSpan={8}>Cargando recurrencias…</td></tr> : recurrences.length === 0 ? <tr><td className="px-5 py-14 text-center" colSpan={8}><Repeat2 className="mx-auto mb-3 size-8 text-muted-foreground/50"/><p className="font-medium">Sin cobros recurrentes</p><p className="mt-1 text-muted-foreground">Las recurrencias generan un invoice separado por cada período.</p></td></tr> : recurrences.map((recurrence) => <tr key={recurrence.id} className="hover:bg-muted/25">
                       <td className="px-5 py-4 font-medium">{recurrence.concept}</td>
                       <td className="px-5 py-4">{recurrence.contact?.name}</td>
-                      <td className="px-5 py-4">Cada {recurrence.interval_count} {recurrence.interval_unit}</td>
-                      <td className="px-5 py-4">{date(recurrence.next_occurrence_on)}</td>
+                      <td className="px-5 py-4">{recurrenceFrequency(recurrence.interval_unit, recurrence.interval_count)}</td>
+                      <td className="px-5 py-4">{recurrence.status === "draft" ? "Al activar" : date(recurrence.next_occurrence_on)}</td>
                       <td className="px-5 py-4 text-right font-medium">{money(recurrence.amount_cents)}</td>
                       <td className="px-5 py-4"><Badge variant={recurrence.status === "active" ? "default" : "outline"}>{recurrence.status === "active" ? "Activa" : recurrence.status === "draft" ? "Borrador" : recurrence.status === "paused" ? "Pausada" : recurrence.status === "completed" ? "Completada" : "Cancelada"}</Badge></td>
                       <td className="px-5 py-4">{recurrence.latest_invoice ? <div className="space-y-2"><button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => void openInvoice(recurrence.latest_invoice!.id)}>{recurrence.latest_invoice.number}</button>{collectionStatusControl(recurrence.latest_invoice)}</div> : <span className="text-xs text-muted-foreground">Aún no generado</span>}</td>
                       <td className="px-5 py-4 text-right"><div className="flex flex-wrap justify-end gap-1">
                         {(recurrence.invoices_count ?? 0) > 0 && <Button size="sm" variant="outline" onClick={() => { setRecurrenceFilter(recurrence); setInvoicePage(1); setActiveTab("invoices") }}>Ver períodos</Button>}
                         {canManage && ["draft", "active"].includes(recurrence.status) && <Button size="sm" variant="ghost" onClick={() => { setRecurrenceToEdit(recurrence); setRecurrenceEdit({ concept: recurrence.concept, amount: (recurrence.amount_cents / 100).toFixed(2), interval_count: String(recurrence.interval_count), interval_unit: recurrence.interval_unit, payment_term_days: String(recurrence.payment_term_days), ends_on: "" }) }}>Editar</Button>}
-                        {canManage && recurrence.status === "draft" && <Button size="sm" variant="outline" disabled={busy || !settings?.enabled} onClick={() => void activateRecurrence(recurrence.id)}><Check className="mr-1 size-4" /> Activar</Button>}
+                        {canManage && recurrence.status === "draft" && <Button size="sm" variant="outline" disabled={busy} onClick={() => void activateRecurrence(recurrence.id)}><Check className="mr-1 size-4" /> Activar</Button>}
                         {canManage && recurrence.status === "active" && <Button size="sm" variant="ghost" onClick={() => void changeRecurrenceState(recurrence.id, "pause")}><ChevronDown className="mr-1 size-4" /> Pausar</Button>}
                         {canManage && recurrence.status === "paused" && <Button size="sm" variant="outline" onClick={() => void changeRecurrenceState(recurrence.id, "resume")}>Reanudar</Button>}
                         {canManage && ["draft", "active", "paused"].includes(recurrence.status) && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setRecurrenceToCancel(recurrence.id)}>Cancelar</Button>}
