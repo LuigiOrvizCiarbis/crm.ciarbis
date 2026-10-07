@@ -20,6 +20,7 @@ export interface InvoiceSummary {
 export interface InvoiceRecurrenceRecord {
   id: number; concept: string; amount_cents: number; interval_unit: string; interval_count: number
   next_occurrence_on: string | null; status: string; payment_term_days: number; contact?: { id: number; name: string }; invoices_count?: number
+  latest_invoice?: InvoiceRecord | null
 }
 export interface InvoiceSettingsRecord {
   business_name: string | null; payment_instructions: string | null; whatsapp_channel_id: number | null
@@ -43,10 +44,11 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T
 }
 
-export async function listInvoices(page = 1, search = "", collectionStatus = "all"): Promise<{ rows: InvoiceRecord[]; pages: number; summary: InvoiceSummary }> {
+export async function listInvoices(page = 1, search = "", collectionStatus = "all", recurrenceId?: number | null): Promise<{ rows: InvoiceRecord[]; pages: number; summary: InvoiceSummary }> {
   const query = new URLSearchParams({ per_page: "50", page: String(page) })
   if (search) query.set("q", search)
   if (collectionStatus !== "all") query.set("collection_status", collectionStatus)
+  if (recurrenceId) query.set("invoice_recurrence_id", String(recurrenceId))
   const payload = await api<{ data: InvoiceRecord[]; meta?: { last_page: number }; last_page?: number; summary: InvoiceSummary }>(`/api/invoices?${query.toString()}`)
   return { rows: payload.data, pages: payload.meta?.last_page ?? payload.last_page ?? 1, summary: payload.summary }
 }

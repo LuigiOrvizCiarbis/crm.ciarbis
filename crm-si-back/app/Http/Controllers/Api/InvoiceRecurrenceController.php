@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\InvoiceRecurrence;
+use App\Models\InvoiceSetting;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -13,7 +14,27 @@ class InvoiceRecurrenceController extends Controller
     public function index(Request $request)
     {
         abort_unless($request->user()?->can('invoices.view'), 403);
-        return InvoiceRecurrence::with('contact')->withCount('invoices')->latest()->paginate(25);
+        $timezone = InvoiceSetting::where('tenant_id', $request->user()->tenant_id)->value('timezone') ?: 'America/Argentina/Buenos_Aires';
+        $today = now($timezone)->toDateString();
+        $recurrences = InvoiceRecurrence::with([
+            'contact',
+            'latestInvoice' => fn ($query) => $query->withSum(
+                ['payments as paid_cents' => fn ($payments) => $payments->whereNull('reversed_at')],
+                'amount_cents'
+            ),
+        ])->withCount('invoices')->latest()->paginate(min(100, max(10, (int) $request->input('per_page', 25))));
+
+        $recurrences->getCollection()->each(function (InvoiceRecurrence $recurrence) use ($today): void {
+            $invoice = $recurrence->latestInvoice;
+            if (! $invoice) return;
+
+            $paid = (int) $invoice->paid_cents;
+            $invoice->setAttribute('paid_cents', $paid);
+            $invoice->setAttribute('balance_cents', max(0, $invoice->amount_cents - $paid));
+            $invoice->setAttribute('collection_status', $invoice->collectionStatus($paid, $today));
+        });
+
+        return $recurrences;
     }
 
     public function store(Request $request)
