@@ -54,6 +54,7 @@ class InvoiceRecurrenceController extends Controller
         abort_unless($request->user()?->can('invoices.manage'), 403);
         abort_unless($recurrence->tenant_id === $request->user()->tenant_id, 404);
         if ($recurrence->status !== 'draft') throw ValidationException::withMessages(['recurrence' => 'Solo se pueden activar recurrencias en borrador.']);
+        InvoiceSetting::firstOrCreate(['tenant_id' => $recurrence->tenant_id]);
         $recurrence->update(['status' => 'active', 'activated_at' => now(), 'next_occurrence_on' => $recurrence->starts_on]);
         return ['data' => $recurrence->fresh('contact')];
     }
