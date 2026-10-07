@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ArrowDownToLine, Building2, Check, ChevronDown, CircleAlert, Clock3, FileCheck2, FileText, MessageCircle, Plus, RefreshCw, Repeat2, Search, Settings2, Wallet } from "lucide-react"
+import { ArrowDownToLine, Building2, Check, ChevronDown, CircleAlert, Clock3, FileCheck2, FileText, MessageCircle, Plus, RefreshCw, Repeat2, Search, Settings2, Wallet, X } from "lucide-react"
 import { SidebarLayout } from "@/components/SidebarLayout"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -77,6 +77,7 @@ export default function InvoicesPage() {
   const [invoiceSearch, setInvoiceSearch] = useState("")
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<InvoiceCollectionStatus | "all">("all")
   const loadSequence = useRef(0)
+  const invoiceSearchInput = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({ contact_id: "", concept: "", amount: "", send: "draft", scheduled_at: "", interval_unit: "months", interval_count: "1", starts_on: new Date().toISOString().slice(0, 10), ends_on: "", payment_term_days: "10" })
 
   const reload = useCallback(async () => {
@@ -387,7 +388,41 @@ export default function InvoicesPage() {
         <div className="grid gap-3 sm:grid-cols-3"><Card><CardContent className="flex items-center gap-4 p-5"><span className="grid size-10 place-items-center rounded-xl bg-amber-500/10 text-amber-600"><Wallet className="size-5" /></span><div><p className="text-xs text-muted-foreground">Saldo pendiente</p><p className="mt-1 text-xl font-semibold">{money(invoiceSummary.outstanding_cents)}</p></div></CardContent></Card><Card><CardContent className="flex items-center gap-4 p-5"><span className="grid size-10 place-items-center rounded-xl bg-red-500/10 text-red-600"><Clock3 className="size-5" /></span><div><p className="text-xs text-muted-foreground">Saldo vencido</p><p className="mt-1 text-xl font-semibold">{money(invoiceSummary.overdue_balance_cents)}</p><p className="mt-1 text-xs text-muted-foreground">{invoiceSummary.overdue_count} cobros</p></div></CardContent></Card><Card><CardContent className="flex items-center gap-4 p-5"><span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><Repeat2 className="size-5" /></span><div><p className="text-xs text-muted-foreground">Recurrencias activas</p><p className="mt-1 text-xl font-semibold">{recurrences.filter((item) => item.status === "active").length}</p></div></CardContent></Card></div>
 
         <Tabs defaultValue="invoices" className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><TabsList><TabsTrigger value="invoices">Cobros</TabsTrigger><TabsTrigger value="recurrences">Recurrentes</TabsTrigger></TabsList><Button variant="ghost" size="sm" onClick={() => void reload()} aria-label="Actualizar lista"><RefreshCw className="mr-2 size-4" /> Actualizar</Button></div>
-          <TabsContent value="invoices" className="space-y-4"><div className="flex flex-col gap-3 sm:flex-row"><div className="relative w-full max-w-sm"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Buscar cliente o cobro" value={search} onChange={(event) => setSearch(event.target.value)} /></div><div className="w-full space-y-1 sm:w-60"><label className="text-xs font-medium text-muted-foreground">Estado de pago</label><Select value={collectionStatusFilter} onValueChange={(value) => { setCollectionStatusFilter(value as InvoiceCollectionStatus | "all"); setInvoicePage(1) }}><SelectTrigger aria-label="Filtrar por estado de pago" className="w-full"><SelectValue placeholder="Todos los estados" /></SelectTrigger><SelectContent><SelectItem value="all">Todos los estados</SelectItem><SelectItem value="pending"><span className="mr-2 inline-block size-2 rounded-full bg-amber-500" />Pendiente</SelectItem><SelectItem value="overdue"><span className="mr-2 inline-block size-2 rounded-full bg-red-500" />Impago</SelectItem><SelectItem value="partial"><span className="mr-2 inline-block size-2 rounded-full bg-orange-500" />Pago parcial</SelectItem><SelectItem value="partial_overdue"><span className="mr-2 inline-block size-2 rounded-full bg-red-500" />Pago parcial · vencido</SelectItem><SelectItem value="paid"><span className="mr-2 inline-block size-2 rounded-full bg-emerald-500" />Pagado</SelectItem></SelectContent></Select></div></div>
+          <TabsContent value="invoices" className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <label htmlFor="invoice-search" className="text-xs font-medium text-muted-foreground">Buscar cobro</label>
+                <div className="relative">
+                  <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    ref={invoiceSearchInput}
+                    id="invoice-search"
+                    className="h-10 pl-9 pr-10"
+                    placeholder="Cliente o número de cobro"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                  />
+                  {search && <button
+                    type="button"
+                    aria-label="Limpiar búsqueda"
+                    onClick={() => {
+                      setSearch("")
+                      setInvoiceSearch("")
+                      setInvoicePage(1)
+                      invoiceSearchInput.current?.focus()
+                    }}
+                    className="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  ><X aria-hidden="true" className="size-4" /></button>}
+                </div>
+              </div>
+              <div className="w-full space-y-1.5 sm:w-60 sm:shrink-0">
+                <label htmlFor="invoice-collection-filter" className="text-xs font-medium text-muted-foreground">Estado de pago</label>
+                <Select value={collectionStatusFilter} onValueChange={(value) => { setCollectionStatusFilter(value as InvoiceCollectionStatus | "all"); setInvoicePage(1) }}>
+                  <SelectTrigger id="invoice-collection-filter" className="h-10 w-full"><SelectValue placeholder="Todos los estados" /></SelectTrigger>
+                  <SelectContent><SelectItem value="all">Todos los estados</SelectItem><SelectItem value="pending"><span className="mr-2 inline-block size-2 rounded-full bg-amber-500" />Pendiente</SelectItem><SelectItem value="overdue"><span className="mr-2 inline-block size-2 rounded-full bg-red-500" />Impago</SelectItem><SelectItem value="partial"><span className="mr-2 inline-block size-2 rounded-full bg-orange-500" />Pago parcial</SelectItem><SelectItem value="partial_overdue"><span className="mr-2 inline-block size-2 rounded-full bg-red-500" />Pago parcial · vencido</SelectItem><SelectItem value="paid"><span className="mr-2 inline-block size-2 rounded-full bg-emerald-500" />Pagado</SelectItem></SelectContent>
+                </Select>
+              </div>
+            </div>
             <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-muted/45 text-left text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="px-5 py-3">Invoice</th><th className="px-5 py-3">Cliente</th><th className="px-5 py-3">Vencimiento</th><th className="px-5 py-3 text-right">Total</th><th className="px-5 py-3 text-right">Saldo</th><th className="px-5 py-3">Estado</th><th className="px-5 py-3" /></tr></thead><tbody className="divide-y">{loading ? <tr><td className="px-5 py-12 text-center text-muted-foreground" colSpan={7}>Cargando cobros…</td></tr> : visibleInvoices.length === 0 ? <tr><td className="px-5 py-14 text-center text-muted-foreground" colSpan={7}>{collectionStatusFilter !== "all" || invoiceSearch ? "No hay cobros que coincidan con la búsqueda o el filtro." : "Todavía no hay cobros. Creá uno para empezar."}</td></tr> : visibleInvoices.map((invoice) => <tr key={invoice.id} className="hover:bg-muted/25"><td className="px-5 py-4"><button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => void openInvoice(invoice.id)}>{invoice.number}</button><p className="max-w-56 truncate text-xs text-muted-foreground">{invoice.concept}</p></td><td className="px-5 py-4">{invoice.contact?.name ?? "Contacto"}</td><td className="px-5 py-4">{date(invoice.due_on)}</td><td className="px-5 py-4 text-right font-medium">{money(invoice.amount_cents)}</td><td className="px-5 py-4 text-right">{money(invoice.balance_cents ?? invoice.amount_cents - (invoice.paid_cents ?? 0))}</td><td className="px-5 py-4">{collectionStatusControl(invoice)}</td><td className="px-5 py-4 text-right">{invoice.status === "issued" && <Button variant="ghost" size="icon" aria-label={`Descargar ${invoice.number}`} onClick={() => void downloadPdf(invoice.id)}><ArrowDownToLine className="size-4" /></Button>}</td></tr>)}</tbody></table></div></Card>
             <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Página {invoicePage} de {invoicePages}</p><div className="flex gap-2"><Button variant="outline" size="sm" disabled={invoicePage <= 1 || loading} onClick={() => setInvoicePage((page) => Math.max(1, page - 1))}>Anterior</Button><Button variant="outline" size="sm" disabled={invoicePage >= invoicePages || loading} onClick={() => setInvoicePage((page) => Math.min(invoicePages, page + 1))}>Siguiente</Button></div></div>
           </TabsContent>
