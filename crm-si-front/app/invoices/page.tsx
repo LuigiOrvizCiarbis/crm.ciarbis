@@ -12,6 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { useToast } from "@/components/Toast"
 import { getContacts, type Contact } from "@/lib/api/contacts"
 import { getChannels } from "@/lib/api/channels"
@@ -74,6 +76,8 @@ export default function InvoicesPage() {
   const [correctionReason, setCorrectionReason] = useState("")
   const [kind, setKind] = useState<"once" | "repeat">("once")
   const [search, setSearch] = useState("")
+  const [contactPickerSearch, setContactPickerSearch] = useState("")
+  const [contactPickerOpen, setContactPickerOpen] = useState(false)
   const [invoiceSearch, setInvoiceSearch] = useState("")
   const [collectionStatusFilter, setCollectionStatusFilter] = useState<InvoiceCollectionStatus | "all">("all")
   const loadSequence = useRef(0)
@@ -134,7 +138,12 @@ export default function InvoicesPage() {
   const visibleInvoices = invoices
 
   async function submitCreate(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true)
+    event.preventDefault()
+    if (!form.contact_id) {
+      addToast({ type: "error", title: "Elegí un cliente", description: "Seleccioná el cliente al que corresponde este cobro." })
+      return
+    }
+    setBusy(true)
     try {
       const cents = Math.round(Number(form.amount.replace(",", ".")) * 100)
       if (!Number.isFinite(cents) || cents < 1) throw new Error("Ingresá un importe válido.")
@@ -312,7 +321,7 @@ export default function InvoicesPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {canConfigure && <Button variant="outline" onClick={() => { setSettingsFormError(""); setShowSettings((shown) => !shown) }}><Settings2 className="mr-2 size-4" /> Configurar</Button>}
-            {canManage && <Button onClick={() => setShowCreate(true)}><Plus className="mr-2 size-4" /> Nuevo cobro</Button>}
+            {canManage && <Button onClick={() => { setContactPickerSearch(""); setShowCreate(true) }}><Plus className="mr-2 size-4" /> Nuevo cobro</Button>}
           </div>
         </header>
 
@@ -447,7 +456,58 @@ export default function InvoicesPage() {
 
         {showCreate && <Dialog open={showCreate} onOpenChange={setShowCreate}><DialogContent className="max-h-[90vh] w-full max-w-xl overflow-y-auto"><DialogHeader><DialogTitle id="invoice-create-title">Nuevo cobro</DialogTitle><p className="text-sm text-muted-foreground">Enviá un cobro ahora o programá su emisión.</p></DialogHeader><form onSubmit={submitCreate} className="space-y-4">
           <fieldset className="grid grid-cols-2 gap-2"><legend className="mb-2 text-sm font-medium">Tipo de cobro</legend><Button type="button" variant={kind === "once" ? "default" : "outline"} onClick={() => setKind("once")}>Único</Button><Button type="button" variant={kind === "repeat" ? "default" : "outline"} onClick={() => setKind("repeat")}>Recurrente</Button></fieldset>
-          <label className="block space-y-1.5 text-sm">Cliente<select required className="h-10 w-full rounded-md border bg-background px-3" value={form.contact_id} onChange={(event) => setForm({ ...form, contact_id: event.target.value })}><option value="">Seleccionar contacto</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name}{contact.phone ? ` · ${contact.phone}` : ""}</option>)}</select></label>
+          <div className="space-y-1.5 text-sm">
+            <label id="invoice-contact-label" className="block">Cliente <span className="text-destructive">*</span></label>
+            <Popover open={contactPickerOpen} onOpenChange={setContactPickerOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  role="combobox"
+                  aria-labelledby="invoice-contact-label"
+                  aria-controls="invoice-contact-options"
+                  aria-expanded={contactPickerOpen}
+                  aria-required="true"
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-left text-sm outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className={form.contact_id ? "truncate" : "truncate text-muted-foreground"}>
+                    {contacts.find((contact) => String(contact.id) === form.contact_id)?.name ?? "Buscar y seleccionar cliente"}
+                  </span>
+                  <ChevronDown aria-hidden="true" className="ml-2 size-4 shrink-0 text-muted-foreground" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-(--radix-popover-trigger-width) min-w-56 p-0">
+                <Command>
+                  <CommandInput placeholder="Buscar por nombre o teléfono…" value={contactPickerSearch} onValueChange={setContactPickerSearch} />
+                  <CommandList id="invoice-contact-options">
+                    <CommandEmpty>No encontramos clientes.</CommandEmpty>
+                    <CommandGroup>
+                      {contacts.map((contact) => {
+                        const contactName = contact.name?.trim() || "Contacto sin nombre"
+                        const contactPhone = contact.phone?.trim()
+                        const contactValue = `${contactName} ${contactPhone ?? ""}`
+                        const selected = String(contact.id) === form.contact_id
+
+                        return <CommandItem
+                          key={contact.id}
+                          value={contactValue}
+                          onSelect={() => {
+                            setForm((current) => ({ ...current, contact_id: String(contact.id) }))
+                            setContactPickerSearch("")
+                            setContactPickerOpen(false)
+                          }}
+                          className="gap-2"
+                        >
+                          <Check aria-hidden="true" className={`size-4 shrink-0 ${selected ? "opacity-100" : "opacity-0"}`} />
+                          <span className="min-w-0 flex-1 truncate">{contactName}</span>
+                          {contactPhone && <span className="shrink-0 text-xs text-muted-foreground">{contactPhone}</span>}
+                        </CommandItem>
+                      })}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
           <label className="block space-y-1.5 text-sm">Concepto<Input required maxLength={500} value={form.concept} onChange={(event) => setForm({ ...form, concept: event.target.value })} placeholder="Ej. Abono mensual de soporte" /></label>
           <label className="block space-y-1.5 text-sm">Importe en ARS<Input required type="number" min="0.01" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} placeholder="50000,00" /></label>
           {kind === "once" ? <><label className="block space-y-1.5 text-sm">Emisión<select className="h-10 w-full rounded-md border bg-background px-3" value={form.send} onChange={(event) => setForm({ ...form, send: event.target.value })}><option value="draft">Guardar como borrador</option><option value="now">Enviar ahora</option><option value="schedule">Programar envío</option></select></label>{form.send === "schedule" && <label className="block space-y-1.5 text-sm">Fecha y hora<Input required type="datetime-local" value={form.scheduled_at} onChange={(event) => setForm({ ...form, scheduled_at: event.target.value })} /></label>}</> : <><div className="grid grid-cols-2 gap-3"><label className="space-y-1.5 text-sm">Cada<Input type="number" min="1" max="365" value={form.interval_count} onChange={(event) => setForm({ ...form, interval_count: event.target.value })} /></label><label className="space-y-1.5 text-sm">Período<select className="h-10 w-full rounded-md border bg-background px-3" value={form.interval_unit} onChange={(event) => setForm({ ...form, interval_unit: event.target.value })}><option value="days">Días</option><option value="weeks">Semanas</option><option value="months">Meses</option><option value="years">Años</option></select></label></div><div className="grid grid-cols-2 gap-3"><label className="space-y-1.5 text-sm">Primera emisión<Input required type="date" value={form.starts_on} onChange={(event) => setForm({ ...form, starts_on: event.target.value })} /></label><label className="space-y-1.5 text-sm">Última emisión (opcional)<Input type="date" value={form.ends_on} onChange={(event) => setForm({ ...form, ends_on: event.target.value })} /></label></div><label className="block space-y-1.5 text-sm">Días para pagar<Input type="number" min="0" max="365" value={form.payment_term_days} onChange={(event) => setForm({ ...form, payment_term_days: event.target.value })} /></label><p className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">La recurrencia queda en borrador. Revisá su calendario y activala desde la pestaña Recurrentes.</p></>}
