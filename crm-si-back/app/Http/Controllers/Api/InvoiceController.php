@@ -51,6 +51,10 @@ class InvoiceController extends Controller
         if ($request->filled('status')) {
             $query->where('invoices.status', $request->string('status'));
         }
+        $request->validate(['invoice_recurrence_id' => ['nullable', 'integer', 'min:1']]);
+        if ($request->filled('invoice_recurrence_id')) {
+            $query->where('invoices.invoice_recurrence_id', (int) $request->input('invoice_recurrence_id'));
+        }
         if ($request->filled('q')) {
             $search = '%'.mb_strtolower(trim((string) $request->string('q'))).'%';
             $query->where(fn ($q) => $q
