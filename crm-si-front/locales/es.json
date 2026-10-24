@@ -817,6 +817,9 @@
       "unread": "No leídos",
       "review": "Por revisar",
       "archived": "Archivados"
+    },
+    "conversationRail": {
+      "label": "Lista de conversaciones"
     }
   },
   "settings": {
