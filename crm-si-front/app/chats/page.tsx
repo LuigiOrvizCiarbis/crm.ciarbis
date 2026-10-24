@@ -87,7 +87,7 @@ import { isExpectedBusinessErrorMessage } from "@/lib/observability/sentry"
 import { ChannelHeader } from "@/components/chat/AccountHeader"
 import { useConversationFilters } from "@/hooks/useConversationFilters"
 import { TagFilterMenu } from "@/components/tags/TagFilterMenu"
-import { StageFilterMenu, matchesStageFilter } from "@/components/chat/StageFilterMenu"
+import { StageFilterMenu, matchesStageFilter, stageKeysOf } from "@/components/chat/StageFilterMenu"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useSSEMessages, type MessageStatusUpdate, type MessageReactionUpdate } from "@/hooks/useSSEMessages"
 import { useTenantSSE } from "@/hooks/useTenantSSE"
@@ -776,6 +776,21 @@ export default function ChatsPage() {
       && matchesStageFilter(conversation, stages)
     ))
   }, [filteredConversations, tagFilterSlugs, stageFilter])
+
+  // Chats por etapa con todos los filtros menos el de etapas: lo que mostraría elegirla.
+  const stageFilterCounts = useMemo(() => {
+    const selectedTags = new Set(tagFilterSlugs)
+    const counts = new Map<string, number>()
+    filteredConversations.forEach((conversation) => {
+      if (selectedTags.size > 0 && !conversation.tags?.some((tag) => selectedTags.has(tag.slug))) return
+      const inView = viewType === "archived"
+        ? conversation.archived
+        : viewType === "unread" ? conversation.unread && !conversation.archived : !conversation.archived
+      if (!inView) return
+      stageKeysOf(conversation).forEach((key) => counts.set(key, (counts.get(key) ?? 0) + 1))
+    })
+    return counts
+  }, [filteredConversations, tagFilterSlugs, viewType])
 
   const conversationViewCounts = useMemo(() => ({
     inbox: tagFilteredConversations.filter((conversation) => !conversation.archived).length,
@@ -1953,7 +1968,13 @@ export default function ChatsPage() {
           label="Tags"
           align="start"
         />
-        <StageFilterMenu selected={stageFilter} onChange={setStageFilter} />
+        <StageFilterMenu
+          selected={stageFilter}
+          onChange={setStageFilter}
+          counts={stageFilterCounts}
+          resultCount={visibleConversations.length}
+          onShowResults={() => setIsChannelsSheetOpen(false)}
+        />
       </div>
 
       <div className="flex-1 overflow-y-auto">
