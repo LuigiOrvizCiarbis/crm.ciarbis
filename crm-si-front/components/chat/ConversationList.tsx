@@ -22,6 +22,7 @@ interface ConversationCardProps {
   selectionMode?: boolean
   isChecked?: boolean
   onToggleSelect?: (id: number) => void
+  compact?: boolean
 }
 
 const ConversationCard = memo(function ConversationCard({
@@ -32,8 +33,16 @@ const ConversationCard = memo(function ConversationCard({
   selectionMode = false,
   isChecked = false,
   onToggleSelect,
+  compact = false,
 }: ConversationCardProps) {
   const { t } = useTranslation()
+  const cardRef = useRef<HTMLDivElement>(null)
+
+  // En la columna lateral, el chat abierto (p. ej. desde un deep-link) puede
+  // estar fuera de vista: lo traemos sin mover la lista si ya se ve.
+  useEffect(() => {
+    if (compact && isSelected) cardRef.current?.scrollIntoView({ block: "nearest" })
+  }, [compact, isSelected])
 
   const isGroup = conversation.kind === "group"
   const contactName = isGroup
@@ -94,7 +103,9 @@ const ConversationCard = memo(function ConversationCard({
 
   return (
     <Card
-      className={`p-3 cursor-pointer hover:bg-accent transition-colors ${isSelected ? 'bg-accent border-primary' : ''} ${isChecked ? 'bg-primary/5 border-primary/40' : ''} ${isUnread && !isSelected ? 'border-l-2 border-l-blue-500' : ''}`}
+      ref={cardRef}
+      aria-current={isSelected ? "true" : undefined}
+      className={`${compact ? 'px-3 py-2.5' : 'p-3'} cursor-pointer hover:bg-accent transition-colors ${isSelected ? 'bg-accent border-primary' : ''} ${isChecked ? 'bg-primary/5 border-primary/40' : ''} ${isUnread && !isSelected ? 'border-l-2 border-l-blue-500' : ''}`}
       onClick={handleCardClick}
       aria-label={unreadAriaLabel}
     >
@@ -162,7 +173,7 @@ const ConversationCard = memo(function ConversationCard({
               )}
             </div>
           </div>
-          {contactPhone && (
+          {contactPhone && !compact && (
             <p className="text-xs text-muted-foreground/80 truncate tabular-nums tracking-tight">
               {contactPhone}
             </p>
@@ -170,10 +181,10 @@ const ConversationCard = memo(function ConversationCard({
           <p className={`text-xs truncate ${isUnread ? 'text-foreground/90 font-medium' : 'text-muted-foreground'}`}>
             {conversation.last_message}
           </p>
-          {conversation.tags && conversation.tags.length > 0 && (
+          {!compact && conversation.tags && conversation.tags.length > 0 && (
             <TagChips tags={conversation.tags} maxVisible={2} className="mt-2" />
           )}
-          {channel && (
+          {channel && !compact && (
             <p className="text-xs text-muted-foreground/70 truncate">
               {channel.name}
             </p>
@@ -202,6 +213,8 @@ interface ConversationListProps {
   hasMore?: boolean
   isLoadingMore?: boolean
   onLoadMore?: () => void
+  /** Variante angosta para la columna junto a un hilo abierto. */
+  compact?: boolean
 }
 
 export function ConversationList({
@@ -219,6 +232,7 @@ export function ConversationList({
   hasMore = false,
   isLoadingMore = false,
   onLoadMore,
+  compact = false,
 }: ConversationListProps) {
   const { t } = useTranslation()
   const resolvedEmptyState = emptyState ?? {
@@ -290,8 +304,8 @@ export function ConversationList({
   }
 
   return (
-    <div className="flex-1 p-4 overflow-y-auto">
-      <div className="space-y-2">
+    <div className={`flex-1 overflow-y-auto ${compact ? 'p-2' : 'p-4'}`}>
+      <div className={compact ? 'space-y-1' : 'space-y-2'}>
         {uniqueConversations.map((conversation) => (
           <ConversationCard
             key={conversation.id}
@@ -302,6 +316,7 @@ export function ConversationList({
             selectionMode={selectionMode}
             isChecked={selectedIds?.has(conversation.id) ?? false}
             onToggleSelect={onToggleSelect}
+            compact={compact}
           />
         ))}
       </div>
@@ -330,6 +345,7 @@ export function ConversationList({
                 channel={conversation.channel || channelMap.get(conversation.channelId)}
                 isSelected={selectedConversationId === conversation.id}
                 onClick={onConversationClick}
+                compact={compact}
               />
             ))}
           </div>
