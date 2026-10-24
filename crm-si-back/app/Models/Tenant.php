@@ -50,13 +50,25 @@ class Tenant extends Model
                 ['name' => 'Perdido', 'sort_order' => 6, 'is_default' => false],
             ];
 
+            $pipeline = Pipeline::create([
+                'tenant_id' => $tenant->id,
+                'name' => 'Ventas',
+                'is_default' => true,
+            ]);
+
             PipelineStage::insert(array_map(fn ($stage) => [
                 ...$stage,
                 'tenant_id' => $tenant->id,
+                'pipeline_id' => $pipeline->id,
                 'created_at' => $now,
                 'updated_at' => $now,
             ], $stages));
         });
+    }
+
+    public function pipelines(): HasMany
+    {
+        return $this->hasMany(Pipeline::class);
     }
 
     public function invitations(): HasMany

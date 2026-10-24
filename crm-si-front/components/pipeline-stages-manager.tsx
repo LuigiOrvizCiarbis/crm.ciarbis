@@ -44,6 +44,7 @@ import { CSS } from "@dnd-kit/utilities"
 import { GripVertical, Loader2, Plus, Trash2 } from "lucide-react"
 
 interface PipelineStagesManagerProps {
+  pipelineId: number
   onStagesChanged?: () => void
 }
 
@@ -127,7 +128,7 @@ function SortableStageRow({
   )
 }
 
-export function PipelineStagesManager({ onStagesChanged }: PipelineStagesManagerProps) {
+export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineStagesManagerProps) {
   const { t } = useTranslation()
   const { addToast } = useToast()
   const canManage = usePermission("pipeline_stages.manage")
@@ -149,12 +150,12 @@ export function PipelineStagesManager({ onStagesChanged }: PipelineStagesManager
 
   const fetchStages = useCallback(async () => {
     setLoading(true)
-    const data = await getPipelineStages()
+    const data = await getPipelineStages(pipelineId)
     const sorted = [...data].sort((a, b) => a.sort_order - b.sort_order)
     savedValues.current = new Map(sorted.map((s) => [s.id, { name: s.name, color: s.color }]))
     setStages(sorted)
     setLoading(false)
-  }, [])
+  }, [pipelineId])
 
   useEffect(() => {
     fetchStages()
@@ -202,7 +203,7 @@ export function PipelineStagesManager({ onStagesChanged }: PipelineStagesManager
 
     setSaving(true)
     try {
-      await createPipelineStage({ name, color: newColor })
+      await createPipelineStage({ pipeline_id: pipelineId, name, color: newColor })
       setNewName("")
       setNewColor(DEFAULT_NEW_COLOR)
       await fetchStages()
@@ -262,7 +263,7 @@ export function PipelineStagesManager({ onStagesChanged }: PipelineStagesManager
     const payload = reordered.map((s, index) => ({ id: s.id, sort_order: index + 1 }))
     setSaving(true)
     try {
-      await reorderPipelineStages(payload)
+      await reorderPipelineStages(pipelineId, payload)
       onStagesChanged?.()
     } catch {
       addToast({

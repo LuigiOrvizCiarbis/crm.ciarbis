@@ -2268,6 +2268,10 @@ export default function ChatsPage() {
               {/* Quick Bar */}
               <ChatQuickBar
                 chatId={selectedConversationId}
+                contact={(() => {
+                  const contactId = activeConversation.contact_id ?? Number(activeConversation.contact?.id)
+                  return contactId ? { id: contactId, name: activeConversation.contact?.name ?? "Contacto" } : null
+                })()}
                 value={{
                   stageId: currentConversation?.pipeline_stage_id,
                   priority: currentConversation?.priority,

@@ -235,6 +235,7 @@ class InstagramMessageService
 
         if (! $conversation->pipeline_stage_id) {
             $defaultStage = PipelineStage::where('tenant_id', $channel->tenant_id)
+                ->whereHas('pipeline', fn ($query) => $query->where('is_default', true))
                 ->where(function ($query) {
                     $query->where('is_default', true)
                         ->orWhereNotNull('id');

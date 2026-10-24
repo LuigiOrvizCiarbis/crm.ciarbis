@@ -3,6 +3,7 @@ import { throwApiError } from "./api-error";
 
 export interface OpportunityPayload {
   contact_id: number
+  pipeline_id?: number
   conversation_id?: number | null
   pipeline_stage_id?: number | null
   assigned_to?: number | null
@@ -15,6 +16,8 @@ export interface OpportunityPayload {
 
 interface GetOpportunitiesOptions {
   contactId?: number
+  conversationId?: number
+  pipelineId?: number
   status?: "open" | "won" | "lost" | "archived"
 }
 
@@ -40,6 +43,9 @@ export async function getOpportunities(options: GetOpportunitiesOptions = {}) {
   if (options.contactId) {
     params.set("contact_id", String(options.contactId));
   }
+
+  if (options.conversationId) params.set("conversation_id", String(options.conversationId))
+  if (options.pipelineId) params.set("pipeline_id", String(options.pipelineId))
 
   if (options.status) {
     params.set("status", options.status);
@@ -82,10 +88,11 @@ export async function createOpportunity(body: OpportunityPayload) {
   return payload.data;
 }
 
-export async function getOpportunitySummary(): Promise<OpportunitySummary> {
+export async function getOpportunitySummary(pipelineId?: number): Promise<OpportunitySummary> {
   const token = requireToken();
 
-  const response = await fetch("/api/opportunities/summary", {
+  const query = pipelineId ? `?pipeline_id=${pipelineId}` : ""
+  const response = await fetch(`/api/opportunities/summary${query}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
@@ -101,7 +108,7 @@ export async function getOpportunitySummary(): Promise<OpportunitySummary> {
   return payload as OpportunitySummary;
 }
 
-export async function updateOpportunityStage(opportunityId: number, stageId: number | null) {
+export async function updateOpportunityStage(opportunityId: number, stageId: number, pipelineId?: number) {
   const token = requireToken();
 
   const response = await fetch(`/api/opportunities/${opportunityId}/stage`, {
@@ -111,7 +118,7 @@ export async function updateOpportunityStage(opportunityId: number, stageId: num
       Accept: "application/json",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ pipeline_stage_id: stageId }),
+    body: JSON.stringify({ pipeline_stage_id: stageId, ...(pipelineId ? { pipeline_id: pipelineId } : {}) }),
   });
 
   const payload = await response.json().catch(() => ({}));

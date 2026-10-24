@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Pipeline;
 use App\Models\PipelineStage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
+use Illuminate\Validation\Rule;
 
 class PipelineStageController extends Controller
 {
@@ -15,7 +17,14 @@ class PipelineStageController extends Controller
     {
         $this->authorize('viewAny', PipelineStage::class);
 
-        return PipelineStage::orderBy('sort_order', 'asc')->get();
+        $query = PipelineStage::query()->orderBy('sort_order', 'asc');
+        if ($request->filled('pipeline_id')) {
+            $query->where('pipeline_id', $request->integer('pipeline_id'));
+        } else {
+            $query->whereHas('pipeline', fn ($builder) => $builder->where('is_default', true));
+        }
+
+        return $query->get();
     }
 
     public function store(Request $request): JsonResponse
@@ -24,13 +33,17 @@ class PipelineStageController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
+            'pipeline_id' => ['sometimes', 'integer', Rule::exists('pipelines', 'id')->where('tenant_id', $request->user()->tenant_id)],
             'color' => ['sometimes', 'string', 'regex:/^#([0-9A-Fa-f]{6})$/'],
         ]);
 
-        $maxOrder = PipelineStage::max('sort_order') ?? 0;
+        // Sin pipeline_id explícito la etapa va al pipeline predeterminado.
+        $pipelineId = $validated['pipeline_id'] ?? Pipeline::defaultFor($request->user()->tenant_id)->id;
+        $maxOrder = PipelineStage::where('pipeline_id', $pipelineId)->max('sort_order') ?? 0;
 
         $stage = PipelineStage::create([
             'name' => $validated['name'],
+            'pipeline_id' => $pipelineId,
             'color' => $validated['color'] ?? '#3B82F6',
             'sort_order' => $maxOrder + 1,
         ]);
@@ -71,8 +84,11 @@ class PipelineStageController extends Controller
         $this->authorize('reorder', PipelineStage::class);
 
         $request->validate([
+            'pipeline_id' => ['sometimes', 'integer', Rule::exists('pipelines', 'id')->where('tenant_id', $request->user()->tenant_id)],
             'stages' => 'required|array',
-            'stages.*.id' => 'required|exists:pipeline_stages,id',
+            'stages.*.id' => ['required', Rule::exists('pipeline_stages', 'id')->where(fn ($query) => $query
+                ->where('tenant_id', $request->user()->tenant_id)
+                ->when($request->filled('pipeline_id'), fn ($query) => $query->where('pipeline_id', $request->integer('pipeline_id'))))],
             'stages.*.sort_order' => 'required|integer',
         ]);
 
