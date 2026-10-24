@@ -40,6 +40,59 @@ const collectionStatusTone = (status: InvoiceCollectionStatus) => status === "pa
       ? "border-orange-500/40 bg-orange-500/10 text-orange-700 hover:bg-orange-500/15 dark:text-orange-300"
       : "border-amber-500/40 bg-amber-500/10 text-amber-800 hover:bg-amber-500/15 dark:text-amber-300"
 const deliveryStatusLabel = (status: string) => status === "delivered" ? "WhatsApp entregado" : status === "accepted" ? "WhatsApp enviado" : status === "failed" ? "Falló el envío" : status === "unknown" ? "Entrega sin confirmar" : "Envío pendiente de confirmación"
+const recurrenceFrequency = (unit: string, count: number) => {
+  const labels: Record<string, [string, string]> = {
+    days: ["día", "días"], weeks: ["semana", "semanas"], months: ["mes", "meses"], years: ["año", "años"],
+  }
+  const period = labels[unit]
+  if (!period) return `Cada ${count} ${unit}`
+  return count === 1 ? `Cada ${period[0]}` : `Cada ${count} ${period[1]}`
+}
+type InvoiceActivity = NonNullable<InvoiceRecord["events"]>[number]
+const invoiceActivityLabels: Record<string, string> = {
+  created: "Cobro creado",
+  issued: "Cobro emitido",
+  voided: "Cobro anulado",
+  payment_recorded: "Pago registrado",
+  payment_reversed: "Pago revertido",
+  collection_status_updated: "Estado de pago actualizado",
+  recurrence_generated: "Cobro recurrente generado",
+  recurrence_issue_failed: "No se pudo emitir el cobro recurrente",
+  missed_occurrence_review: "Período anterior pendiente de revisión",
+  message_accepted: "Envío aceptado por WhatsApp",
+  message_failed: "Falló el envío por WhatsApp",
+  message_unknown: "Envío sin confirmar",
+  reminder_sent: "Recordatorio enviado",
+  reminder_failed: "Falló el recordatorio",
+}
+const invoiceActivityDetail = (event: InvoiceActivity, payments?: InvoiceRecord["payments"]) => {
+  const details = event.details ?? {}
+  if (event.type === "payment_recorded") {
+    return typeof details.amount_cents === "number" ? money(details.amount_cents) : null
+  }
+  if (event.type === "payment_reversed") {
+    const payment = payments?.find((item) => item.id === details.payment_id)
+    const reason = typeof details.reason === "string" ? details.reason : null
+    return [payment ? money(payment.amount_cents) : null, reason].filter(Boolean).join(" · ") || null
+  }
+  if (event.type === "collection_status_updated") {
+    const status = details.to
+    return typeof status === "string" && status in collectionStatusLabels ? `Nuevo estado: ${collectionStatusLabels[status as InvoiceCollectionStatus]}` : null
+  }
+  if (event.type === "recurrence_generated" && details.delivery === "not_requested") {
+    return "Creado como borrador, sin envío por WhatsApp"
+  }
+  if (event.type === "reminder_sent" && typeof details.reminder_number === "number") {
+    return `Recordatorio ${details.reminder_number}`
+  }
+  if (["message_failed", "message_unknown", "reminder_failed", "recurrence_issue_failed"].includes(event.type)) {
+    return typeof details.error === "string" ? details.error : null
+  }
+  if (event.type === "voided") {
+    return typeof details.reason === "string" ? details.reason : null
+  }
+  return null
+}
 
 export default function InvoicesPage() {
   const { addToast } = useToast()
@@ -439,6 +492,7 @@ export default function InvoicesPage() {
             <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Página {invoicePage} de {invoicePages}</p><div className="flex gap-2"><Button variant="outline" size="sm" disabled={invoicePage <= 1 || loading} onClick={() => setInvoicePage((page) => Math.max(1, page - 1))}>Anterior</Button><Button variant="outline" size="sm" disabled={invoicePage >= invoicePages || loading} onClick={() => setInvoicePage((page) => Math.min(invoicePages, page + 1))}>Siguiente</Button></div></div>
           </TabsContent>
           <TabsContent value="recurrences">
+            {!settings?.enabled && <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">Los cobros recurrentes se generan como borradores para controlar sus pagos. Activá los envíos en Configuración de cobros para mandar los próximos por WhatsApp.</p>}
             <Card className="overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[900px] text-sm">
@@ -449,15 +503,15 @@ export default function InvoicesPage() {
                     {loading ? <tr><td className="px-5 py-12 text-center text-muted-foreground" colSpan={8}>Cargando recurrencias…</td></tr> : recurrences.length === 0 ? <tr><td className="px-5 py-14 text-center" colSpan={8}><Repeat2 className="mx-auto mb-3 size-8 text-muted-foreground/50"/><p className="font-medium">Sin cobros recurrentes</p><p className="mt-1 text-muted-foreground">Las recurrencias generan un invoice separado por cada período.</p></td></tr> : recurrences.map((recurrence) => <tr key={recurrence.id} className="hover:bg-muted/25">
                       <td className="px-5 py-4 font-medium">{recurrence.concept}</td>
                       <td className="px-5 py-4">{recurrence.contact?.name}</td>
-                      <td className="px-5 py-4">Cada {recurrence.interval_count} {recurrence.interval_unit}</td>
-                      <td className="px-5 py-4">{date(recurrence.next_occurrence_on)}</td>
+                      <td className="px-5 py-4">{recurrenceFrequency(recurrence.interval_unit, recurrence.interval_count)}</td>
+                      <td className="px-5 py-4">{recurrence.status === "draft" ? "Al activar" : date(recurrence.next_occurrence_on)}</td>
                       <td className="px-5 py-4 text-right font-medium">{money(recurrence.amount_cents)}</td>
                       <td className="px-5 py-4"><Badge variant={recurrence.status === "active" ? "default" : "outline"}>{recurrence.status === "active" ? "Activa" : recurrence.status === "draft" ? "Borrador" : recurrence.status === "paused" ? "Pausada" : recurrence.status === "completed" ? "Completada" : "Cancelada"}</Badge></td>
                       <td className="px-5 py-4">{recurrence.latest_invoice ? <div className="space-y-2"><button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => void openInvoice(recurrence.latest_invoice!.id)}>{recurrence.latest_invoice.number}</button>{collectionStatusControl(recurrence.latest_invoice)}</div> : <span className="text-xs text-muted-foreground">Aún no generado</span>}</td>
                       <td className="px-5 py-4 text-right"><div className="flex flex-wrap justify-end gap-1">
                         {(recurrence.invoices_count ?? 0) > 0 && <Button size="sm" variant="outline" onClick={() => { setRecurrenceFilter(recurrence); setInvoicePage(1); setActiveTab("invoices") }}>Ver períodos</Button>}
                         {canManage && ["draft", "active"].includes(recurrence.status) && <Button size="sm" variant="ghost" onClick={() => { setRecurrenceToEdit(recurrence); setRecurrenceEdit({ concept: recurrence.concept, amount: (recurrence.amount_cents / 100).toFixed(2), interval_count: String(recurrence.interval_count), interval_unit: recurrence.interval_unit, payment_term_days: String(recurrence.payment_term_days), ends_on: "" }) }}>Editar</Button>}
-                        {canManage && recurrence.status === "draft" && <Button size="sm" variant="outline" disabled={busy || !settings?.enabled} onClick={() => void activateRecurrence(recurrence.id)}><Check className="mr-1 size-4" /> Activar</Button>}
+                        {canManage && recurrence.status === "draft" && <Button size="sm" variant="outline" disabled={busy} onClick={() => void activateRecurrence(recurrence.id)}><Check className="mr-1 size-4" /> Activar</Button>}
                         {canManage && recurrence.status === "active" && <Button size="sm" variant="ghost" onClick={() => void changeRecurrenceState(recurrence.id, "pause")}><ChevronDown className="mr-1 size-4" /> Pausar</Button>}
                         {canManage && recurrence.status === "paused" && <Button size="sm" variant="outline" onClick={() => void changeRecurrenceState(recurrence.id, "resume")}>Reanudar</Button>}
                         {canManage && ["draft", "active", "paused"].includes(recurrence.status) && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setRecurrenceToCancel(recurrence.id)}>Cancelar</Button>}
@@ -483,7 +537,11 @@ export default function InvoicesPage() {
           <div className="mt-6"><h3 className="font-medium">Historial de pagos</h3><div className="mt-2 divide-y rounded-xl border">{(selectedInvoice.payments ?? []).length === 0 ? <p className="p-4 text-sm text-muted-foreground">Todavía no se registraron pagos.</p> : selectedInvoice.payments?.map((payment) => <div key={payment.id} className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm"><div><p className="font-medium">{money(payment.amount_cents)} · {date(payment.paid_on)}</p><p className="text-xs text-muted-foreground">{payment.method || "Medio no indicado"}{payment.reversed_at ? ` · Revertido: ${payment.reversal_reason}` : ""}</p></div>{canPay && !payment.reversed_at && <Button size="sm" variant="ghost" onClick={() => { setPaymentToReverse(payment.id); setCorrectionReason("") }}>Revertir</Button>}</div>)}</div></div>
           {canPay && paymentToReverse !== null && <div className="mt-3 flex flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3"><p className="text-sm">Vas a revertir el pago de {money(selectedInvoice.payments?.find((payment) => payment.id === paymentToReverse)?.amount_cents ?? 0)}.</p><div className="flex gap-2"><Input aria-label="Motivo de reversión" value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} placeholder="Motivo de reversión" /><Button variant="outline" disabled={busy || correctionReason.trim().length < 3} onClick={() => void reversePayment(paymentToReverse)}>Confirmar reversión</Button><Button variant="ghost" onClick={() => setPaymentToReverse(null)}>Cancelar</Button></div></div>}
           {canManage && selectedInvoice.status === "issued" && <div className="mt-4 flex gap-2">{(selectedInvoice.payments ?? []).some((payment) => !payment.reversed_at) ? <p className="text-xs text-muted-foreground">Para anular este cobro, primero revertí los pagos registrados.</p> : <><Input aria-label="Motivo de anulación" value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} placeholder="Motivo para anular el invoice" /><Button variant="destructive" disabled={busy || correctionReason.trim().length < 3} onClick={() => void runInvoiceAction("void")}>Anular cobro</Button></>}</div>}
-          <div className="mt-6"><h3 className="font-medium">Actividad y envíos</h3><div className="mt-2 space-y-2">{(selectedInvoice.events ?? []).map((event) => <div key={event.id} className="flex justify-between gap-3 rounded-lg bg-muted/35 px-3 py-2 text-xs"><span>{event.type.replaceAll("_", " ")}</span><span className="text-muted-foreground">{new Date(event.created_at).toLocaleString("es-AR")}</span></div>)}</div></div>
+          <div className="mt-6"><h3 className="font-medium">Actividad y envíos</h3><div className="mt-2 space-y-2">{(selectedInvoice.events ?? []).length === 0 ? <p className="rounded-lg bg-muted/35 px-3 py-4 text-sm text-muted-foreground">Todavía no hay actividad.</p> : selectedInvoice.events?.map((event) => {
+            const detail = invoiceActivityDetail(event, selectedInvoice.payments)
+            const failed = ["message_failed", "reminder_failed", "recurrence_issue_failed"].includes(event.type)
+            return <div key={event.id} className="flex flex-col gap-1 rounded-lg bg-muted/35 px-3 py-2 text-sm sm:flex-row sm:items-start sm:justify-between sm:gap-3"><div className="min-w-0"><p className={failed ? "font-medium text-destructive" : "font-medium"}>{invoiceActivityLabels[event.type] ?? "Otra actividad"}</p>{detail && <p className="mt-0.5 break-words text-xs text-muted-foreground">{detail}</p>}</div><time dateTime={event.created_at} className="shrink-0 text-xs text-muted-foreground">{new Date(event.created_at).toLocaleString("es-AR")}</time></div>
+          })}</div></div>
         </DialogContent></Dialog>}
 
         {showCreate && <Dialog open={showCreate} onOpenChange={setShowCreate}><DialogContent ref={createDialogContentRef} className="max-h-[90vh] w-full max-w-xl overflow-y-auto"><DialogHeader><DialogTitle id="invoice-create-title">Nuevo cobro</DialogTitle><p className="text-sm text-muted-foreground">Enviá un cobro ahora o programá su emisión.</p></DialogHeader><form onSubmit={submitCreate} className="space-y-4">

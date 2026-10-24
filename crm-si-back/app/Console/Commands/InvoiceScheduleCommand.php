@@ -19,18 +19,20 @@ class InvoiceScheduleCommand extends Command
 
     public function handle(InvoiceService $service): int
     {
-        foreach (InvoiceSetting::where('enabled', true)->get() as $settings) {
+        foreach (InvoiceSetting::all() as $settings) {
             $now = CarbonImmutable::now($settings->timezone);
             if ($now->hour < $settings->send_hour) continue;
-            Invoice::where('tenant_id', $settings->tenant_id)->where('status', 'issued')->where('delivery_status', 'delivered')->where('next_reminder_at', '<=', $now->utc())->orderBy('id')->chunkById(100, function ($invoices): void {
-                foreach ($invoices as $invoice) {
-                    $claimed = Invoice::whereKey($invoice->id)->whereNotNull('next_reminder_at')->update(['next_reminder_at' => null]);
-                    if ($claimed) SendInvoiceReminderJob::dispatch($invoice->id, $invoice->tenant_id);
-                }
-            });
-            Invoice::where('tenant_id', $settings->tenant_id)->where('status', 'scheduled')->where('scheduled_at', '<=', $now->utc())->orderBy('id')->chunkById(100, function ($invoices) use ($service): void {
-                foreach ($invoices as $invoice) $service->issue($invoice);
-            });
+            if ($settings->enabled) {
+                Invoice::where('tenant_id', $settings->tenant_id)->where('status', 'issued')->where('delivery_status', 'delivered')->where('next_reminder_at', '<=', $now->utc())->orderBy('id')->chunkById(100, function ($invoices): void {
+                    foreach ($invoices as $invoice) {
+                        $claimed = Invoice::whereKey($invoice->id)->whereNotNull('next_reminder_at')->update(['next_reminder_at' => null]);
+                        if ($claimed) SendInvoiceReminderJob::dispatch($invoice->id, $invoice->tenant_id);
+                    }
+                });
+                Invoice::where('tenant_id', $settings->tenant_id)->where('status', 'scheduled')->where('scheduled_at', '<=', $now->utc())->orderBy('id')->chunkById(100, function ($invoices) use ($service): void {
+                    foreach ($invoices as $invoice) $service->issue($invoice);
+                });
+            }
 
             InvoiceRecurrence::where('tenant_id', $settings->tenant_id)->where('status', 'active')->whereDate('next_occurrence_on', '<=', $now->toDateString())->orderBy('id')->chunkById(100, function ($recurrences) use ($settings, $now, $service): void {
                 foreach ($recurrences as $recurrence) {
@@ -45,11 +47,11 @@ class InvoiceScheduleCommand extends Command
                         $missed = $scheduled->toDateString() < $now->toDateString();
                         $invoice = Invoice::firstOrCreate(
                             ['invoice_recurrence_id' => $recurrence->id, 'issued_on' => $scheduled->toDateString()],
-                            ['tenant_id' => $recurrence->tenant_id, 'contact_id' => $recurrence->contact_id, 'number' => 'pending', 'concept' => $recurrence->concept, 'amount_cents' => $recurrence->amount_cents, 'currency' => 'ARS', 'status' => $missed ? 'draft' : 'scheduled', 'issued_on' => $scheduled->toDateString(), 'scheduled_at' => $scheduled->startOfDay()->utc()],
+                            ['tenant_id' => $recurrence->tenant_id, 'contact_id' => $recurrence->contact_id, 'number' => 'pending', 'concept' => $recurrence->concept, 'amount_cents' => $recurrence->amount_cents, 'currency' => 'ARS', 'status' => $missed || ! $settings->enabled ? 'draft' : 'scheduled', 'issued_on' => $scheduled->toDateString(), 'due_on' => $scheduled->addDays($recurrence->payment_term_days)->toDateString(), 'scheduled_at' => $missed || ! $settings->enabled ? null : $scheduled->startOfDay()->utc()],
                         );
                         if ($invoice->number === 'pending') $invoice->update(['number' => 'INV-'.str_pad((string) $invoice->id, 8, '0', STR_PAD_LEFT)]);
-                        if ($missed) {
-                            \App\Models\InvoiceEvent::create(['tenant_id' => $invoice->tenant_id, 'invoice_id' => $invoice->id, 'type' => 'missed_occurrence_review', 'details' => ['scheduled_on' => $scheduled->toDateString()]]);
+                        if ($missed || ! $settings->enabled) {
+                            \App\Models\InvoiceEvent::create(['tenant_id' => $invoice->tenant_id, 'invoice_id' => $invoice->id, 'type' => $missed ? 'missed_occurrence_review' : 'recurrence_generated', 'details' => ['recurrence_id' => $recurrence->id, 'scheduled_on' => $scheduled->toDateString(), 'delivery' => 'not_requested']]);
                         } else {
                             try {
                                 $service->issue($invoice);
