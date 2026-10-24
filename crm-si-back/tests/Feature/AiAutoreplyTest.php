@@ -16,10 +16,12 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
+use App\Services\Ai\AiReplyDecision;
 use App\Services\AiReplyService;
+use App\Services\HumanHandoffService;
 use App\Services\InstagramMessageService;
-use App\Services\MessengerMessageService;
 use App\Services\MailMessageService;
+use App\Services\MessengerMessageService;
 use App\Services\WhatsAppMessageService;
 use App\Services\WhatsAppTemplateService;
 use App\Support\PermissionCatalog;
@@ -208,11 +210,11 @@ class AiAutoreplyTest extends TestCase
         [, $conversation] = $this->createConversationSetup(aiEnabled: true);
 
         $this->mock(AiReplyService::class, function ($mock) use ($conversation) {
-            $mock->shouldReceive('respond')
+            $mock->shouldReceive('decide')
                 ->once()
                 ->withArgs(fn (Conversation $c, AiConfig $config) => $c->id === $conversation->id
                     && $config->tenant_id === $conversation->tenant_id)
-                ->andReturn('Hola, sí tenemos stock.');
+                ->andReturn(AiReplyDecision::reply('Hola, sí tenemos stock.'));
         });
 
         $this->mock(WhatsAppMessageService::class, function ($mock) use ($conversation) {
@@ -228,6 +230,7 @@ class AiAutoreplyTest extends TestCase
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
             app(MailMessageService::class),
+            app(HumanHandoffService::class),
         );
     }
 
@@ -241,7 +244,7 @@ class AiAutoreplyTest extends TestCase
         $conversation->channel->update(['type' => ChannelType::FACEBOOK]);
 
         $this->mock(AiReplyService::class, function ($mock) {
-            $mock->shouldReceive('respond')->once()->andReturn('Respuesta IA');
+            $mock->shouldReceive('decide')->once()->andReturn(AiReplyDecision::reply('Respuesta IA'));
         });
 
         $this->mock(MessengerMessageService::class, function ($mock) use ($conversation) {
@@ -265,6 +268,7 @@ class AiAutoreplyTest extends TestCase
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
             app(MailMessageService::class),
+            app(HumanHandoffService::class),
         );
     }
 
@@ -277,7 +281,7 @@ class AiAutoreplyTest extends TestCase
         $conversation->channel->update(['type' => ChannelType::TELEGRAM]);
 
         $this->mock(AiReplyService::class, function ($mock) {
-            $mock->shouldReceive('respond')->once()->andReturn('Respuesta IA');
+            $mock->shouldReceive('decide')->once()->andReturn(AiReplyDecision::reply('Respuesta IA'));
         });
 
         foreach ([WhatsAppMessageService::class, InstagramMessageService::class, MessengerMessageService::class, MailMessageService::class] as $service) {
@@ -292,6 +296,7 @@ class AiAutoreplyTest extends TestCase
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
             app(MailMessageService::class),
+            app(HumanHandoffService::class),
         );
     }
 
@@ -300,7 +305,7 @@ class AiAutoreplyTest extends TestCase
         [, $conversation] = $this->createConversationSetup(aiEnabled: false);
 
         $this->mock(AiReplyService::class, function ($mock) {
-            $mock->shouldNotReceive('respond');
+            $mock->shouldNotReceive('decide');
         });
 
         $this->mock(WhatsAppMessageService::class, function ($mock) {
@@ -313,6 +318,7 @@ class AiAutoreplyTest extends TestCase
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
             app(MailMessageService::class),
+            app(HumanHandoffService::class),
         );
     }
 
@@ -326,7 +332,7 @@ class AiAutoreplyTest extends TestCase
             ->update(['enabled' => false]);
 
         $this->mock(AiReplyService::class, function ($mock) {
-            $mock->shouldNotReceive('respond');
+            $mock->shouldNotReceive('decide');
         });
 
         $this->mock(WhatsAppMessageService::class, function ($mock) {
@@ -339,6 +345,7 @@ class AiAutoreplyTest extends TestCase
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
             app(MailMessageService::class),
+            app(HumanHandoffService::class),
         );
     }
 
