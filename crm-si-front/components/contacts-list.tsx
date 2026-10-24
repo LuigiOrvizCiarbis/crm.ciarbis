@@ -20,8 +20,7 @@ import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Has
 import type { RangeFilterValue } from "./contacts/RangeFilterMenu"
 import { BulkFieldsDialog } from "./contacts/bulk-fields-dialog"
 import { getAuthToken, getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
-import { getPipelineStages } from "@/lib/api/pipeline"
-import { createOpportunity, getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
+import { ContactPipelineDialog } from "@/components/contact-pipeline-dialog"
 import { updateContact, type ContactUpdate } from "@/lib/api/contacts"
 import { CustomChoiceBadge, CustomFieldInput, formatCustomChoice } from "@/components/CustomFieldInput"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
@@ -474,7 +473,7 @@ export function ContactsList({
 
   const [deleteContact, setDeleteContact] = useState<Contact | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [addingToPipelineId, setAddingToPipelineId] = useState<number | null>(null)
+  const [pipelineContact, setPipelineContact] = useState<Contact | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [bulkTagsOpen, setBulkTagsOpen] = useState(false)
   const [bulkFieldsOpen, setBulkFieldsOpen] = useState(false)
@@ -915,47 +914,6 @@ export function ContactsList({
     }
   }
 
-  const handleAddToPipeline = async (contact: Contact) => {
-    const latestConversation = contact.conversations?.[0]
-    setAddingToPipelineId(contact.id)
-    try {
-      const stages = await getPipelineStages()
-      const sortedStages = [...stages].sort((a, b) => a.sort_order - b.sort_order)
-      const targetStage = sortedStages.find((stage) => stage.is_default) ?? sortedStages[0]
-      if (!targetStage) throw new Error("No hay etapas configuradas en el pipeline")
-
-      const existingOpenOpportunities = await getOpportunities({ contactId: contact.id, status: "open" })
-      const existingOpportunity = existingOpenOpportunities[0]
-
-      if (existingOpportunity) {
-        await updateOpportunityStage(existingOpportunity.id, targetStage.id)
-      } else {
-        await createOpportunity({
-          contact_id: contact.id,
-          conversation_id: latestConversation?.id ?? null,
-          pipeline_stage_id: targetStage.id,
-          source_type: latestConversation ? "conversation" : "manual",
-          title: `Oportunidad - ${contact.name}`,
-        })
-      }
-
-      addToast({
-        type: "success",
-        title: "Contacto agregado al pipeline",
-        description: existingOpportunity
-          ? `${contact.name} fue movido a ${targetStage.name}.`
-          : `${contact.name} fue agregado a ${targetStage.name}.`,
-      })
-    } catch (error) {
-      addToast({
-        type: "error",
-        title: "No se pudo agregar al pipeline",
-        description: error instanceof Error ? error.message : "Error desconocido",
-      })
-    } finally {
-      setAddingToPipelineId(null)
-    }
-  }
 
   const updateContactTags = (contactId: number, tags: Tag[]): void => {
     setContacts((prev) => prev.map((contact) => (contact.id === contactId ? { ...contact, tags } : contact)))
@@ -1142,11 +1100,8 @@ export function ContactsList({
                   Extraer datos de un PDF
                 </DropdownMenuItem>
                 <DropdownMenuItem>Crear tarea</DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={addingToPipelineId === contact.id}
-                  onSelect={() => handleAddToPipeline(contact)}
-                >
-                  {addingToPipelineId === contact.id ? "Agregando..." : "Agregar a pipeline"}
+                <DropdownMenuItem onSelect={() => setPipelineContact(contact)}>
+                  Agregar a pipeline
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
@@ -1853,6 +1808,16 @@ export function ContactsList({
           )}
         </SheetContent>
       </Sheet>
+
+      <ContactPipelineDialog
+        contact={pipelineContact}
+        open={Boolean(pipelineContact)}
+        onOpenChange={(open) => { if (!open) setPipelineContact(null) }}
+        onSaved={() => {
+          addToast({ type: "success", title: "Oportunidad actualizada", description: `${pipelineContact?.name} quedó en el pipeline seleccionado.` })
+          setPipelineContact(null)
+        }}
+      />
 
       {/* Dialog Importar CSV */}
       {importOpen ? (
