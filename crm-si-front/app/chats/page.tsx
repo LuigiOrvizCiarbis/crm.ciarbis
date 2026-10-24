@@ -102,6 +102,8 @@ import { MessengerPageSelectDialog } from "@/components/chat/MessengerPageSelect
 import { MailConnectDialog } from "@/components/chat/MailConnectDialog"
 import { MailReviewInbox } from "@/components/chat/MailReviewInbox"
 import { getMailIntakeCount } from "@/lib/api/mail-intakes"
+import { setActiveConversationId } from "@/lib/activeConversation"
+import { useNotificationsStore } from "@/store/useNotificationsStore"
 import {
   Archive,
   ArchiveRestore,
@@ -980,8 +982,18 @@ export default function ChatsPage() {
       if (event.draft.conversation_id === selectedConversationId) setAiDraft(event.draft.status === "cancelled" ? null : event.draft);
     };
     channel.bind("manual-ai-draft.updated", onDraft);
-    return () => { channel.unbind("manual-ai-draft.updated", onDraft); pusher.unsubscribe(`private-App.Models.User.${userId}`); };
+    // Sólo unbind: el canal del usuario lo comparte el listener global de
+    // notificaciones (AppShell); desuscribirlo acá lo dejaría sordo.
+    return () => { channel.unbind("manual-ai-draft.updated", onDraft); };
   }, [user?.id, selectedConversationId]);
+
+  useEffect(() => {
+    setActiveConversationId(selectedConversationId);
+    if (selectedConversationId) {
+      useNotificationsStore.getState().markGroupRead(`conversation:${selectedConversationId}`).catch(() => {});
+    }
+    return () => setActiveConversationId(null);
+  }, [selectedConversationId]);
 
   useEffect(() => {
     if (!selectedConversationId || aiDraft?.status !== "pending") return;

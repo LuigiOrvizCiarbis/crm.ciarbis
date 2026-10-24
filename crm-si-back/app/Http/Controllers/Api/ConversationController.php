@@ -6,6 +6,7 @@ use App\Enums\MessageDirection;
 use App\Enums\SenderType;
 use App\Events\ManualAiDraftUpdated;
 use App\Http\Controllers\Controller;
+use App\Services\Notifications\DomainNotifier;
 use App\Jobs\SendBroadcastMessageJob;
 use App\Models\Channel;
 use App\Models\Contact;
@@ -380,7 +381,13 @@ class ConversationController extends Controller
             $syncData[$userId] = ['assigned_by' => $currentUserId];
         }
 
-        $conversation->users()->sync($syncData);
+        $changes = $conversation->users()->sync($syncData);
+        app(DomainNotifier::class)->conversationAssignmentChanged(
+            $conversation,
+            array_map('intval', $changes['attached']),
+            array_map('intval', $changes['detached']),
+            $request->user(),
+        );
 
         return response()->json([
             'message' => 'Usuarios asignados correctamente',
@@ -401,6 +408,9 @@ class ConversationController extends Controller
         ]);
         $currentUserId = auth()->id();
 
+        $wasAssigned = (int) $conversation->assigned_to === (int) $request->user_id
+            || $conversation->users()->where('users.id', $request->user_id)->exists();
+
         // Actualizar el responsable principal
         $conversation->update(['assigned_to' => $request->user_id]);
 
@@ -408,6 +418,10 @@ class ConversationController extends Controller
         $conversation->users()->syncWithoutDetaching([
             $request->user_id => ['assigned_by' => $currentUserId],
         ]);
+
+        if (! $wasAssigned) {
+            app(DomainNotifier::class)->conversationAssignmentChanged($conversation, [(int) $request->user_id], [], $request->user());
+        }
 
         return response()->json([
             'message' => 'Usuario asignado correctamente',
@@ -424,7 +438,9 @@ class ConversationController extends Controller
         $conversation = Conversation::where('id', $id)->firstOrFail();
         $this->authorize('assign', $conversation);
 
-        $conversation->users()->detach($userId);
+        if ($conversation->users()->detach($userId) > 0) {
+            app(DomainNotifier::class)->conversationAssignmentChanged($conversation, [], [(int) $userId], $request->user());
+        }
 
         return response()->json([
             'message' => 'Usuario removido correctamente',

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\Notifications\DomainNotifier;
 use App\Models\Channel;
 use App\Models\Conversation;
 use App\Models\HumanHandoff;
@@ -79,6 +80,7 @@ class HumanHandoffService
             ]);
 
             SendHumanHandoffNotificationJob::dispatch($handoff->id)->afterCommit();
+            app(DomainNotifier::class)->handoffRequested($handoff, $conversation);
             return $handoff;
         });
     }

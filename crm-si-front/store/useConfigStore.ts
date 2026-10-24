@@ -13,15 +13,6 @@ export interface Integration {
   icono: string
 }
 
-export interface NotificationPrefs {
-  nuevoMensaje: boolean
-  tareaVencida: boolean
-  tareaProxima: boolean
-  cierreVenta: boolean
-  recordatoriosDiarios: boolean
-  reporteSemanal: boolean
-}
-
 export interface Channel {
   id: string
   tipo: "whatsapp" | "instagram" | "facebook" | "telegram" | "email"
@@ -56,9 +47,6 @@ interface ConfigStore {
 
   integrations: Integration[]
   toggleIntegration: (id: IntegrationType) => void
-
-  notifications: NotificationPrefs
-  setNotifications: (prefs: Partial<NotificationPrefs>) => void
 
   channels: Channel[]
   addChannel: (channel: Channel) => void
@@ -142,19 +130,6 @@ export const useConfigStore = create<ConfigStore>()(
       toggleIntegration: (id) =>
         set((state) => ({
           integrations: state.integrations.map((int) => (int.id === id ? { ...int, conectado: !int.conectado } : int)),
-        })),
-
-      notifications: {
-        nuevoMensaje: true,
-        tareaVencida: true,
-        tareaProxima: true,
-        cierreVenta: true,
-        recordatoriosDiarios: false,
-        reporteSemanal: true,
-      },
-      setNotifications: (prefs) =>
-        set((state) => ({
-          notifications: { ...state.notifications, ...prefs },
         })),
 
       channels: [

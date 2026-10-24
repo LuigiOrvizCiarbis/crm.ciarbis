@@ -8,6 +8,7 @@ use App\Events\MessageDeleted;
 use App\Events\MessageEdited;
 use App\Exceptions\MetaApiException;
 use App\Http\Controllers\Controller;
+use App\Services\Notifications\DomainNotifier;
 use App\Http\Requests\UpdateMessageRequest;
 use App\Http\Resources\ContactResource;
 use App\Models\Contact;
@@ -282,6 +283,10 @@ class MessageController extends Controller
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (MetaApiException $e) {
+            if ($e->reason === MetaApiException::REASON_TOKEN_INVALID && $conversation->channel) {
+                app(DomainNotifier::class)->channelTokenInvalid($conversation->channel);
+            }
+
             $channelName = match ($e->channelType) {
                 ChannelType::INSTAGRAM => 'Instagram',
                 ChannelType::FACEBOOK => 'Facebook',

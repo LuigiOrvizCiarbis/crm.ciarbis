@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\ProductImport;
+use App\Services\Notifications\DomainNotifier;
 use App\Services\ProductImportService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -35,5 +36,7 @@ class ProcessProductImportJob implements ShouldQueue
             Log::error('Product import failed', ['import_id' => $import->id, 'exception' => $exception]);
             $import->update(['status' => 'failed', 'error' => $exception->getMessage(), 'finished_at' => now()]);
         }
+
+        app(DomainNotifier::class)->importFinished($import);
     }
 }

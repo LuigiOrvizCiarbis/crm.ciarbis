@@ -123,19 +123,6 @@
     "errors": {
       "loadFailed": "Failed to load metrics",
       "retry": "Retry"
-    },
-    "notifications": {
-      "title": "Notifications",
-      "viewAll": "View all",
-      "empty": "No new notifications",
-      "demoLead": "New lead: Ana Martínez from WhatsApp",
-      "demoLeadTime": "5 min ago",
-      "demoMessage": "New message from Carlos López",
-      "demoMessageTime": "12 min ago",
-      "demoTask": "Overdue task: Follow-up with Juan Pérez",
-      "demoTaskTime": "1 hour ago",
-      "demoAssignment": "Lead assigned: María García assigned you a lead",
-      "demoAssignmentTime": "2 hours ago"
     }
   },
   "tenant": {
@@ -1009,13 +996,6 @@
       }
     },
     "save": "Save changes",
-    "notifications": "Notifications",
-    "newMessage": "New message",
-    "taskOverdue": "Overdue task",
-    "taskUpcoming": "Upcoming task",
-    "saleClosed": "Sale closed",
-    "dailyReminders": "Daily reminders",
-    "weeklyReport": "Weekly report",
     "roles": "Roles",
     "adminRole": "Admin",
     "adminRoleDesc": "Full access + team management",
@@ -1847,6 +1827,76 @@
       "timezone": "Timezone",
       "dateFormat": "Date format",
       "saved": "Preferences saved"
+    }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "unread": "{{count}} unread",
+    "unreadLabel": "Unread",
+    "bellLabelUnread": "Notifications ({{count}} unread)",
+    "markAllRead": "Mark all read",
+    "loadMore": "Load more",
+    "emptyTitle": "You're all caught up",
+    "emptyDescription": "We'll let you know here when a message comes in, something is assigned to you or a channel needs attention.",
+    "unknownContact": "a contact",
+    "types": {
+      "message_received": {
+        "label": "Incoming messages",
+        "title": "New message from {{name}}",
+        "titleMany": "{{count}} new messages from {{name}}",
+        "attachment": "Sent an attachment"
+      },
+      "conversation_assigned": {
+        "label": "A conversation is assigned to you",
+        "title": "A conversation was assigned to you",
+        "body": "Conversation with {{name}}",
+        "bodyBy": "{{actor}} assigned you the conversation with {{name}}"
+      },
+      "conversation_unassigned": {
+        "label": "You're removed from a conversation",
+        "title": "You're no longer assigned to a conversation",
+        "body": "Conversation with {{name}}"
+      },
+      "handoff_requested": {
+        "label": "AI hands off to a human",
+        "title": "The AI handed off a conversation",
+        "body": "{{name}} asked to talk to a person"
+      },
+      "task_assigned": {
+        "label": "A task is assigned to you",
+        "title": "New task assigned",
+        "bodyBy": "{{actor}} assigned you “{{task}}”"
+      },
+      "import_completed": {
+        "label": "Import finished",
+        "title": "Import completed"
+      },
+      "import_failed": {
+        "label": "Import failed",
+        "title": "The import failed"
+      },
+      "channel_token_invalid": {
+        "label": "Channel disconnected",
+        "title": "Reconnect the {{channel}} channel",
+        "body": "The connection expired and messages can't be sent from that channel."
+      },
+      "trial_expiring": {
+        "label": "Trial ending",
+        "title": "Your trial ends in {{days}} days",
+        "titleOne": "Your trial ends tomorrow",
+        "body": "Pick a plan to keep using the CRM without interruptions."
+      }
+    },
+    "preferences": {
+      "title": "Notifications",
+      "description": "Choose which alerts you get inside the CRM and how they reach you. They only apply to your user.",
+      "browser": "Browser notifications",
+      "browserHint": "System alerts when the CRM is in another tab or minimized.",
+      "browserDenied": "Your browser blocked notifications. Enable them from the lock icon in the address bar and try again.",
+      "browserUnsupported": "This browser doesn't support notifications.",
+      "sound": "Sound",
+      "soundHint": "A short chime when a notification arrives.",
+      "typesTitle": "What we notify you about"
     }
   }
 }

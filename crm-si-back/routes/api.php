@@ -41,6 +41,7 @@ use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProductImportController;
 use App\Http\Controllers\Api\ProductFieldController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\TagController;
@@ -457,6 +458,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('profile/whatsapp-notifications', [ProfileController::class, 'revokeWhatsAppNotification']);
     Route::put('profile/password', [ProfileController::class, 'updatePassword']);
     Route::put('profile/preferences', [ProfileController::class, 'updatePreferences']);
+    Route::put('profile/notification-preferences', [ProfileController::class, 'updateNotificationPreferences']);
+
+    Route::get('notifications', [NotificationController::class, 'index']);
+    Route::get('notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
+    Route::post('notifications/read-group', [NotificationController::class, 'markGroupRead']);
+    Route::post('notifications/{id}/read', [NotificationController::class, 'markRead'])->whereNumber('id');
     Route::post('profile/avatar', [ProfileController::class, 'uploadAvatar']);
     Route::delete('profile/avatar', [ProfileController::class, 'deleteAvatar']);
     Route::get('profile/sessions', [ProfileController::class, 'sessions']);

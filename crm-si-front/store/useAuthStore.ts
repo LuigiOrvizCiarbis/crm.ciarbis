@@ -5,6 +5,7 @@ import { disconnectPusher } from "@/lib/pusher"
 import { clearWorkspaceId } from "@/lib/api/auth-token"
 import type { NavigationLabels } from "@/data/navigation"
 import type { WorkspaceSummary } from "@/lib/api/workspaces"
+import type { NotificationPreferences } from "@/lib/api/notifications"
 
 /**
  * Identifica al usuario en Sentry para que cada error reportado indique
@@ -46,6 +47,7 @@ export interface UserPreferences {
   locale: string
   timezone: string
   date_format: string
+  notifications?: NotificationPreferences
 }
 
 export interface User {

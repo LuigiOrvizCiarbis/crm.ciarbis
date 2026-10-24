@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\AutomationRun;
+use App\Models\UserNotification;
 use App\Models\WebhookDelivery;
 use App\Models\WhatsAppWebhookReceipt;
 use App\Jobs\ProcessWhatsAppWebhookReceiptJob;
@@ -49,6 +50,8 @@ Schedule::command('broadcasts:dispatch-due')->everyMinute()->withoutOverlapping(
 Schedule::command('mail:sync-channels')->everyMinute()->withoutOverlapping(10);
 Schedule::command('mail:purge-expired-intakes')->daily()->withoutOverlapping();
 Schedule::command('model:prune', ['--model' => [AutomationRun::class]])->dailyAt('02:15');
+// Notificaciones in-app: leídas > 30 días o cualquiera > 90 (UserNotification::prunable).
+Schedule::command('model:prune', ['--model' => [UserNotification::class]])->dailyAt('02:30');
 // Detecta difusiones trabadas en la cola: si un destinatario lleva más de 15
 // minutos en `queued`, algo está tapando el worker (ver retry_after en
 // config/queue.php) y hoy nadie se entera hasta que el cliente se queja.
@@ -73,3 +76,5 @@ Schedule::command('extractions:purge-orphans')->dailyAt('03:30')->withoutOverlap
 Schedule::command('billing:roll-cycle')->hourly()->withoutOverlapping(30);
 Schedule::command('invoices:dispatch-due')->everyMinute()->withoutOverlapping(5);
 Schedule::command('workspaces:purge')->dailyAt('04:00')->withoutOverlapping(30);
+// Notificación in-app a owners cuando faltan 3 y 1 día de trial (hora local del server).
+Schedule::command('notifications:trial-reminders')->dailyAt('10:00')->withoutOverlapping(10);
