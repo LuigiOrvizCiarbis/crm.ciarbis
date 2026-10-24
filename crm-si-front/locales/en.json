@@ -709,7 +709,7 @@
     "stageLabel": "Stage",
     "stageFilter": {
       "label": "Stages",
-      "title": "Filter by chat stage",
+      "title": "Filter by stage",
       "loading": "Loading stages",
       "none": "No stage",
       "clear": "Clear stage filter"

@@ -775,7 +775,7 @@ export default function ChatsPage() {
     const stages = new Set(stageFilter)
     return filteredConversations.filter((conversation) => (
       (selected.size === 0 || conversation.tags?.some((tag) => selected.has(tag.slug)))
-      && matchesStageFilter(conversation.pipeline_stage_id, stages)
+      && matchesStageFilter(conversation, stages)
     ))
   }, [filteredConversations, tagFilterSlugs, stageFilter])
 
@@ -866,7 +866,7 @@ export default function ChatsPage() {
       if (matchingChannelIds && !matchingChannelIds.has(conversation.channelId)) return false
       if (activeFilter === "no-leidos" && !((conversation.unread_count ?? 0) > 0 || conversation.unread)) return false
       if (tagSet.size > 0 && !conversation.tags?.some((tag) => tagSet.has(tag.slug))) return false
-      if (!matchesStageFilter(conversation.pipeline_stage_id, stageSet)) return false
+      if (!matchesStageFilter(conversation, stageSet)) return false
       if (viewType === "archived") return Boolean(conversation.archived)
       if (conversation.archived) return false
       if (viewType === "unread" && !conversation.unread) return false
@@ -2344,6 +2344,9 @@ export default function ChatsPage() {
                   setCurrentConversation(prev => prev ? { ...prev, pipeline_stage_id: stage } : prev)
                   // La lista también: el filtro de etapas lee de acá.
                   setConversations(prev => prev.map(c => c.id === selectedConversationId ? { ...c, pipeline_stage_id: stage } : c))
+                }}
+                onOpportunityStagesChange={(chatId, stageIds) => {
+                  setConversations(prev => prev.map(c => c.id === chatId ? { ...c, opportunity_stage_ids: stageIds } : c))
                 }}
                 onChangePriority={(priority) => {
                   chatHandlers.handleChangePriority(selectedConversationId)(priority)

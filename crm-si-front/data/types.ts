@@ -97,6 +97,8 @@ export interface Conversation {
   leadScore?: number
   stage?: "nuevo" | "calificado" | "demo" | "cierre"
   pipeline_stage_id?: number // Nuevo campo para etapas dinámicas
+  /** Etapas de las oportunidades vinculadas al chat, de cualquier pipeline. */
+  opportunity_stage_ids?: number[]
   priority?: "baja" | "media" | "alta" | "hot"
   assigneeId?: number | string
   archived?: boolean,

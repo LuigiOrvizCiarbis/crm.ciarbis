@@ -213,6 +213,19 @@ class MultiPipelineTest extends TestCase
         $this->assertEquals(['Del chat'], $titles->all());
     }
 
+    public function test_chat_list_exposes_opportunity_stages_of_every_pipeline(): void
+    {
+        $renewals = $this->createPipelineWithStage('Renovaciones', 'Por renovar');
+        $contact = $this->createContact();
+        $conversation = $this->createConversation($contact, $this->defaultPipeline()->entryStage());
+        $this->createOpportunity($contact, $renewals->entryStage(), 'Renovación', $conversation);
+        $this->createOpportunity($contact, $renewals->entryStage(), 'Renovación 2', $conversation);
+
+        $row = collect($this->getJson('/api/conversations')->assertOk()->json('data'))->firstWhere('id', $conversation->id);
+
+        $this->assertEquals([$renewals->entryStage()->id], $row['opportunity_stage_ids']);
+    }
+
     public function test_pipeline_with_opportunities_cannot_be_deleted(): void
     {
         $renewals = $this->createPipelineWithStage('Renovaciones', 'Contactado');

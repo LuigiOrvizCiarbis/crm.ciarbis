@@ -141,6 +141,11 @@ class Conversation extends Model
         return $this->hasMany(Task::class);
     }
 
+    public function opportunities(): HasMany
+    {
+        return $this->hasMany(Opportunity::class);
+    }
+
     public function humanHandoffs(): HasMany
     {
         return $this->hasMany(HumanHandoff::class);

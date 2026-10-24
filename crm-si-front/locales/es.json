@@ -709,7 +709,7 @@
     "stageLabel": "Etapa",
     "stageFilter": {
       "label": "Etapas",
-      "title": "Filtrar por etapa del chat",
+      "title": "Filtrar por etapa",
       "loading": "Cargando etapas",
       "none": "Sin etapa",
       "clear": "Quitar filtro de etapas"
