@@ -68,11 +68,16 @@ class PipelineStageController extends Controller
         return response()->json($stage);
     }
 
-    public function destroy(string $id): Response
+    public function destroy(string $id): Response|JsonResponse
     {
         $stage = PipelineStage::findOrFail($id);
 
         $this->authorize('delete', $stage);
+
+        // El predeterminado no puede quedar sin etapas: los chats nuevos entran en la primera.
+        if ($stage->pipeline?->is_default && $stage->pipeline->stages()->count() <= 1) {
+            return response()->json(['message' => 'El pipeline predeterminado necesita al menos una etapa.'], 422);
+        }
 
         $stage->delete();
 

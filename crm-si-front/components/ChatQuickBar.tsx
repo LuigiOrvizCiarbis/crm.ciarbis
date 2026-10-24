@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { useToast } from "@/components/Toast"
@@ -83,7 +83,12 @@ export function ChatQuickBar({
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([])
   const [isLoadingStages, setIsLoadingStages] = useState(true)
   // Oportunidades vinculadas al chat; cada una se mueve dentro de su propio pipeline.
-  const [opportunities, setOpportunities] = useState<ChatOpportunity[]>([])
+  // Las oportunidades se guardan con el chat al que pertenecen: el componente
+  // no se remonta al cambiar de chat y una respuesta tardía no debe mostrarse
+  // (ni moverse) en otro.
+  const [loadedOpportunities, setLoadedOpportunities] = useState<{ chatId: number; items: ChatOpportunity[] } | null>(null)
+  const opportunities = loadedOpportunities?.chatId === chatId ? loadedOpportunities.items : []
+  const currentChatIdRef = useRef(chatId)
   const [stagesByPipeline, setStagesByPipeline] = useState<Record<number, PipelineStage[]>>({})
   const [isNewOpportunityOpen, setIsNewOpportunityOpen] = useState(false)
   const [pendingOpportunityId, setPendingOpportunityId] = useState<number | null>(null)
@@ -125,17 +130,21 @@ export function ChatQuickBar({
     loadData()
   }, [])
 
-  const loadOpportunities = useCallback(async () => {
-    try {
-      setOpportunities((await getOpportunities({ conversationId: chatId })) as ChatOpportunity[])
-    } catch {
-      setOpportunities([])
-    }
+  useEffect(() => {
+    currentChatIdRef.current = chatId
   }, [chatId])
 
+  /** Trae las oportunidades del chat; descarta la respuesta si ya se cambió de chat. */
+  const fetchOpportunities = useCallback(async (targetChatId: number): Promise<ChatOpportunity[] | null> => {
+    const items = (await getOpportunities({ conversationId: targetChatId }).catch(() => [])) as ChatOpportunity[]
+    if (currentChatIdRef.current !== targetChatId) return null
+    setLoadedOpportunities({ chatId: targetChatId, items })
+    return items
+  }, [])
+
   useEffect(() => {
-    void loadOpportunities()
-  }, [loadOpportunities])
+    void fetchOpportunities(chatId)
+  }, [chatId, fetchOpportunities])
 
   // Etapas de cada pipeline presente en las oportunidades del chat.
   const pipelineIdsKey = [...new Set(opportunities.map((item) => item.pipeline_id))].sort((a, b) => a - b).join(",")
@@ -158,9 +167,9 @@ export function ChatQuickBar({
 
   const handleOpportunityCreated = async () => {
     const before = new Set(opportunities.map((item) => item.id))
-    const items = (await getOpportunities({ conversationId: chatId }).catch(() => [])) as ChatOpportunity[]
+    const items = await fetchOpportunities(chatId)
+    if (!items) return
     const created = items.find((item) => !before.has(item.id))
-    setOpportunities(items)
     // El backend ya movió la etapa del chat; reflejarlo en la barra.
     if (created?.pipeline?.is_default && created.pipeline_stage_id) {
       const chatStage = pipelineStages.find((s) => s.id === created.pipeline_stage_id)
@@ -173,11 +182,15 @@ export function ChatQuickBar({
     const stage = stagesByPipeline[opportunity.pipeline_id]?.find((s) => s.id === stageId)
     if (!stage || stageId === opportunity.pipeline_stage_id) return
 
+    const originChatId = chatId
     setPendingOpportunityId(opportunity.id)
     updateOpportunityStage(opportunity.id, stageId, opportunity.pipeline_id)
       .then(() => {
-        setOpportunities((current) => current.map((item) => item.id === opportunity.id ? { ...item, pipeline_stage_id: stageId } : item))
-        if (opportunity.pipeline?.is_default) onChangeStage(stageId, stage.name)
+        setLoadedOpportunities((current) => current?.chatId === originChatId
+          ? { ...current, items: current.items.map((item) => item.id === opportunity.id ? { ...item, pipeline_stage_id: stageId } : item) }
+          : current)
+        // Si ya se cambió de chat, la etapa del chat sincronizada es del anterior.
+        if (opportunity.pipeline?.is_default && currentChatIdRef.current === originChatId) onChangeStage(stageId, stage.name)
         addToast({
           type: "success",
           title: t("chats.opportunityUpdated"),

@@ -23,6 +23,11 @@ function authHeaders(token: string): HeadersInit {
   };
 }
 
+/** Primer error de validación o el mensaje del backend (reglas de negocio en 422). */
+function apiErrorMessage(payload: { message?: string; errors?: Record<string, string[]> }, fallback: string): string {
+  return Object.values(payload?.errors ?? {})[0]?.[0] ?? payload?.message ?? fallback
+}
+
 export async function getPipelines(): Promise<Pipeline[]> {
   const token = getAuthToken()
   if (!token) return []
@@ -40,11 +45,7 @@ export async function createPipeline(name: string, stages?: { name: string; colo
     body: JSON.stringify(stages?.length ? { name, stages } : { name }),
   })
   const payload = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    // Primer error de validación (p. ej. nombre repetido) o el mensaje general.
-    const firstError = Object.values((payload?.errors ?? {}) as Record<string, string[]>)[0]?.[0]
-    throw new Error(firstError ?? payload?.message ?? "No se pudo crear el pipeline")
-  }
+  if (!res.ok) throw new Error(apiErrorMessage(payload, "No se pudo crear el pipeline"))
   return payload
 }
 
@@ -52,15 +53,16 @@ export async function updatePipeline(id: number, data: { name?: string; is_defau
   const token = getAuthToken()
   if (!token) throw new Error("No autenticado")
   const res = await fetch(`/api/pipelines/${id}`, { method: "PUT", headers: authHeaders(token), body: JSON.stringify(data) })
-  if (!res.ok) throw new Error("No se pudo actualizar el pipeline")
-  return res.json()
+  const payload = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(apiErrorMessage(payload, "No se pudo actualizar el pipeline"))
+  return payload
 }
 
 export async function deletePipeline(id: number): Promise<void> {
   const token = getAuthToken()
   if (!token) throw new Error("No autenticado")
   const res = await fetch(`/api/pipelines/${id}`, { method: "DELETE", headers: authHeaders(token) })
-  if (!res.ok) throw new Error("No se pudo eliminar el pipeline")
+  if (!res.ok) throw new Error(apiErrorMessage(await res.json().catch(() => ({})), "No se pudo eliminar el pipeline"))
 }
 
 export async function getPipelineStages(pipelineId?: number): Promise<PipelineStage[]> {
@@ -126,7 +128,7 @@ export async function deletePipelineStage(id: number): Promise<void> {
     headers: authHeaders(token),
   });
 
-  if (!res.ok) throw new Error("No se pudo eliminar la etapa");
+  if (!res.ok) throw new Error(apiErrorMessage(await res.json().catch(() => ({})), "No se pudo eliminar la etapa"));
 }
 
 export async function reorderPipelineStages(

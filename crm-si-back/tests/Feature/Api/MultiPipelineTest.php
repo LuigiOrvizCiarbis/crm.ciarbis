@@ -225,6 +225,94 @@ class MultiPipelineTest extends TestCase
         $this->assertDatabaseMissing('pipelines', ['id' => $renewals->id]);
     }
 
+    public function test_pipeline_with_chats_in_its_stages_cannot_be_deleted(): void
+    {
+        $renewals = $this->createPipelineWithStage('Renovaciones', 'Contactado');
+        $conversation = $this->createConversation($this->createContact(), $renewals->entryStage());
+
+        $this->deleteJson("/api/pipelines/{$renewals->id}")->assertStatus(422);
+        $this->assertSame($renewals->entryStage()->id, $conversation->fresh()->pipeline_stage_id);
+
+        $conversation->update(['pipeline_stage_id' => $this->defaultPipeline()->entryStage()->id]);
+        $this->deleteJson("/api/pipelines/{$renewals->id}")->assertOk();
+    }
+
+    public function test_default_pipeline_cannot_switch_while_chats_have_its_stages(): void
+    {
+        $previous = $this->defaultPipeline();
+        $renewals = $this->createPipelineWithStage('Renovaciones', 'Contactado');
+        $conversation = $this->createConversation($this->createContact(), $previous->entryStage());
+
+        $this->putJson("/api/pipelines/{$renewals->id}", ['is_default' => true])->assertStatus(422);
+        $this->postJson('/api/pipelines', ['name' => 'Otro', 'is_default' => true])->assertStatus(422);
+        $this->assertTrue($previous->fresh()->is_default);
+        $this->assertDatabaseMissing('pipelines', ['name' => 'Otro']);
+
+        // Renombrar sigue permitido: sólo se bloquea el cambio de predeterminado.
+        $this->putJson("/api/pipelines/{$renewals->id}", ['name' => 'Renovaciones 2026'])->assertOk();
+
+        $conversation->update(['pipeline_stage_id' => null]);
+        $this->putJson("/api/pipelines/{$renewals->id}", ['is_default' => true])->assertOk();
+        $this->assertTrue($renewals->fresh()->is_default);
+    }
+
+    public function test_switching_default_reconciles_chats_without_stage_silently(): void
+    {
+        $renewals = $this->createPipelineWithStage('Renovaciones', 'Contactado');
+        $closing = PipelineStage::create(['tenant_id' => $this->tenant->id, 'pipeline_id' => $renewals->id, 'name' => 'Cerrando', 'sort_order' => 2]);
+        $contact = $this->createContact();
+
+        $single = Conversation::create(['tenant_id' => $this->tenant->id, 'channel_id' => $this->createChannel()->id, 'contact_id' => $contact->id, 'status' => 'open']);
+        $this->createOpportunity($contact, $renewals->entryStage(), 'Única', $single);
+
+        $double = Conversation::create(['tenant_id' => $this->tenant->id, 'channel_id' => $this->createChannel()->id, 'contact_id' => $contact->id, 'status' => 'open']);
+        $older = $this->createOpportunity($contact, $renewals->entryStage(), 'Vieja', $double);
+        $older->forceFill(['updated_at' => now()->subDay()])->saveQuietly();
+        $this->createOpportunity($contact, $closing, 'Nueva', $double);
+
+        $untouched = Conversation::create(['tenant_id' => $this->tenant->id, 'channel_id' => $this->createChannel()->id, 'contact_id' => $contact->id, 'status' => 'open']);
+
+        $stageChanges = 0;
+        Conversation::updated(function (Conversation $conversation) use (&$stageChanges): void {
+            if ($conversation->wasChanged('pipeline_stage_id')) {
+                $stageChanges++;
+            }
+        });
+
+        $this->putJson("/api/pipelines/{$renewals->id}", ['is_default' => true])->assertOk();
+
+        $this->assertSame($renewals->entryStage()->id, $single->fresh()->pipeline_stage_id);
+        $this->assertSame($closing->id, $double->fresh()->pipeline_stage_id);
+        $this->assertNull($untouched->fresh()->pipeline_stage_id);
+        $this->assertSame(0, $stageChanges, 'La reconciliación no debe disparar stage_changed');
+    }
+
+    public function test_pipeline_without_stages_cannot_become_default(): void
+    {
+        $empty = Pipeline::create(['tenant_id' => $this->tenant->id, 'name' => 'Vacío', 'is_default' => false]);
+
+        $this->putJson("/api/pipelines/{$empty->id}", ['is_default' => true])->assertStatus(422);
+        $this->postJson('/api/pipelines', ['name' => 'Nuevo vacío', 'is_default' => true])->assertStatus(422);
+        $this->assertFalse($empty->fresh()->is_default);
+        $this->assertDatabaseMissing('pipelines', ['name' => 'Nuevo vacío']);
+    }
+
+    public function test_last_stage_of_default_pipeline_cannot_be_deleted(): void
+    {
+        $default = $this->defaultPipeline();
+        $stages = $default->stages()->orderBy('sort_order')->get();
+        foreach ($stages->slice(1) as $stage) {
+            $this->deleteJson("/api/pipeline-stages/{$stage->id}")->assertNoContent();
+        }
+
+        $this->deleteJson("/api/pipeline-stages/{$stages->first()->id}")->assertStatus(422);
+        $this->assertSame(1, $default->stages()->count());
+
+        // En un pipeline no predeterminado sí se puede vaciar.
+        $renewals = $this->createPipelineWithStage('Renovaciones', 'Contactado');
+        $this->deleteJson("/api/pipeline-stages/{$renewals->entryStage()->id}")->assertNoContent();
+    }
+
     public function test_default_pipeline_cannot_be_deleted_or_unset(): void
     {
         $default = $this->defaultPipeline();

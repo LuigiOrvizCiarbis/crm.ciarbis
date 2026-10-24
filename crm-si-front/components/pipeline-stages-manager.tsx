@@ -237,11 +237,11 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
         title: t("pipeline.stages.deletedTitle"),
         description: stageToDelete.name,
       })
-    } catch {
+    } catch (error) {
       addToast({
         type: "error",
         title: t("pipeline.stages.errorTitle"),
-        description: t("pipeline.stages.errorDelete"),
+        description: error instanceof Error ? error.message : t("pipeline.stages.errorDelete"),
       })
     } finally {
       setSaving(false)
