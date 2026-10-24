@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\ProductImport;
+use App\Services\Notifications\DomainNotifier;
 use App\Services\ContactImportService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -29,5 +30,7 @@ class ProcessContactImportJob implements ShouldQueue
             Log::error('Contact import failed', ['import_id' => $import->id, 'exception' => $exception]);
             $import->update(['status' => 'failed', 'error' => $exception->getMessage(), 'finished_at' => now()]);
         }
+
+        app(DomainNotifier::class)->importFinished($import);
     }
 }

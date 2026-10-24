@@ -109,7 +109,38 @@ class ProfileController extends Controller
             'date_format' => ['required', 'string', 'max:20'],
         ]);
 
-        $user->forceFill(['preferences' => $validated])->save();
+        // Merge: no pisar claves guardadas por otros endpoints (ej. notifications).
+        $user->forceFill(['preferences' => array_merge($user->preferences ?? [], $validated)])->save();
+
+        return response()->json(['data' => ['preferences' => $user->preferencesWithDefaults()]]);
+    }
+
+    public function updateNotificationPreferences(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'types' => ['sometimes', 'array'],
+            'types.*' => ['boolean'],
+            'sound' => ['sometimes', 'boolean'],
+            'browser' => ['sometimes', 'boolean'],
+        ]);
+
+        $current = $user->notificationPreferences();
+        $types = $current['types'];
+        foreach ($validated['types'] ?? [] as $type => $enabled) {
+            if (array_key_exists($type, $types)) {
+                $types[$type] = (bool) $enabled;
+            }
+        }
+
+        $preferences = $user->preferences ?? [];
+        $preferences['notifications'] = [
+            'types' => $types,
+            'sound' => $validated['sound'] ?? $current['sound'],
+            'browser' => $validated['browser'] ?? $current['browser'],
+        ];
+        $user->forceFill(['preferences' => $preferences])->save();
 
         return response()->json(['data' => ['preferences' => $user->preferencesWithDefaults()]]);
     }

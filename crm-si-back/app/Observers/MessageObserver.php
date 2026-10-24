@@ -2,8 +2,11 @@
 
 namespace App\Observers;
 
+use App\Enums\MessageDirection;
+use App\Enums\SenderType;
 use App\Events\ManualAiDraftUpdated;
 use App\Jobs\FetchLinkPreviewJob;
+use App\Jobs\NotifyInboundMessageJob;
 use App\Models\ManualAiDraft;
 use App\Models\Message;
 use App\Services\LinkPreviewService;
@@ -25,6 +28,10 @@ class MessageObserver
 
         if (app(LinkPreviewService::class)->extractFirstUrl($message->content) !== null) {
             FetchLinkPreviewJob::dispatch($message->id);
+        }
+
+        if ($message->direction === MessageDirection::INBOUND && $message->sender_type === SenderType::CONTACT) {
+            NotifyInboundMessageJob::dispatch($message->id)->afterCommit();
         }
     }
 

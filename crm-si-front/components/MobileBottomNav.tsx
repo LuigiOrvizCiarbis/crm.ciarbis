@@ -7,13 +7,15 @@ import { Badge } from "@/components/ui/badge"
 import { getConversationUnreadCount } from "@/lib/api/conversations"
 import { useAuthStore } from "@/store/useAuthStore"
 import { useTaskStore } from "@/store/useTaskStore"
-import { Menu, LogOut, User } from "lucide-react"
+import { Bell, Menu, LogOut, User } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "@/hooks/useTranslation"
 import { resolveNavigationLabel } from "@/data/navigation"
 import { accessibleNavigationItems } from "@/lib/section-access"
+import { NotificationsPanel } from "@/components/notifications/NotificationsPanel"
+import { useNotificationsStore } from "@/store/useNotificationsStore"
 
 interface MobileBottomNavProps {
   className?: string
@@ -24,6 +26,8 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
   const router = useRouter()
   const { t } = useTranslation()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
+  const unreadNotifications = useNotificationsStore((state) => state.unreadCount)
   const [isMobileViewport, setIsMobileViewport] = useState(false)
   const [unreadChats, setUnreadChats] = useState(0)
   const hasRequestedTasks = useRef(false)
@@ -167,10 +171,18 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
             <Button
               variant="ghost"
               size="sm"
-              className="flex flex-col items-center gap-1 h-auto py-2 px-1 text-muted-foreground hover:text-foreground min-h-11"
+              className="flex flex-col items-center gap-1 h-auto py-2 px-1 text-muted-foreground hover:text-foreground min-h-11 relative"
             >
               <Menu className="w-5 h-5" />
               <span className="text-xs font-medium">Menú</span>
+              {unreadNotifications ? (
+                <Badge
+                  variant="destructive"
+                  className="absolute -top-1 -right-1 h-5 min-w-5 px-1 text-xs flex items-center justify-center"
+                >
+                  {formatBadgeCount(unreadNotifications)}
+                </Badge>
+              ) : null}
             </Button>
           </SheetTrigger>
           <SheetContent side="bottom" className="h-auto">
@@ -179,6 +191,22 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
                 <SheetTitle>Menú</SheetTitle>
               </SheetHeader>
               <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-3 h-12 bg-transparent col-span-2"
+                  onClick={() => {
+                    setIsMenuOpen(false)
+                    setIsNotificationsOpen(true)
+                  }}
+                >
+                  <Bell className="w-5 h-5 shrink-0" />
+                  <span className="truncate">{t("notifications.title")}</span>
+                  {unreadNotifications ? (
+                    <Badge variant="destructive" className="ml-auto h-5 min-w-5 px-1 text-xs">
+                      {formatBadgeCount(unreadNotifications)}
+                    </Badge>
+                  ) : null}
+                </Button>
                 <Link href="/perfil" onClick={() => setIsMenuOpen(false)}>
                   <Button variant="outline" className="w-full justify-start gap-3 h-12 bg-transparent" title={t("nav.profile")}>
                     <User className="w-5 h-5 shrink-0" />
@@ -209,6 +237,15 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
                 </Button>
               </div>
             </div>
+          </SheetContent>
+        </Sheet>
+
+        <Sheet open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
+          <SheetContent side="bottom" className="h-auto max-h-[85dvh] gap-0 p-0">
+            <SheetHeader className="sr-only">
+              <SheetTitle>{t("notifications.title")}</SheetTitle>
+            </SheetHeader>
+            <NotificationsPanel onNavigate={() => setIsNotificationsOpen(false)} headerClassName="pr-12" className="pb-[max(env(safe-area-inset-bottom),0px)]" />
           </SheetContent>
         </Sheet>
       </div>

@@ -10,6 +10,8 @@ export interface Toast {
   title: string
   description?: string
   duration?: number
+  /** Hace clickeable el cuerpo del toast (ej. abrir la notificación). */
+  onClick?: () => void
 }
 
 interface ToastProps {
@@ -51,9 +53,17 @@ function ToastComponent({ toast, onRemove }: ToastProps) {
       )}
     >
       <Icon className={cn("w-5 h-5 mt-0.5 shrink-0", toast.type === "loading" && "animate-spin")} />
-      <div className="flex-1 min-w-0">
+      <div
+        className={cn("flex-1 min-w-0", toast.onClick && "cursor-pointer")}
+        role={toast.onClick ? "button" : undefined}
+        tabIndex={toast.onClick ? 0 : undefined}
+        onClick={toast.onClick ? () => { toast.onClick?.(); onRemove(toast.id) } : undefined}
+        onKeyDown={toast.onClick ? (event) => {
+          if (event.key === "Enter" || event.key === " ") { toast.onClick?.(); onRemove(toast.id) }
+        } : undefined}
+      >
         <p className="font-medium text-sm">{toast.title}</p>
-        {toast.description && <p className="text-sm opacity-90 mt-1">{toast.description}</p>}
+        {toast.description && <p className="text-sm opacity-90 mt-1 line-clamp-2">{toast.description}</p>}
       </div>
       {toast.type !== "loading" && (
         <button

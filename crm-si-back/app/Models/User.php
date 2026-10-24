@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\NotificationType;
 use App\Models\Concerns\BelongsToTenant;
 use App\Notifications\CustomResetPassword;
 use App\Notifications\CustomVerifyEmail;
@@ -101,7 +102,37 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     public function preferencesWithDefaults(): array
     {
-        return array_merge(self::DEFAULT_PREFERENCES, $this->preferences ?? []);
+        return array_merge(self::DEFAULT_PREFERENCES, $this->preferences ?? [], [
+            'notifications' => $this->notificationPreferences(),
+        ]);
+    }
+
+    /**
+     * Preferencias de notificaciones in-app con defaults: todos los tipos
+     * activos, sonido sí, notificación del navegador no (requiere permiso).
+     *
+     * @return array{types: array<string, bool>, sound: bool, browser: bool}
+     */
+    public function notificationPreferences(): array
+    {
+        $stored = $this->preferences['notifications'] ?? [];
+        $types = array_fill_keys(NotificationType::values(), true);
+        foreach ((array) ($stored['types'] ?? []) as $type => $enabled) {
+            if (array_key_exists($type, $types)) {
+                $types[$type] = (bool) $enabled;
+            }
+        }
+
+        return [
+            'types' => $types,
+            'sound' => (bool) ($stored['sound'] ?? true),
+            'browser' => (bool) ($stored['browser'] ?? false),
+        ];
+    }
+
+    public function wantsNotification(NotificationType $type): bool
+    {
+        return $this->notificationPreferences()['types'][$type->value];
     }
 
     public function sendEmailVerificationNotification(): void
