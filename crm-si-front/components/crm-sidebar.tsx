@@ -27,6 +27,7 @@ import { useTranslation } from "@/hooks/useTranslation"
 import { LanguageSwitcher } from "@/components/LanguageSwitcher"
 import { resolveNavigationLabel } from "@/data/navigation"
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher"
+import { NotificationsBell } from "@/components/notifications-bell"
 import { accessibleNavigationItems, canAccessSection } from "@/lib/section-access"
 
 interface SidebarProps {
@@ -141,6 +142,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
             />
           </div>
         )}
+        {!isCollapsed && <NotificationsBell />}
         <Button variant="ghost" size="sm" onClick={onToggle} className="p-2 hover:bg-sidebar-accent">
           {isCollapsed ? <Menu className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </Button>
@@ -332,6 +334,9 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
 
       {isCollapsed && (
         <div className="mt-auto shrink-0 space-y-2 border-t border-sidebar-border p-2">
+          <div className="flex justify-center">
+            <NotificationsBell side="right" align="end" />
+          </div>
           <DropdownMenu>
             <TooltipProvider>
               <Tooltip>

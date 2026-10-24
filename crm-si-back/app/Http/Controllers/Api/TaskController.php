@@ -6,6 +6,7 @@ use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Enums\TaskType;
 use App\Http\Controllers\Controller;
+use App\Services\Notifications\DomainNotifier;
 use App\Jobs\SyncTaskCalendarEventJob;
 use App\Models\Task;
 use App\Models\TaskCalendarSync;
@@ -62,6 +63,7 @@ class TaskController extends Controller
         $validated = $request->validate($this->rules($request));
 
         $task = Task::create($this->payload($validated));
+        app(DomainNotifier::class)->taskAssigned($task, $request->user());
 
         if ($task->type === TaskType::MEETING && $task->status !== TaskStatus::CANCELED) {
             DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatch($task->id, 'upsert'));
@@ -108,6 +110,10 @@ class TaskController extends Controller
         $snapshot = $droppedMeeting ? $this->cancelableSnapshot($task) : null;
 
         $task->save();
+
+        if ($task->assigned_to !== null && (int) $task->assigned_to !== (int) $previousAssignee) {
+            app(DomainNotifier::class)->taskAssigned($task, $request->user());
+        }
 
         $this->syncCalendarAfterUpdate($task, $wasMeeting, $previousStatus, $reassigned, $snapshot);
 

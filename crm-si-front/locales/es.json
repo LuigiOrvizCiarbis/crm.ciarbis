@@ -123,19 +123,6 @@
     "errors": {
       "loadFailed": "No se pudieron cargar las métricas",
       "retry": "Reintentar"
-    },
-    "notifications": {
-      "title": "Notificaciones",
-      "viewAll": "Ver todas",
-      "empty": "No hay notificaciones nuevas",
-      "demoLead": "Nuevo lead: Ana Martínez desde WhatsApp",
-      "demoLeadTime": "Hace 5 min",
-      "demoMessage": "Nuevo mensaje de Carlos López",
-      "demoMessageTime": "Hace 12 min",
-      "demoTask": "Tarea vencida: Seguimiento con Juan Pérez",
-      "demoTaskTime": "Hace 1 hora",
-      "demoAssignment": "Lead asignado: María García te asignó un lead",
-      "demoAssignmentTime": "Hace 2 horas"
     }
   },
   "tenant": {
@@ -1045,13 +1032,6 @@
       }
     },
     "save": "Guardar cambios",
-    "notifications": "Notificaciones",
-    "newMessage": "Nuevo mensaje",
-    "taskOverdue": "Tarea vencida",
-    "taskUpcoming": "Tarea próxima",
-    "saleClosed": "Cierre de una venta",
-    "dailyReminders": "Recordatorios diarios",
-    "weeklyReport": "Reporte semanal",
     "roles": "Roles",
     "adminRole": "Admin",
     "adminRoleDesc": "Acceso total + gestión de vendedores",
@@ -1883,6 +1863,76 @@
       "timezone": "Zona horaria",
       "dateFormat": "Formato de fecha",
       "saved": "Preferencias guardadas"
+    }
+  },
+  "notifications": {
+    "title": "Notificaciones",
+    "unread": "{{count}} sin leer",
+    "unreadLabel": "Sin leer",
+    "bellLabelUnread": "Notificaciones ({{count}} sin leer)",
+    "markAllRead": "Marcar leídas",
+    "loadMore": "Cargar más",
+    "emptyTitle": "Estás al día",
+    "emptyDescription": "Te avisamos acá cuando entre un mensaje, te asignen algo o un canal necesite atención.",
+    "unknownContact": "un contacto",
+    "types": {
+      "message_received": {
+        "label": "Mensajes entrantes",
+        "title": "Nuevo mensaje de {{name}}",
+        "titleMany": "{{count}} mensajes nuevos de {{name}}",
+        "attachment": "Envió un archivo adjunto"
+      },
+      "conversation_assigned": {
+        "label": "Te asignan una conversación",
+        "title": "Te asignaron una conversación",
+        "body": "Conversación con {{name}}",
+        "bodyBy": "{{actor}} te asignó la conversación con {{name}}"
+      },
+      "conversation_unassigned": {
+        "label": "Te quitan de una conversación",
+        "title": "Ya no estás asignado a una conversación",
+        "body": "Conversación con {{name}}"
+      },
+      "handoff_requested": {
+        "label": "La IA deriva a un humano",
+        "title": "La IA derivó una conversación",
+        "body": "{{name}} pidió hablar con una persona"
+      },
+      "task_assigned": {
+        "label": "Te asignan una tarea",
+        "title": "Nueva tarea asignada",
+        "bodyBy": "{{actor}} te asignó «{{task}}»"
+      },
+      "import_completed": {
+        "label": "Importación terminada",
+        "title": "Importación completada"
+      },
+      "import_failed": {
+        "label": "Importación con error",
+        "title": "La importación falló"
+      },
+      "channel_token_invalid": {
+        "label": "Canal desconectado",
+        "title": "Reconectá el canal {{channel}}",
+        "body": "La conexión expiró y no se pueden enviar mensajes desde ese canal."
+      },
+      "trial_expiring": {
+        "label": "Fin del período de prueba",
+        "title": "Tu prueba vence en {{days}} días",
+        "titleOne": "Tu prueba vence mañana",
+        "body": "Elegí un plan para seguir usando el CRM sin interrupciones."
+      }
+    },
+    "preferences": {
+      "title": "Notificaciones",
+      "description": "Elegí qué avisos recibís dentro del CRM y cómo te llegan. Se aplican sólo a tu usuario.",
+      "browser": "Notificaciones del navegador",
+      "browserHint": "Avisos del sistema cuando el CRM está en otra pestaña o minimizado.",
+      "browserDenied": "El navegador bloqueó las notificaciones. Habilitalas desde el candado de la barra de direcciones y volvé a intentar.",
+      "browserUnsupported": "Este navegador no soporta notificaciones.",
+      "sound": "Sonido",
+      "soundHint": "Un aviso corto al llegar una notificación.",
+      "typesTitle": "Qué te avisamos"
     }
   }
 }
