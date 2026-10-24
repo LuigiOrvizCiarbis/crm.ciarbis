@@ -707,6 +707,18 @@
     "loading": "Loading...",
     "select": "Select",
     "stageLabel": "Stage",
+    "stageFilter": {
+      "label": "Stages",
+      "title": "Filter by stage",
+      "loading": "Loading stages",
+      "none": "No stage",
+      "clear": "Clear",
+      "done": "Done",
+      "showResults": "Show {{count}} chats",
+      "wholePipeline": "Whole pipeline",
+      "active": "Filtered stages",
+      "remove": "Remove {{stage}}"
+    },
     "chatStageLabel": "Chat stage",
     "opportunities": "Opportunities",
     "opportunitiesOfChat": "Opportunities in this chat",

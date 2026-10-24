@@ -13,6 +13,7 @@ function mapConversation(c: any): Conversation {
     manual_unread: Boolean(c.manual_unread),
     leadScore: c.lead_score ?? undefined,
     pipeline_stage_id: c.pipeline_stage_id,
+    opportunity_stage_ids: c.opportunity_stage_ids ?? [],
     priority: c.priority,
     assigneeId: c.assigned_to,
     archived: c.archived,

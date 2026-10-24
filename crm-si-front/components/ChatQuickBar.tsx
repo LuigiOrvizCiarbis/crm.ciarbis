@@ -57,6 +57,8 @@ interface ChatQuickBarProps {
   onToggleReadStatus?: () => void
   tags?: Tag[]
   onTagsChange?: (tags: Tag[]) => void
+  /** Etapas de las oportunidades del chat, cada vez que se cargan o se mueven. */
+  onOpportunityStagesChange?: (chatId: number, stageIds: number[]) => void
 }
 
 // Eliminado TEAM fijo: ahora se cargan usuarios reales desde API. Se mantiene posibilidad de pasar prop "team" como override.
@@ -74,6 +76,7 @@ export function ChatQuickBar({
   onToggleReadStatus,
   tags = [],
   onTagsChange,
+  onOpportunityStagesChange,
 }: ChatQuickBarProps) {
   const { addToast } = useToast()
   const { t } = useTranslation()
@@ -133,6 +136,21 @@ export function ChatQuickBar({
   useEffect(() => {
     currentChatIdRef.current = chatId
   }, [chatId])
+
+  // Avisa a la bandeja las etapas actuales: su filtro por etapa lee de ahí.
+  const onOpportunityStagesChangeRef = useRef(onOpportunityStagesChange)
+  useEffect(() => {
+    onOpportunityStagesChangeRef.current = onOpportunityStagesChange
+  })
+  const opportunityStagesKey = loadedOpportunities
+    ? `${loadedOpportunities.chatId}:${loadedOpportunities.items.map((item) => item.pipeline_stage_id ?? "").join(",")}`
+    : ""
+  useEffect(() => {
+    if (!loadedOpportunities) return
+    const stageIds = loadedOpportunities.items.flatMap((item) => item.pipeline_stage_id ? [item.pipeline_stage_id] : [])
+    onOpportunityStagesChangeRef.current?.(loadedOpportunities.chatId, [...new Set(stageIds)])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sólo cuando cambian las etapas
+  }, [opportunityStagesKey])
 
   /** Trae las oportunidades del chat; descarta la respuesta si ya se cambió de chat. */
   const fetchOpportunities = useCallback(async (targetChatId: number): Promise<ChatOpportunity[] | null> => {
