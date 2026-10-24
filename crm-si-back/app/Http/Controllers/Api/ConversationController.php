@@ -49,6 +49,8 @@ class ConversationController extends Controller
                 'contact:id,name,phone',
                 'channel:id,name,type',
                 'tags',
+                // Sólo las etapas: la bandeja filtra por etapa en cualquier pipeline.
+                'opportunities:id,conversation_id,pipeline_stage_id',
                 'whatsappGroup:id,conversation_id,subject,status,group_id,total_participant_count,invite_link',
                 'activeHumanHandoff',
             ])
@@ -192,6 +194,7 @@ class ConversationController extends Controller
                 'unread' => ($conversation->unread_count ?? 0) > 0 || (bool) $conversation->manual_unread,
                 'lead_score' => $conversation->lead_score,
                 'pipeline_stage_id' => $conversation->pipeline_stage_id,
+                'opportunity_stage_ids' => $conversation->opportunities->pluck('pipeline_stage_id')->filter()->unique()->values(),
                 'assigned_to' => $conversation->assigned_to,
                 'archived_at' => $conversation->archived_at,
                 'archived' => $conversation->archived,
