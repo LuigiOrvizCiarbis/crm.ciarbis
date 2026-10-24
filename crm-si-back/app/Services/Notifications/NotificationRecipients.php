@@ -21,8 +21,10 @@ class NotificationRecipients
     public function __construct(private PermissionRegistrar $registrar) {}
 
     /**
-     * Asignados de la conversación (assigned_to + pivot) si los hay; si no,
-     * todos los miembros que pueden verla según ConversationPolicy::view.
+     * Asignados de la conversación (assigned_to + pivot) que todavía pueden
+     * verla; si no queda ninguno (sin asignar, o el asignado dejó el workspace
+     * o perdió acceso), todos los miembros que pueden verla según
+     * ConversationPolicy::view.
      *
      * @return Collection<int, User>
      */
@@ -36,11 +38,13 @@ class NotificationRecipients
             ->values()
             ->all();
 
-        $members = $this->members($conversation->tenant_id, $assignedIds ?: null);
-
-        return $this->withinTeam($conversation->tenant_id, fn () => $members
+        $viewers = fn (Collection $members) => $this->withinTeam($conversation->tenant_id, fn () => $members
             ->filter(fn (User $user) => Gate::forUser($user)->allows('view', $conversation))
             ->values());
+
+        $assignees = $assignedIds === [] ? collect() : $viewers($this->members($conversation->tenant_id, $assignedIds));
+
+        return $assignees->isNotEmpty() ? $assignees : $viewers($this->members($conversation->tenant_id));
     }
 
     /**

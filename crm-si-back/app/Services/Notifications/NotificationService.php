@@ -6,6 +6,7 @@ use App\Enums\NotificationType;
 use App\Events\UserNotificationCreated;
 use App\Models\User;
 use App\Models\UserNotification;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -41,33 +42,56 @@ class NotificationService
         }
     }
 
-    /** @param  array<string, mixed>  $data */
+    /**
+     * Con group_key, un índice único parcial (una sola fila no leída por
+     * usuario/workspace/tipo/grupo) serializa la creación: si dos jobs
+     * concurrentes no encuentran fila y ambos insertan, el segundo choca con
+     * el índice y se reintenta como incremento.
+     *
+     * @param  array<string, mixed>  $data
+     */
     private function upsert(int $userId, int $tenantId, NotificationType $type, array $data, ?string $groupKey): UserNotification
     {
-        if ($groupKey !== null) {
-            $existing = UserNotification::withoutGlobalScopes()
-                ->where('user_id', $userId)
-                ->where('tenant_id', $tenantId)
-                ->where('type', $type->value)
-                ->where('group_key', $groupKey)
-                ->whereNull('read_at')
-                ->lockForUpdate()
-                ->first();
-
-            if ($existing) {
-                $existing->fill(['data' => $data, 'count' => $existing->count + 1])->save();
-
-                return $existing;
-            }
-        }
-
-        return UserNotification::withoutGlobalScopes()->create([
+        $attributes = [
             'tenant_id' => $tenantId,
             'user_id' => $userId,
             'type' => $type->value,
             'group_key' => $groupKey,
-            'data' => $data,
-        ]);
+        ];
+
+        if ($groupKey === null) {
+            return UserNotification::withoutGlobalScopes()->create([...$attributes, 'data' => $data]);
+        }
+
+        if ($existing = $this->lockUnreadGroup($attributes)) {
+            return $this->increment($existing, $data);
+        }
+
+        try {
+            // Transacción anidada = savepoint: en Postgres un insert fallido
+            // aborta la transacción entera si no se revierte sólo el savepoint.
+            return DB::transaction(fn () => UserNotification::withoutGlobalScopes()->create([...$attributes, 'data' => $data]));
+        } catch (UniqueConstraintViolationException) {
+            return $this->increment($this->lockUnreadGroup($attributes) ?? throw new \RuntimeException('Grouped notification vanished'), $data);
+        }
+    }
+
+    /** @param  array<string, mixed>  $attributes */
+    private function lockUnreadGroup(array $attributes): ?UserNotification
+    {
+        return UserNotification::withoutGlobalScopes()
+            ->where($attributes)
+            ->whereNull('read_at')
+            ->lockForUpdate()
+            ->first();
+    }
+
+    /** @param  array<string, mixed>  $data */
+    private function increment(UserNotification $notification, array $data): UserNotification
+    {
+        $notification->fill(['data' => $data, 'count' => $notification->count + 1])->save();
+
+        return $notification;
     }
 
     private function broadcast(UserNotification $notification): void

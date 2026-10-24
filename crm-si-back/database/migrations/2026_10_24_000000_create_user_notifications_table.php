@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -22,9 +23,15 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['user_id', 'tenant_id', 'read_at']);
-            $table->index(['user_id', 'tenant_id', 'group_key', 'read_at']);
             $table->index('created_at');
         });
+
+        // Una sola notificación agrupada no leída por usuario/workspace/tipo/grupo:
+        // serializa la creación concurrente (ver NotificationService::upsert).
+        // Índice parcial: Postgres y SQLite lo soportan; Blueprint no lo expresa.
+        DB::statement('CREATE UNIQUE INDEX user_notifications_unread_group_unique
+            ON user_notifications (user_id, tenant_id, type, group_key)
+            WHERE read_at IS NULL AND group_key IS NOT NULL');
     }
 
     public function down(): void

@@ -4,10 +4,13 @@ namespace Tests\Feature\Notifications;
 
 use App\Enums\NotificationType;
 use App\Events\UserNotificationCreated;
+use App\Models\Branch;
+use App\Models\TenantMembership;
 use App\Models\UserNotification;
 use App\Services\Notifications\NotificationRecipients;
 use App\Services\Notifications\NotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Tests\Concerns\BuildsNotificationWorkspace;
 use Tests\TestCase;
@@ -52,6 +55,39 @@ class NotificationServiceTest extends TestCase
         $this->assertSame(2, UserNotification::withoutGlobalScopes()->count());
     }
 
+    public function test_concurrent_first_grouped_notification_is_merged_not_duplicated(): void
+    {
+        Event::fake([UserNotificationCreated::class]);
+        $tenant = $this->createWorkspace();
+        $user = $this->addMember($tenant);
+
+        // Simula otro job que inserta la fila agrupada entre el SELECT (sin
+        // resultado) y el INSERT de este proceso.
+        $raced = false;
+        DB::listen(function ($query) use (&$raced, $user, $tenant) {
+            if ($raced || ! str_starts_with($query->sql, 'select') || ! str_contains($query->sql, 'user_notifications')) {
+                return;
+            }
+            $raced = true;
+            DB::table('user_notifications')->insert([
+                'tenant_id' => $tenant->id,
+                'user_id' => $user->id,
+                'type' => 'message.received',
+                'group_key' => 'conversation:1',
+                'data' => '{}',
+                'count' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        });
+
+        app(NotificationService::class)->notify([$user], $tenant->id, NotificationType::MESSAGE_RECEIVED, ['preview' => 'hola'], 'conversation:1');
+
+        $notification = UserNotification::withoutGlobalScopes()->sole();
+        $this->assertSame(2, $notification->count);
+        $this->assertSame('hola', $notification->data['preview']);
+    }
+
     public function test_skips_disabled_types_and_excluded_actor(): void
     {
         Event::fake([UserNotificationCreated::class]);
@@ -84,6 +120,28 @@ class NotificationServiceTest extends TestCase
 
         $conversation->update(['assigned_to' => $member->id]);
         $this->assertSame([$member->id], $recipients->forConversation($conversation->fresh())->pluck('id')->all());
+    }
+
+    public function test_conversation_recipients_fall_back_when_assignee_cannot_receive(): void
+    {
+        $tenant = $this->createWorkspace();
+        $owner = $this->addMember($tenant, 'Owner');
+        $leaver = $this->addMember($tenant, 'Member');
+        $conversation = $this->createConversation($tenant, $owner);
+        $conversation->update(['assigned_to' => $leaver->id]);
+        $recipients = app(NotificationRecipients::class);
+
+        // Asignado que dejó el workspace: avisa a quienes pueden verla.
+        TenantMembership::query()->where('user_id', $leaver->id)->update(['removed_at' => now()]);
+        $this->assertSame([$owner->id], $recipients->forConversation($conversation->fresh())->pluck('id')->all());
+
+        // Asignado activo pero sin acceso (Member sin view_any de otra sucursal).
+        TenantMembership::query()->where('user_id', $leaver->id)->update(['removed_at' => null]);
+        $branch = Branch::create(['tenant_id' => $tenant->id, 'name' => 'Norte']);
+        $other = Branch::create(['tenant_id' => $tenant->id, 'name' => 'Sur']);
+        TenantMembership::query()->where('user_id', $leaver->id)->update(['branch_id' => $branch->id]);
+        $conversation->forceFill(['branch_id' => $other->id])->save();
+        $this->assertSame([$owner->id], $recipients->forConversation($conversation->fresh())->pluck('id')->all());
     }
 
     public function test_conversation_recipients_ignore_other_workspaces(): void
