@@ -18,6 +18,7 @@ use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
 use App\Services\Ai\AiReplyDecision;
 use App\Services\AiReplyService;
+use App\Services\AiTypingIndicatorService;
 use App\Services\HumanHandoffService;
 use App\Services\InstagramMessageService;
 use App\Services\MailMessageService;
@@ -27,6 +28,7 @@ use App\Services\WhatsAppTemplateService;
 use App\Support\PermissionCatalog;
 use App\Support\RoleProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -56,6 +58,9 @@ class AiAutoreplyTest extends TestCase
     public function test_inbound_text_dispatches_ai_reply_job(): void
     {
         Queue::fake();
+        Http::fake([
+            'graph.facebook.com/*' => Http::response(['success' => true], 200),
+        ]);
 
         // Tenant con AiConfig habilitada + key propia (BYOK).
         $this->createChannelSetup(aiDefault: true);
@@ -68,6 +73,30 @@ class AiAutoreplyTest extends TestCase
         Queue::assertPushed(GenerateAiReplyJob::class, function (GenerateAiReplyJob $job) use ($conversation) {
             return $job->conversationId === $conversation->id;
         });
+        Http::assertSent(fn ($request) => ($request['status'] ?? null) === 'read'
+            && ($request['typing_indicator']['type'] ?? null) === 'text'
+            && str_starts_with((string) ($request['message_id'] ?? ''), 'wamid.TEST_'));
+    }
+
+    public function test_typing_indicator_stops_after_one_minute(): void
+    {
+        Queue::fake();
+        Http::fake([
+            'graph.facebook.com/*' => Http::response(['success' => true], 200),
+        ]);
+        $this->createChannelSetup(aiDefault: true);
+
+        $message = app(WhatsAppMessageService::class)
+            ->processIncomingMessage($this->inboundTextPayload('Hola'));
+
+        $this->assertNotNull($message);
+        $cacheKey = 'ai-typing-indicator:'.$message->conversation_id;
+        $this->assertTrue(Cache::has($cacheKey));
+
+        $this->travel(61)->seconds();
+        app(AiTypingIndicatorService::class)->refresh($message->conversation_id, $message->id);
+
+        $this->assertFalse(Cache::has($cacheKey));
     }
 
     public function test_inbound_image_dispatches_ai_reply_job(): void
@@ -76,11 +105,12 @@ class AiAutoreplyTest extends TestCase
         // se fakea para que el webhook de imagen persista y dispare el job.
         Storage::fake('public');
         Http::fake([
-            'graph.facebook.com/v21.0/MEDIA_TEST_1' => Http::response([
+            'graph.facebook.com/*/MEDIA_TEST_1' => Http::response([
                 'url' => 'https://lookaside.fbsbx.com/img.png',
                 'mime_type' => 'image/png',
             ], 200),
             'lookaside.fbsbx.com/*' => Http::response('fake-binary', 200),
+            'graph.facebook.com/*' => Http::response(['success' => true], 200),
         ]);
         Queue::fake();
 
@@ -231,6 +261,7 @@ class AiAutoreplyTest extends TestCase
             app(MessengerMessageService::class),
             app(MailMessageService::class),
             app(HumanHandoffService::class),
+            app(AiTypingIndicatorService::class),
         );
     }
 
@@ -269,6 +300,7 @@ class AiAutoreplyTest extends TestCase
             app(MessengerMessageService::class),
             app(MailMessageService::class),
             app(HumanHandoffService::class),
+            app(AiTypingIndicatorService::class),
         );
     }
 
@@ -297,6 +329,7 @@ class AiAutoreplyTest extends TestCase
             app(MessengerMessageService::class),
             app(MailMessageService::class),
             app(HumanHandoffService::class),
+            app(AiTypingIndicatorService::class),
         );
     }
 
@@ -319,6 +352,7 @@ class AiAutoreplyTest extends TestCase
             app(MessengerMessageService::class),
             app(MailMessageService::class),
             app(HumanHandoffService::class),
+            app(AiTypingIndicatorService::class),
         );
     }
 
@@ -346,6 +380,7 @@ class AiAutoreplyTest extends TestCase
             app(MessengerMessageService::class),
             app(MailMessageService::class),
             app(HumanHandoffService::class),
+            app(AiTypingIndicatorService::class),
         );
     }
 
