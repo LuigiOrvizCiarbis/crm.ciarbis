@@ -10,6 +10,7 @@ use App\Models\Message;
 use App\Models\Product;
 use App\Services\Ai\AiProviderFactory;
 use App\Services\Ai\AiReplyDecision;
+use App\Services\Ai\CatalogProductSearch;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -22,6 +23,8 @@ use Illuminate\Support\Facades\Storage;
  */
 class AiReplyService
 {
+    public function __construct(private readonly CatalogProductSearch $catalogSearch) {}
+
     public const DEFAULT_SYSTEM_PROMPT = 'Sos un asistente de atención al cliente que responde mensajes de WhatsApp '
         .'en nombre de la empresa. Respondé en el mismo idioma del cliente, de forma breve, cordial y útil. '
         .'Si no sabés algo o el cliente pide hablar con una persona, indicá que un agente humano lo va a contactar. '
@@ -78,7 +81,7 @@ class AiReplyService
             return null;
         }
 
-        return $provider->generate($messages, $this->systemPrompt($config, $conversation->tenant_id), $model);
+        return $provider->generate($messages, $this->systemPrompt($config, $conversation->tenant_id, $messages), $model);
     }
 
     public function decide(Conversation $conversation, AiConfig $config): AiReplyDecision
@@ -86,14 +89,19 @@ class AiReplyService
         $model = $config->model ?: $config->provider->defaultModel();
         $allowImages = $config->provider->modelSupportsVision($model);
         $messages = $this->buildHistory($conversation, $allowImages);
-        if (empty($messages)) return AiReplyDecision::reply(null);
+        if (empty($messages)) {
+            return AiReplyDecision::reply(null);
+        }
         $provider = AiProviderFactory::make($config);
-        if (! $provider) return AiReplyDecision::reply(null);
+        if (! $provider) {
+            return AiReplyDecision::reply(null);
+        }
         if (method_exists($provider, 'decide')) {
             /** @var AiReplyDecision $decision */
-            return $provider->decide($messages, $this->systemPrompt($config, $conversation->tenant_id), $model);
+            return $provider->decide($messages, $this->systemPrompt($config, $conversation->tenant_id, $messages), $model);
         }
-        return AiReplyDecision::reply($provider->generate($messages, $this->systemPrompt($config, $conversation->tenant_id), $model));
+
+        return AiReplyDecision::reply($provider->generate($messages, $this->systemPrompt($config, $conversation->tenant_id, $messages), $model));
     }
 
     /**
@@ -307,11 +315,11 @@ class AiReplyService
         return $content;
     }
 
-    private function systemPrompt(AiConfig $config, int $tenantId): string
+    private function systemPrompt(AiConfig $config, int $tenantId, array $messages): string
     {
         $base = trim($config->system_prompt ?: self::DEFAULT_SYSTEM_PROMPT);
 
-        $catalog = $this->catalogSection($tenantId);
+        $catalog = $this->catalogSection($tenantId, $messages);
 
         $prompt = $catalog === '' ? $base : $base."\n\n".$catalog;
 
@@ -319,52 +327,61 @@ class AiReplyService
     }
 
     /**
-     * Sección de catálogo con los productos activos del tenant, para anexar al
-     * system prompt. Corre sin Auth (dentro del job de cola), por lo que hay que
-     * saltear el TenantScope y filtrar el tenant a mano. Devuelve '' si no hay
-     * productos, para no alterar el prompt actual.
+     * Selección de productos relevantes para el turno actual. El job de cola
+     * corre sin Auth: la búsqueda filtra explícitamente por tenant.
      */
-    private function catalogSection(int $tenantId): string
+    private function catalogSection(int $tenantId, array $messages): string
     {
-        $maxProducts = (int) config('services.ai.catalog_max_products', 100);
+        $maxProducts = max(1, (int) config('services.ai.catalog_max_products', 12));
         $maxDescription = (int) config('services.ai.catalog_max_description_chars', 300);
         $maxChars = (int) config('services.ai.catalog_max_chars', 12000);
+        $result = $this->catalogSearch->search($tenantId, $messages, $maxProducts);
 
-        // Cargamos uno más que el tope para saber si hubo recorte, sin traer el
-        // catálogo entero: un catálogo enorme reventaría el contexto del proveedor
-        // y haría que generate() devuelva null para todo el tenant.
-        $products = Product::withoutGlobalScopes()
-            ->where('tenant_id', $tenantId)
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->limit($maxProducts + 1)
-            ->get();
-
-        if ($products->isEmpty()) {
+        if ($result['active'] === 0) {
             return '';
         }
 
-        $truncated = $products->count() > $maxProducts;
-        $products = $products->take($maxProducts);
-
-        $header = "## Catálogo de productos\n"
-            .'Usá únicamente estos datos para responder sobre productos y precios. '
-            ."No inventes productos ni precios que no estén en esta lista.\n";
-
-        // Presupuesto de caracteres para las líneas (además del tope por producto).
-        $budget = max(0, $maxChars - mb_strlen($header));
-        $lines = [];
-
-        foreach ($products as $product) {
-            $line = $this->formatCatalogLine($product, $maxDescription);
-
-            // Cortar antes de exceder el presupuesto total de caracteres.
-            if (! empty($lines) && mb_strlen(implode("\n", $lines)) + mb_strlen("\n".$line) > $budget) {
-                $truncated = true;
-                break;
+        if ($result['matches'] === 0) {
+            if (! $result['catalog_question']) {
+                return '';
             }
 
+            if ($result['broad']) {
+                return "## Catálogo de productos\n"
+                    ."Hay {$result['active']} productos activos. Pedí una categoría, nombre o código para mostrar opciones concretas; "
+                    .'no inventes productos ni precios.';
+            }
+
+            return "## Catálogo de productos\n"
+                ."Hay {$result['active']} productos activos, pero no se encontró una coincidencia para esta consulta. "
+                .'No inventes productos ni precios. Pedí un nombre, código o categoría más específico.';
+        }
+
+        $header = "## Productos relacionados con la consulta\n"
+            .'Estos son resultados del catálogo actual; usá solo estos datos para hablar de productos y precios. '
+            ."No inventes productos ni precios.\n";
+        $more = "\n- Hay más productos coincidentes; ofrecé precisar nombre, código o categoría.";
+        $reserveMore = $result['matches'] > 1 ? mb_strlen($more) : 0;
+        $budget = max(0, $maxChars - mb_strlen($header) - $reserveMore);
+        $lines = [];
+        $used = 0;
+
+        foreach ($result['products'] as $product) {
+            $line = $this->formatCatalogLine($product, $maxDescription, $result['fields']);
+            $length = mb_strlen($line) + ($lines === [] ? 0 : 1);
+            if ($used + $length > $budget) {
+                if ($lines === []) {
+                    // Mantener al menos nombre y precio cuando una descripción
+                    // o campo personalizado ocupa todo el presupuesto.
+                    $line = $this->formatCatalogLine($product, 0, []);
+                    if (mb_strlen($line) <= $budget) {
+                        $lines[] = $line;
+                    }
+                }
+                break;
+            }
             $lines[] = $line;
+            $used += $length;
         }
 
         if (empty($lines)) {
@@ -372,9 +389,8 @@ class AiReplyService
         }
 
         $body = implode("\n", $lines);
-
-        if ($truncated) {
-            $body .= "\n- (lista parcial: hay más productos disponibles; pedí al cliente que consulte por uno puntual)";
+        if ($result['matches'] > count($lines)) {
+            $body .= $more;
         }
 
         return $header.$body;
@@ -384,7 +400,7 @@ class AiReplyService
      * Cada producto es una línea "- ..." del catálogo: saltos de línea en
      * nombre o descripción romperían el formato de lista, se colapsan a espacio.
      */
-    private function formatCatalogLine(Product $product, int $maxDescription): string
+    private function formatCatalogLine(Product $product, int $maxDescription, array $fields): string
     {
         $parts = [preg_replace('/\s+/u', ' ', trim($product->name))];
 
@@ -392,7 +408,7 @@ class AiReplyService
             $parts[] = '$'.number_format((float) $product->price, 2);
         }
 
-        if (filled($product->description)) {
+        if ($maxDescription > 0 && filled($product->description)) {
             $description = preg_replace('/\s+/u', ' ', trim($product->description));
 
             if (mb_strlen($description) > $maxDescription) {
@@ -400,6 +416,19 @@ class AiReplyService
             }
 
             $parts[] = $description;
+        }
+
+        foreach ($fields as $key => $label) {
+            $value = ($product->custom_data ?? [])[$key] ?? null;
+            if (is_array($value)) {
+                $value = implode(', ', array_filter($value, 'is_scalar'));
+            }
+            if (! is_scalar($value) || (string) $value === '') {
+                continue;
+            }
+            $clean = preg_replace('/\s+/u', ' ', trim((string) $value));
+            $cleanLabel = preg_replace('/\s+/u', ' ', trim($label));
+            $parts[] = $cleanLabel.': '.mb_strimwidth($clean, 0, 120, '…');
         }
 
         return '- '.implode(' — ', $parts);
