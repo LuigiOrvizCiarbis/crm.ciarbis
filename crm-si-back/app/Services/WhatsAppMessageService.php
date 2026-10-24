@@ -16,7 +16,6 @@ use App\Events\MessageStatusUpdated;
 use App\Events\TenantMessageReceived;
 use App\Exceptions\MetaApiException;
 use App\Jobs\GenerateAiReplyJob;
-use App\Models\AiConfig;
 use App\Models\BroadcastRecipient;
 use App\Models\Channel;
 use App\Models\Contact;
@@ -377,6 +376,7 @@ class WhatsAppMessageService
             // Handoff: si un humano responde, el bot se apaga en esta conversación.
             'ai_autoreply_enabled' => false,
         ]);
+        app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
             broadcast(new MessageSent($message));
@@ -532,6 +532,7 @@ class WhatsAppMessageService
             // Handoff: si un humano responde, el bot se apaga en esta conversación.
             'ai_autoreply_enabled' => false,
         ]);
+        app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
             broadcast(new MessageSent($message));
@@ -895,6 +896,7 @@ class WhatsAppMessageService
             'delivered_at' => now(), 'external_id' => $response->json('messages.0.id'),
         ]);
         $conversation->update(['last_message_at' => $message->created_at, 'last_message_content' => '👤 '.count($cards).' contactos compartidos', 'ai_autoreply_enabled' => false]);
+        app(AiTypingIndicatorService::class)->stop($conversation->id);
         try {
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
@@ -1246,6 +1248,10 @@ class WhatsAppMessageService
 
             Conversation::where('id', $messageData['conversation_id'])
                 ->update($conversationUpdates);
+            if ($message->direction === MessageDirection::OUTBOUND
+                && $message->sender_type === SenderType::USER) {
+                app(AiTypingIndicatorService::class)->stop((int) $messageData['conversation_id']);
+            }
         }
 
         try {
@@ -1367,17 +1373,20 @@ class WhatsAppMessageService
 
         // Chequeo barato para no encolar jobs no-op en tenants sin IA activa.
         // El job hace la validación completa (incluye desencriptar la key).
-        $hasEnabledAiConfig = AiConfig::withoutGlobalScopes()
-            ->where('tenant_id', $message->tenant_id)
-            ->where('enabled', true)
-            ->exists();
-
-        if (! $hasEnabledAiConfig) {
+        if (! app(AiReplyEligibility::class)->hasUsableConfig($message->tenant_id)) {
             return;
         }
 
-        GenerateAiReplyJob::dispatch($conversation->id)
-            ->delay(now()->addSeconds(8));
+        $typing = app(AiTypingIndicatorService::class);
+        $typing->start($conversation, $message);
+
+        try {
+            GenerateAiReplyJob::dispatch($conversation->id)
+                ->delay(now()->addSeconds(8));
+        } catch (\Throwable $e) {
+            $typing->stop($conversation->id, $message->id);
+            throw $e;
+        }
     }
 
     /**
@@ -1936,6 +1945,7 @@ class WhatsAppMessageService
             // Handoff: si un humano responde, el bot se apaga en esta conversación.
             'ai_autoreply_enabled' => false,
         ]);
+        app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
             broadcast(new MessageSent($message));

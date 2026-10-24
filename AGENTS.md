@@ -28,6 +28,11 @@ Docker Compose definitions exist in each app (`docker-compose.yaml` / `docker-co
 - Backend: Follow Laravel/PSR-12 conventions (4-space indentation, class-based controllers/services, FormRequest validation).
 - Keep files focused; colocate helpers with their module when possible.
 
+## Clean Code
+- Follow the [GP Coder Clean Code guide](https://context7.com/llmstxt/gpcoder_gitbook_io_clean-code_llms-full_txt) for every implementation. Consult the relevant sections through Context7 when planning or changing code.
+- Keep functions small and focused on one task; use names that reveal intent, avoid duplication and deep nesting, and keep error handling at the appropriate boundary.
+- Write comments to explain intent or constraints that the code cannot make clear. Prefer extracting complex `try`/`catch` work into focused functions.
+
 ## Testing Guidelines
 - Backend uses PHPUnit (Laravel test runner). Add feature tests for API behavior and unit tests for isolated logic.
 - Frontend currently has no formal test suite configured; at minimum, run lint and verify key flows manually (auth, chats, channel onboarding).
