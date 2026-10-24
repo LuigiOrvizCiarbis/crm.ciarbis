@@ -10,7 +10,6 @@ use App\Events\MessageSent;
 use App\Events\TenantMessageReceived;
 use App\Exceptions\MetaApiException;
 use App\Jobs\GenerateAiReplyJob;
-use App\Models\AiConfig;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
@@ -397,6 +396,9 @@ class InstagramMessageService
         }
 
         Conversation::where('id', $messageData['conversation_id'])->update($conversationUpdates);
+        if ($isEcho) {
+            app(AiTypingIndicatorService::class)->stop((int) $messageData['conversation_id']);
+        }
 
         try {
             broadcast(new MessageSent($message));
@@ -430,17 +432,20 @@ class InstagramMessageService
         }
 
         // Chequeo barato para no encolar jobs no-op en tenants sin IA activa.
-        $hasEnabledAiConfig = AiConfig::withoutGlobalScopes()
-            ->where('tenant_id', $message->tenant_id)
-            ->where('enabled', true)
-            ->exists();
-
-        if (! $hasEnabledAiConfig) {
+        if (! app(AiReplyEligibility::class)->hasUsableConfig($message->tenant_id)) {
             return;
         }
 
-        GenerateAiReplyJob::dispatch($conversation->id)
-            ->delay(now()->addSeconds(8));
+        $typing = app(AiTypingIndicatorService::class);
+        $typing->start($conversation, $message);
+
+        try {
+            GenerateAiReplyJob::dispatch($conversation->id)
+                ->delay(now()->addSeconds(8));
+        } catch (\Throwable $e) {
+            $typing->stop($conversation->id, $message->id);
+            throw $e;
+        }
     }
 
     private function isUniqueViolation(QueryException $e): bool
@@ -642,6 +647,7 @@ class InstagramMessageService
             // Handoff: si un humano responde desde el CRM, el bot se apaga.
             'ai_autoreply_enabled' => false,
         ]);
+        app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
             broadcast(new MessageSent($message));

@@ -15,6 +15,7 @@ use App\Models\Message;
 use App\Models\Opportunity;
 use App\Models\PipelineStage;
 use App\Models\WhatsAppTemplate;
+use App\Services\AiTypingIndicatorService;
 use App\Services\HumanHandoffService;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Http\Request;
@@ -510,7 +511,12 @@ class ConversationController extends Controller
     /**
      * Activa o desactiva la auto-respuesta de IA para la conversación.
      */
-    public function aiAutoreply(Request $request, HumanHandoffService $handoffService, $id): JsonResponse
+    public function aiAutoreply(
+        Request $request,
+        HumanHandoffService $handoffService,
+        AiTypingIndicatorService $typingIndicatorService,
+        $id,
+    ): JsonResponse
     {
         $conversation = Conversation::where('id', $id)->firstOrFail();
         $this->authorize('update', $conversation);
@@ -520,6 +526,10 @@ class ConversationController extends Controller
         ]);
 
         $conversation->update(['ai_autoreply_enabled' => $validated['enabled']]);
+
+        if (! $validated['enabled']) {
+            $typingIndicatorService->stop($conversation->id);
+        }
 
         if ($validated['enabled']) {
             $this->cancelManualAiDrafts($conversation);
@@ -660,7 +670,11 @@ class ConversationController extends Controller
     /**
      * Activa o desactiva la auto-respuesta de IA para múltiples conversaciones.
      */
-    public function bulkAiAutoreply(Request $request, HumanHandoffService $handoffService): JsonResponse
+    public function bulkAiAutoreply(
+        Request $request,
+        HumanHandoffService $handoffService,
+        AiTypingIndicatorService $typingIndicatorService,
+    ): JsonResponse
     {
         $user = $request->user();
 
@@ -679,6 +693,8 @@ class ConversationController extends Controller
             if ($validated['enabled']) {
                 $this->cancelManualAiDrafts($conversation);
                 $handoffService->cancelActive($conversation);
+            } else {
+                $typingIndicatorService->stop($conversation->id);
             }
         }
 

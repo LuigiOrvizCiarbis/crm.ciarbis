@@ -850,6 +850,9 @@
       "unread": "Unread",
       "review": "To review",
       "archived": "Archived"
+    },
+    "conversationRail": {
+      "label": "Conversation list"
     }
   },
   "settings": {
