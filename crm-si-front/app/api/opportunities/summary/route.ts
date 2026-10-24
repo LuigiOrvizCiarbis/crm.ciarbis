@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { data, status } = await proxyToLaravel("/api/opportunities/summary", authHeader);
+    const { data, status } = await proxyToLaravel(`/api/opportunities/summary${req.nextUrl.search}`, authHeader);
     return NextResponse.json(data, { status });
   } catch {
     return NextResponse.json({ message: "No reachable backend" }, { status: 503 });

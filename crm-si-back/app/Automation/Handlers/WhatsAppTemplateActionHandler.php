@@ -150,7 +150,7 @@ class WhatsAppTemplateActionHandler implements ActionHandler
             [
                 'status' => 'open',
                 'branch_id' => $contact->branch_id ?? $channel->branch_id,
-                'pipeline_stage_id' => PipelineStage::where('tenant_id', $run->tenant_id)->orderByDesc('is_default')->orderBy('sort_order')->value('id'),
+                'pipeline_stage_id' => PipelineStage::where('tenant_id', $run->tenant_id)->whereHas('pipeline', fn ($query) => $query->where('is_default', true))->orderByDesc('is_default')->orderBy('sort_order')->value('id'),
                 'ai_autoreply_enabled' => (bool) $channel->whatsappConfig?->ai_autoreply_default,
             ],
         );

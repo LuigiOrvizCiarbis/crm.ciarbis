@@ -10,15 +10,14 @@ use App\Jobs\SendBroadcastMessageJob;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
-use App\Models\HumanHandoff;
 use App\Models\ManualAiDraft;
 use App\Models\Message;
 use App\Models\Opportunity;
 use App\Models\PipelineStage;
 use App\Models\WhatsAppTemplate;
-use App\Services\WhatsAppMessageService;
 use App\Services\AiTypingIndicatorService;
 use App\Services\HumanHandoffService;
+use App\Services\WhatsAppMessageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -329,33 +328,19 @@ class ConversationController extends Controller
         // Validar que la etapa destino pertenezca al mismo tenant (seguridad extra)
         $stage = PipelineStage::where('id', $request->pipeline_stage_id)->firstOrFail();
 
+        // La etapa del chat vive en el pipeline predeterminado.
+        if (! $stage->pipeline?->is_default) {
+            return response()->json(['message' => 'La etapa del chat tiene que ser del pipeline predeterminado.'], 422);
+        }
+
+        // Si el chat tiene una oportunidad en ese pipeline, la etapa la maneja ella.
+        if (Opportunity::where('conversation_id', $conversation->id)->inDefaultPipeline()->exists()) {
+            return response()->json(['message' => 'La etapa de este chat sigue a su oportunidad. Mové la oportunidad.'], 422);
+        }
+
         $conversation->update([
             'pipeline_stage_id' => $stage->id,
         ]);
-
-        // Sincronizar la Opportunity vinculada: actualizar si existe, crear si no.
-        // Una conversación de grupo no tiene contact_id (NOT NULL en
-        // opportunities), así que no se autocrea una oportunidad ahí; si el
-        // grupo nace desde una oportunidad existente, esa referencia vive en
-        // whatsapp_groups.opportunity_id, no acá.
-        $opportunity = Opportunity::where('conversation_id', $conversation->id)->first();
-
-        if ($opportunity) {
-            $opportunity->update([
-                'pipeline_stage_id' => $stage->id,
-                'last_activity_at' => now(),
-            ]);
-        } elseif (! $conversation->isGroup()) {
-            Opportunity::create([
-                'conversation_id' => $conversation->id,
-                'contact_id' => $conversation->contact_id,
-                'pipeline_stage_id' => $stage->id,
-                'title' => 'Oportunidad - '.($conversation->contact?->name ?? 'Sin nombre'),
-                'status' => 'open',
-                'source_type' => 'conversation',
-                'last_activity_at' => now(),
-            ]);
-        }
 
         return response()->json($conversation);
     }
@@ -564,7 +549,10 @@ class ConversationController extends Controller
         $conversation = Conversation::query()->with('activeHumanHandoff')->whereKey($id)->firstOrFail();
         $this->authorize('view', $conversation);
         $handoff = $conversation->activeHumanHandoff;
-        if (! $handoff) return response()->json(['message' => 'No hay una derivación activa.'], 404);
+        if (! $handoff) {
+            return response()->json(['message' => 'No hay una derivación activa.'], 404);
+        }
+
         return response()->json(['data' => $service->acknowledge($handoff, $request->user())]);
     }
 

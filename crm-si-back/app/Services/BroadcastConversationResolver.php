@@ -84,6 +84,7 @@ class BroadcastConversationResolver
         if (! $conversation->pipeline_stage_id) {
             $defaultStage = PipelineStage::withoutGlobalScopes()
                 ->where('tenant_id', $channel->tenant_id)
+                ->whereHas('pipeline', fn ($query) => $query->where('is_default', true))
                 ->where(fn (Builder $query): Builder => $query
                     ->where('is_default', true)
                     ->orWhereNotNull('id'))

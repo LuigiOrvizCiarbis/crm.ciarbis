@@ -118,6 +118,7 @@ class MailIntakeService
 
             if (! $conversation->pipeline_stage_id) {
                 $defaultStage = PipelineStage::query()->where('tenant_id', $channel->tenant_id)
+                    ->whereHas('pipeline', fn ($query) => $query->where('is_default', true))
                     ->orderByDesc('is_default')->orderBy('sort_order')->first();
                 if ($defaultStage) {
                     $conversation->update(['pipeline_stage_id' => $defaultStage->id]);

@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   if (!authHeader) return NextResponse.json({ message: "No auth" }, { status: 401 })
 
   try {
-    const { data, status } = await proxyToLaravel("/api/pipeline-stages", authHeader)
+    const { data, status } = await proxyToLaravel(`/api/pipeline-stages${req.nextUrl.search}`, authHeader)
     return NextResponse.json(data, { status })
   } catch {
     return NextResponse.json({ message: "No reachable backend" }, { status: 503 })
