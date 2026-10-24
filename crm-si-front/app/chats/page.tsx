@@ -87,6 +87,7 @@ import { isExpectedBusinessErrorMessage } from "@/lib/observability/sentry"
 import { ChannelHeader } from "@/components/chat/AccountHeader"
 import { useConversationFilters } from "@/hooks/useConversationFilters"
 import { TagFilterMenu } from "@/components/tags/TagFilterMenu"
+import { StageFilterMenu, matchesStageFilter } from "@/components/chat/StageFilterMenu"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useSSEMessages, type MessageStatusUpdate, type MessageReactionUpdate } from "@/hooks/useSSEMessages"
 import { useTenantSSE } from "@/hooks/useTenantSSE"
@@ -304,6 +305,7 @@ export default function ChatsPage() {
   const [isMailConnectOpen, setMailConnectOpen] = useState(false)
   const [activeFilter, setActiveFilter] = useState<FilterType>("todos")
   const [tagFilterSlugs, setTagFilterSlugs] = useState<string[]>([])
+  const [stageFilter, setStageFilter] = useState<string[]>([])
   const [viewType, setViewType] = useState<ConversationView>("inbox")
   const [mailReviewCount, setMailReviewCount] = useState(0)
   const [searchQuery, setSearchQuery] = useState("")
@@ -765,13 +767,15 @@ export default function ChatsPage() {
   })
 
   const tagFilteredConversations = useMemo(() => {
-    if (tagFilterSlugs.length === 0) return filteredConversations
+    if (tagFilterSlugs.length === 0 && stageFilter.length === 0) return filteredConversations
 
     const selected = new Set(tagFilterSlugs)
+    const stages = new Set(stageFilter)
     return filteredConversations.filter((conversation) => (
-      conversation.tags?.some((tag) => selected.has(tag.slug))
+      (selected.size === 0 || conversation.tags?.some((tag) => selected.has(tag.slug)))
+      && matchesStageFilter(conversation.pipeline_stage_id, stages)
     ))
-  }, [filteredConversations, tagFilterSlugs])
+  }, [filteredConversations, tagFilterSlugs, stageFilter])
 
   const conversationViewCounts = useMemo(() => ({
     inbox: tagFilteredConversations.filter((conversation) => !conversation.archived).length,
@@ -847,6 +851,7 @@ export default function ChatsPage() {
 
     const visibleIds = new Set(visibleConversations.map((c) => c.id))
     const tagSet = new Set(tagFilterSlugs)
+    const stageSet = new Set(stageFilter)
     const targetType = activeFilter !== "todos" && activeFilter !== "no-leidos"
       ? filterTypeToChannelType(activeFilter)
       : null
@@ -859,12 +864,13 @@ export default function ChatsPage() {
       if (matchingChannelIds && !matchingChannelIds.has(conversation.channelId)) return false
       if (activeFilter === "no-leidos" && !((conversation.unread_count ?? 0) > 0 || conversation.unread)) return false
       if (tagSet.size > 0 && !conversation.tags?.some((tag) => tagSet.has(tag.slug))) return false
+      if (!matchesStageFilter(conversation.pipeline_stage_id, stageSet)) return false
       if (viewType === "archived") return Boolean(conversation.archived)
       if (conversation.archived) return false
       if (viewType === "unread" && !conversation.unread) return false
       return true
     })
-  }, [messageSearchResults, visibleConversations, searchQuery, activeFilter, channels, tagFilterSlugs, viewType])
+  }, [messageSearchResults, visibleConversations, searchQuery, activeFilter, channels, tagFilterSlugs, stageFilter, viewType])
 
   // Channels and the first lightweight cursor page are independent.
   useEffect(() => {
@@ -1940,13 +1946,14 @@ export default function ChatsPage() {
         availableChannelTypes={["whatsapp", "instagram", "facebook"]}
       />
 
-      <div className="border-b border-border bg-card/80 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/80 px-4 py-3">
         <TagFilterMenu
           selectedSlugs={tagFilterSlugs}
           onChange={setTagFilterSlugs}
           label="Tags"
           align="start"
         />
+        <StageFilterMenu selected={stageFilter} onChange={setStageFilter} />
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -2323,6 +2330,8 @@ export default function ChatsPage() {
                 onChangeStage={(stage) => {
                   chatHandlers.handleChangeStage(selectedConversationId)(stage)
                   setCurrentConversation(prev => prev ? { ...prev, pipeline_stage_id: stage } : prev)
+                  // La lista también: el filtro de etapas lee de acá.
+                  setConversations(prev => prev.map(c => c.id === selectedConversationId ? { ...c, pipeline_stage_id: stage } : c))
                 }}
                 onChangePriority={(priority) => {
                   chatHandlers.handleChangePriority(selectedConversationId)(priority)

@@ -720,6 +720,13 @@
     "loading": "Loading...",
     "select": "Select",
     "stageLabel": "Stage",
+    "stageFilter": {
+      "label": "Stages",
+      "title": "Filter by chat stage",
+      "loading": "Loading stages",
+      "none": "No stage",
+      "clear": "Clear stage filter"
+    },
     "chatStageLabel": "Chat stage",
     "opportunities": "Opportunities",
     "opportunitiesOfChat": "Opportunities in this chat",
