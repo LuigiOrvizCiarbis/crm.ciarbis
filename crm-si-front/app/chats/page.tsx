@@ -1989,6 +1989,10 @@ export default function ChatsPage() {
     setIsChannelsSheetOpen(false)
   }
 
+  const listedConversations = groupsOnly
+    ? visibleConversations.filter((c) => c.kind === "group")
+    : visibleConversations
+
   const handleMobileConnectChannel = (channelType?: ConnectableChannel) => {
     setIsChannelsSheetOpen(false)
     handleConnectChannel(channelType)
@@ -2020,9 +2024,46 @@ export default function ChatsPage() {
           todo con un hilo abierto, así que ninguna constante sirve para los
           tres casos. El flex mide lo que sobra, siempre. */}
       <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
-        <div className="hidden w-[360px] flex-col border-r border-border bg-card md:flex lg:w-[380px]">
+        {/* Con un hilo abierto, la columna de canales cede su lugar a la
+            lista de conversaciones (salvo en pantallas muy anchas, donde
+            entran las tres): saltar de un chat a otro no debería obligar a
+            volver atrás. */}
+        <div
+          className={`hidden w-[360px] flex-col border-r border-border bg-card lg:w-[380px] ${
+            selectedConversationId ? "2xl:flex" : "md:flex"
+          }`}
+        >
           {renderChannelsSidebar(handleChannelSelect, handleConnectChannel)}
         </div>
+
+        {selectedConversationId && (
+          <aside
+            aria-label={t("chats.conversationRail.label")}
+            className="hidden w-[300px] shrink-0 flex-col border-r border-border bg-card md:flex lg:w-[340px]"
+          >
+            <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
+              <p className="truncate text-sm font-semibold tracking-[-0.01em]">
+                {activeChannel?.name ?? t(`chats.views.${viewType}`)}
+              </p>
+              <span className="shrink-0 rounded-full border border-border bg-background/80 px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
+                {listedConversations.length}
+              </span>
+            </div>
+            <ConversationList
+              compact
+              conversations={listedConversations}
+              channels={channels}
+              isLoading={isLoading && listedConversations.length === 0}
+              selectedConversationId={selectedConversationId}
+              onConversationClick={handleConversationClick}
+              messageResults={messageOnlyResults}
+              isSearchingMessages={isSearchingMessages}
+              hasMore={hasMoreConversations}
+              isLoadingMore={isLoadingMoreConversations}
+              onLoadMore={() => { void loadConversationPage() }}
+            />
+          </aside>
+        )}
 
         {/* Panel principal */}
         <div className="flex-1 bg-background flex flex-col overflow-hidden min-h-0">
@@ -2228,7 +2269,7 @@ export default function ChatsPage() {
               )}
 
               <ConversationList
-                conversations={groupsOnly ? visibleConversations.filter((c) => c.kind === "group") : visibleConversations}
+                conversations={listedConversations}
                 channels={channels}
                 isLoading={isLoading}
                 selectedConversationId={selectedConversationId}
