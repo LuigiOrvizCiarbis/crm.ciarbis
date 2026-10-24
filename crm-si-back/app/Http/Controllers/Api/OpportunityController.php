@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Opportunity;
+use App\Models\Pipeline;
 use App\Models\PipelineStage;
 use App\Models\User;
 use App\Support\BranchRuleResolver;
@@ -21,6 +22,7 @@ class OpportunityController extends Controller
         'conversation:id,contact_id,channel_id,last_message_content,last_message_at',
         'conversation.channel:id,name,type',
         'pipelineStage:id,name,sort_order,is_default',
+        'pipeline:id,name,is_default',
     ];
 
     public function index(Request $request): JsonResponse
@@ -37,6 +39,14 @@ class OpportunityController extends Controller
 
         if ($request->filled('contact_id')) {
             $query->where('contact_id', $request->integer('contact_id'));
+        }
+
+        if ($request->filled('pipeline_id')) {
+            $query->where('pipeline_id', $request->integer('pipeline_id'));
+        }
+
+        if ($request->filled('conversation_id')) {
+            $query->where('conversation_id', $request->integer('conversation_id'));
         }
 
         if ($request->filled('status')) {
@@ -65,13 +75,19 @@ class OpportunityController extends Controller
         $validated = $request->validate($this->rules($request));
         $contact = Contact::findOrFail($validated['contact_id']);
         $conversation = $this->resolveConversation($validated, $contact->id);
-        $stage = $this->resolveStage($validated);
+        $requestedStage = $this->resolveStage($validated);
+        $pipeline = $this->resolvePipeline($validated, $requestedStage);
+        $stage = $requestedStage ?? $pipeline->entryStage();
+        if ($stage && (int) $stage->pipeline_id !== (int) $pipeline->id) {
+            abort(422, 'La etapa no pertenece al pipeline indicado');
+        }
         $assignedUser = $this->resolveAssignedUser($validated);
 
         $payload = [
             'contact_id' => $contact->id,
             'conversation_id' => $conversation?->id,
             'pipeline_stage_id' => $stage?->id,
+            'pipeline_id' => $pipeline->id,
             'assigned_to' => $assignedUser?->id,
             'title' => $validated['title'] ?? ('Oportunidad - '.$contact->name),
             'status' => $validated['status'] ?? 'open',
@@ -123,7 +139,19 @@ class OpportunityController extends Controller
         }
 
         if (array_key_exists('pipeline_stage_id', $validated)) {
-            $opportunity->pipelineStage()->associate($this->resolveStage($validated));
+            $stage = $this->resolveStage($validated);
+            if ($stage && isset($validated['pipeline_id']) && (int) $stage->pipeline_id !== (int) $validated['pipeline_id']) {
+                abort(422, 'La etapa no pertenece al pipeline indicado');
+            }
+            $opportunity->pipelineStage()->associate($stage);
+        }
+
+        if (array_key_exists('pipeline_id', $validated)) {
+            $pipeline = $this->resolvePipeline($validated, $this->resolveStage($validated));
+            $opportunity->pipeline()->associate($pipeline);
+            if (! array_key_exists('pipeline_stage_id', $validated)) {
+                $opportunity->pipelineStage()->associate($pipeline->entryStage());
+            }
         }
 
         if (array_key_exists('assigned_to', $validated)) {
@@ -153,23 +181,24 @@ class OpportunityController extends Controller
         $this->authorize('changeStage', $opportunity);
 
         $validated = $request->validate([
+            'pipeline_id' => ['sometimes', 'integer', Rule::exists('pipelines', 'id')->where(fn ($query) => $query->where('tenant_id', $request->user()->tenant_id))],
             'pipeline_stage_id' => [
-                'nullable',
+                'required',
+                'integer',
                 Rule::exists('pipeline_stages', 'id')->where(fn ($query) => $query->where('tenant_id', $request->user()->tenant_id)),
             ],
         ]);
 
-        $stageId = $this->resolveStage($validated)?->id;
+        $stage = $this->resolveStage($validated);
+        $pipeline = $this->resolvePipeline($validated, $stage);
+        if ((int) $stage->pipeline_id !== (int) $pipeline->id) {
+            abort(422, 'La etapa destino no pertenece al pipeline indicado');
+        }
 
         $opportunity->update([
-            'pipeline_stage_id' => $stageId,
+            'pipeline_id' => $pipeline->id,
+            'pipeline_stage_id' => $stage->id,
         ]);
-
-        // Sincronizar la Conversation vinculada (si existe)
-        if ($opportunity->conversation_id) {
-            Conversation::where('id', $opportunity->conversation_id)
-                ->update(['pipeline_stage_id' => $stageId]);
-        }
 
         $opportunity->load(self::EAGER_LOAD);
 
@@ -182,6 +211,10 @@ class OpportunityController extends Controller
 
         $user = $request->user();
         $base = Opportunity::query()->visibleTo($user);
+
+        if ($request->filled('pipeline_id')) {
+            $base->where('pipeline_id', $request->integer('pipeline_id'));
+        }
 
         $total = (clone $base)->count();
         $pipelineValue = (float) (clone $base)->sum('value');
@@ -208,6 +241,7 @@ class OpportunityController extends Controller
 
         return [
             'contact_id' => [...$sometimes, 'integer', Rule::exists('contacts', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
+            'pipeline_id' => [$opportunity ? 'sometimes' : 'nullable', 'integer', Rule::exists('pipelines', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
             'conversation_id' => ['nullable', 'integer', Rule::exists('conversations', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
             'pipeline_stage_id' => ['nullable', 'integer', Rule::exists('pipeline_stages', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
             'assigned_to' => ['nullable', 'integer', Rule::exists('users', 'id')->where(fn ($query) => $query->whereIn('id', DB::table('tenant_memberships')->select('user_id')->where('tenant_id', $tenantId)->whereNull('removed_at')))],
@@ -246,6 +280,19 @@ class OpportunityController extends Controller
         }
 
         return PipelineStage::findOrFail($validated['pipeline_stage_id']);
+    }
+
+    private function resolvePipeline(array $validated, ?PipelineStage $stage = null): Pipeline
+    {
+        if (isset($validated['pipeline_id'])) {
+            return Pipeline::findOrFail($validated['pipeline_id']);
+        }
+
+        if ($stage) {
+            return $stage->pipeline;
+        }
+
+        return Pipeline::where('is_default', true)->firstOrFail();
     }
 
     private function resolveAssignedUser(array $validated): ?User

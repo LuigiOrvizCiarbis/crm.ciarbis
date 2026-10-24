@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Pipeline;
 use App\Models\PipelineStage;
 use App\Models\Tenant;
 use Illuminate\Database\Seeder;
@@ -68,9 +69,14 @@ class PipelineStageSeeder extends Seeder
                 ],
             ];
 
+            // Explícito: DatabaseSeeder corre WithoutModelEvents y el hook de
+            // PipelineStage que asigna el pipeline predeterminado no se dispara.
+            $pipelineId = Pipeline::defaultFor($tenant->id)->id;
+
             foreach ($stages as $stage) {
                 PipelineStage::create([
                     'tenant_id' => $tenant->id,
+                    'pipeline_id' => $pipelineId,
                     'name' => $stage['name'],
                     'color' => $stage['color'],
                     'sort_order' => $stage['sort_order'],

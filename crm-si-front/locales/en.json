@@ -262,6 +262,27 @@
     }
   },
   "pipeline": {
+    "create": {
+      "title": "New pipeline",
+      "description": "A sales process with its own stages.",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. Renewals",
+      "stagesLabel": "Initial stages",
+      "copyTitle": "Copy stages",
+      "copyHint": "Same columns as another pipeline.",
+      "copyFrom": "Copy from",
+      "templateTitle": "Simple template",
+      "templateHint": "New, In progress, Won and Lost.",
+      "emptyTitle": "Empty",
+      "emptyHint": "You'll set them up later.",
+      "preview": "Preview",
+      "emptyPreview": "No stages: the stage manager opens after creating it.",
+      "submit": "Create pipeline",
+      "error": "Could not create the pipeline",
+      "created": "Pipeline created",
+      "createdDesc": "You're now viewing {{name}}.",
+      "newPipeline": "New pipeline"
+    },
     "title": "Opportunity Pipeline",
     "searchPlaceholder": "Search leads...",
     "newOpportunity": "New opportunity",
@@ -686,6 +707,18 @@
     "loading": "Loading...",
     "select": "Select",
     "stageLabel": "Stage",
+    "chatStageLabel": "Chat stage",
+    "opportunities": "Opportunities",
+    "opportunitiesOfChat": "Opportunities in this chat",
+    "newOpportunity": "New opportunity",
+    "noOpportunities": "This chat has no opportunities yet.",
+    "opportunityStageLabel": "Opportunity stage",
+    "moveOpportunityTo": "Move to {{stage}}",
+    "lastStage": "Already at the last stage",
+    "firstStage": "Already at the first stage",
+    "opportunityCreated": "Opportunity created",
+    "opportunityLinkedToChat": "Linked to this chat.",
+    "opportunityUpdated": "Opportunity updated",
     "priorityLabel": "Priority",
     "priorityLow": "Low",
     "priorityMedium": "Medium",
@@ -804,6 +837,9 @@
       "unread": "Unread",
       "review": "To review",
       "archived": "Archived"
+    },
+    "conversationRail": {
+      "label": "Conversation list"
     }
   },
   "settings": {
