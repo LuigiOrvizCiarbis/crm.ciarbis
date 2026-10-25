@@ -234,13 +234,6 @@ class ConversationController extends Controller
     {
 
         $conversation = Conversation::with([
-            'messages' => function ($q) {
-                // CAMBIO SUGERIDO: Aumentar de 4 a 20 para llenar la pantalla inicial
-                $q->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview'])
-                    ->whereNull('mail_parent_message_id')
-                    ->orderBy('created_at', 'desc')
-                    ->limit(20);
-            },
             'contact:id,name,phone',
             'channel:id,name,type',
             'tags',
@@ -251,7 +244,16 @@ class ConversationController extends Controller
 
         $this->authorize('view', $conversation);
 
-        $conversation->setRelation('messages', $conversation->messages->sortBy('created_at')->values());
+        // Query directa y no eager load con limit: el eager load numera con row_number()
+        // todos los mensajes de la conversación; así corta en 20 con el índice (conversation_id, created_at).
+        $messages = $conversation->messages()
+            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview'])
+            ->whereNull('mail_parent_message_id')
+            ->orderBy('created_at', 'desc')
+            ->limit(20)
+            ->get();
+
+        $conversation->setRelation('messages', $messages->sortBy('created_at')->values());
         if ($conversation->isGroup()) {
             $this->attachSenderNames($conversation->messages);
         }
