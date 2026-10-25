@@ -1700,6 +1700,21 @@
       "timezone": "Timezone",
       "dateFormat": "Date format",
       "saved": "Preferences saved"
+    },
+    "whatsappNotifications": {
+      "title": "WhatsApp handoff alerts",
+      "description": "Get an alert when a customer asks to speak with a person.",
+      "active": "Alerts are active for this number.",
+      "phone": "WhatsApp number",
+      "phoneHint": "Include the country code. If you change the number, you must accept alerts for the new number.",
+      "consent": "I agree to receive SI CRM alerts on WhatsApp at this number. I can turn them off at any time.",
+      "consentRequired": "Agree to receive WhatsApp alerts to continue.",
+      "invalidPhone": "Enter a WhatsApp number with country code.",
+      "networkError": "Could not connect to the server. Try again.",
+      "save": "Enable alerts",
+      "saved": "WhatsApp alerts enabled",
+      "disable": "Turn off alerts",
+      "disabled": "WhatsApp alerts disabled"
     }
   }
 }

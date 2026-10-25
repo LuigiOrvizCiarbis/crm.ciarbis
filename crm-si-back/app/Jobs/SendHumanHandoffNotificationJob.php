@@ -22,12 +22,12 @@ class SendHumanHandoffNotificationJob implements ShouldQueue
         if (! $handoff || ! $handoff->isActive()) return;
 
         $cfg = config('services.si_crm_alerts');
-        if (! $cfg['enabled'] || ! $cfg['phone_number_id'] || ! $cfg['access_token']) {
+        if (! $cfg['phone_number_id'] || ! $cfg['access_token']) {
             $this->recordFailure($handoff, 'Servicio SI CRM Alertas no configurado.', $this->forcedDestination);
             return;
         }
 
-        $destination = $this->forcedDestination === 'user' && $handoff->assignee?->whatsapp_notification_verified_at
+        $destination = $this->forcedDestination === 'user' && $handoff->assignee?->whatsapp_notification_opted_in_at
             ? $handoff->assignee->whatsapp_notification_phone_normalized
             : null;
         $type = $this->forcedDestination;
@@ -37,7 +37,7 @@ class SendHumanHandoffNotificationJob implements ShouldQueue
             $type = 'channel';
         }
         if (! $destination) {
-            $this->recordFailure($handoff, 'No hay un WhatsApp verificado ni fallback de canal disponible.', $type);
+            $this->recordFailure($handoff, 'No hay un WhatsApp con consentimiento ni fallback de canal disponible.', $type);
             return;
         }
 

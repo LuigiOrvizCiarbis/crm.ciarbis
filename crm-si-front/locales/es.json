@@ -1700,6 +1700,21 @@
       "timezone": "Zona horaria",
       "dateFormat": "Formato de fecha",
       "saved": "Preferencias guardadas"
+    },
+    "whatsappNotifications": {
+      "title": "Alertas de derivación por WhatsApp",
+      "description": "Recibí un aviso cuando un cliente pida hablar con una persona.",
+      "active": "Las alertas están activas para este número.",
+      "phone": "Número de WhatsApp",
+      "phoneHint": "Incluí el código de país. Si cambiás el número, tendrás que aceptar las alertas para el nuevo número.",
+      "consent": "Acepto recibir alertas de SI CRM por WhatsApp en este número. Puedo desactivarlas cuando quiera.",
+      "consentRequired": "Aceptá recibir alertas por WhatsApp para continuar.",
+      "invalidPhone": "Ingresá un número de WhatsApp con código de país.",
+      "networkError": "No se pudo conectar con el servidor. Intentá de nuevo.",
+      "save": "Activar alertas",
+      "saved": "Alertas de WhatsApp activadas",
+      "disable": "Desactivar alertas",
+      "disabled": "Alertas de WhatsApp desactivadas"
     }
   }
 }

@@ -410,8 +410,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('users/{user}/branch', [UserController::class, 'assignBranch']);
 
     Route::put('profile', [ProfileController::class, 'update']);
-    Route::post('profile/whatsapp-notifications/verification', [ProfileController::class, 'requestWhatsAppNotificationVerification']);
-    Route::post('profile/whatsapp-notifications/verification/confirm', [ProfileController::class, 'confirmWhatsAppNotificationVerification']);
+    Route::post('profile/whatsapp-notifications', [ProfileController::class, 'subscribeWhatsAppNotifications']);
     Route::delete('profile/whatsapp-notifications', [ProfileController::class, 'revokeWhatsAppNotification']);
     Route::put('profile/password', [ProfileController::class, 'updatePassword']);
     Route::put('profile/preferences', [ProfileController::class, 'updatePreferences']);

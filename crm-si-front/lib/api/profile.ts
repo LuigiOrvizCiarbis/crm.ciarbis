@@ -23,25 +23,18 @@ export interface ProfileSession {
   is_current: boolean
 }
 
-export async function requestWhatsAppNotificationVerification(phone: string): Promise<{ error?: string }> {
+export async function subscribeWhatsAppNotifications(phone: string, consent: boolean): Promise<{ data?: User; error?: string }> {
   const token = getAuthToken(); if (!token) return { error: "No autenticado" }
-  const response = await fetch("/api/profile/whatsapp-notifications/verification", { method: "POST", headers: authHeaders(token), body: JSON.stringify({ phone, consent: true }) })
+  const response = await fetch("/api/profile/whatsapp-notifications", { method: "POST", headers: authHeaders(token), body: JSON.stringify({ phone, consent }) })
   const payload = await response.json().catch(() => ({}))
-  return response.ok ? {} : { error: extractError(payload, "No se pudo enviar el código.") }
+  return response.ok ? { data: payload?.data } : { error: extractError(payload, "No se pudieron activar las alertas.") }
 }
 
-export async function confirmWhatsAppNotificationVerification(code: string): Promise<{ data?: User; error?: string }> {
-  const token = getAuthToken(); if (!token) return { error: "No autenticado" }
-  const response = await fetch("/api/profile/whatsapp-notifications/verification/confirm", { method: "POST", headers: authHeaders(token), body: JSON.stringify({ code }) })
-  const payload = await response.json().catch(() => ({}))
-  return response.ok ? { data: payload?.data } : { error: extractError(payload, "El código no es válido.") }
-}
-
-export async function revokeWhatsAppNotifications(): Promise<{ error?: string }> {
+export async function revokeWhatsAppNotifications(): Promise<{ data?: User; error?: string }> {
   const token = getAuthToken(); if (!token) return { error: "No autenticado" }
   const response = await fetch("/api/profile/whatsapp-notifications", { method: "DELETE", headers: authHeaders(token, false) })
   const payload = await response.json().catch(() => ({}))
-  return response.ok ? {} : { error: extractError(payload, "No se pudo desactivar.") }
+  return response.ok ? { data: payload?.data } : { error: extractError(payload, "No se pudieron desactivar las alertas.") }
 }
 
 function extractError(payload: any, fallback: string): string {

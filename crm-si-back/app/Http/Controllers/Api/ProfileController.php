@@ -39,22 +39,11 @@ class ProfileController extends Controller
         return response()->json(['data' => new UserResource($user)]);
     }
 
-    public function requestWhatsAppNotificationVerification(Request $request, HumanHandoffService $service): JsonResponse
+    public function subscribeWhatsAppNotifications(Request $request, HumanHandoffService $service): JsonResponse
     {
         $validated = $request->validate(['phone' => ['required', 'string', 'max:40'], 'consent' => ['accepted']]);
         try {
-            $service->requestPhoneVerification($request->user(), $validated['phone']);
-        } catch (\InvalidArgumentException|\RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
-        return response()->json(['message' => 'Código enviado por WhatsApp.']);
-    }
-
-    public function confirmWhatsAppNotificationVerification(Request $request, HumanHandoffService $service): JsonResponse
-    {
-        $validated = $request->validate(['code' => ['required', 'digits:6']]);
-        try {
-            $service->confirmPhoneVerification($request->user(), $validated['code']);
+            $service->subscribeToWhatsAppNotifications($request->user(), $validated['phone']);
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
@@ -69,7 +58,7 @@ class ProfileController extends Controller
             'whatsapp_notification_verified_at' => null,
             'whatsapp_notification_opted_in_at' => null,
         ])->save();
-        return response()->json(['message' => 'Notificaciones de WhatsApp desactivadas.']);
+        return response()->json(['data' => new UserResource($request->user()->fresh())]);
     }
 
     public function updatePassword(Request $request): JsonResponse

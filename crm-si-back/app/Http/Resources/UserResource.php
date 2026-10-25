@@ -30,7 +30,6 @@ class UserResource extends JsonResource
             'phone' => $this->phone,
             'whatsapp_notification' => [
                 'phone' => $this->whatsapp_notification_phone,
-                'verified_at' => $this->whatsapp_notification_verified_at,
                 'opted_in_at' => $this->whatsapp_notification_opted_in_at,
             ],
             'job_title' => $this->job_title,
