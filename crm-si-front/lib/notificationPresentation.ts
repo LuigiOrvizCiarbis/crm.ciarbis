@@ -42,6 +42,8 @@ export function describeNotification(notification: AppNotification, t: Translate
         title: data.days_left === 1 ? t(`${key}.titleOne`) : t(`${key}.title`, { days: data.days_left ?? "" }),
         body: t(`${key}.body`),
       }
+    case "scheduled_message.failed":
+      return { title: t(`${key}.title`, { name }), body: data.error_message || t(`${key}.body`) }
     default:
       return { title: t("notifications.title"), body: "" }
   }

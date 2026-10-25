@@ -7,6 +7,7 @@ import { enUS, es } from "date-fns/locale"
 import {
   AlertTriangle,
   Bell,
+  CalendarX,
   CheckCheck,
   ClipboardCheck,
   Clock,
@@ -36,9 +37,10 @@ const TYPE_ICONS: Record<NotificationType, LucideIcon> = {
   "import.failed": AlertTriangle,
   "channel.token_invalid": PlugZap,
   "trial.expiring": Clock,
+  "scheduled_message.failed": CalendarX,
 }
 
-const ATTENTION_TYPES = new Set<NotificationType>(["handoff.requested", "import.failed", "channel.token_invalid", "trial.expiring"])
+const ATTENTION_TYPES = new Set<NotificationType>(["handoff.requested", "import.failed", "channel.token_invalid", "trial.expiring", "scheduled_message.failed"])
 
 interface NotificationsPanelProps {
   /** Se llama al abrir una notificación (para cerrar el popover/sheet). */

@@ -78,4 +78,29 @@ class MetaApiException extends RuntimeException
 
         return new self($channelType, $reason, $code, $subcode, $rawMessage);
     }
+
+    /**
+     * Texto accionable para el usuario según el motivo del error.
+     */
+    public function userMessage(): string
+    {
+        $channelName = match ($this->channelType) {
+            ChannelType::INSTAGRAM => 'Instagram',
+            ChannelType::FACEBOOK => 'Facebook',
+            default => 'WhatsApp',
+        };
+
+        return match ($this->reason) {
+            self::REASON_WINDOW_CLOSED => 'La ventana de 24 horas de '.$channelName.
+                ' expiró: el contacto debe escribir primero para poder responderle.',
+            self::REASON_TOKEN_INVALID => 'La conexión de '.$channelName.
+                ' expiró. Reconectá el canal desde Configuración para volver a enviar mensajes.',
+            self::REASON_UNSUPPORTED_MEDIA => 'El archivo adjunto no es compatible con '.
+                $channelName.'. Probá con otro formato.',
+            self::REASON_MISSING_PERMISSION => 'Faltan permisos en la conexión de '.
+                $channelName.'. Reconectá el canal desde Configuración.',
+            default => 'No se pudo enviar el mensaje a '.$channelName.
+                '. Verificá la configuración del canal e inténtalo de nuevo.',
+        };
+    }
 }
