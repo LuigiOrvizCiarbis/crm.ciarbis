@@ -105,6 +105,9 @@ import { MailReviewInbox } from "@/components/chat/MailReviewInbox"
 import { getMailIntakeCount } from "@/lib/api/mail-intakes"
 import { setActiveConversationId } from "@/lib/activeConversation"
 import { useNotificationsStore } from "@/store/useNotificationsStore"
+import { useScheduledMessages } from "@/hooks/useScheduledMessages"
+import { createScheduledMessage, supportsScheduledMessages } from "@/lib/api/scheduled-messages"
+import { ScheduledMessagesBar } from "@/components/chat/ScheduledMessagesBar"
 import {
   Archive,
   ArchiveRestore,
@@ -666,6 +669,8 @@ export default function ChatsPage() {
     });
   }, []);
 
+  const scheduledMessages = useScheduledMessages(selectedConversationId);
+
   useSSEMessages({
     conversationId: selectedConversationId,
     onMessage: handleRealTimeMessage,
@@ -673,6 +678,7 @@ export default function ChatsPage() {
     onDeleted: handleRealTimeDelete,
     onStatus: handleRealTimeStatus,
     onReaction: handleRealTimeReaction,
+    onScheduledMessage: scheduledMessages.upsert,
   });
 
   const selectedChannelIdRef = useRef(selectedChannelId);
@@ -1607,6 +1613,29 @@ export default function ChatsPage() {
     }
   };
 
+  const handleScheduleMessage = async (content: string, scheduledFor: Date, media?: File): Promise<boolean> => {
+    if (!selectedConversationId) return false;
+    try {
+      const scheduled = await createScheduledMessage(selectedConversationId, { content, scheduledFor, media });
+      scheduledMessages.upsert(scheduled);
+      setMessage("");
+      addToast({
+        type: "success",
+        title: t("chats.scheduledToast", {
+          when: scheduledFor.toLocaleString(language === "en" ? "en-US" : "es-AR", { dateStyle: "medium", timeStyle: "short" }),
+        }),
+      });
+      return true;
+    } catch (error) {
+      addToast({
+        type: "error",
+        title: t("chats.sendMessageError"),
+        description: error instanceof Error ? error.message : undefined,
+      });
+      return false;
+    }
+  };
+
   const handleShareContacts = async (contactIds: number[]) => {
     if (!selectedConversationId) return
     try {
@@ -2418,6 +2447,14 @@ export default function ChatsPage() {
                   onUseAiDraft={handleUseAiDraft}
                 />
               ) : (
+                <>
+                <ScheduledMessagesBar
+                  items={scheduledMessages.items}
+                  windowExpiresAt={scheduledMessages.windowExpiresAt}
+                  currentUserId={currentUserId}
+                  onChanged={scheduledMessages.upsert}
+                  onRemoved={scheduledMessages.remove}
+                />
                 <MessageInput
                   value={message}
                   onChange={setMessage}
@@ -2430,6 +2467,8 @@ export default function ChatsPage() {
                   supportsVoice={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   supportsContactSharing={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   onShareContacts={handleShareContacts}
+                  onSchedule={supportsScheduledMessages(activeConversation?.channel?.type) ? handleScheduleMessage : undefined}
+                  windowExpiresAt={scheduledMessages.windowExpiresAt}
                   editingMessage={editingMessage}
                   onCancelEdit={handleCancelEdit}
                   expansionContext={hotkeyExpansionContext}
@@ -2441,6 +2480,7 @@ export default function ChatsPage() {
                   onCancelAiDraft={handleCancelAiDraft}
                   onUseAiDraft={handleUseAiDraft}
                 />
+                </>
               )}
             </>
 

@@ -12,6 +12,7 @@ export type NotificationType =
   | "import.failed"
   | "channel.token_invalid"
   | "trial.expiring"
+  | "scheduled_message.failed"
 
 export const NOTIFICATION_TYPES: NotificationType[] = [
   "message.received",
@@ -23,6 +24,7 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   "import.failed",
   "channel.token_invalid",
   "trial.expiring",
+  "scheduled_message.failed",
 ]
 
 /** Campos que arma DomainNotifier / NotifyInboundMessageJob; cada tipo usa un subconjunto. */
@@ -37,6 +39,7 @@ export interface AppNotificationData {
   filename?: string | null
   channel_name?: string
   days_left?: number
+  error_message?: string | null
   [key: string]: unknown
 }
 

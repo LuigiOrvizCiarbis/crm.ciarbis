@@ -8,18 +8,17 @@ use App\Events\MessageDeleted;
 use App\Events\MessageEdited;
 use App\Exceptions\MetaApiException;
 use App\Http\Controllers\Controller;
-use App\Services\Notifications\DomainNotifier;
 use App\Http\Requests\UpdateMessageRequest;
 use App\Http\Resources\ContactResource;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Message;
-use App\Services\InstagramMessageService;
+use App\Services\HumanHandoffService;
 use App\Services\MailMessageService;
-use App\Services\MessengerMessageService;
+use App\Services\Notifications\DomainNotifier;
+use App\Services\OutboundMessageSender;
 use App\Services\VoiceTranscoder;
 use App\Services\WhatsAppMessageService;
-use App\Services\HumanHandoffService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -39,7 +38,7 @@ class MessageController extends Controller
      * como video; no habilita subir video real, sólo pasa la validación —
      * `WhatsAppMessageService` sigue tratándolo como audio.
      */
-    private const ALLOWED_AUDIO_MIMES = [
+    public const ALLOWED_AUDIO_MIMES = [
         'audio/aac',
         'audio/mpeg',
         'audio/mp3',
@@ -57,10 +56,9 @@ class MessageController extends Controller
 
     public function __construct(
         private WhatsAppMessageService $messageService,
-        private InstagramMessageService $instagramService,
-        private MessengerMessageService $messengerService,
         private MailMessageService $mailService,
         private VoiceTranscoder $voiceTranscoder,
+        private OutboundMessageSender $sender,
         private HumanHandoffService $humanHandoffService,
     ) {}
 
@@ -174,15 +172,7 @@ class MessageController extends Controller
             && ! $request->hasFile('attachments')) {
             return response()->json(['message' => 'Escribí una respuesta o adjuntá un archivo.'], 422);
         }
-        $service = match ($channelType) {
-            ChannelType::WHATSAPP => $this->messageService,
-            ChannelType::INSTAGRAM => $this->instagramService,
-            ChannelType::FACEBOOK => $this->messengerService,
-            ChannelType::MAIL => $this->mailService,
-            default => null,
-        };
-
-        if (! $service) {
+        if (! $this->sender->supports($conversation)) {
             return response()->json([
                 'message' => 'Este canal no admite el envío de mensajes desde el CRM.',
             ], 422);
@@ -236,13 +226,8 @@ class MessageController extends Controller
                 $file = $request->file('image');
                 $path = $file->store("messages/{$tenantId}", 'public');
 
-                $message = $service->sendImageMessageFromCRM(
-                    $conversation,
-                    $path,
-                    '/storage/'.$path,
-                    $file->getMimeType(),
-                    $data['content'] ?? null,
-                    $request->user()
+                $message = $this->sender->send(
+                    $conversation, $request->user(), 'image', $data['content'] ?? null, $path, $file->getMimeType()
                 );
             } elseif ($type === 'audio' && $request->hasFile('audio')) {
                 $file = $request->file('audio');
@@ -256,29 +241,17 @@ class MessageController extends Controller
                         $path = $file->store("messages/{$tenantId}", 'public');
                     }
 
-                    if ($channelType === ChannelType::WHATSAPP) {
-                        $message = $this->messageService->sendAudioMessageFromCRM(
-                            $conversation, $path, '/storage/'.$path,
-                            $voice ? 'audio/ogg' : ($file->getMimeType() ?: 'audio/mpeg'),
-                            $request->user(), $voice
-                        );
-                    } else {
-                        $message = $service->sendAudioMessageFromCRM(
-                            $conversation, $path, '/storage/'.$path,
-                            $file->getMimeType() ?: 'audio/mpeg', $request->user()
-                        );
-                    }
+                    $message = $this->sender->send(
+                        $conversation, $request->user(), 'audio', null, $path,
+                        $voice ? 'audio/ogg' : ($file->getMimeType() ?: 'audio/mpeg'), $voice
+                    );
                 } finally {
                     if ($voicePath !== null && is_file($voicePath)) {
                         unlink($voicePath);
                     }
                 }
             } else {
-                $message = $service->sendTextMessageFromCRM(
-                    $conversation,
-                    $data['content'],
-                    $request->user()
-                );
+                $message = $this->sender->send($conversation, $request->user(), 'text', $data['content']);
             }
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -286,25 +259,6 @@ class MessageController extends Controller
             if ($e->reason === MetaApiException::REASON_TOKEN_INVALID && $conversation->channel) {
                 app(DomainNotifier::class)->channelTokenInvalid($conversation->channel);
             }
-
-            $channelName = match ($e->channelType) {
-                ChannelType::INSTAGRAM => 'Instagram',
-                ChannelType::FACEBOOK => 'Facebook',
-                default => 'WhatsApp',
-            };
-
-            $errorMessage = match ($e->reason) {
-                MetaApiException::REASON_WINDOW_CLOSED => 'La ventana de 24 horas de '.$channelName.
-                    ' expiró: el contacto debe escribir primero para poder responderle.',
-                MetaApiException::REASON_TOKEN_INVALID => 'La conexión de '.$channelName.
-                    ' expiró. Reconectá el canal desde Configuración para volver a enviar mensajes.',
-                MetaApiException::REASON_UNSUPPORTED_MEDIA => 'El archivo adjunto no es compatible con '.
-                    $channelName.'. Probá con otro formato.',
-                MetaApiException::REASON_MISSING_PERMISSION => 'Faltan permisos en la conexión de '.
-                    $channelName.'. Reconectá el canal desde Configuración.',
-                default => 'No se pudo enviar el mensaje a '.$channelName.
-                    '. Verificá la configuración del canal e inténtalo de nuevo.',
-            };
 
             Log::warning('Error de Meta API al enviar mensaje', [
                 'conversation_id' => $conversation->id,
@@ -315,7 +269,7 @@ class MessageController extends Controller
                 'subcode' => $e->metaSubcode,
             ]);
 
-            return response()->json(['message' => $errorMessage], 422);
+            return response()->json(['message' => $e->userMessage()], 422);
         } catch (\RuntimeException $e) {
             // El mensaje de la excepción incluye el body crudo de Meta; detectamos
             // el code 190 (token expirado/revocado) para dar una instrucción accionable
@@ -348,6 +302,7 @@ class MessageController extends Controller
         }
 
         $this->humanHandoffService->resolveForHumanMessage($conversation);
+
         return response()->json(['data' => $message], 201);
     }
 
