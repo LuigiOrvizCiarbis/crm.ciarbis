@@ -84,12 +84,16 @@ class OpenAiProvider implements AiProvider
             foreach ($toolCalls as $call) {
                 if (($call->function->name ?? null) === 'request_human_handoff') {
                     $data = json_decode((string) $call->function->arguments, true);
-                    if (is_array($data)) return AiReplyDecision::handoff($data);
+                    if (is_array($data)) {
+                        return AiReplyDecision::handoff($data, $choice?->message?->content);
+                    }
                 }
             }
+
             return AiReplyDecision::reply($choice?->message?->content);
         } catch (\Throwable $e) {
             Log::error('OpenAiProvider: error decidiendo handoff', ['error' => $e->getMessage()]);
+
             return AiReplyDecision::reply(null);
         }
     }

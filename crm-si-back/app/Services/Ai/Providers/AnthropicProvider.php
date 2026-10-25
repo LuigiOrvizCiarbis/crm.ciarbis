@@ -74,7 +74,15 @@ class AnthropicProvider implements AiProvider
             $response = Http::withHeaders(['x-api-key' => $this->apiKey, 'anthropic-version' => '2023-06-01'])
                 ->timeout((int) config('services.ai.generate_timeout', 60))
                 ->post('https://api.anthropic.com/v1/messages', [
-                    'model' => $model, 'max_tokens' => 1024, 'system' => $systemPrompt,
+                    'model' => $model,
+                    'max_tokens' => 1024,
+                    // Mismo bloque cacheado que generate(): el system prompt
+                    // (catálogo incluido) es casi todo el input de cada vuelta.
+                    'system' => [[
+                        'type' => 'text',
+                        'text' => $systemPrompt,
+                        'cache_control' => ['type' => 'ephemeral'],
+                    ]],
                     'messages' => array_map([$this, 'formatMessage'], $messages),
                     'tools' => [[
                         'name' => 'request_human_handoff',
@@ -86,16 +94,35 @@ class AnthropicProvider implements AiProvider
                         ], 'required' => ['reason', 'summary', 'customer_locale']],
                     ]],
                 ]);
-            if (! $response->successful()) return AiReplyDecision::reply(null);
-            foreach ($response->json('content', []) as $block) {
-                if (($block['type'] ?? null) === 'tool_use' && ($block['name'] ?? null) === 'request_human_handoff' && is_array($block['input'] ?? null)) {
-                    return AiReplyDecision::handoff($block['input']);
-                }
-                if (($block['type'] ?? null) === 'text' && trim((string) ($block['text'] ?? '')) !== '') return AiReplyDecision::reply($block['text']);
+            if (! $response->successful()) {
+                Log::warning('AnthropicProvider: decide no exitoso', ['status' => $response->status()]);
+
+                return AiReplyDecision::reply(null);
             }
+
+            // Claude suele escribir un texto ("Claro, te paso con alguien")
+            // ANTES del tool_use. Hay que recorrer todos los bloques: cortar en
+            // el primer texto perdería la derivación.
+            $texts = [];
+            $handoff = null;
+            foreach ($response->json('content', []) as $block) {
+                $type = $block['type'] ?? null;
+                if ($type === 'tool_use' && ($block['name'] ?? null) === 'request_human_handoff' && is_array($block['input'] ?? null)) {
+                    $handoff ??= $block['input'];
+                } elseif ($type === 'text' && trim((string) ($block['text'] ?? '')) !== '') {
+                    $texts[] = trim($block['text']);
+                }
+            }
+
+            if ($handoff !== null) {
+                return AiReplyDecision::handoff($handoff, implode("\n\n", $texts));
+            }
+
+            return AiReplyDecision::reply($texts[0] ?? null);
         } catch (\Throwable $e) {
             Log::error('AnthropicProvider: error decidiendo handoff', ['error' => $e->getMessage()]);
         }
+
         return AiReplyDecision::reply(null);
     }
 

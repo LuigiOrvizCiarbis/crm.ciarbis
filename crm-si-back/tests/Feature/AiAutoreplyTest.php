@@ -265,6 +265,52 @@ class AiAutoreplyTest extends TestCase
         );
     }
 
+    public function test_handoff_acknowledges_with_model_text(): void
+    {
+        Queue::fake();
+        [, $conversation] = $this->createConversationSetup(aiEnabled: true);
+
+        $this->mock(AiReplyService::class, function ($mock) {
+            $mock->shouldReceive('decide')->once()->andReturn(AiReplyDecision::handoff(
+                ['reason' => 'customer_requested_human', 'summary' => 'Quiere hablar con ventas.', 'customer_locale' => 'es'],
+                'Dale, ya le aviso a alguien del equipo.',
+            ));
+        });
+
+        $this->mock(WhatsAppMessageService::class, function ($mock) use ($conversation) {
+            $mock->shouldReceive('sendSystemTextMessageFromCRM')
+                ->once()
+                ->withArgs(fn (Conversation $c, string $content) => $c->id === $conversation->id
+                    && $content === 'Dale, ya le aviso a alguien del equipo.');
+        });
+
+        $this->runJob($conversation);
+
+        $this->assertFalse($conversation->fresh()->ai_autoreply_enabled);
+        $this->assertSame('pending', $conversation->humanHandoffs()->sole()->status);
+    }
+
+    public function test_handoff_without_model_text_uses_fallback_acknowledgement(): void
+    {
+        Queue::fake();
+        [, $conversation] = $this->createConversationSetup(aiEnabled: true);
+
+        $this->mock(AiReplyService::class, function ($mock) {
+            $mock->shouldReceive('decide')->once()->andReturn(AiReplyDecision::handoff(
+                ['reason' => 'customer_requested_human', 'summary' => 'Wants a person.', 'customer_locale' => 'en'],
+                '   ',
+            ));
+        });
+
+        $this->mock(WhatsAppMessageService::class, function ($mock) {
+            $mock->shouldReceive('sendSystemTextMessageFromCRM')
+                ->once()
+                ->withArgs(fn (Conversation $c, string $content) => str_starts_with($content, 'Of course.'));
+        });
+
+        $this->runJob($conversation);
+    }
+
     /**
      * El transporte se elige por tipo de canal. Antes había un if/else con
      * default WhatsApp: una conversación de Messenger salía por WhatsApp.
@@ -470,6 +516,19 @@ class AiAutoreplyTest extends TestCase
         }
 
         return [$user, $channel, $config];
+    }
+
+    private function runJob(Conversation $conversation): void
+    {
+        (new GenerateAiReplyJob($conversation->id))->handle(
+            app(AiReplyService::class),
+            app(WhatsAppMessageService::class),
+            app(InstagramMessageService::class),
+            app(MessengerMessageService::class),
+            app(MailMessageService::class),
+            app(HumanHandoffService::class),
+            app(AiTypingIndicatorService::class),
+        );
     }
 
     /**
