@@ -13,6 +13,7 @@ enum NotificationType: string
     case IMPORT_FAILED = 'import.failed';
     case CHANNEL_TOKEN_INVALID = 'channel.token_invalid';
     case TRIAL_EXPIRING = 'trial.expiring';
+    case SCHEDULED_MESSAGE_FAILED = 'scheduled_message.failed';
 
     /**
      * Obtener todos los valores posibles

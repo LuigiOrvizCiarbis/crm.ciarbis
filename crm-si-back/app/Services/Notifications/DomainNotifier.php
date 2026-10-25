@@ -8,6 +8,7 @@ use App\Models\Channel;
 use App\Models\Conversation;
 use App\Models\HumanHandoff;
 use App\Models\ProductImport;
+use App\Models\ScheduledMessage;
 use App\Models\Task;
 use App\Models\Tenant;
 use App\Models\User;
@@ -147,6 +148,22 @@ class DomainNotifier
                 'url' => '/pricing',
             ],
             'trial:'.$tenant->id.':'.$daysLeft,
+        );
+    }
+
+    public function scheduledMessageFailed(ScheduledMessage $scheduledMessage, Conversation $conversation): void
+    {
+        $this->notifications->notify(
+            $this->recipients->users($scheduledMessage->tenant_id, [(int) $scheduledMessage->user_id]),
+            $scheduledMessage->tenant_id,
+            NotificationType::SCHEDULED_MESSAGE_FAILED,
+            [
+                'conversation_id' => $conversation->id,
+                'scheduled_message_id' => $scheduledMessage->id,
+                'contact_name' => $conversation->contact?->name ?? $conversation->contact?->phone,
+                'error_message' => $scheduledMessage->error_message,
+                'url' => '/chats?chat='.$conversation->id,
+            ],
         );
     }
 }

@@ -45,6 +45,7 @@ use App\Http\Controllers\Api\ProductFieldController;
 use App\Http\Controllers\Api\ProductImportController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\Api\ScheduledMessageController;
 use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\UserController;
@@ -708,6 +709,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('channels/{channel}/templates/media', [WhatsAppTemplateController::class, 'uploadTemplateMedia']);
     Route::post('channels/{channel}/media', [WhatsAppTemplateController::class, 'uploadMedia']);
     Route::post('conversations/{conversation}/send-template', [WhatsAppTemplateController::class, 'send']);
+    Route::get('conversations/{conversation}/scheduled-messages', [ScheduledMessageController::class, 'index']);
+    Route::post('conversations/{conversation}/scheduled-messages', [ScheduledMessageController::class, 'store']);
+    Route::put('scheduled-messages/{scheduledMessage}', [ScheduledMessageController::class, 'update']);
+    Route::delete('scheduled-messages/{scheduledMessage}', [ScheduledMessageController::class, 'destroy']);
 
     Route::get('invitations', [InvitationController::class, 'index']);
     Route::post('invitations', [InvitationController::class, 'store']);

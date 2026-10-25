@@ -268,3 +268,24 @@ export interface MailMessageDetails {
   references?: string[] | null
   has_remote_images?: boolean
 }
+
+export type ScheduledMessageStatus = "scheduled" | "queued" | "sending" | "sent" | "failed" | "cancelled"
+
+export interface ScheduledMessage {
+  id: number
+  conversation_id: number
+  user_id: number
+  user?: { id: number; name: string }
+  message_type: "text" | "image" | "audio"
+  content: string | null
+  media_url: string | null
+  media_mime: string | null
+  voice: boolean
+  status: ScheduledMessageStatus
+  scheduled_for: string
+  sent_at: string | null
+  message_id: number | null
+  error_reason: string | null
+  error_message: string | null
+  created_at: string
+}

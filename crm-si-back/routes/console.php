@@ -1,10 +1,11 @@
 <?php
 
+use App\Jobs\ProcessWhatsAppWebhookReceiptJob;
 use App\Models\AutomationRun;
+use App\Models\ScheduledMessage;
 use App\Models\UserNotification;
 use App\Models\WebhookDelivery;
 use App\Models\WhatsAppWebhookReceipt;
-use App\Jobs\ProcessWhatsAppWebhookReceiptJob;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -45,11 +46,13 @@ Schedule::call(function (): void {
 // comando todo ese tiempo; con el minutero acotado, se autolibera pronto.
 Schedule::command('automations:dispatch-due')->everyMinute()->withoutOverlapping(5);
 Schedule::command('broadcasts:dispatch-due')->everyMinute()->withoutOverlapping(5);
+Schedule::command('messages:dispatch-scheduled')->everyMinute()->withoutOverlapping(5);
 // Polling IMAP de los canales de email. Los canales de chat usan webhooks; el
 // correo no, así que la latencia de entrada es el intervalo de este schedule.
 Schedule::command('mail:sync-channels')->everyMinute()->withoutOverlapping(10);
 Schedule::command('mail:purge-expired-intakes')->daily()->withoutOverlapping();
 Schedule::command('model:prune', ['--model' => [AutomationRun::class]])->dailyAt('02:15');
+Schedule::command('model:prune', ['--model' => [ScheduledMessage::class]])->dailyAt('02:20');
 // Notificaciones in-app: leídas > 30 días o cualquiera > 90 (UserNotification::prunable).
 Schedule::command('model:prune', ['--model' => [UserNotification::class]])->dailyAt('02:30');
 // Detecta difusiones trabadas en la cola: si un destinatario lleva más de 15
