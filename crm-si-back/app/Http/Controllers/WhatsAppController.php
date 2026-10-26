@@ -21,6 +21,7 @@ use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
 use App\Models\WhatsAppWebhookReceipt;
+use App\Services\HumanHandoffService;
 use App\Services\WhatsAppBusinessVerificationService;
 use App\Services\WhatsAppContactSyncService;
 use App\Services\WhatsAppGroupEligibilityService;
@@ -339,6 +340,11 @@ class WhatsAppController extends Controller
             // ante la duda intentamos el sync igual, porque marcar not_applicable
             // por un error de red dejaría al cliente sin contactos en silencio.
             $bizAppState = $this->businessAppState($config->phone_number_id, $businessToken);
+
+            // Las alertas de derivación sólo se mandan a números en coexistence.
+            if ($bizAppState !== null) {
+                $config->forceFill(['is_on_biz_app' => $bizAppState, 'is_on_biz_app_checked_at' => now()])->save();
+            }
 
             if ($bizAppState === false) {
                 $config->forceFill([
@@ -1261,6 +1267,18 @@ class WhatsAppController extends Controller
     {
         $field = $change['field'] ?? '';
         $value = $change['value'] ?? [];
+
+        // El número central de alertas vive en la misma app de Meta, así que
+        // sus eventos llegan por este webhook. No es un canal de ningún
+        // tenant: sólo interesan los estados de las alertas enviadas.
+        $alertsPhoneId = config('services.si_crm_alerts.phone_number_id');
+        if ($alertsPhoneId && ($value['metadata']['phone_number_id'] ?? null) === (string) $alertsPhoneId) {
+            foreach ($value['statuses'] ?? [] as $status) {
+                app(HumanHandoffService::class)->recordAlertStatus($status);
+            }
+
+            return;
+        }
 
         if ($field === 'messages' && isset($value['statuses'])) {
             $this->processStatusUpdates($value['statuses'], $value['metadata']['phone_number_id'] ?? null);

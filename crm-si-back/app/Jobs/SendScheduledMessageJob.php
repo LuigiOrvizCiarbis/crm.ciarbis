@@ -8,7 +8,6 @@ use App\Exceptions\MetaApiException;
 use App\Models\Conversation;
 use App\Models\ScheduledMessage;
 use App\Models\User;
-use App\Services\HumanHandoffService;
 use App\Services\Notifications\DomainNotifier;
 use App\Services\Notifications\NotificationRecipients;
 use App\Services\OutboundMessageSender;
@@ -40,7 +39,6 @@ class SendScheduledMessageJob implements ShouldQueue
 
     public function handle(
         OutboundMessageSender $sender,
-        HumanHandoffService $humanHandoff,
         DomainNotifier $notifier,
         NotificationRecipients $recipients,
         PermissionRegistrar $registrar,
@@ -98,8 +96,6 @@ class SendScheduledMessageJob implements ShouldQueue
 
             return;
         }
-
-        $humanHandoff->resolveForHumanMessage($conversation);
 
         $scheduledMessage->update([
             'status' => ScheduledMessageStatus::Sent,

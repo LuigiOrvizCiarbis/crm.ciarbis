@@ -68,7 +68,7 @@ class AnthropicProvider implements AiProvider
         }
     }
 
-    public function decide(array $messages, string $systemPrompt, string $model): AiReplyDecision
+    public function decide(array $messages, string $systemPrompt, string $model, bool $offerHandoff = true): AiReplyDecision
     {
         try {
             $response = Http::withHeaders(['x-api-key' => $this->apiKey, 'anthropic-version' => '2023-06-01'])
@@ -84,15 +84,16 @@ class AnthropicProvider implements AiProvider
                         'cache_control' => ['type' => 'ephemeral'],
                     ]],
                     'messages' => array_map([$this, 'formatMessage'], $messages),
-                    'tools' => [[
+                    ...($offerHandoff ? ['tools' => [[
                         'name' => 'request_human_handoff',
-                        'description' => 'Usá esta herramienta únicamente si el cliente pidió explícitamente hablar con una persona.',
+                        'description' => 'Usá esta herramienta únicamente si el cliente pidió explícitamente hablar con una persona. '
+                            .'Junto con la herramienta, escribile al cliente un mensaje breve avisándole que lo va a atender alguien del equipo.',
                         'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'properties' => [
-                            'reason' => ['type' => 'string', 'maxLength' => 120],
+                            'reason' => ['type' => 'string', 'enum' => ['customer_requested_human']],
                             'summary' => ['type' => 'string', 'maxLength' => 300],
                             'customer_locale' => ['type' => 'string', 'enum' => ['es', 'en']],
                         ], 'required' => ['reason', 'summary', 'customer_locale']],
-                    ]],
+                    ]]] : []),
                 ]);
             if (! $response->successful()) {
                 Log::warning('AnthropicProvider: decide no exitoso', ['status' => $response->status()]);

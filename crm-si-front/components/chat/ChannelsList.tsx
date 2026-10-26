@@ -4,7 +4,9 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { PlatformIcon } from '@/components/chat/PlatformIcon'
 import { EmptyState } from '@/components/EmptyState'
-import { MessageSquare, Wifi, WifiOff, Pencil, Check, X, RefreshCw, Unplug, Loader2 } from 'lucide-react'
+import { MessageSquare, Wifi, WifiOff, Pencil, Check, X, RefreshCw, Unplug, Loader2, UserCog } from 'lucide-react'
+import { ChannelHandoffDialog } from '@/components/chat/ChannelHandoffDialog'
+import type { ChannelHandoffSettings } from '@/lib/api/channels'
 import { Input } from '@/components/ui/input'
 import {
   AlertDialog,
@@ -38,6 +40,7 @@ interface ChannelsListProps {
   onRenameChannel?: (channelId: number, name: string) => void | Promise<void>
   onSyncMailChannel?: (channelId: number) => void | Promise<void>
   onDisconnectChannel?: (channelId: number) => void | Promise<void>
+  onSaveHandoffSettings?: (channelId: number, settings: ChannelHandoffSettings) => Promise<void>
 }
 
 export function ChannelsList({
@@ -51,6 +54,7 @@ export function ChannelsList({
   onRenameChannel,
   onSyncMailChannel,
   onDisconnectChannel,
+  onSaveHandoffSettings,
 }: ChannelsListProps) {
   const { t } = useTranslation()
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -58,6 +62,7 @@ export function ChannelsList({
   const [syncingId, setSyncingId] = useState<number | null>(null)
   const [disconnectTarget, setDisconnectTarget] = useState<Channel | null>(null)
   const [disconnecting, setDisconnecting] = useState(false)
+  const [handoffTarget, setHandoffTarget] = useState<Channel | null>(null)
 
   const handleSync = async (channelId: number) => {
     if (!onSyncMailChannel || syncingId !== null) return
@@ -254,6 +259,17 @@ export function ChannelsList({
                           <Pencil className="h-4 w-4" />
                         </button>
                       )}
+                      {onSaveHandoffSettings && (
+                        <button
+                          type="button"
+                          aria-label={t("chats.handoffSettings.open")}
+                          title={t("chats.handoffSettings.open")}
+                          className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground sm:h-8 sm:w-8 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:focus-visible:opacity-100"
+                          onClick={(e) => { e.stopPropagation(); setHandoffTarget(channel) }}
+                        >
+                          <UserCog className="h-4 w-4" />
+                        </button>
+                      )}
                       {onDisconnectChannel && (
                         <button
                           type="button"
@@ -339,6 +355,14 @@ export function ChannelsList({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {onSaveHandoffSettings && (
+        <ChannelHandoffDialog
+          channel={handoffTarget}
+          onOpenChange={(open) => { if (!open) setHandoffTarget(null) }}
+          onSave={onSaveHandoffSettings}
+        />
+      )}
     </div>
   )
 }

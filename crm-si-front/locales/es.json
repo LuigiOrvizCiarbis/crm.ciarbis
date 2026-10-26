@@ -883,6 +883,26 @@
     },
     "conversationRail": {
       "label": "Lista de conversaciones"
+    },
+    "handoffSettings": {
+      "open": "Derivaciones a humano",
+      "title": "Derivaciones a humano",
+      "description": "Qué pasa en {{name}} cuando un cliente pide hablar con una persona.",
+      "responsible": "Responsable",
+      "noResponsible": "Sin responsable (el dueño del canal)",
+      "responsibleHint": "Recibe la derivación sólo si la conversación no tiene a nadie asignado.",
+      "whatsappAlert": "Avisar por WhatsApp al número del canal",
+      "whatsappAlertHint": "SI CRM le manda una alerta a este número, en la app WhatsApp Business.",
+      "whatsappAlertUnavailable": "Disponible sólo si el número usa la app WhatsApp Business. Igual vas a recibir el aviso en el CRM.",
+      "saved": "Configuración de derivaciones guardada",
+      "error": "No se pudo guardar la configuración de derivaciones"
+    },
+    "handoff": {
+      "title": "Derivación a humano",
+      "defaultSummary": "El cliente pidió hablar con una persona.",
+      "take": "Tomar",
+      "taken": "Tomada",
+      "takeError": "No se pudo tomar la derivación"
     }
   },
   "settings": {
@@ -1183,6 +1203,8 @@
       "description": "Configurá el proveedor, el modelo y las instrucciones que guían cada respuesta automática.",
       "enabled": "Auto-respuesta habilitada",
       "enabledHint": "Responde automáticamente los mensajes entrantes usando tu proveedor de IA.",
+      "humanHandoff": "Derivar a una persona",
+      "humanHandoffHint": "Si el cliente pide hablar con alguien, la IA deja de responder y avisa al equipo.",
       "statusEnabled": "Activa",
       "statusPaused": "Pausada",
       "provider": "Proveedor",

@@ -106,17 +106,23 @@ class ChannelController extends Controller
         $this->authorize('update', $channel);
 
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'handoff_responsible_user_id' => [
-                'nullable', 'integer',
-                Rule::exists('users', 'id')->where(fn ($q) => $q->where('tenant_id', $request->user()->tenant_id)),
-            ],
+            'name' => 'sometimes|required|string|max:255',
+            'handoff_responsible_user_id' => ['sometimes', 'nullable', 'integer'],
+            'handoff_whatsapp_alert_enabled' => ['sometimes', 'boolean'],
         ]);
 
-        if (array_key_exists('handoff_responsible_user_id', $validated) && $validated['handoff_responsible_user_id'] !== null) {
-            $isChannelUser = $channel->users()->whereKey($validated['handoff_responsible_user_id'])->exists()
-                || (int) $channel->user_id === (int) $validated['handoff_responsible_user_id'];
-            abort_unless($isChannelUser, 422, 'El responsable debe pertenecer al canal.');
+        // El responsable de derivaciones tiene que poder atender el canal: su
+        // dueño o alguien asignado a él.
+        $responsibleId = $validated['handoff_responsible_user_id'] ?? null;
+        if ($responsibleId !== null) {
+            $isChannelUser = (int) $channel->user_id === (int) $responsibleId
+                || $channel->users()->whereKey($responsibleId)->exists();
+            if (! $isChannelUser) {
+                return response()->json([
+                    'message' => 'El responsable debe pertenecer al canal.',
+                    'errors' => ['handoff_responsible_user_id' => ['El responsable debe pertenecer al canal.']],
+                ], 422);
+            }
         }
         $channel->update($validated);
 

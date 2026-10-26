@@ -9,6 +9,7 @@ use App\Jobs\FetchLinkPreviewJob;
 use App\Jobs\NotifyInboundMessageJob;
 use App\Models\ManualAiDraft;
 use App\Models\Message;
+use App\Services\HumanHandoffService;
 use App\Services\LinkPreviewService;
 
 class MessageObserver
@@ -32,6 +33,13 @@ class MessageObserver
 
         if ($message->direction === MessageDirection::INBOUND && $message->sender_type === SenderType::CONTACT) {
             NotifyInboundMessageJob::dispatch($message->id)->afterCommit();
+        }
+
+        // Cualquier mensaje humano saliente cierra la derivación: CRM,
+        // templates, programados y también los que el negocio manda desde el
+        // celular (echoes de coexistence), que no pasan por MessageController.
+        if ($message->direction === MessageDirection::OUTBOUND && $message->sender_type === SenderType::USER && $message->conversation) {
+            app(HumanHandoffService::class)->resolveForHumanMessage($message->conversation, $message->created_at);
         }
     }
 
