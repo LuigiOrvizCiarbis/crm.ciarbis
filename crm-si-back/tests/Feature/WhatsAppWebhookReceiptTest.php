@@ -6,18 +6,20 @@ use App\Jobs\ProcessWhatsAppWebhookReceiptJob;
 use App\Models\WhatsAppWebhookReceipt;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use Tests\Concerns\SignsWhatsAppWebhooks;
 use Tests\TestCase;
 
 class WhatsAppWebhookReceiptTest extends TestCase
 {
     use RefreshDatabase;
+    use SignsWhatsAppWebhooks;
 
     public function test_webhook_is_persisted_and_queued_before_acknowledgement(): void
     {
         Queue::fake();
         $payload = $this->payload('messages', ['statuses' => [['id' => 'wamid.A', 'status' => 'delivered']]]);
 
-        $this->postJson('/api/whatsapp-webhook', $payload)
+        $this->postWhatsAppWebhook($payload)
             ->assertOk()
             ->assertJson(['status' => 'EVENT_RECEIVED']);
 
@@ -33,8 +35,8 @@ class WhatsAppWebhookReceiptTest extends TestCase
         Queue::fake();
         $payload = $this->payload('history', ['history' => [['metadata' => ['progress' => 0], 'threads' => []]]]);
 
-        $this->postJson('/api/whatsapp-webhook', $payload)->assertOk();
-        $this->postJson('/api/whatsapp-webhook', $payload)->assertOk();
+        $this->postWhatsAppWebhook($payload)->assertOk();
+        $this->postWhatsAppWebhook($payload)->assertOk();
 
         $this->assertSame(1, WhatsAppWebhookReceipt::count());
         Queue::assertPushed(ProcessWhatsAppWebhookReceiptJob::class, 2);

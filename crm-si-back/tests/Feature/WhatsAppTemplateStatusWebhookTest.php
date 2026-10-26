@@ -9,6 +9,7 @@ use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
+use Tests\Concerns\SignsWhatsAppWebhooks;
 use Tests\TestCase;
 
 /**
@@ -23,12 +24,13 @@ use Tests\TestCase;
 class WhatsAppTemplateStatusWebhookTest extends TestCase
 {
     use RefreshDatabase;
+    use SignsWhatsAppWebhooks;
 
     public function test_approved_event_marks_template_as_approved(): void
     {
         $template = $this->makeTemplate(TemplateStatus::Pending, externalId: '1689556908129832');
 
-        $this->postJson('/api/whatsapp-webhook', $this->payload([
+        $this->postWhatsAppWebhook($this->payload([
             'event' => 'APPROVED',
             'message_template_id' => 1689556908129832,
             'message_template_name' => $template->name,
@@ -48,7 +50,7 @@ class WhatsAppTemplateStatusWebhookTest extends TestCase
     {
         $template = $this->makeTemplate(TemplateStatus::Pending, externalId: '1689556908129835');
 
-        $this->postJson('/api/whatsapp-webhook', $this->payload([
+        $this->postWhatsAppWebhook($this->payload([
             'event' => 'REJECTED',
             'message_template_id' => 1689556908129835,
             'message_template_name' => $template->name,
@@ -72,7 +74,7 @@ class WhatsAppTemplateStatusWebhookTest extends TestCase
     {
         $template = $this->makeTemplate(TemplateStatus::Pending, externalId: '111222333');
 
-        $this->postJson('/api/whatsapp-webhook', $this->payload([
+        $this->postWhatsAppWebhook($this->payload([
             'event' => 'REJECTED',
             'message_template_id' => 111222333,
             'reason' => 'ABUSIVE_CONTENT',
@@ -85,7 +87,7 @@ class WhatsAppTemplateStatusWebhookTest extends TestCase
     {
         $template = $this->makeTemplate(TemplateStatus::Approved, externalId: '444555666');
 
-        $this->postJson('/api/whatsapp-webhook', $this->payload([
+        $this->postWhatsAppWebhook($this->payload([
             'event' => 'PAUSED',
             'message_template_id' => 444555666,
             'reason' => 'NONE',
@@ -101,7 +103,7 @@ class WhatsAppTemplateStatusWebhookTest extends TestCase
 
         // FLAGGED/LOCKED/ARCHIVED/REINSTATED no están en el enum: degradar a
         // Unknown bloquearía una plantilla que en Meta sigue siendo enviable.
-        $this->postJson('/api/whatsapp-webhook', $this->payload([
+        $this->postWhatsAppWebhook($this->payload([
             'event' => 'FLAGGED',
             'message_template_id' => 777888999,
             'reason' => 'NONE',
@@ -112,7 +114,7 @@ class WhatsAppTemplateStatusWebhookTest extends TestCase
 
     public function test_unknown_template_is_ignored_without_error(): void
     {
-        $this->postJson('/api/whatsapp-webhook', $this->payload([
+        $this->postWhatsAppWebhook($this->payload([
             'event' => 'APPROVED',
             'message_template_id' => 999000111,
             'reason' => 'NONE',
@@ -125,7 +127,7 @@ class WhatsAppTemplateStatusWebhookTest extends TestCase
     {
         $template = $this->makeTemplate(TemplateStatus::Pending, externalId: '123123123');
 
-        $this->postJson('/api/whatsapp-webhook', $this->payload(['event' => 'APPROVED']))->assertOk();
+        $this->postWhatsAppWebhook($this->payload(['event' => 'APPROVED']))->assertOk();
 
         $this->assertSame(TemplateStatus::Pending, $template->refresh()->status);
     }
@@ -145,7 +147,7 @@ class WhatsAppTemplateStatusWebhookTest extends TestCase
         ]);
         $payload['entry'][0]['id'] = 'WABA_QUE_NO_EXISTE';
 
-        $this->postJson('/api/whatsapp-webhook', $payload)->assertOk();
+        $this->postWhatsAppWebhook($payload)->assertOk();
 
         $this->assertSame(TemplateStatus::Approved, $template->refresh()->status);
     }

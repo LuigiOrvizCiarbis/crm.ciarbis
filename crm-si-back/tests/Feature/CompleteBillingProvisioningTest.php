@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Queue;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
+use Tests\Concerns\SignsWhatsAppWebhooks;
 use Tests\TestCase;
 
 /**
@@ -36,6 +37,7 @@ use Tests\TestCase;
 class CompleteBillingProvisioningTest extends TestCase
 {
     use RefreshDatabase;
+    use SignsWhatsAppWebhooks;
 
     public function test_approving_the_last_template_provisions_the_module(): void
     {
@@ -289,7 +291,7 @@ class CompleteBillingProvisioningTest extends TestCase
             externalId: '900900900',
         );
 
-        $this->postJson('/api/whatsapp-webhook', [
+        $this->postWhatsAppWebhook([
             'object' => 'whatsapp_business_account',
             'entry' => [[
                 'id' => $config->waba_id,
@@ -318,7 +320,7 @@ class CompleteBillingProvisioningTest extends TestCase
         [$tenant, $config] = $this->context();
         $template = $this->makeTemplate($tenant, $config, 'promo_verano', TemplateStatus::Pending, externalId: '800800800');
 
-        $this->postJson('/api/whatsapp-webhook', [
+        $this->postWhatsAppWebhook([
             'object' => 'whatsapp_business_account',
             'entry' => [[
                 'id' => $config->waba_id,

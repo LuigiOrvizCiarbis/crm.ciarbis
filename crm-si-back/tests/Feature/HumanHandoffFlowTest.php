@@ -29,12 +29,14 @@ use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Concerns\BuildsNotificationWorkspace;
+use Tests\Concerns\SignsWhatsAppWebhooks;
 use Tests\TestCase;
 
 class HumanHandoffFlowTest extends TestCase
 {
     use BuildsNotificationWorkspace;
     use RefreshDatabase;
+    use SignsWhatsAppWebhooks;
 
     private const ALERTS_PHONE_ID = 'ALERTS_PHONE_1';
 
@@ -199,24 +201,37 @@ class HumanHandoffFlowTest extends TestCase
         $this->assertSame('read', $attempt->fresh()->status);
     }
 
-    public function test_unsigned_webhook_for_alerts_number_is_dropped(): void
+    public function test_unsigned_webhook_is_rejected(): void
     {
         Queue::fake();
-        config(['services.facebook.app_secret' => 'app-secret']);
 
-        $this->postWebhook(self::ALERTS_PHONE_ID, signature: 'sha256=forged')->assertOk();
+        $this->postWhatsAppWebhook($this->statusWebhookPayload('TENANT_PHONE_1'), signature: 'sha256=forged')->assertForbidden();
+        $this->postWhatsAppWebhook($this->statusWebhookPayload(self::ALERTS_PHONE_ID), signature: 'sha256=forged')->assertForbidden();
         $this->assertSame(0, WhatsAppWebhookReceipt::count());
 
-        $this->postWebhook(self::ALERTS_PHONE_ID, signature: null)->assertOk();
+        $this->postWhatsAppWebhook($this->statusWebhookPayload(self::ALERTS_PHONE_ID))->assertOk();
         $this->assertSame(1, WhatsAppWebhookReceipt::count());
     }
 
-    public function test_unsigned_webhook_for_tenant_channel_is_still_accepted(): void
+    public function test_webhook_without_app_secret_fails_closed(): void
     {
         Queue::fake();
-        config(['services.facebook.app_secret' => 'app-secret']);
+        config(['services.facebook.app_secret' => null]);
+        $body = json_encode($this->statusWebhookPayload('TENANT_PHONE_1'));
 
-        $this->postWebhook('TENANT_PHONE_1', signature: 'sha256=forged')->assertOk();
+        $this->call('POST', '/api/whatsapp-webhook', [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_X_HUB_SIGNATURE_256' => 'sha256='.hash_hmac('sha256', $body, ''),
+        ], $body)->assertForbidden();
+    }
+
+    public function test_emergency_switch_lets_tenants_in_but_still_drops_unsigned_alerts(): void
+    {
+        Queue::fake();
+        config(['services.facebook.whatsapp_webhook_enforce_signature' => false]);
+
+        $this->postWhatsAppWebhook($this->statusWebhookPayload('TENANT_PHONE_1'), signature: 'sha256=forged')->assertOk();
+        $this->postWhatsAppWebhook($this->statusWebhookPayload(self::ALERTS_PHONE_ID), signature: 'sha256=forged')->assertOk();
 
         $this->assertSame(1, WhatsAppWebhookReceipt::count());
     }
@@ -383,22 +398,16 @@ class HumanHandoffFlowTest extends TestCase
         return $message;
     }
 
-    /** $signature null = firma válida calculada con el app secret. */
-    private function postWebhook(string $phoneNumberId, ?string $signature)
+    private function statusWebhookPayload(string $phoneNumberId): array
     {
-        $body = json_encode(['object' => 'whatsapp_business_account', 'entry' => [[
+        return ['object' => 'whatsapp_business_account', 'entry' => [[
             'id' => 'WABA_1',
             'changes' => [['field' => 'messages', 'value' => [
                 'messaging_product' => 'whatsapp',
                 'metadata' => ['phone_number_id' => $phoneNumberId],
                 'statuses' => [['id' => 'wamid.X', 'status' => 'delivered', 'timestamp' => '1']],
             ]]],
-        ]]]);
-
-        return $this->call('POST', '/api/whatsapp-webhook', [], [], [], [
-            'CONTENT_TYPE' => 'application/json',
-            'HTTP_X_HUB_SIGNATURE_256' => $signature ?? 'sha256='.hash_hmac('sha256', $body, 'app-secret'),
-        ], $body);
+        ]]];
     }
 
     private function alertsWebhook(string $status): void

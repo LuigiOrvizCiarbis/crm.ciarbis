@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 use App\Enums\ChannelType;
+use App\Jobs\ReconcileWhatsAppGroupJob;
 use App\Models\Channel;
-use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Tenant;
 use App\Models\User;
@@ -14,11 +14,13 @@ use App\Models\WhatsAppGroupParticipant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Queue;
+use Tests\Concerns\SignsWhatsAppWebhooks;
 use Tests\TestCase;
 
 class WhatsAppGroupWebhookTest extends TestCase
 {
     use RefreshDatabase;
+    use SignsWhatsAppWebhooks;
 
     public function test_group_create_lifecycle_webhook_activates_pending_group(): void
     {
@@ -31,7 +33,7 @@ class WhatsAppGroupWebhookTest extends TestCase
             'status' => 'pending',
         ]);
 
-        $response = $this->postJson('/api/whatsapp-webhook', $this->lifecyclePayload([
+        $response = $this->postWhatsAppWebhook($this->lifecyclePayload([
             'timestamp' => (string) now()->timestamp,
             'type' => 'group_create',
             'request_id' => 'req_1',
@@ -66,7 +68,7 @@ class WhatsAppGroupWebhookTest extends TestCase
             'status' => 'pending',
         ]);
 
-        $this->postJson('/api/whatsapp-webhook', $this->lifecyclePayload([
+        $this->postWhatsAppWebhook($this->lifecyclePayload([
             'timestamp' => (string) now()->timestamp,
             'type' => 'group_create',
             'request_id' => 'req_2',
@@ -85,14 +87,14 @@ class WhatsAppGroupWebhookTest extends TestCase
         Queue::fake();
         $channel = $this->makeChannel();
 
-        $this->postJson('/api/whatsapp-webhook', $this->lifecyclePayload([
+        $this->postWhatsAppWebhook($this->lifecyclePayload([
             'timestamp' => (string) now()->timestamp,
             'type' => 'group_create',
             'request_id' => 'req_never_persisted',
             'group_id' => '789@g.us',
         ]))->assertOk();
 
-        Queue::assertPushed(\App\Jobs\ReconcileWhatsAppGroupJob::class, fn ($job) => $job->requestId === 'req_never_persisted'
+        Queue::assertPushed(ReconcileWhatsAppGroupJob::class, fn ($job) => $job->requestId === 'req_never_persisted'
             && $job->channelId === $channel->id);
     }
 
@@ -101,7 +103,7 @@ class WhatsAppGroupWebhookTest extends TestCase
         $channel = $this->makeChannel();
         $group = $this->makeActiveGroup($channel);
 
-        $this->postJson('/api/whatsapp-webhook', $this->participantsPayload([
+        $this->postWhatsAppWebhook($this->participantsPayload([
             'timestamp' => (string) now()->timestamp,
             'group_id' => $group->group_id,
             'type' => 'group_participants_add',
@@ -131,7 +133,7 @@ class WhatsAppGroupWebhookTest extends TestCase
             'status' => 'active',
         ]);
 
-        $this->postJson('/api/whatsapp-webhook', $this->participantsPayload([
+        $this->postWhatsAppWebhook($this->participantsPayload([
             'timestamp' => (string) now()->timestamp,
             'group_id' => $group->group_id,
             'type' => 'group_participants_remove',
@@ -155,7 +157,7 @@ class WhatsAppGroupWebhookTest extends TestCase
         $channel = $this->makeChannel();
         $group = $this->makeActiveGroup($channel);
 
-        $this->postJson('/api/whatsapp-webhook', $this->participantsPayload([
+        $this->postWhatsAppWebhook($this->participantsPayload([
             'timestamp' => (string) now()->timestamp,
             'group_id' => $group->group_id,
             'type' => 'group_join_request_created',
@@ -170,7 +172,7 @@ class WhatsAppGroupWebhookTest extends TestCase
             'join_request_id' => 'jr_1',
         ]);
 
-        $this->postJson('/api/whatsapp-webhook', $this->participantsPayload([
+        $this->postWhatsAppWebhook($this->participantsPayload([
             'timestamp' => (string) now()->timestamp,
             'group_id' => $group->group_id,
             'type' => 'group_join_request_revoked',
@@ -190,7 +192,7 @@ class WhatsAppGroupWebhookTest extends TestCase
         $channel = $this->makeChannel();
         $group = $this->makeActiveGroup($channel);
 
-        $response = $this->postJson('/api/whatsapp-webhook', [
+        $response = $this->postWhatsAppWebhook([
             'entry' => [[
                 'id' => 'WABA_ID',
                 'changes' => [[
@@ -219,7 +221,7 @@ class WhatsAppGroupWebhookTest extends TestCase
         $channel = $this->makeChannel();
         $group = $this->makeActiveGroup($channel);
 
-        $response = $this->postJson('/api/whatsapp-webhook', [
+        $response = $this->postWhatsAppWebhook([
             'entry' => [[
                 'id' => 'WABA_ID',
                 'changes' => [[
@@ -243,7 +245,7 @@ class WhatsAppGroupWebhookTest extends TestCase
     {
         $channel = $this->makeChannel();
 
-        $response = $this->postJson('/api/whatsapp-webhook', $this->participantsPayload([
+        $response = $this->postWhatsAppWebhook($this->participantsPayload([
             'timestamp' => (string) now()->timestamp,
             'group_id' => 'unknown-group-id@g.us',
             'type' => 'group_participants_add',

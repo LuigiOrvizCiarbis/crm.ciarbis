@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Enums\ChannelType;
+use App\Events\MessageSent;
+use App\Jobs\GenerateAiReplyJob;
 use App\Models\AiConfig;
 use App\Models\Channel;
 use App\Models\Contact;
@@ -12,22 +14,23 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppGroup;
-use App\Events\MessageSent;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
+use Tests\Concerns\SignsWhatsAppWebhooks;
 use Tests\TestCase;
 
 class WhatsAppGroupIncomingMessageTest extends TestCase
 {
     use RefreshDatabase;
+    use SignsWhatsAppWebhooks;
 
     public function test_incoming_group_message_attaches_to_group_conversation_without_creating_a_new_one(): void
     {
         [$channel, $group] = $this->makeActiveGroupWithConversation();
 
-        $this->postJson('/api/whatsapp-webhook', $this->groupMessagePayload($channel, $group->group_id, [
+        $this->postWhatsAppWebhook($this->groupMessagePayload($channel, $group->group_id, [
             'from' => '5491122334455',
             'name' => 'Juan Pérez',
         ]));
@@ -48,7 +51,7 @@ class WhatsAppGroupIncomingMessageTest extends TestCase
         Event::fake([MessageSent::class]);
         [$channel, $group] = $this->makeActiveGroupWithConversation();
 
-        $this->postJson('/api/whatsapp-webhook', $this->groupMessagePayload($channel, $group->group_id, [
+        $this->postWhatsAppWebhook($this->groupMessagePayload($channel, $group->group_id, [
             'from' => '5491122334455',
             'name' => 'Juan Pérez',
         ]));
@@ -64,7 +67,7 @@ class WhatsAppGroupIncomingMessageTest extends TestCase
 
         $this->assertDatabaseMissing('contacts', ['phone' => '5491199887766']);
 
-        $this->postJson('/api/whatsapp-webhook', $this->groupMessagePayload($channel, $group->group_id, [
+        $this->postWhatsAppWebhook($this->groupMessagePayload($channel, $group->group_id, [
             'from' => '5491199887766',
             'name' => 'Desconocido',
         ]));
@@ -89,19 +92,19 @@ class WhatsAppGroupIncomingMessageTest extends TestCase
             'api_key' => Crypt::encryptString('fake-key'),
         ]);
 
-        $this->postJson('/api/whatsapp-webhook', $this->groupMessagePayload($channel, $group->group_id, [
+        $this->postWhatsAppWebhook($this->groupMessagePayload($channel, $group->group_id, [
             'from' => '5491122334455',
             'name' => 'Juan Pérez',
         ]));
 
-        Queue::assertNotPushed(\App\Jobs\GenerateAiReplyJob::class);
+        Queue::assertNotPushed(GenerateAiReplyJob::class);
     }
 
     public function test_direct_message_still_creates_one_to_one_conversation(): void
     {
         $channel = $this->makeChannel();
 
-        $this->postJson('/api/whatsapp-webhook', [
+        $this->postWhatsAppWebhook([
             'entry' => [[
                 'id' => 'WABA_ID',
                 'changes' => [[

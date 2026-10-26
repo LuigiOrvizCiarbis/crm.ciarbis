@@ -1216,14 +1216,21 @@ class WhatsAppController extends Controller
             return response()->json(['error' => 'Verification token mismatch'], 403);
         }
 
-        // Firma de Meta (HMAC del raw body con el app secret). Por ahora sólo
-        // se exige para el número central de alertas, que antes tenía su
-        // propio endpoint con firma; para los canales de tenants se registra
-        // el fallo sin rechazar, hasta confirmar en prod que valida y poder
-        // exigirla como Messenger e Instagram.
+        // Firma de Meta (HMAC del raw body con el app secret), igual que
+        // Messenger e Instagram. Sin app secret configurado también se
+        // rechaza: es un error de configuración, no un permiso para entrar.
+        // WHATSAPP_WEBHOOK_ENFORCE_SIGNATURE=false es una salida de emergencia
+        // si prod deja de validar: los canales de tenants siguen entrando,
+        // pero los eventos del número de alertas se descartan igual.
         $signed = $this->hasValidSignature($request);
         if (! $signed) {
-            Log::warning('WhatsApp webhook: firma X-Hub-Signature-256 ausente o inválida');
+            Log::warning('WhatsApp webhook: firma X-Hub-Signature-256 ausente o inválida', [
+                'app_secret_configured' => filled(config('services.facebook.app_secret')),
+            ]);
+
+            if (config('services.facebook.whatsapp_webhook_enforce_signature', true)) {
+                return response()->json(['error' => 'Invalid signature'], 403);
+            }
         }
         $alertsPhoneId = (string) config('services.si_crm_alerts.phone_number_id');
 

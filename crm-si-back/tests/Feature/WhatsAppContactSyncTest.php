@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
+use Tests\Concerns\SignsWhatsAppWebhooks;
 use Tests\TestCase;
 
 /**
@@ -32,8 +33,7 @@ use Tests\TestCase;
 class WhatsAppContactSyncTest extends TestCase
 {
     use RefreshDatabase;
-
-    private const WEBHOOK = '/api/whatsapp-webhook';
+    use SignsWhatsAppWebhooks;
 
     protected function setUp(): void
     {
@@ -181,7 +181,7 @@ class WhatsAppContactSyncTest extends TestCase
     {
         [$tenant, $config] = $this->createChannelWithConfig();
 
-        $this->postJson(self::WEBHOOK, $this->stateSyncPayload($config, [
+        $this->postWhatsAppWebhook($this->stateSyncPayload($config, [
             ['action' => 'add', 'phone_number' => '+5491133334444', 'full_name' => 'Ana Gómez'],
             ['action' => 'add', 'phone_number' => '+5491155556666', 'full_name' => 'Luis Pérez'],
         ]))->assertOk();
@@ -199,7 +199,7 @@ class WhatsAppContactSyncTest extends TestCase
         [, $config] = $this->createChannelWithConfig();
         $config->forceFill(['contact_sync_status' => WhatsAppConfig::SYNC_SYNCING])->save();
 
-        $this->postJson(self::WEBHOOK, $this->stateSyncPayload($config, []))->assertOk();
+        $this->postWhatsAppWebhook($this->stateSyncPayload($config, []))->assertOk();
 
         $fresh = $config->fresh();
         $this->assertSame(WhatsAppConfig::SYNC_SYNCING, $fresh->contact_sync_status);
@@ -212,7 +212,7 @@ class WhatsAppContactSyncTest extends TestCase
         [, $config] = $this->createChannelWithConfig();
         $config->forceFill(['contact_sync_status' => WhatsAppConfig::SYNC_SYNCING])->save();
 
-        $this->postJson(self::WEBHOOK, $this->stateSyncPayload($config, [
+        $this->postWhatsAppWebhook($this->stateSyncPayload($config, [
             ['action' => 'remove', 'phone_number' => '+5491133334444', 'full_name' => ''],
         ]))->assertOk();
 
@@ -231,7 +231,7 @@ class WhatsAppContactSyncTest extends TestCase
         [, $config] = $this->createChannelWithConfig();
         $config->forceFill(['contact_sync_status' => WhatsAppConfig::SYNC_SYNCING])->save();
 
-        $this->postJson(self::WEBHOOK, $this->stateSyncPayload($config, [
+        $this->postWhatsAppWebhook($this->stateSyncPayload($config, [
             ['action' => 'add', 'phone_number' => '', 'full_name' => 'Sin teléfono'],
             ['action' => 'unknown', 'phone_number' => '+5491133334444', 'full_name' => 'Ignorado'],
         ]))->assertOk();
@@ -246,7 +246,7 @@ class WhatsAppContactSyncTest extends TestCase
     {
         [$tenant, $config] = $this->createChannelWithConfig();
 
-        $this->postJson(self::WEBHOOK, $this->stateSyncPayload($config, [
+        $this->postWhatsAppWebhook($this->stateSyncPayload($config, [
             ['action' => 'add', 'phone_number' => '+5491133334444', 'full_name' => 'Ana Gómez'],
         ]))->assertOk();
 
@@ -263,11 +263,11 @@ class WhatsAppContactSyncTest extends TestCase
 
         // Meta manda la agenda en varios lotes; el mismo contacto puede repetirse.
         // Una edición también llega como `add`, así que debe actualizar, no duplicar.
-        $this->postJson(self::WEBHOOK, $this->stateSyncPayload($config, [
+        $this->postWhatsAppWebhook($this->stateSyncPayload($config, [
             ['action' => 'add', 'phone_number' => '+5491133334444', 'full_name' => 'Ana'],
         ]))->assertOk();
 
-        $this->postJson(self::WEBHOOK, $this->stateSyncPayload($config, [
+        $this->postWhatsAppWebhook($this->stateSyncPayload($config, [
             ['action' => 'add', 'phone_number' => '+5491133334444', 'full_name' => 'Ana Gómez'],
             ['action' => 'add', 'phone_number' => '+5491177778888', 'full_name' => 'Beto'],
         ]))->assertOk();
@@ -280,12 +280,12 @@ class WhatsAppContactSyncTest extends TestCase
     {
         [$tenant, $config] = $this->createChannelWithConfig();
 
-        $this->postJson(self::WEBHOOK, $this->stateSyncPayload($config, [
+        $this->postWhatsAppWebhook($this->stateSyncPayload($config, [
             ['action' => 'add', 'phone_number' => '+5491133334444', 'full_name' => 'Ana Gómez'],
         ]))->assertOk();
 
         // Meta manda `remove` sin los campos de nombre.
-        $this->postJson(self::WEBHOOK, $this->stateSyncPayload($config, [
+        $this->postWhatsAppWebhook($this->stateSyncPayload($config, [
             ['action' => 'remove', 'phone_number' => '+5491133334444', 'full_name' => ''],
         ]))->assertOk();
 
@@ -305,7 +305,7 @@ class WhatsAppContactSyncTest extends TestCase
 
         // El cliente borra un contacto en el celular: llega webhook, pero la
         // importación inicial nunca ocurrió.
-        $this->postJson(self::WEBHOOK, $this->stateSyncPayload($config, [
+        $this->postWhatsAppWebhook($this->stateSyncPayload($config, [
             ['action' => 'remove', 'phone_number' => '+5491133334444', 'full_name' => ''],
         ]))->assertOk();
 

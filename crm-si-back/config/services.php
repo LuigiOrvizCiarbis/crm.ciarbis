@@ -128,6 +128,9 @@ return [
         'app_secret' => env('FACEBOOK_APP_SECRET'),
         'graph_version' => env('FACEBOOK_GRAPH_API_VERSION', 'v26.0'),
         'verify_token' => env('FACEBOOK_VERIFY_TOKEN', 'embbebedsecret'),
+        // /api/whatsapp-webhook rechaza eventos sin X-Hub-Signature-256 válida.
+        // false sólo como salida de emergencia (ver WhatsAppController::webhook).
+        'whatsapp_webhook_enforce_signature' => (bool) env('WHATSAPP_WEBHOOK_ENFORCE_SIGNATURE', true),
         // Base pública desde la que Meta puede fetchear media saliente (imágenes,
         // audio) enviada por attachment.url. Debe ser HTTPS y accesible desde
         // internet. En local requiere un túnel (p. ej. ngrok). Fallback a app.url.

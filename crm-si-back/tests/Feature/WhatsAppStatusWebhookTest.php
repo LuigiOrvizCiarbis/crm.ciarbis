@@ -9,19 +9,21 @@ use App\Events\MessageStatusUpdated;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
-use App\Models\Message;
 use App\Models\Invoice;
 use App\Models\InvoiceEvent;
-use App\Models\WhatsAppConfig;
+use App\Models\Message;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Models\WhatsAppConfig;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+use Tests\Concerns\SignsWhatsAppWebhooks;
 use Tests\TestCase;
 
 class WhatsAppStatusWebhookTest extends TestCase
 {
     use RefreshDatabase;
+    use SignsWhatsAppWebhooks;
 
     private function statusPayload(string $wamid, string $status, array $errors = []): array
     {
@@ -114,7 +116,7 @@ class WhatsAppStatusWebhookTest extends TestCase
         $otherInvoice = $this->makeInvoice($this->makeOutboundMessage('wamid.OTHER'));
 
         foreach (['delivered', 'read', 'failed'] as $status) {
-            $this->postJson('/api/whatsapp-webhook', $this->statusPayload('wamid.INVOICE', $status))->assertOk();
+            $this->postWhatsAppWebhook($this->statusPayload('wamid.INVOICE', $status))->assertOk();
             $this->assertSame($status === 'failed' ? 'failed' : 'delivered', $invoice->refresh()->delivery_status);
             $this->assertNotNull($invoice->next_reminder_at);
             $this->assertSame('pending', $otherInvoice->refresh()->delivery_status);
@@ -134,7 +136,7 @@ class WhatsAppStatusWebhookTest extends TestCase
             $payload = $this->statusPayload('wamid.INVOICE', $status);
             foreach ([$otherMessage->conversation->channel->whatsappConfig->phone_number_id, 'unknown', null] as $phoneNumberId) {
                 $payload['entry'][0]['changes'][0]['value']['metadata'] = ['phone_number_id' => $phoneNumberId];
-                $this->postJson('/api/whatsapp-webhook', $payload)->assertOk();
+                $this->postWhatsAppWebhook($payload)->assertOk();
                 $this->assertSame('pending', $invoice->refresh()->delivery_status);
                 $this->assertNull($invoice->delivered_at);
                 $this->assertNull($invoice->next_reminder_at);
@@ -148,7 +150,7 @@ class WhatsAppStatusWebhookTest extends TestCase
     {
         $message = $this->makeOutboundMessage('wamid.FAIL1');
 
-        $this->postJson('/api/whatsapp-webhook', $this->statusPayload(
+        $this->postWhatsAppWebhook($this->statusPayload(
             'wamid.FAIL1',
             'failed',
             [[
@@ -169,7 +171,7 @@ class WhatsAppStatusWebhookTest extends TestCase
     {
         $message = $this->makeOutboundMessage('wamid.DELIV1');
 
-        $this->postJson('/api/whatsapp-webhook', $this->statusPayload('wamid.DELIV1', 'delivered'))
+        $this->postWhatsAppWebhook($this->statusPayload('wamid.DELIV1', 'delivered'))
             ->assertOk();
 
         $message->refresh();
@@ -181,7 +183,7 @@ class WhatsAppStatusWebhookTest extends TestCase
     {
         $message = $this->makeOutboundMessage('wamid.READ1');
 
-        $this->postJson('/api/whatsapp-webhook', $this->statusPayload('wamid.READ1', 'read'))
+        $this->postWhatsAppWebhook($this->statusPayload('wamid.READ1', 'read'))
             ->assertOk();
 
         $message->refresh();
@@ -193,7 +195,7 @@ class WhatsAppStatusWebhookTest extends TestCase
     {
         $message = $this->makeOutboundMessage('wamid.PLAY1');
 
-        $this->postJson('/api/whatsapp-webhook', $this->statusPayload('wamid.PLAY1', 'played'))
+        $this->postWhatsAppWebhook($this->statusPayload('wamid.PLAY1', 'played'))
             ->assertOk();
 
         $message->refresh();
@@ -209,14 +211,14 @@ class WhatsAppStatusWebhookTest extends TestCase
         Event::fake([MessageStatusUpdated::class]);
         $message = $this->makeOutboundMessage('wamid.PLAY2');
 
-        $this->postJson('/api/whatsapp-webhook', $this->statusPayload('wamid.PLAY2', 'played'))
+        $this->postWhatsAppWebhook($this->statusPayload('wamid.PLAY2', 'played'))
             ->assertOk();
         Event::assertDispatchedTimes(MessageStatusUpdated::class, 1);
 
         $playedAt = $message->refresh()->played_at;
 
         // Meta reenvía statuses duplicados: no debe re-emitir ni pisar el timestamp.
-        $this->postJson('/api/whatsapp-webhook', $this->statusPayload('wamid.PLAY2', 'played'))
+        $this->postWhatsAppWebhook($this->statusPayload('wamid.PLAY2', 'played'))
             ->assertOk();
 
         Event::assertDispatchedTimes(MessageStatusUpdated::class, 1);
@@ -229,7 +231,7 @@ class WhatsAppStatusWebhookTest extends TestCase
         // lee con el chat abierto. El estado se deriva, no se asume secuencial.
         $message = $this->makeOutboundMessage('wamid.ORDER1');
 
-        $this->postJson('/api/whatsapp-webhook', $this->statusPayload('wamid.ORDER1', 'read'))
+        $this->postWhatsAppWebhook($this->statusPayload('wamid.ORDER1', 'read'))
             ->assertOk();
 
         $message->refresh();
@@ -237,7 +239,7 @@ class WhatsAppStatusWebhookTest extends TestCase
         $this->assertTrue($message->isDelivered());
 
         // Un `delivered` tardío no debe pisar el read_at ya registrado.
-        $this->postJson('/api/whatsapp-webhook', $this->statusPayload('wamid.ORDER1', 'delivered'))
+        $this->postWhatsAppWebhook($this->statusPayload('wamid.ORDER1', 'delivered'))
             ->assertOk();
 
         $this->assertEquals($readAt, $message->refresh()->read_at);
@@ -248,13 +250,13 @@ class WhatsAppStatusWebhookTest extends TestCase
         Event::fake([MessageStatusUpdated::class]);
         $message = $this->makeOutboundMessage('wamid.BCAST1');
 
-        $this->postJson('/api/whatsapp-webhook', $this->statusPayload('wamid.BCAST1', 'delivered'))
+        $this->postWhatsAppWebhook($this->statusPayload('wamid.BCAST1', 'delivered'))
             ->assertOk();
 
         Event::assertDispatchedTimes(MessageStatusUpdated::class, 1);
 
         // Reenvío del mismo status: ya está delivered, no debe re-emitir.
-        $this->postJson('/api/whatsapp-webhook', $this->statusPayload('wamid.BCAST1', 'delivered'))
+        $this->postWhatsAppWebhook($this->statusPayload('wamid.BCAST1', 'delivered'))
             ->assertOk();
 
         Event::assertDispatchedTimes(MessageStatusUpdated::class, 1);
@@ -262,7 +264,7 @@ class WhatsAppStatusWebhookTest extends TestCase
 
     public function test_status_for_unknown_wamid_is_ignored_without_error(): void
     {
-        $this->postJson('/api/whatsapp-webhook', $this->statusPayload('wamid.UNKNOWN', 'failed', [[
+        $this->postWhatsAppWebhook($this->statusPayload('wamid.UNKNOWN', 'failed', [[
             'code' => 131053,
             'error_data' => ['details' => 'x'],
         ]]))->assertOk();

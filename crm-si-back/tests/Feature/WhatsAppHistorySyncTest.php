@@ -14,6 +14,7 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\SignsWhatsAppWebhooks;
 use Tests\TestCase;
 
 /**
@@ -29,8 +30,7 @@ use Tests\TestCase;
 class WhatsAppHistorySyncTest extends TestCase
 {
     use RefreshDatabase;
-
-    private const WEBHOOK = '/api/whatsapp-webhook';
+    use SignsWhatsAppWebhooks;
 
     protected function setUp(): void
     {
@@ -88,7 +88,7 @@ class WhatsAppHistorySyncTest extends TestCase
             ],
         ]]);
 
-        $this->postJson(self::WEBHOOK, $payload)->assertOk();
+        $this->postWhatsAppWebhook($payload)->assertOk();
 
         $contact = Contact::where('phone', '16505551234')->first();
         $this->assertNotNull($contact, 'el contacto se crea a partir de threads[].id, no de messages[].to');
@@ -155,7 +155,7 @@ class WhatsAppHistorySyncTest extends TestCase
             ],
         ]]);
 
-        $this->postJson(self::WEBHOOK, $payload)->assertOk();
+        $this->postWhatsAppWebhook($payload)->assertOk();
 
         $outbound = Message::where('external_id', 'wamid.AR_OUTBOUND')->firstOrFail();
         $this->assertSame(
@@ -201,7 +201,7 @@ class WhatsAppHistorySyncTest extends TestCase
             ]],
         ];
 
-        $this->postJson(self::WEBHOOK, $payload)->assertOk();
+        $this->postWhatsAppWebhook($payload)->assertOk();
 
         $this->assertSame(WhatsAppConfig::SYNC_NOT_APPLICABLE, $config->fresh()->contact_history_sync_status);
         $this->assertSame(0, Message::count());
@@ -230,7 +230,7 @@ class WhatsAppHistorySyncTest extends TestCase
             ]],
         ]]);
 
-        $this->postJson(self::WEBHOOK, $payload)->assertOk();
+        $this->postWhatsAppWebhook($payload)->assertOk();
 
         $this->assertNotSame(WhatsAppConfig::SYNC_COMPLETED, $config->fresh()->contact_history_sync_status);
         $this->assertSame(1, Message::count(), 'el mensaje del chunk parcial igual se importa');
@@ -260,7 +260,7 @@ class WhatsAppHistorySyncTest extends TestCase
             ]],
         ]]);
 
-        $this->postJson(self::WEBHOOK, $placeholderPayload)->assertOk();
+        $this->postWhatsAppWebhook($placeholderPayload)->assertOk();
 
         $this->assertSame(1, Message::count());
         $placeholder = Message::where('external_id', 'wamid.MEDIA_LATER')->firstOrFail();
@@ -281,7 +281,7 @@ class WhatsAppHistorySyncTest extends TestCase
             ]],
         ]]);
 
-        $this->postJson(self::WEBHOOK, $contentPayload)->assertOk();
+        $this->postWhatsAppWebhook($contentPayload)->assertOk();
 
         // Sigue siendo un solo mensaje: se actualizó, no se duplicó.
         $this->assertSame(1, Message::count());
@@ -314,8 +314,8 @@ class WhatsAppHistorySyncTest extends TestCase
             ]],
         ]]);
 
-        $this->postJson(self::WEBHOOK, $payload)->assertOk();
-        $this->postJson(self::WEBHOOK, $payload)->assertOk();
+        $this->postWhatsAppWebhook($payload)->assertOk();
+        $this->postWhatsAppWebhook($payload)->assertOk();
 
         $this->assertSame(1, Message::count());
     }
@@ -352,13 +352,13 @@ class WhatsAppHistorySyncTest extends TestCase
         ];
 
         // Primer webhook: un chunk con el mensaje repetido.
-        $this->postJson(self::WEBHOOK, $this->historyPayload($config, [[
+        $this->postWhatsAppWebhook($this->historyPayload($config, [[
             'metadata' => ['phase' => 0, 'chunk_order' => 1, 'progress' => 50],
             'threads' => [['id' => '16505551234', 'messages' => [$repeatedMessage]]],
         ]]))->assertOk();
 
         // Segundo webhook: Meta reentrega el mismo mensaje + trae uno nuevo.
-        $this->postJson(self::WEBHOOK, $this->historyPayload($config, [[
+        $this->postWhatsAppWebhook($this->historyPayload($config, [[
             'metadata' => ['phase' => 0, 'chunk_order' => 2, 'progress' => 100],
             'threads' => [['id' => '16505551234', 'messages' => [$repeatedMessage, $newMessage]]],
         ]]))->assertOk();
