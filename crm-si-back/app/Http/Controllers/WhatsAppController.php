@@ -1216,11 +1216,25 @@ class WhatsAppController extends Controller
             return response()->json(['error' => 'Verification token mismatch'], 403);
         }
 
+        // Firma de Meta (HMAC del raw body con el app secret). Por ahora sólo
+        // se exige para el número central de alertas, que antes tenía su
+        // propio endpoint con firma; para los canales de tenants se registra
+        // el fallo sin rechazar, hasta confirmar en prod que valida y poder
+        // exigirla como Messenger e Instagram.
+        $signed = $this->hasValidSignature($request);
+        if (! $signed) {
+            Log::warning('WhatsApp webhook: firma X-Hub-Signature-256 ausente o inválida');
+        }
+        $alertsPhoneId = (string) config('services.si_crm_alerts.phone_number_id');
+
         try {
-            $pendingIds = DB::transaction(function () use ($request): array {
+            $pendingIds = DB::transaction(function () use ($request, $signed, $alertsPhoneId): array {
                 $pendingIds = [];
                 foreach ($request->input('entry', []) as $entry) {
                     foreach ($entry['changes'] ?? [] as $change) {
+                        if (! $signed && $alertsPhoneId !== '' && ($change['value']['metadata']['phone_number_id'] ?? null) === $alertsPhoneId) {
+                            continue;
+                        }
                         $queue = in_array($change['field'] ?? '', ['history', 'smb_app_state_sync'], true)
                             ? 'whatsapp-sync'
                             : 'whatsapp-webhooks';
@@ -1260,6 +1274,22 @@ class WhatsAppController extends Controller
         }
 
         return response()->json(['status' => 'EVENT_RECEIVED'], 200);
+    }
+
+    /**
+     * Verifica X-Hub-Signature-256 (HMAC-SHA256 del raw body con el app
+     * secret), igual que MessengerController e InstagramController.
+     */
+    private function hasValidSignature(Request $request): bool
+    {
+        $signature = $request->header('X-Hub-Signature-256');
+        $appSecret = config('services.facebook.app_secret');
+
+        if (! $signature || ! $appSecret) {
+            return false;
+        }
+
+        return hash_equals('sha256='.hash_hmac('sha256', $request->getContent(), $appSecret), $signature);
     }
 
     /** Process one persisted change. Queue failures propagate to Laravel retries. */

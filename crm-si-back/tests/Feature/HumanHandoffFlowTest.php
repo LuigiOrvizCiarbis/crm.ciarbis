@@ -18,6 +18,7 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\UserNotification;
 use App\Models\WhatsAppConfig;
+use App\Models\WhatsAppWebhookReceipt;
 use App\Services\AiReplyService;
 use App\Services\HumanHandoffService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -198,6 +199,28 @@ class HumanHandoffFlowTest extends TestCase
         $this->assertSame('read', $attempt->fresh()->status);
     }
 
+    public function test_unsigned_webhook_for_alerts_number_is_dropped(): void
+    {
+        Queue::fake();
+        config(['services.facebook.app_secret' => 'app-secret']);
+
+        $this->postWebhook(self::ALERTS_PHONE_ID, signature: 'sha256=forged')->assertOk();
+        $this->assertSame(0, WhatsAppWebhookReceipt::count());
+
+        $this->postWebhook(self::ALERTS_PHONE_ID, signature: null)->assertOk();
+        $this->assertSame(1, WhatsAppWebhookReceipt::count());
+    }
+
+    public function test_unsigned_webhook_for_tenant_channel_is_still_accepted(): void
+    {
+        Queue::fake();
+        config(['services.facebook.app_secret' => 'app-secret']);
+
+        $this->postWebhook('TENANT_PHONE_1', signature: 'sha256=forged')->assertOk();
+
+        $this->assertSame(1, WhatsAppWebhookReceipt::count());
+    }
+
     // --- Tomar ------------------------------------------------------------------
 
     public function test_any_user_who_can_reply_can_take_and_becomes_assignee(): void
@@ -358,6 +381,24 @@ class HumanHandoffFlowTest extends TestCase
         $message->save();
 
         return $message;
+    }
+
+    /** $signature null = firma válida calculada con el app secret. */
+    private function postWebhook(string $phoneNumberId, ?string $signature)
+    {
+        $body = json_encode(['object' => 'whatsapp_business_account', 'entry' => [[
+            'id' => 'WABA_1',
+            'changes' => [['field' => 'messages', 'value' => [
+                'messaging_product' => 'whatsapp',
+                'metadata' => ['phone_number_id' => $phoneNumberId],
+                'statuses' => [['id' => 'wamid.X', 'status' => 'delivered', 'timestamp' => '1']],
+            ]]],
+        ]]]);
+
+        return $this->call('POST', '/api/whatsapp-webhook', [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_X_HUB_SIGNATURE_256' => $signature ?? 'sha256='.hash_hmac('sha256', $body, 'app-secret'),
+        ], $body);
     }
 
     private function alertsWebhook(string $status): void
