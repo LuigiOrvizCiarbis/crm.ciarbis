@@ -13,7 +13,6 @@ use App\Http\Resources\ContactResource;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Message;
-use App\Services\HumanHandoffService;
 use App\Services\MailMessageService;
 use App\Services\Notifications\DomainNotifier;
 use App\Services\OutboundMessageSender;
@@ -59,7 +58,6 @@ class MessageController extends Controller
         private MailMessageService $mailService,
         private VoiceTranscoder $voiceTranscoder,
         private OutboundMessageSender $sender,
-        private HumanHandoffService $humanHandoffService,
     ) {}
 
     public function index(Request $request, Conversation $conversation): JsonResponse
@@ -300,8 +298,6 @@ class MessageController extends Controller
             // no una caída de gateway. Así el front muestra el mensaje al usuario.
             return response()->json(['message' => $errorMessage], 422);
         }
-
-        $this->humanHandoffService->resolveForHumanMessage($conversation);
 
         return response()->json(['data' => $message], 201);
     }

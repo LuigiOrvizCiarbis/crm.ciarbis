@@ -54,14 +54,14 @@ class DomainNotifier
         );
     }
 
+    /**
+     * Le llega al asignado; si no hay (o ya no puede ver la conversación), a
+     * todos los que pueden verla. Una derivación nunca queda sin avisar.
+     */
     public function handoffRequested(HumanHandoff $handoff, Conversation $conversation): void
     {
-        if ($handoff->assigned_to === null) {
-            return;
-        }
-
         $this->notifications->notify(
-            $this->recipients->users($handoff->tenant_id, [(int) $handoff->assigned_to]),
+            $this->recipients->forConversation($conversation),
             $handoff->tenant_id,
             NotificationType::HANDOFF_REQUESTED,
             [

@@ -883,6 +883,26 @@
     },
     "conversationRail": {
       "label": "Conversation list"
+    },
+    "handoffSettings": {
+      "open": "Human handoff",
+      "title": "Human handoff",
+      "description": "What happens in {{name}} when a customer asks to talk to a person.",
+      "responsible": "Responsible",
+      "noResponsible": "No one (the channel owner)",
+      "responsibleHint": "Gets the handoff only when nobody is assigned to the conversation.",
+      "whatsappAlert": "Alert the channel number on WhatsApp",
+      "whatsappAlertHint": "SI CRM sends an alert to this number, in the WhatsApp Business app.",
+      "whatsappAlertUnavailable": "Only available when the number uses the WhatsApp Business app. You will still get the alert in the CRM.",
+      "saved": "Handoff settings saved",
+      "error": "Could not save handoff settings"
+    },
+    "handoff": {
+      "title": "Human handoff",
+      "defaultSummary": "The customer asked to talk to a person.",
+      "take": "Take",
+      "taken": "Taken",
+      "takeError": "Could not take the handoff"
     }
   },
   "settings": {
@@ -1183,6 +1203,8 @@
       "description": "Configure the provider, model, and instructions that guide each automatic reply.",
       "enabled": "Auto-reply enabled",
       "enabledHint": "Automatically reply to incoming messages using your AI provider.",
+      "humanHandoff": "Hand off to a person",
+      "humanHandoffHint": "When a customer asks to talk to someone, the AI stops replying and alerts the team.",
       "statusEnabled": "Active",
       "statusPaused": "Paused",
       "provider": "Provider",

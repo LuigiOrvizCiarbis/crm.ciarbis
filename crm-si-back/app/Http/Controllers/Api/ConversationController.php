@@ -6,7 +6,6 @@ use App\Enums\MessageDirection;
 use App\Enums\SenderType;
 use App\Events\ManualAiDraftUpdated;
 use App\Http\Controllers\Controller;
-use App\Services\Notifications\DomainNotifier;
 use App\Jobs\SendBroadcastMessageJob;
 use App\Models\Channel;
 use App\Models\Contact;
@@ -18,6 +17,7 @@ use App\Models\PipelineStage;
 use App\Models\WhatsAppTemplate;
 use App\Services\AiTypingIndicatorService;
 use App\Services\HumanHandoffService;
+use App\Services\Notifications\DomainNotifier;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -537,8 +537,7 @@ class ConversationController extends Controller
         HumanHandoffService $handoffService,
         AiTypingIndicatorService $typingIndicatorService,
         $id,
-    ): JsonResponse
-    {
+    ): JsonResponse {
         $conversation = Conversation::where('id', $id)->firstOrFail();
         $this->authorize('update', $conversation);
 
@@ -568,7 +567,9 @@ class ConversationController extends Controller
     public function acknowledgeHumanHandoff(Request $request, HumanHandoffService $service, $id): JsonResponse
     {
         $conversation = Conversation::query()->with('activeHumanHandoff')->whereKey($id)->firstOrFail();
-        $this->authorize('view', $conversation);
+        // Tomarla es comprometerse a responder: pide el mismo permiso que
+        // escribir en la conversación, no sólo verla.
+        $this->authorize('sendMessage', $conversation);
         $handoff = $conversation->activeHumanHandoff;
         if (! $handoff) {
             return response()->json(['message' => 'No hay una derivación activa.'], 404);
@@ -695,8 +696,7 @@ class ConversationController extends Controller
         Request $request,
         HumanHandoffService $handoffService,
         AiTypingIndicatorService $typingIndicatorService,
-    ): JsonResponse
-    {
+    ): JsonResponse {
         $user = $request->user();
 
         $validated = $request->validate([

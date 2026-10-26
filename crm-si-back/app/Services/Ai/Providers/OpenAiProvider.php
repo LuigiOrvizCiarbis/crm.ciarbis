@@ -59,25 +59,25 @@ class OpenAiProvider implements AiProvider
         }
     }
 
-    public function decide(array $messages, string $systemPrompt, string $model): AiReplyDecision
+    public function decide(array $messages, string $systemPrompt, string $model, bool $offerHandoff = true): AiReplyDecision
     {
         try {
             $client = OpenAI::factory()->withApiKey($this->apiKey)->withHttpClient(new GuzzleClient(['timeout' => (int) config('services.ai.generate_timeout', 60)]))->make();
             $response = $client->chat()->create([
                 'model' => $model, 'max_tokens' => 1024,
                 'messages' => [['role' => 'system', 'content' => $systemPrompt], ...array_map([$this, 'formatMessage'], $messages)],
-                'tools' => [[
+                ...($offerHandoff ? ['tools' => [[
                     'type' => 'function', 'function' => [
                         'name' => 'request_human_handoff',
-                        'description' => 'Usá esta herramienta únicamente si el cliente pidió explícitamente hablar con una persona.',
+                        'description' => 'Usá esta herramienta únicamente si el cliente pidió explícitamente hablar con una persona. '
+                            .'Junto con la herramienta, escribile al cliente un mensaje breve avisándole que lo va a atender alguien del equipo.',
                         'parameters' => ['type' => 'object', 'additionalProperties' => false, 'properties' => [
-                            'reason' => ['type' => 'string', 'maxLength' => 120],
+                            'reason' => ['type' => 'string', 'enum' => ['customer_requested_human']],
                             'summary' => ['type' => 'string', 'maxLength' => 300],
                             'customer_locale' => ['type' => 'string', 'enum' => ['es', 'en']],
                         ], 'required' => ['reason', 'summary', 'customer_locale']],
                     ],
-                ]],
-                'tool_choice' => 'auto',
+                ]], 'tool_choice' => 'auto'] : []),
             ]);
             $choice = $response->choices[0] ?? null;
             $toolCalls = $choice?->message?->toolCalls ?? [];

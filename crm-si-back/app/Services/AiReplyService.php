@@ -97,8 +97,14 @@ class AiReplyService
             return AiReplyDecision::reply(null);
         }
         if (method_exists($provider, 'decide')) {
-            /** @var AiReplyDecision $decision */
-            return $provider->decide($messages, $this->systemPrompt($config, $conversation->tenant_id, $messages), $model);
+            // Con la derivación apagada para el tenant, la tool no se ofrece:
+            // el modelo sólo puede contestar.
+            return $provider->decide(
+                $messages,
+                $this->systemPrompt($config, $conversation->tenant_id, $messages),
+                $model,
+                offerHandoff: $config->human_handoff_enabled !== false,
+            );
         }
 
         return AiReplyDecision::reply($provider->generate($messages, $this->systemPrompt($config, $conversation->tenant_id, $messages), $model));
