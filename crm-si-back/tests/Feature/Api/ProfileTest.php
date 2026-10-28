@@ -48,6 +48,44 @@ class ProfileTest extends TestCase
         $this->putJson('/api/profile', ['name' => ''])->assertStatus(422);
     }
 
+    // -- Vista de Tareas ----------------------------------------------------
+
+    public function test_task_view_preferences_persist_per_workspace_without_touching_other_keys(): void
+    {
+        [$tenant] = $this->makeOwnerTenant();
+        $member = $this->makeMember($tenant);
+        $member->forceFill(['preferences' => ['locale' => 'en']])->save();
+        Sanctum::actingAs($member);
+
+        $this->putJson('/api/profile/task-view-preferences', [
+            'view' => 'kanban',
+            'filters' => [
+                'status' => ['nuevo', 'en-curso'],
+                'types' => [],
+                'assignee_ids' => [$member->id],
+                'deadline' => 'this-week',
+            ],
+        ])->assertOk()
+            ->assertJsonPath("data.preferences.tasks_view.{$tenant->id}.view", 'kanban')
+            ->assertJsonPath("data.preferences.tasks_view.{$tenant->id}.filters.status", ['nuevo', 'en-curso'])
+            ->assertJsonPath('data.preferences.locale', 'en');
+
+        $stored = $member->fresh()->preferences;
+        $this->assertSame([$member->id], $stored['tasks_view'][$tenant->id]['filters']['assignee_ids']);
+        $this->assertSame('this-week', $stored['tasks_view'][$tenant->id]['filters']['deadline']);
+    }
+
+    public function test_task_view_preferences_reject_unknown_status(): void
+    {
+        [$tenant, $owner] = $this->makeOwnerTenant();
+        Sanctum::actingAs($owner);
+
+        $this->putJson('/api/profile/task-view-preferences', [
+            'view' => 'lista',
+            'filters' => ['status' => ['inventado'], 'types' => [], 'assignee_ids' => [], 'deadline' => null],
+        ])->assertStatus(422);
+    }
+
     // -- Contraseña -------------------------------------------------------
 
     public function test_wrong_current_password_is_rejected_and_nothing_changes(): void

@@ -8,6 +8,7 @@ export interface TaskPayload {
   priority?: Task["priority"]
   type?: Task["type"]
   deadline?: string | null
+  start_date?: string | null
   description?: string | null
   assigned_to?: number | null
   contact_id?: number | null
@@ -68,6 +69,7 @@ export function normalizeTask(apiTask: any): Task {
     priority: apiTask.priority,
     type: apiTask.type,
     deadline: apiTask.deadline ?? undefined,
+    startDate: apiTask.start_date ?? undefined,
     assignee: apiTask.assigned_user?.name ?? "Sin asignar",
     assignedToId: apiTask.assigned_to ?? null,
     relatedTo: relationFromApi(apiTask),

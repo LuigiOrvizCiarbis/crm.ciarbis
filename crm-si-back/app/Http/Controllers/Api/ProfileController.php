@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\TaskStatus;
+use App\Enums\TaskType;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password as PasswordRule;
 
 /**
@@ -105,6 +108,42 @@ class ProfileController extends Controller
             'types' => $types,
             'sound' => $validated['sound'] ?? $current['sound'],
             'browser' => $validated['browser'] ?? $current['browser'],
+        ];
+        $user->forceFill(['preferences' => $preferences])->save();
+
+        return response()->json(['data' => ['preferences' => $user->preferencesWithDefaults()]]);
+    }
+
+    /**
+     * Configuración de la vista de Tareas (vista activa + filtros). Se guarda
+     * por workspace, porque los responsables filtrados son usuarios de ese
+     * tenant y no tienen sentido en otro.
+     */
+    public function updateTaskViewPreferences(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'view' => ['required', 'string', 'in:lista,kanban,gantt,calendario'],
+            'filters' => ['present', 'array'],
+            'filters.status' => ['present', 'array'],
+            'filters.status.*' => ['string', Rule::enum(TaskStatus::class)],
+            'filters.types' => ['present', 'array'],
+            'filters.types.*' => ['string', Rule::enum(TaskType::class)],
+            'filters.assignee_ids' => ['present', 'array'],
+            'filters.assignee_ids.*' => ['integer'],
+            'filters.deadline' => ['nullable', 'string', 'in:overdue,today,this-week,next-7-days,no-date'],
+        ]);
+
+        $preferences = $user->preferences ?? [];
+        $preferences['tasks_view'][(string) $user->tenant_id] = [
+            'view' => $validated['view'],
+            'filters' => [
+                'status' => array_values($validated['filters']['status']),
+                'types' => array_values($validated['filters']['types']),
+                'assignee_ids' => array_values(array_map('intval', $validated['filters']['assignee_ids'])),
+                'deadline' => $validated['filters']['deadline'] ?? null,
+            ],
         ];
         $user->forceFill(['preferences' => $preferences])->save();
 

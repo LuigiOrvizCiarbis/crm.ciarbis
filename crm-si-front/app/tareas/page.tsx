@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { SidebarLayout } from "@/components/SidebarLayout"
 import { TasksCompactHeader } from "@/components/tasks-compact-header"
 import { Badge } from "@/components/ui/badge"
@@ -17,11 +17,29 @@ import { useTaskStore } from "@/store/useTaskStore"
 import { getUsers, type SystemUser } from "@/lib/api/users"
 import type { Task, TaskStatus, TaskType } from "@/lib/types/task"
 import { useIsMobile } from "@/hooks/use-mobile"
-import type { TaskFilters } from "@/lib/types/task-filters"
+import type { StoredTaskView, TaskFilters, TaskViewMode } from "@/lib/types/task-filters"
+import { useAuthStore } from "@/store/useAuthStore"
+import { updateTaskViewPreferences } from "@/lib/api/profile"
 import { isSameDay } from "date-fns"
 
-const STATUS_FILTER_OPTIONS: TaskStatus[] = ["nuevo", "en-curso", "bloqueado", "hecho", "cancelado"]
-const TYPE_FILTER_OPTIONS: TaskType[] = ["llamado", "reunion", "seguimiento", "soporte", "demo"]
+const STATUS_FILTER_OPTIONS: { value: TaskStatus; label: string }[] = [
+  { value: "nuevo", label: "Nuevo" },
+  { value: "en-curso", label: "En curso" },
+  { value: "en-espera", label: "En espera" },
+  { value: "reprogramado", label: "Reprogramado" },
+  { value: "bloqueado", label: "Bloqueado" },
+  { value: "hecho", label: "Hecho" },
+  { value: "cancelado", label: "Cancelado" },
+]
+const TYPE_FILTER_OPTIONS: { value: TaskType; label: string }[] = [
+  { value: "llamado", label: "Llamado" },
+  { value: "reunion", label: "Reunión" },
+  { value: "seguimiento", label: "Seguimiento" },
+  { value: "soporte", label: "Soporte" },
+  { value: "demo", label: "Demo" },
+  { value: "propuesta", label: "Propuesta" },
+  { value: "visita", label: "Visita" },
+]
 const DEADLINE_FILTER_OPTIONS: { value: NonNullable<TaskFilters["deadline"]>; label: string }[] = [
   { value: "overdue", label: "Vencidas" },
   { value: "today", label: "Hoy" },
@@ -30,24 +48,82 @@ const DEADLINE_FILTER_OPTIONS: { value: NonNullable<TaskFilters["deadline"]>; la
   { value: "no-date", label: "Sin fecha" },
 ]
 
+const EMPTY_FILTERS: TaskFilters = { status: [], assigneeIds: [], types: [], deadline: null }
+const VIEW_MODES: TaskViewMode[] = ["lista", "kanban", "gantt", "calendario"]
+
+function toStoredTaskView(view: TaskViewMode, filters: TaskFilters): StoredTaskView {
+  return {
+    view,
+    filters: {
+      status: filters.status,
+      types: filters.types,
+      assignee_ids: filters.assigneeIds,
+      deadline: filters.deadline,
+    },
+  }
+}
+
 export default function TareasPage() {
   const tasks = useTaskStore((state) => state.tasks)
   const isLoading = useTaskStore((state) => state.isLoading)
   const error = useTaskStore((state) => state.error)
   const fetchTasks = useTaskStore((state) => state.fetchTasks)
-  const [activeView, setActiveView] = useState("lista")
+  const [activeView, setActiveView] = useState<TaskViewMode>("lista")
   const [searchQuery, setSearchQuery] = useState("")
   const [filteredTasks, setFilteredTasks] = useState(tasks)
   const [showNewTask, setShowNewTask] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [users, setUsers] = useState<SystemUser[]>([])
-  const [filters, setFilters] = useState<TaskFilters>({
-    status: [],
-    assignees: [],
-    types: [],
-    deadline: null,
-  })
+  const [filters, setFilters] = useState<TaskFilters>(EMPTY_FILTERS)
   const isMobile = useIsMobile()
+
+  // La vista y los filtros se guardan por usuario y workspace
+  // (users.preferences.tasks_view), así sobreviven a recargar o cambiar de sección.
+  const user = useAuthStore((state) => state.user)
+  const updateUser = useAuthStore((state) => state.updateUser)
+  const tenantKey = user?.tenant_id != null ? String(user.tenant_id) : null
+  const hydratedTenantRef = useRef<string | null>(null)
+  const lastSavedRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!tenantKey || hydratedTenantRef.current === tenantKey) return
+    hydratedTenantRef.current = tenantKey
+
+    const stored = user?.preferences?.tasks_view?.[tenantKey]
+    if (!stored) {
+      lastSavedRef.current = JSON.stringify(toStoredTaskView("lista", EMPTY_FILTERS))
+      return
+    }
+
+    const view = VIEW_MODES.includes(stored.view) ? stored.view : "lista"
+    const restored: TaskFilters = {
+      status: stored.filters?.status ?? [],
+      types: stored.filters?.types ?? [],
+      assigneeIds: stored.filters?.assignee_ids ?? [],
+      deadline: stored.filters?.deadline ?? null,
+    }
+    lastSavedRef.current = JSON.stringify(toStoredTaskView(view, restored))
+    setActiveView(view)
+    setFilters(restored)
+  }, [tenantKey, user?.preferences])
+
+  useEffect(() => {
+    if (!tenantKey || hydratedTenantRef.current !== tenantKey) return
+
+    const payload = toStoredTaskView(activeView, filters)
+    const serialized = JSON.stringify(payload)
+    if (serialized === lastSavedRef.current) return
+
+    const timeout = window.setTimeout(() => {
+      lastSavedRef.current = serialized
+      updateTaskViewPreferences(payload).then(({ data }) => {
+        if (data) updateUser({ preferences: data })
+        else lastSavedRef.current = null
+      })
+    }, 600)
+
+    return () => window.clearTimeout(timeout)
+  }, [activeView, filters, tenantKey, updateUser])
 
   useEffect(() => {
     fetchTasks()
@@ -98,8 +174,8 @@ export default function TareasPage() {
     }
 
     // Apply assignee filter
-    if (filters.assignees.length > 0) {
-      filtered = filtered.filter((task) => filters.assignees.includes(task.assignee))
+    if (filters.assigneeIds.length > 0) {
+      filtered = filtered.filter((task) => task.assignedToId != null && filters.assigneeIds.includes(task.assignedToId))
     }
 
     // Apply type filter
@@ -240,7 +316,9 @@ export default function TareasPage() {
     <SidebarLayout>
       <TasksCompactHeader
         activeView={activeView}
-        onViewChange={setActiveView}
+        onViewChange={(view) => {
+          if (VIEW_MODES.includes(view as TaskViewMode)) setActiveView(view as TaskViewMode)
+        }}
         onSearch={setSearchQuery}
         onNewTask={() => setShowNewTask(true)}
         onFilterClick={handleFilterToggle}
@@ -278,18 +356,18 @@ export default function TareasPage() {
 
       {/* Simple Sheet for Filters */}
       <Sheet open={showFilters} onOpenChange={setShowFilters}>
-        <SheetContent side="right" className="w-[400px] sm:w-[540px]">
-          <SheetHeader>
+        <SheetContent side="right" className="w-[400px] sm:w-[540px] gap-0">
+          <SheetHeader className="border-b border-border">
             <SheetTitle>Filtros</SheetTitle>
             <SheetDescription>Filtra tus tareas por estado, responsable, tipo y fecha</SheetDescription>
           </SheetHeader>
 
-          <div className="py-6 space-y-6">
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 py-6 space-y-6">
             {/* Estado */}
             <div className="space-y-3">
               <Label className="text-sm font-medium">Estado</Label>
               <div className="space-y-2">
-                {STATUS_FILTER_OPTIONS.map((status) => (
+                {STATUS_FILTER_OPTIONS.map(({ value: status, label }) => (
                   <div key={status} className="flex items-center space-x-2">
                     <Checkbox
                       id={`status-${status}`}
@@ -302,8 +380,8 @@ export default function TareasPage() {
                         }
                       }}
                     />
-                    <label htmlFor={`status-${status}`} className="text-sm cursor-pointer capitalize">
-                      {status}
+                    <label htmlFor={`status-${status}`} className="text-sm cursor-pointer">
+                      {label}
                     </label>
                   </div>
                 ))}
@@ -318,12 +396,12 @@ export default function TareasPage() {
                   <div key={user.id} className="flex items-center space-x-2">
                     <Checkbox
                       id={`assignee-${user.id}`}
-                      checked={filters.assignees.includes(user.name)}
+                      checked={filters.assigneeIds.includes(user.id)}
                       onCheckedChange={(checked) => {
                         if (checked) {
-                          setFilters({ ...filters, assignees: [...filters.assignees, user.name] })
+                          setFilters({ ...filters, assigneeIds: [...filters.assigneeIds, user.id] })
                         } else {
-                          setFilters({ ...filters, assignees: filters.assignees.filter((a) => a !== user.name) })
+                          setFilters({ ...filters, assigneeIds: filters.assigneeIds.filter((id) => id !== user.id) })
                         }
                       }}
                     />
@@ -340,7 +418,7 @@ export default function TareasPage() {
             <div className="space-y-3">
               <Label className="text-sm font-medium">Tipo</Label>
               <div className="space-y-2">
-                {TYPE_FILTER_OPTIONS.map((type) => (
+                {TYPE_FILTER_OPTIONS.map(({ value: type, label }) => (
                   <div key={type} className="flex items-center space-x-2">
                     <Checkbox
                       id={`type-${type}`}
@@ -353,8 +431,8 @@ export default function TareasPage() {
                         }
                       }}
                     />
-                    <label htmlFor={`type-${type}`} className="text-sm cursor-pointer capitalize">
-                      {type}
+                    <label htmlFor={`type-${type}`} className="text-sm cursor-pointer">
+                      {label}
                     </label>
                   </div>
                 ))}
@@ -383,11 +461,11 @@ export default function TareasPage() {
             </div>
           </div>
 
-          <SheetFooter className="gap-2">
+          <SheetFooter className="flex-row justify-end gap-2 border-t border-border bg-background">
             <Button
               variant="outline"
               onClick={() => {
-                setFilters({ status: [], assignees: [], types: [], deadline: null })
+                setFilters(EMPTY_FILTERS)
               }}
             >
               Limpiar

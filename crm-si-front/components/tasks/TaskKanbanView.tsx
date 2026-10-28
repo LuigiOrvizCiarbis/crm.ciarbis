@@ -82,7 +82,7 @@ function isTaskOverdue(task: Task) {
 
 interface TaskCardProps {
   task: Task
-  onMarkDone: (taskId: string) => void
+  onMarkDone: (taskId: string, done: boolean) => void
 }
 
 function TaskCard({ task, onMarkDone }: TaskCardProps) {
@@ -108,8 +108,9 @@ function TaskCard({ task, onMarkDone }: TaskCardProps) {
           </div>
           <Checkbox
             checked={task.status === "hecho"}
-            onCheckedChange={() => onMarkDone(task.id)}
+            onCheckedChange={(checked) => onMarkDone(task.id, checked === true)}
             onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
           />
         </div>
 
@@ -158,7 +159,7 @@ interface KanbanColumnProps {
   tasks: Task[]
   columnId: string
   color: string
-  onMarkDone: (taskId: string) => void
+  onMarkDone: (taskId: string, done: boolean) => void
 }
 
 function KanbanColumn({ title, tasks, columnId, color, onMarkDone }: KanbanColumnProps) {
@@ -285,22 +286,31 @@ export function TaskKanbanView({ tasks }: { tasks: Task[] }) {
     setActiveId(null)
   }
 
-  const handleMarkDone = (taskId: string) => {
+  // Desmarcar una tarea hecha la reabre como "en curso"; si la API falla se
+  // revierte, así la vista nunca muestra un estado que no quedó guardado.
+  const handleMarkDone = (taskId: string, done: boolean) => {
+    const previousTasks = localTasks
+    const status: Task["status"] = done ? "hecho" : "en-curso"
+    const completedAt = done ? new Date().toISOString() : null
+
     setLocalTasks((prev) =>
       prev.map((task) =>
         task.id === taskId
           ? {
               ...task,
-              status: "hecho",
-              completedAt: new Date().toISOString(),
+              status,
+              completedAt: completedAt ?? undefined,
               updatedAt: new Date().toISOString(),
             }
           : task,
       ),
     )
-    updateTask(taskId, { status: "hecho", completed_at: new Date().toISOString() }).then(
-      () => toast.success("Tarea marcada como completada"),
-      (error) => toast.error(error instanceof Error ? error.message : "No se pudo completar la tarea"),
+    updateTask(taskId, { status, completed_at: completedAt }).then(
+      () => toast.success(done ? "Tarea marcada como completada" : "Tarea reabierta"),
+      (error) => {
+        setLocalTasks(previousTasks)
+        toast.error(error instanceof Error ? error.message : "No se pudo actualizar la tarea")
+      },
     )
   }
 

@@ -6,6 +6,7 @@ import { clearWorkspaceId } from "@/lib/api/auth-token"
 import type { NavigationLabels } from "@/data/navigation"
 import type { WorkspaceSummary } from "@/lib/api/workspaces"
 import type { NotificationPreferences } from "@/lib/api/notifications"
+import type { StoredTaskView } from "@/lib/types/task-filters"
 
 /**
  * Identifica al usuario en Sentry para que cada error reportado indique
@@ -48,6 +49,7 @@ export interface UserPreferences {
   timezone: string
   date_format: string
   notifications?: NotificationPreferences
+  tasks_view?: Record<string, StoredTaskView>
 }
 
 export interface User {

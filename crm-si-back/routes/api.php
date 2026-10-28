@@ -457,6 +457,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('profile/password', [ProfileController::class, 'updatePassword']);
     Route::put('profile/preferences', [ProfileController::class, 'updatePreferences']);
     Route::put('profile/notification-preferences', [ProfileController::class, 'updateNotificationPreferences']);
+    Route::put('profile/task-view-preferences', [ProfileController::class, 'updateTaskViewPreferences']);
 
     Route::get('notifications', [NotificationController::class, 'index']);
     Route::get('notifications/unread-count', [NotificationController::class, 'unreadCount']);

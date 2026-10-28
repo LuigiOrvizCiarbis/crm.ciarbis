@@ -108,6 +108,7 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
   const [opportunities, setOpportunities] = useState<any[]>([])
   const [conversations, setConversations] = useState<any[]>([])
   const [deadline, setDeadline] = useState<Date>()
+  const [startDate, setStartDate] = useState<Date>()
   const [description, setDescription] = useState("")
   const [checklistItems, setChecklistItems] = useState<string[]>([])
   const [newChecklistItem, setNewChecklistItem] = useState("")
@@ -206,6 +207,11 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
       return
     }
 
+    if (!isMeeting && startDate && deadline && startDate > deadline) {
+      toast.error("La fecha de inicio no puede ser posterior al vencimiento")
+      return
+    }
+
     if (isMeeting) {
       if (assigneeId === "none") {
         toast.error("La reunión necesita un responsable")
@@ -240,6 +246,7 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
       type,
       assigned_to: assigneeId === "none" ? null : Number(assigneeId),
       deadline: isMeeting ? meetingStartInstant!.toISOString() : deadline!.toISOString(),
+      start_date: !isMeeting && startDate ? startDate.toISOString() : null,
       description: description.trim(),
       checklist: checklistItems.map((item, idx) => ({
         id: `check-${Date.now()}-${idx}`,
@@ -285,6 +292,7 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
     setType("seguimiento")
     setAssigneeId("none")
     setDeadline(undefined)
+    setStartDate(undefined)
     setDescription("")
     setChecklistItems([])
     setNewChecklistItem("")
@@ -418,8 +426,23 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
 
             {type !== "reunion" && (
               <div className="space-y-2">
+                <Label>Inicio (opcional)</Label>
+                <div className="relative">
+                  <CalendarIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    type="datetime-local"
+                    value={startDate ? format(startDate, "yyyy-MM-dd'T'HH:mm") : ""}
+                    onChange={(event) => setStartDate(event.target.value ? new Date(event.target.value) : undefined)}
+                    className="h-10 pl-10"
+                  />
+                </div>
+              </div>
+            )}
+
+            {type !== "reunion" && (
+              <div className="space-y-2">
                 <Label>
-                  Fecha y hora <span className="text-red-500">*</span>
+                  Vencimiento <span className="text-red-500">*</span>
                 </Label>
                 <div className="relative">
                   <CalendarIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

@@ -1,5 +1,6 @@
 import { getAuthToken } from "./auth-token"
-import type { User } from "@/store/useAuthStore"
+import type { User, UserPreferences } from "@/store/useAuthStore"
+import type { StoredTaskView } from "@/lib/types/task-filters"
 
 export interface ProfileUpdateInput {
   name: string
@@ -94,6 +95,26 @@ export async function updatePreferences(
 
   if (!response.ok) {
     return { error: extractError(payload, "No se pudieron guardar las preferencias.") }
+  }
+
+  return { data: payload?.data?.preferences }
+}
+
+export async function updateTaskViewPreferences(
+  input: StoredTaskView,
+): Promise<{ data?: UserPreferences; error?: string }> {
+  const token = getAuthToken()
+  if (!token) return { error: "No autenticado" }
+
+  const response = await fetch("/api/profile/task-view-preferences", {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify(input),
+  })
+  const payload = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    return { error: extractError(payload, "No se pudo guardar la vista de tareas.") }
   }
 
   return { data: payload?.data?.preferences }

@@ -42,6 +42,7 @@ export interface Task {
   priority: TaskPriority
   type: TaskType
   deadline?: string // ISO date
+  startDate?: string // ISO date — inicio planificado (Gantt)
   assignee: string
   assignedToId?: number | null
   relatedTo?: TaskRelation

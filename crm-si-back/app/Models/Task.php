@@ -27,6 +27,7 @@ class Task extends Model
         'priority',
         'type',
         'deadline',
+        'start_date',
         'description',
         'reminders',
         'recurrence',
@@ -48,6 +49,7 @@ class Task extends Model
             'priority' => TaskPriority::class,
             'type' => TaskType::class,
             'deadline' => 'datetime',
+            'start_date' => 'datetime',
             'reminders' => 'array',
             'depends_on' => 'array',
             'checklist' => 'array',
@@ -60,12 +62,23 @@ class Task extends Model
     }
 
     /**
-     * `starts_at` y `ends_at` son columnas timestamp sin zona horaria. Los ISO
+     * `deadline`, `start_date`, `starts_at` y `ends_at` son columnas timestamp sin zona horaria. Los ISO
      * enviados por el frontend representan instantes UTC, por lo que antes de
      * persistirlos hay que convertirlos a la hora de pared de la aplicación.
      * De lo contrario, 20:00Z se guarda como 20:00 local y al enviarlo a
      * Google Calendar termina convertido nuevamente, sumando tres horas.
      */
+    public function setDeadlineAttribute(mixed $value): void
+    {
+        $this->attributes['deadline'] = $this->meetingDateForDatabase($value);
+    }
+
+    /** Inicio planificado de la tarea (barra del Gantt); mismo tratamiento de zona que `deadline`. */
+    public function setStartDateAttribute(mixed $value): void
+    {
+        $this->attributes['start_date'] = $this->meetingDateForDatabase($value);
+    }
+
     public function setStartsAtAttribute(mixed $value): void
     {
         $this->attributes['starts_at'] = $this->meetingDateForDatabase($value);

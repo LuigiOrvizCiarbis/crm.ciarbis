@@ -310,6 +310,7 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
     if (!editingCell) return
 
     const { taskId, field } = editingCell
+    const previousTasks = localTasks
 
     // Optimistic update
     setLocalTasks((prev) =>
@@ -327,7 +328,10 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
     setEditingCell(null)
     updateTask(taskId, { [field]: editValue }).then(
       () => toast.success("Tarea actualizada"),
-      (error) => toast.error(error instanceof Error ? error.message : "No se pudo actualizar la tarea"),
+      (error) => {
+        setLocalTasks(previousTasks)
+        toast.error(error instanceof Error ? error.message : "No se pudo actualizar la tarea")
+      },
     )
   }
 
@@ -345,6 +349,7 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
   }
 
   const handleStatusChange = (taskId: string, newStatus: Task["status"]) => {
+    const previousTasks = localTasks
     setLocalTasks((prev) =>
       prev.map((task) =>
         task.id === taskId
@@ -361,8 +366,11 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
       status: newStatus,
       completed_at: newStatus === "hecho" ? new Date().toISOString() : null,
     }).then(
-      () => toast.success(`Estado cambiado a "${newStatus}"`),
-      (error) => toast.error(error instanceof Error ? error.message : "No se pudo actualizar el estado"),
+      () => toast.success(`Estado cambiado a "${statusLabels[newStatus]}"`),
+      (error) => {
+        setLocalTasks(previousTasks)
+        toast.error(error instanceof Error ? error.message : "No se pudo actualizar el estado")
+      },
     )
   }
 
@@ -407,8 +415,20 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
     return new Date(deadline) < new Date()
   }
 
+  const resyncWithStore = (visibleTasks: Task[]) => {
+    const stored = new Map(useTaskStore.getState().tasks.map((task) => [task.id, task]))
+    setLocalTasks(visibleTasks.map((task) => stored.get(task.id) ?? task))
+  }
+
   const handleBulkEdit = () => {
     if (selectedTasks.size === 0) return
+
+    const previousTasks = localTasks
+    const field = bulkField
+    const taskIds = Array.from(selectedTasks)
+    const previousValues = new Map(
+      previousTasks.filter((task) => selectedTasks.has(task.id)).map((task) => [task.id, task[field]]),
+    )
 
     setLocalTasks((prev) =>
       prev.map((task) => {
@@ -423,26 +443,34 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
       }),
     )
 
-    Promise.all(
-      Array.from(selectedTasks).map((taskId) =>
-        updateTask(taskId, {
-          [bulkField]: bulkValue,
-        }),
-      ),
-    ).then(
-      () => undefined,
-      (error) => toast.error(error instanceof Error ? error.message : "No se pudieron actualizar las tareas"),
-    )
+    Promise.allSettled(taskIds.map((taskId) => updateTask(taskId, { [field]: bulkValue }))).then((results) => {
+      const failed = results.filter((result) => result.status === "rejected").length
+      if (failed > 0) {
+        // Las que sí se guardaron ya están en el store; las fallidas vuelven a su valor guardado.
+        resyncWithStore(previousTasks)
+        toast.error(`${failed} de ${taskIds.length} tarea(s) no se pudieron actualizar`)
+        return
+      }
 
-    toast.success(`${selectedTasks.size} tarea(s) actualizadas`, {
-      action: {
-        label: "Deshacer",
-        onClick: () => {
-          setLocalTasks(tasks)
-          toast.success("Cambios revertidos")
+      toast.success(`${taskIds.length} tarea(s) actualizadas`, {
+        action: {
+          label: "Deshacer",
+          onClick: () => {
+            // Deshacer restaura cada valor anterior también en la base.
+            Promise.allSettled(
+              taskIds.map((taskId) => updateTask(taskId, { [field]: previousValues.get(taskId) })),
+            ).then((undoResults) => {
+              const undoFailed = undoResults.filter((result) => result.status === "rejected").length
+              if (undoFailed > 0) {
+                toast.error(`${undoFailed} tarea(s) no se pudieron revertir`)
+              } else {
+                toast.success("Cambios revertidos")
+              }
+            })
+          },
         },
-      },
-      duration: 5000,
+        duration: 5000,
+      })
     })
 
     setShowBulkEdit(false)
@@ -466,16 +494,23 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
       }),
     )
 
-    Promise.all(
-      Array.from(selectedTasks).map((taskId) =>
+    const taskIds = Array.from(selectedTasks)
+    Promise.allSettled(
+      taskIds.map((taskId) =>
         updateTask(taskId, {
           status: "hecho",
           completed_at: new Date().toISOString(),
         }),
       ),
-    ).catch((error) => toast.error(error instanceof Error ? error.message : "No se pudieron completar las tareas"))
-
-    toast.success(`${selectedTasks.size} tarea(s) marcadas como completadas`)
+    ).then((results) => {
+      const failed = results.filter((result) => result.status === "rejected").length
+      if (failed > 0) {
+        resyncWithStore(localTasks)
+        toast.error(`${failed} de ${taskIds.length} tarea(s) no se pudieron completar`)
+        return
+      }
+      toast.success(`${taskIds.length} tarea(s) marcadas como completadas`)
+    })
     setSelectedTasks(new Set())
   }
 
