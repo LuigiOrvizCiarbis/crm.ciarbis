@@ -180,10 +180,19 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
       return
     }
 
+    // Solo los campos que cambiaron: el snapshot puede tener un nombre viejo (p.ej.
+    // el backend renombró "Contactar <mes>") y mandarlo cortaría la plantilla.
+    const changes: { name?: string; color?: string } = {}
+    if (!saved || saved.name !== name) changes.name = name
+    if (!saved || saved.color !== stage.color) changes.color = stage.color
+
     setSaving(true)
     try {
-      await updatePipelineStage(stage.id, { name, color: stage.color })
-      savedValues.current.set(stage.id, { name, color: stage.color })
+      const updated = await updatePipelineStage(stage.id, changes)
+      savedValues.current.set(stage.id, { name: updated.name, color: updated.color })
+      setStages((prev) =>
+        prev.map((s) => (s.id === updated.id ? { ...s, name: updated.name, color: updated.color } : s))
+      )
       onStagesChanged?.()
     } catch {
       addToast({

@@ -41,14 +41,6 @@ class Tenant extends Model
 
         static::created(function (Tenant $tenant) {
             $now = now();
-            $stages = [
-                ['name' => 'Capturados', 'sort_order' => 1, 'is_default' => true],
-                ['name' => 'Calificados', 'sort_order' => 2, 'is_default' => false],
-                ['name' => 'Negociación', 'sort_order' => 3, 'is_default' => false],
-                ['name' => 'Cierre', 'sort_order' => 4, 'is_default' => false],
-                ['name' => 'Ganado', 'sort_order' => 5, 'is_default' => false],
-                ['name' => 'Perdido', 'sort_order' => 6, 'is_default' => false],
-            ];
 
             $pipeline = Pipeline::create([
                 'tenant_id' => $tenant->id,
@@ -56,13 +48,13 @@ class Tenant extends Model
                 'is_default' => true,
             ]);
 
-            PipelineStage::insert(array_map(fn ($stage) => [
+            PipelineStage::insert(array_map(fn (array $stage) => [
                 ...$stage,
                 'tenant_id' => $tenant->id,
                 'pipeline_id' => $pipeline->id,
                 'created_at' => $now,
                 'updated_at' => $now,
-            ], $stages));
+            ], PipelineStage::defaultBlueprint()));
         });
     }
 
