@@ -74,9 +74,10 @@ class EvaluateAutomationEventJob implements ShouldQueue
                     return;
                 }
 
+                // Bulk update: HasTimezoneAwareDates no aplica, ->utc() explícito.
                 $rule->runs()->where('subject_type', $this->event['subject_type'])->where('subject_id', $this->event['subject_id'])
                     ->whereIn('status', [AutomationRunStatus::Scheduled, AutomationRunStatus::Queued])
-                    ->update(['status' => AutomationRunStatus::Cancelled, 'finished_at' => now(), 'error' => 'source_date_changed']);
+                    ->update(['status' => AutomationRunStatus::Cancelled, 'finished_at' => now()->utc(), 'error' => 'source_date_changed']);
                 $model = $this->event['subject_type'] === 'contact' ? Contact::class : Conversation::class;
                 $subject = $model::withoutGlobalScopes()->where('tenant_id', $this->tenantId)->find($this->event['subject_id']);
                 if ($subject) {

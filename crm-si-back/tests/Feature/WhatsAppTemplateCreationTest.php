@@ -11,6 +11,7 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
+use App\Services\WhatsAppTemplateService;
 use App\Support\PermissionCatalog;
 use App\Support\RoleProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -64,6 +65,32 @@ class WhatsAppTemplateCreationTest extends TestCase
             'name' => 'order_ready', 'language' => 'es_AR', 'category' => 'UTILITY',
             'components' => [['type' => 'BODY', 'text' => 'Hola {{nombre}}']],
         ])->assertStatus(422);
+    }
+
+    public function test_meta_creation_error_includes_the_specific_user_message(): void
+    {
+        [$user, $channel] = $this->context();
+        Http::fake([
+            'https://graph.facebook.com/*/waba-test/message_templates' => Http::response([
+                'error' => [
+                    'message' => 'Invalid parameter',
+                    'error_user_msg' => 'New Spanish (ARG) content cannot be added while the existing content is being deleted.',
+                ],
+            ], 400),
+        ]);
+
+        try {
+            app(WhatsAppTemplateService::class)->createTemplate($channel->whatsappConfig, $user->tenant_id, [
+                'name' => 'invoice_test',
+                'language' => 'es_AR',
+                'category' => 'UTILITY',
+                'components' => [['type' => 'BODY', 'text' => 'Hola']],
+            ]);
+            $this->fail('La creación debía fallar.');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('New Spanish (ARG) content cannot be added', $exception->getMessage());
+            $this->assertStringNotContainsString('Invalid parameter', $exception->getMessage());
+        }
     }
 
     public function test_member_can_list_templates_for_a_channel_they_own_without_channel_permission(): void

@@ -325,6 +325,12 @@ class TaskMeetingTest extends TestCase
 
         $this->postJson("/api/tasks/{$task->id}/google-calendar/retry")->assertOk();
 
+        $this->assertDatabaseHas('task_calendar_syncs', [
+            'task_id' => $task->id,
+            'status' => 'pending',
+            'last_error' => 'retrying',
+        ]);
+
         Queue::assertPushed(SyncTaskCalendarEventJob::class, fn ($job) => $job->taskId === $task->id && $job->action === 'upsert');
     }
 

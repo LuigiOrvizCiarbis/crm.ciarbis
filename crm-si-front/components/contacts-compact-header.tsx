@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { Download, Plus, Search, Upload } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Download, Plus, Search, Upload, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -12,7 +12,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { TagFilterMenu } from "@/components/tags/TagFilterMenu"
+import { RangeFilterMenu, type RangeFilterValue } from "@/components/contacts/RangeFilterMenu"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useTranslation } from "@/hooks/useTranslation"
+import { useContactFieldsStore } from "@/store/useContactFieldsStore"
+
+export type ContactsAudience = "all" | "clients"
 
 interface ContactsCompactHeaderProps {
   searchQuery?: string
@@ -21,6 +26,12 @@ interface ContactsCompactHeaderProps {
   onSourceFilter?: (source: string) => void
   tagFilterSlugs?: string[]
   onTagFilter?: (slugs: string[]) => void
+  customRangeFilter?: Record<string, RangeFilterValue>
+  onCustomRangeFilter?: (value: Record<string, RangeFilterValue>) => void
+  audience?: ContactsAudience
+  onAudienceChange?: (audience: ContactsAudience) => void
+  /** El control de audiencia solo tiene sentido si el tenant usa cobranzas. */
+  billingAvailable?: boolean
   onExportCSV?: () => void
   onImportCSV?: () => void
   onNewContact?: () => void
@@ -33,10 +44,21 @@ export function ContactsCompactHeader({
   onSourceFilter,
   tagFilterSlugs = [],
   onTagFilter,
+  customRangeFilter = {},
+  onCustomRangeFilter,
+  audience = "all",
+  onAudienceChange,
+  billingAvailable = false,
   onExportCSV,
   onImportCSV,
   onNewContact,
 }: ContactsCompactHeaderProps) {
+  const contactFields = useContactFieldsStore((s) => s.fields)
+  const contactFieldsLoaded = useContactFieldsStore((s) => s.loaded)
+  const fetchContactFields = useContactFieldsStore((s) => s.fetch)
+  useEffect(() => {
+    if (!contactFieldsLoaded) fetchContactFields()
+  }, [contactFieldsLoaded, fetchContactFields])
   const { t } = useTranslation()
   const [searchQueryInternal, setSearchQueryInternal] = useState("")
   const isSearchControlled = searchQueryProp !== undefined
@@ -69,6 +91,28 @@ export function ContactsCompactHeader({
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
+          {billingAvailable && (
+            <ToggleGroup
+              type="single"
+              value={audience}
+              // ToggleGroup permite deseleccionar y devuelve "": se ignora
+              // para que la vista nunca quede sin audiencia elegida.
+              onValueChange={(value) => {
+                if (value) onAudienceChange?.(value as ContactsAudience)
+              }}
+              className="hidden gap-1.5 sm:flex"
+              aria-label={t("contactsPage.filters.audience.label")}
+            >
+              <ToggleGroupItem value="all" size="sm" className="px-3">
+                {t("contactsPage.filters.audience.all")}
+              </ToggleGroupItem>
+              <ToggleGroupItem value="clients" size="sm" className="gap-1.5 px-3">
+                <Wallet className="h-4 w-4" />
+                {t("contactsPage.filters.audience.clients")}
+              </ToggleGroupItem>
+            </ToggleGroup>
+          )}
+
           <Select value={sourceFilter} onValueChange={(value) => onSourceFilter?.(value)}>
             <SelectTrigger className="w-[140px] h-9 hidden sm:flex">
               <SelectValue placeholder={t("contactsPage.filters.status")} />
@@ -85,6 +129,12 @@ export function ContactsCompactHeader({
           <TagFilterMenu
             selectedSlugs={tagFilterSlugs}
             onChange={(slugs) => onTagFilter?.(slugs)}
+          />
+
+          <RangeFilterMenu
+            fields={contactFields}
+            value={customRangeFilter}
+            onChange={(value) => onCustomRangeFilter?.(value)}
           />
 
           <Button

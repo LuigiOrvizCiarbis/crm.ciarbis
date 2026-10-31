@@ -1,0 +1,30 @@
+# msmtp - envio de mails de Netdata via Hostinger
+#
+# COPIAR AL VPS como /etc/netdata-msmtprc (NO va a git: lleva la password).
+#
+#   sudo cp msmtprc.example /etc/netdata-msmtprc
+#   sudo nano /etc/netdata-msmtprc          # poner la password real
+#   sudo chown root:root /etc/netdata-msmtprc
+#   sudo chmod 600 /etc/netdata-msmtprc     # msmtp lo exige, si no falla
+#
+# El compose lo monta en /etc/msmtprc dentro del container. No hace falta
+# instalar msmtp en el host: la imagen netdata:v2.11.1 ya lo incluye.
+
+defaults
+auth           on
+tls            on
+tls_starttls   off
+tls_trust_file /etc/ssl/certs/ca-certificates.crt
+logfile        /var/log/netdata/msmtp.log
+
+account        default
+host           smtp.hostinger.com
+# 465 = SMTPS (TLS directo). Por eso tls_starttls off.
+port           465
+from           info@sicrmapp.com
+user           info@sicrmapp.com
+# La misma password que MAIL_PASSWORD en crm-si-back/.env del VPS.
+password       REEMPLAZAR_CON_PASSWORD_REAL
+
+# Sin "account default : default" al final: la cuenta ya se llama "default",
+# y repetirlo hace fallar a msmtp con "account default was already defined".

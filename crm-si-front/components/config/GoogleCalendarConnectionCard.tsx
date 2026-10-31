@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Loader2 } from "lucide-react"
@@ -14,7 +15,7 @@ import {
 
 export function GoogleCalendarConnectionCard() {
   const { addToast } = useToast()
-  const { t } = useTranslation()
+  const { t, language } = useTranslation()
 
   const [loading, setLoading] = useState(true)
   const [connecting, setConnecting] = useState(false)
@@ -96,6 +97,11 @@ export function GoogleCalendarConnectionCard() {
 
   const isConnected = connection?.status === "connected"
   const needsReauth = connection?.status === "needs_reauth"
+  const connectedAt = connection?.connected_at
+    ? new Intl.DateTimeFormat(language === "es" ? "es-AR" : "en-US", {
+        dateStyle: "medium",
+      }).format(new Date(connection.connected_at))
+    : null
 
   if (loading) {
     return (
@@ -109,8 +115,14 @@ export function GoogleCalendarConnectionCard() {
   if (isConnected || needsReauth) {
     return (
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm">
-          <p className="text-foreground">{connection?.google_email}</p>
+        <div className="max-w-[62ch] text-sm">
+          <p className="font-medium text-foreground">{connection?.google_email}</p>
+          <p className="mt-1 text-muted-foreground">
+            {t("settings.googleCalendar.connectedAccountHint")}
+            {connectedAt
+              ? ` ${t("settings.googleCalendar.connectedSince", { date: connectedAt })}`
+              : ""}
+          </p>
           {needsReauth && (
             <p className="mt-1 text-muted-foreground">
               {t("settings.googleCalendar.needsReauthHint")}
@@ -134,10 +146,31 @@ export function GoogleCalendarConnectionCard() {
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-sm text-muted-foreground">
-        {t("settings.googleCalendar.notConnectedHint")}
-      </p>
+    <div className="space-y-4 rounded-md border border-border bg-muted/30 p-4">
+      <div className="space-y-2 text-sm leading-6 text-muted-foreground">
+        <p>{t("settings.googleCalendar.notConnectedHint")}</p>
+        <p className="font-medium text-foreground">
+          {t("settings.googleCalendar.consentTitle")}
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>{t("settings.googleCalendar.consentScope")}</li>
+          <li>{t("settings.googleCalendar.consentData")}</li>
+          <li>{t("settings.googleCalendar.consentAi")}</li>
+        </ul>
+        <p>
+          {t("settings.googleCalendar.consentOptional")} {" "}
+          <Link
+            href="/privacy-policy"
+            className="underline underline-offset-4 hover:text-foreground"
+          >
+            {t("settings.googleCalendar.privacyPolicy")}
+          </Link>
+          {" · "}
+          <Link href="/terms" className="underline underline-offset-4 hover:text-foreground">
+            {t("settings.googleCalendar.terms")}
+          </Link>
+        </p>
+      </div>
       <Button size="sm" onClick={handleConnect} disabled={connecting}>
         {connecting && <Loader2 className="mr-2 size-4 animate-spin" />}
         {t("settings.googleCalendar.connect")}

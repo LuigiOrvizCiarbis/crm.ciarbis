@@ -41,6 +41,11 @@ class ChannelPolicy
         return $user->can('channels.delete') && $this->canTouch($user, $channel);
     }
 
+    public function disconnect(User $user, Channel $channel): bool
+    {
+        return $user->can('channels.disconnect') && $this->canTouch($user, $channel);
+    }
+
     public function manageUsers(User $user, Channel $channel): bool
     {
         return $user->can('channels.manage_users') && $this->canTouch($user, $channel);
@@ -49,6 +54,11 @@ class ChannelPolicy
     public function connectWhatsapp(User $user): bool
     {
         return $user->can('channels.connect_whatsapp');
+    }
+
+    public function connectMail(User $user): bool
+    {
+        return $user->can('channels.connect_mail');
     }
 
     private function canTouch(User $user, Channel $channel): bool

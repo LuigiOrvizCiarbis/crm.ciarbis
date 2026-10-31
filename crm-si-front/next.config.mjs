@@ -5,6 +5,18 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  async redirects() {
+    return [
+      // El módulo de cobranzas (SI-27) reemplaza a esta sección: era una
+      // maqueta con datos falsos hardcodeados, sin entrada en el sidebar.
+      // El flujo real vive en /contactos (filtro por rango + envío masivo).
+      {
+        source: "/administracion",
+        destination: "/contactos",
+        permanent: true,
+      },
+    ]
+  },
 }
 
 export default withSentryConfig(nextConfig, {

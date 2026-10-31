@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Spatie\Permission\Models\Role;
 
@@ -14,13 +15,20 @@ class Tenant extends Model
         'plan_id',
         'trial_ends_at',
         'timezone',
+        'navigation_labels',
         'owner_role_id',
+        'status',
+        'deletion_scheduled_at',
+        'deactivated_at',
     ];
 
     protected $casts = [
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         'trial_ends_at' => 'datetime',
+        'navigation_labels' => 'array',
+        'deletion_scheduled_at' => 'datetime',
+        'deactivated_at' => 'datetime',
     ];
 
     protected static function booted(): void
@@ -42,13 +50,25 @@ class Tenant extends Model
                 ['name' => 'Perdido', 'sort_order' => 6, 'is_default' => false],
             ];
 
+            $pipeline = Pipeline::create([
+                'tenant_id' => $tenant->id,
+                'name' => 'Ventas',
+                'is_default' => true,
+            ]);
+
             PipelineStage::insert(array_map(fn ($stage) => [
                 ...$stage,
                 'tenant_id' => $tenant->id,
+                'pipeline_id' => $pipeline->id,
                 'created_at' => $now,
                 'updated_at' => $now,
             ], $stages));
         });
+    }
+
+    public function pipelines(): HasMany
+    {
+        return $this->hasMany(Pipeline::class);
     }
 
     public function invitations(): HasMany
@@ -77,6 +97,19 @@ class Tenant extends Model
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
+    }
+
+    public function memberships(): HasMany
+    {
+        return $this->hasMany(TenantMembership::class);
+    }
+
+    public function activeMembers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'tenant_memberships')
+            ->wherePivotNull('removed_at')
+            ->withPivot(['id', 'branch_id', 'joined_at'])
+            ->withTimestamps();
     }
 
     public function branches(): HasMany

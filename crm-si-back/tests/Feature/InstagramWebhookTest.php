@@ -7,11 +7,13 @@ use App\Enums\MessageDirection;
 use App\Enums\UserRole;
 use App\Events\MessageSent;
 use App\Events\TenantMessageReceived;
+use App\Jobs\EvaluateAutomationEventJob;
 use App\Jobs\GenerateAiReplyJob;
 use App\Models\AiConfig;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
+use App\Models\InstagramComment;
 use App\Models\InstagramConfig;
 use App\Models\Message;
 use App\Models\Tenant;
@@ -97,6 +99,83 @@ class InstagramWebhookTest extends TestCase
         Event::assertDispatched(TenantMessageReceived::class);
         // Con ai_autoreply_default=false (default del canal) no se despacha IA.
         Queue::assertNotPushed(GenerateAiReplyJob::class);
+    }
+
+    public function test_comment_webhook_creates_comment_with_private_reply_deadline(): void
+    {
+        Queue::fake();
+        Http::fake();
+        [$channel] = $this->createChannel();
+        $payload = [
+            'object' => 'instagram',
+            'entry' => [[
+                'id' => $channel->external_id,
+                'changes' => [[
+                    'field' => 'comments',
+                    'value' => [
+                        'id' => 'comment_1',
+                        'from' => ['id' => 'IGSID_COMMENTER', 'username' => 'ana'],
+                        'text' => '¿Cuál es el precio?',
+                        'media' => ['id' => 'media_1', 'media_product_type' => 'FEED'],
+                    ],
+                ]],
+            ]],
+        ];
+
+        $this->postWebhook($payload)->assertOk();
+        $comment = InstagramComment::firstOrFail();
+        $this->assertSame('comment_1', $comment->external_id);
+        $this->assertSame('IGSID_COMMENTER', $comment->author_external_id);
+        $this->assertTrue($comment->private_reply_deadline->isFuture());
+        Queue::assertPushed(EvaluateAutomationEventJob::class, fn ($job) => $job->tenantId === $channel->tenant_id
+            && $job->event['subject_id'] === $comment->id
+            && $job->event['text'] === '¿Cuál es el precio?'
+        );
+    }
+
+    public function test_comment_webhook_in_direct_field_format_is_also_parsed(): void
+    {
+        Http::fake();
+        [$channel] = $this->createChannel();
+        $payload = [
+            'object' => 'instagram',
+            'entry' => [[
+                'id' => $channel->external_id,
+                'field' => 'comments',
+                'value' => [
+                    'id' => 'comment_direct',
+                    'from' => ['id' => 'IGSID_DIRECT', 'username' => 'lucia'],
+                    'text' => 'INFO',
+                    'media' => ['id' => 'media_direct', 'media_product_type' => 'REELS'],
+                ],
+            ]],
+        ];
+
+        $this->postWebhook($payload)->assertOk();
+
+        $comment = InstagramComment::firstOrFail();
+        $this->assertSame('comment_direct', $comment->external_id);
+        $this->assertSame('INFO', $comment->text);
+    }
+
+    public function test_duplicate_comment_webhook_is_deduplicated(): void
+    {
+        Http::fake();
+        [$channel] = $this->createChannel();
+        $payload = [
+            'object' => 'instagram',
+            'entry' => [[
+                'id' => $channel->external_id,
+                'changes' => [[
+                    'field' => 'comments',
+                    'value' => ['id' => 'comment_dup', 'from' => ['id' => 'IGSID_COMMENTER'], 'text' => 'hola'],
+                ]],
+            ]],
+        ];
+
+        $this->postWebhook($payload)->assertOk();
+        $this->postWebhook($payload)->assertOk();
+        $this->assertSame(1, InstagramComment::where('external_id', 'comment_dup')->count());
     }
 
     public function test_inbound_dispatches_ai_reply_when_autoreply_enabled(): void

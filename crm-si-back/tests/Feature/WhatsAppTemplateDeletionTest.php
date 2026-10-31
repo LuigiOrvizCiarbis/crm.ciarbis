@@ -122,9 +122,13 @@ class WhatsAppTemplateDeletionTest extends TestCase
     {
         [$owner, $channel] = $this->context();
         $template = $this->template($channel);
+        // El servicio reconoce este caso por `error_subcode` (2388023), no por
+        // el texto del detalle: matchear por mensaje no es confiable y borraría
+        // el espejo local ante cualquier "Invalid parameter" de Meta.
         Http::fake(['https://graph.facebook.com/*' => Http::response([
             'error' => [
                 'message' => 'Invalid parameter',
+                'error_subcode' => 2388023,
                 'error_data' => ['details' => 'Template name does not exist in the translation.'],
             ],
         ], 400)]);

@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Enums\BroadcastRecipientStatus;
 use App\Enums\MessageDirection;
 use App\Enums\MessageType;
 use App\Enums\SenderType;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -22,13 +24,18 @@ class Message extends Model
         'sender_id',
         'content',
         'message_type',
+        'contacts',
         'media_url',
         'media_mime_type',
         'media_filename',
+        'link_preview_id',
         'direction',
         'external_id',
+        'mail_message_id',
+        'mail_parent_message_id',
         'delivered_at',
         'read_at',
+        'played_at',
         'failed_at',
         'error_message',
         'edited_at',
@@ -39,15 +46,17 @@ class Message extends Model
         'sender_type' => SenderType::class,
         'direction' => MessageDirection::class,
         'message_type' => MessageType::class,
+        'contacts' => 'array',
         'delivered_at' => 'datetime',
         'read_at' => 'datetime',
+        'played_at' => 'datetime',
         'failed_at' => 'datetime',
         'edited_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
 
-    protected $appends = ['media_full_url'];
+    protected $appends = ['media_full_url', 'reaction_summary'];
 
     public function getMediaFullUrlAttribute(): ?string
     {
@@ -60,6 +69,22 @@ class Message extends Model
         }
 
         return rtrim(config('app.url'), '/').$this->media_url;
+    }
+
+    /**
+     * Agregado de reacciones listo para la burbuja. Devuelve null si la
+     * relación no está cargada, para no disparar una query por mensaje desde
+     * endpoints que no la pidieron (fail-safe: "no se ven reacciones", no N+1).
+     *
+     * @return list<array{emoji: string, count: int, reactor_user_ids: list<int>}>|null
+     */
+    public function getReactionSummaryAttribute(): ?array
+    {
+        if (! $this->relationLoaded('reactions')) {
+            return null;
+        }
+
+        return MessageReaction::summaryFor($this);
     }
 
     public function sender(): MorphTo
@@ -86,6 +111,41 @@ class Message extends Model
     public function translations(): HasMany
     {
         return $this->hasMany(MessageTranslation::class);
+    }
+
+    public function mailDetails(): HasOne
+    {
+        return $this->hasOne(MailMessageDetail::class);
+    }
+
+    public function mailAttachments(): HasMany
+    {
+        return $this->hasMany(self::class, 'mail_parent_message_id')->orderBy('id');
+    }
+
+    public function mailParent(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'mail_parent_message_id');
+    }
+
+    public function linkPreview(): BelongsTo
+    {
+        return $this->belongsTo(LinkPreview::class);
+    }
+
+    public function broadcastRecipient(): HasOne
+    {
+        return $this->hasOne(BroadcastRecipient::class);
+    }
+
+    public function interactions(): HasMany
+    {
+        return $this->hasMany(MessageInteraction::class, 'target_message_id');
+    }
+
+    public function reactions(): HasMany
+    {
+        return $this->hasMany(MessageReaction::class)->orderBy('reacted_at');
     }
 
     /**
@@ -137,6 +197,15 @@ class Message extends Model
     }
 
     /**
+     * Marcar un mensaje de voz como reproducido. Meta lo reporta solo la primera
+     * vez, así que no tiene sentido volver a escribirlo si ya está seteado.
+     */
+    public function markAsPlayed(): void
+    {
+        $this->update(['played_at' => now()]);
+    }
+
+    /**
      * Marcar mensaje como fallido, guardando el error reportado por el canal.
      */
     public function markAsFailed(?string $error = null): void
@@ -145,6 +214,15 @@ class Message extends Model
             'failed_at' => now(),
             'error_message' => $error,
         ]);
+
+        $recipient = $this->broadcastRecipient()->with('campaign')->first();
+        if ($recipient) {
+            $recipient->update([
+                'status' => BroadcastRecipientStatus::Failed,
+                'error' => $error,
+            ]);
+            $recipient->campaign->refreshDeliveryStatus();
+        }
     }
 
     /**
@@ -171,6 +249,14 @@ class Message extends Model
         return ! is_null($this->read_at);
     }
 
+    /**
+     * Verificar si el mensaje de voz fue reproducido
+     */
+    public function isPlayed(): bool
+    {
+        return ! is_null($this->played_at);
+    }
+
     public function isEdited(): bool
     {
         return ! is_null($this->edited_at);
@@ -184,6 +270,7 @@ class Message extends Model
             MessageType::Video => '🎥 '.($this->content ?: 'Video'),
             MessageType::Audio => '🎵 Audio',
             MessageType::Document => '📄 '.($this->content ?: 'Documento'),
+            MessageType::Contacts => '👤 '.($this->content ?: 'Contactos compartidos'),
             default => $this->content ?? '',
         };
     }

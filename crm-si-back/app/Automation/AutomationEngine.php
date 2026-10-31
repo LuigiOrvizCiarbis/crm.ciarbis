@@ -26,12 +26,15 @@ class AutomationEngine
             return;
         }
 
+        // Bulk update vía query builder: HasTimezoneAwareDates no aplica acá,
+        // así que now() necesita ->utc() explícito (started_at ya en UTC no
+        // se toca de nuevo).
         $claimed = AutomationRun::withoutGlobalScopes()
             ->whereKey($run->id)
             ->whereIn('status', [AutomationRunStatus::Scheduled, AutomationRunStatus::Queued])
             ->update([
                 'status' => AutomationRunStatus::Running,
-                'started_at' => $run->started_at ?? now(),
+                'started_at' => $run->started_at ?? now()->utc(),
                 'attempts' => $run->attempts + 1,
                 'error' => null,
             ]);

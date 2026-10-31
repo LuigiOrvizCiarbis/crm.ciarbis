@@ -6,6 +6,7 @@ use App\Enums\ContactFieldType;
 use App\Models\Contact;
 use App\Models\ContactField;
 use App\Models\MediaAsset;
+use App\Support\RepeaterFieldSchema;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Support\Facades\Auth;
@@ -63,6 +64,16 @@ class ValidContactCustomData implements ValidationRule
                 continue;
             }
 
+            // Sólo se valida lo que vino en este request. El payload llega
+            // mergeado con el custom_data que ya tenía el contacto, así que sin
+            // este filtro un valor viejo inválido —por ejemplo un campo File
+            // cuyo archivo se borró— bloquearía para siempre cualquier
+            // actualización de otros campos, incluida la confirmación de una
+            // extracción que no lo toca.
+            if (! $sentInPayload) {
+                continue;
+            }
+
             $rules = ['value' => $field->type->valueRules($field->options)];
             $itemRules = $field->type->itemRules($field->options);
             if ($itemRules !== null) {
@@ -76,6 +87,13 @@ class ValidContactCustomData implements ValidationRule
                     $fail("custom_data.{$key}: {$message}");
                 }
 
+                continue;
+            }
+
+            if ($field->type === ContactFieldType::Repeater) {
+                foreach (RepeaterFieldSchema::valueErrors($rawValue, $field->options ?? []) as $message) {
+                    $fail("custom_data.{$key}: {$message}");
+                }
                 continue;
             }
 

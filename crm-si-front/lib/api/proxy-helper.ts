@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies, headers } from "next/headers";
 import { reportApiFailure, reportConnectionFailure } from "@/lib/observability/sentry";
 
 type ProxyObservabilityOptions = {
@@ -11,6 +12,7 @@ type ProxyObservabilityOptions = {
 
 type ProxyToLaravelOptions = RequestInit & {
   rawBody?: boolean;
+  responseType?: "json" | "text" | "arrayBuffer";
   baseUrls?: string[];
   observability?: ProxyObservabilityOptions;
   /**
@@ -110,7 +112,7 @@ export async function proxyToLaravel(
   ].filter(Boolean);
 
   const bases = (options.baseUrls || defaultBases).map(stripSlash).filter(Boolean);
-  const { rawBody, baseUrls, observability, timeoutMs, ...fetchOptions } = options;
+  const { rawBody, responseType = "json", baseUrls, observability, timeoutMs, ...fetchOptions } = options;
   const perRequestTimeout = timeoutMs ?? 15000;
   const tried: string[] = [];
   let lastConnectionError: unknown;
@@ -125,6 +127,13 @@ export async function proxyToLaravel(
         "Accept": "application/json",
         "Authorization": authHeader,
       };
+      // El cookie es un fallback para navegaciones. El header lo envía cada
+      // pestaña desde sessionStorage y evita que un cambio en otra pestaña
+      // altere el contexto de la petición actual.
+      const requestHeaders = await headers();
+      const workspaceId = requestHeaders.get("x-workspace-id")
+        ?? (await cookies()).get("active-workspace-id")?.value;
+      if (workspaceId) defaultHeaders["X-Workspace-Id"] = workspaceId;
       if (!rawBody) {
         defaultHeaders["Content-Type"] = "application/json";
       }
@@ -139,7 +148,15 @@ export async function proxyToLaravel(
         },
       });
 
-      const data = await res.json().catch(() => ({}));
+      const data = responseType === "text"
+        ? await res.text()
+        : responseType === "arrayBuffer"
+          ? await res.arrayBuffer()
+          : await res.json().catch(() => ({}));
+      const responseHeaders = {
+        contentType: res.headers.get("content-type"),
+        contentDisposition: res.headers.get("content-disposition"),
+      };
 
       if (!res.ok) {
         reportProxyResponseError({
@@ -155,13 +172,13 @@ export async function proxyToLaravel(
 
       // Retornar si es exitoso o error cliente (400-499)
       if (res.ok || (res.status >= 400 && res.status < 500)) {
-        return { data, status: res.status };
+        return { data, status: res.status, ...responseHeaders };
       }
 
       // No reintentar mutaciones: evita duplicar escrituras cuando el backend
       // creó el recurso pero falló en un paso posterior (por ejemplo, email).
       if (!isRetryableMethod) {
-        return { data, status: res.status };
+        return { data, status: res.status, ...responseHeaders };
       }
 
       // 5xx: intentar siguiente backend para métodos idempotentes
@@ -201,5 +218,7 @@ export async function proxyToLaravel(
   return {
     data: { message: "Ocurrió un error interno. Inténtalo de nuevo más tarde." },
     status: 502,
+    contentType: null,
+    contentDisposition: null,
   };
 }

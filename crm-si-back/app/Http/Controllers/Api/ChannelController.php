@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Channel;
+use App\Services\Channels\ChannelDisconnector;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -17,7 +18,7 @@ class ChannelController extends Controller
         $user = $request->user();
 
         $channels = Channel::query()
-            ->with('whatsappConfig', 'instagramConfig', 'facebookConfig', 'user', 'users')
+            ->with('whatsappConfig', 'instagramConfig', 'facebookConfig', 'mailConfig', 'user', 'users')
             ->withCount(['conversations as conversations_count' => function (Builder $query) use ($user): void {
                 $query->visibleTo($user)
                     ->where(function (Builder $inner): void {
@@ -105,10 +106,25 @@ class ChannelController extends Controller
         $this->authorize('update', $channel);
 
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'sometimes|required|string|max:255',
+            'handoff_responsible_user_id' => ['sometimes', 'nullable', 'integer'],
+            'handoff_whatsapp_alert_enabled' => ['sometimes', 'boolean'],
         ]);
 
-        $channel->update(['name' => $validated['name']]);
+        // El responsable de derivaciones tiene que poder atender el canal: su
+        // dueño o alguien asignado a él.
+        $responsibleId = $validated['handoff_responsible_user_id'] ?? null;
+        if ($responsibleId !== null) {
+            $isChannelUser = (int) $channel->user_id === (int) $responsibleId
+                || $channel->users()->whereKey($responsibleId)->exists();
+            if (! $isChannelUser) {
+                return response()->json([
+                    'message' => 'El responsable debe pertenecer al canal.',
+                    'errors' => ['handoff_responsible_user_id' => ['El responsable debe pertenecer al canal.']],
+                ], 422);
+            }
+        }
+        $channel->update($validated);
 
         return response()->json(['data' => $channel->refresh()]);
     }
@@ -152,6 +168,36 @@ class ChannelController extends Controller
         return response()->json([
             'message' => 'Usuarios sincronizados',
             'users' => $channel->users()->get(['id', 'name', 'email']),
+        ]);
+    }
+
+    /**
+     * Desconexión "blanda": revoca la suscripción de webhooks en Meta
+     * (best-effort) y purga las credenciales, pero conserva conversaciones,
+     * mensajes y difusiones. El canal se puede reconectar por el wizard.
+     */
+    public function disconnect(Request $request, ChannelDisconnector $disconnector, $id)
+    {
+        $channel = Channel::query()
+            ->with(['whatsappConfig', 'instagramConfig', 'facebookConfig', 'mailConfig'])
+            ->findOrFail($id);
+
+        $this->authorize('disconnect', $channel);
+
+        if ($channel->isDisconnected()) {
+            return response()->json([
+                'message' => 'El canal ya estaba desconectado.',
+                'data' => $channel,
+                'warnings' => [],
+            ]);
+        }
+
+        $result = $disconnector->disconnect($channel, $request->user());
+
+        return response()->json([
+            'message' => 'Canal desconectado.',
+            'data' => $channel->refresh(),
+            'warnings' => $result->warnings,
         ]);
     }
 }

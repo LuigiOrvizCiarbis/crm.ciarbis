@@ -2,14 +2,21 @@
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { ChevronDown, ChevronLeft, ChevronRight, LogOut, Menu } from "lucide-react"
+import { ChevronDown, ChevronLeft, ChevronRight, LogOut, Menu, Settings, User } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useState, useEffect } from "react"
 import { useAuthStore } from "@/store/useAuthStore"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Tooltip,
   TooltipContent,
@@ -18,6 +25,10 @@ import {
 } from "@/components/ui/tooltip"
 import { useTranslation } from "@/hooks/useTranslation"
 import { LanguageSwitcher } from "@/components/LanguageSwitcher"
+import { resolveNavigationLabel } from "@/data/navigation"
+import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher"
+import { NotificationsBell } from "@/components/notifications-bell"
+import { accessibleNavigationItems, canAccessSection } from "@/lib/section-access"
 
 interface SidebarProps {
   className?: string
@@ -30,13 +41,10 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
   const pathname = usePathname()
   const router = useRouter()
   const [openSections, setOpenSections] = useState<string[]>([])
-  const { user, token, logout, permissions } = useAuthStore()
+  const { user, token, logout } = useAuthStore()
+  const permissions = useAuthStore((state) => state.permissions)
+  const role = useAuthStore((state) => state.role)
   const { t } = useTranslation()
-
-  const hasAnyPerm = (perms?: string[]) => {
-    if (!perms || perms.length === 0) return true
-    return perms.some((p) => (permissions ?? []).includes(p))
-  }
 
   const handleLogout = async () => {
     try {
@@ -60,44 +68,8 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
     setOpenSections((prev) => (prev.includes(section) ? prev.filter((s) => s !== section) : [...prev, section]))
   }
 
-  const navItems = [
-    {
-      href: "/dashboard",
-      emoji: "📊",
-      label: t("nav.panel"),
-      shortLabel: t("nav.panelShort"),
-    },
-    {
-      href: "/chats",
-      emoji: "💬",
-      label: t("nav.chats"),
-      shortLabel: t("nav.chatsShort"),
-    },
-    {
-      href: "/contactos",
-      emoji: "👥",
-      label: t("nav.contacts"),
-      shortLabel: t("nav.contactsShort"),
-    },
-    {
-      href: "/catalogo",
-      emoji: "📦",
-      label: t("nav.catalog"),
-      shortLabel: t("nav.catalogShort"),
-    },
-    {
-      href: "/oportunidades",
-      emoji: "🎯",
-      label: t("nav.pipeline"),
-      shortLabel: t("nav.pipelineShort"),
-    },
-    {
-      href: "/tareas",
-      emoji: "✅",
-      label: t("nav.tasks"),
-      shortLabel: t("nav.tasksShort"),
-    },
-  ]
+  const accessibleItems = accessibleNavigationItems(permissions, role)
+  const navItems = accessibleItems.filter((item) => item.key !== "settings")
 
   const automationItems = [
     {
@@ -132,14 +104,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
     },
   ]
 
-  const bottomItems = [
-    {
-      href: "/configuracion",
-      emoji: "⚙️",
-      label: t("nav.settings"),
-      shortLabel: t("nav.settingsShort"),
-    },
-  ]
+  const bottomItems = accessibleItems.filter((item) => item.key === "settings")
 
   const isAutomationActive = automationItems.some((item) => pathname === item.href)
 
@@ -177,35 +142,13 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
             />
           </div>
         )}
+        {!isCollapsed && <NotificationsBell />}
         <Button variant="ghost" size="sm" onClick={onToggle} className="p-2 hover:bg-sidebar-accent">
           {isCollapsed ? <Menu className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </Button>
       </div>
 
-      {!isCollapsed && user?.tenant?.name && (
-        <div className="px-4 py-3 border-b border-sidebar-border">
-          <div className="w-full flex items-center gap-3 rounded-md p-2">
-            <Avatar className="h-9 w-9">
-              <AvatarFallback className="bg-linear-to-br from-blue-500 to-violet-500 text-white text-xs font-semibold">
-                {user.tenant.name
-                  .split(" ")
-                  .map((part) => part[0])
-                  .join("")
-                  .toUpperCase()
-                  .slice(0, 2)}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0 text-left">
-              <p className="text-sm font-medium text-sidebar-foreground truncate">
-                {user.tenant.name}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {t("tenant.activeClient")}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      {user?.tenant?.name && <div className="border-b border-sidebar-border px-3 py-3"><WorkspaceSwitcher collapsed={isCollapsed} /></div>}
 
       {/* Navigation */}
       <nav
@@ -217,6 +160,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
         {/* Main navigation items */}
         {navItems.map((item) => {
           const isActive = pathname === item.href
+          const label = resolveNavigationLabel(item, user?.tenant?.navigation_labels, t)
 
           return (
             <Link key={item.href} href={item.href}>
@@ -230,15 +174,15 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
-                title={isCollapsed ? item.label : undefined}
+                title={label}
               >
                 <span className={cn(isCollapsed ? "text-xl leading-none" : "text-base")}>{item.emoji}</span>
                 {isCollapsed ? (
-                  <span className="text-[10px] font-medium leading-tight text-center">
-                    {item.shortLabel || item.label}
+                  <span className="w-full truncate text-[10px] font-medium leading-tight text-center">
+                    {label}
                   </span>
                 ) : (
-                  item.label
+                  <span className="truncate">{label}</span>
                 )}
               </Button>
             </Link>
@@ -306,8 +250,9 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
         )}
 
         {/* Bottom items */}
-        {bottomItems.filter((item) => hasAnyPerm((item as any).requires)).map((item) => {
+        {bottomItems.map((item) => {
           const isActive = pathname === item.href
+          const label = resolveNavigationLabel(item, user?.tenant?.navigation_labels, t)
 
           return (
             <Link key={item.href} href={item.href}>
@@ -321,15 +266,15 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
-                title={isCollapsed ? item.label : undefined}
+                title={label}
               >
                 <span className={cn(isCollapsed ? "text-xl leading-none" : "text-base")}>{item.emoji}</span>
                 {isCollapsed ? (
-                  <span className="text-[10px] font-medium leading-tight text-center">
-                    {item.shortLabel || item.label}
+                  <span className="w-full truncate text-[10px] font-medium leading-tight text-center">
+                    {label}
                   </span>
                 ) : (
-                  item.label
+                  <span className="truncate">{label}</span>
                 )}
               </Button>
             </Link>
@@ -340,39 +285,42 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
       {/* Footer */}
       {!isCollapsed && (
         <div className="mt-auto shrink-0 space-y-3 border-t border-sidebar-border p-4">
-          {/* User info + Logout */}
-          <div className="flex items-center gap-3">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
-                {userInitials}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-sidebar-foreground truncate">
-                {user?.name || "Usuario"}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {user?.email || ""}
-              </p>
-            </div>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleLogout}
-                    className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                  >
-                    <LogOut className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>{t("nav.logout")}</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
+          {/* User info + menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex w-full items-center gap-3 rounded-md p-1 text-left transition-colors hover:bg-sidebar-accent">
+                <Avatar className="h-8 w-8">
+                  <AvatarImage src={user?.avatar_url ?? undefined} alt={user?.name ?? ""} />
+                  <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
+                    {userInitials}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-sidebar-foreground truncate">
+                    {user?.name || "Usuario"}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {user?.email || ""}
+                  </p>
+                </div>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top" className="w-56">
+              <DropdownMenuItem onClick={() => router.push("/perfil")}>
+                <User className="mr-2 h-4 w-4" />
+                {t("nav.profile")}
+              </DropdownMenuItem>
+              {canAccessSection("settings", permissions, role) ? <DropdownMenuItem onClick={() => router.push("/configuracion")}>
+                <Settings className="mr-2 h-4 w-4" />
+                {t("nav.settings")}
+              </DropdownMenuItem> : null}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+                <LogOut className="mr-2 h-4 w-4" />
+                {t("nav.logout")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <div className="flex items-center justify-between">
             <LanguageSwitcher />
@@ -386,23 +334,45 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
 
       {isCollapsed && (
         <div className="mt-auto shrink-0 space-y-2 border-t border-sidebar-border p-2">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleLogout}
-                  className="w-full h-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                >
-                  <LogOut className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>{t("nav.logout")}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <div className="flex justify-center">
+            <NotificationsBell side="right" align="end" />
+          </div>
+          <DropdownMenu>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button className="flex w-full items-center justify-center rounded-md p-1.5 transition-colors hover:bg-sidebar-accent">
+                      <Avatar className="h-7 w-7">
+                        <AvatarImage src={user?.avatar_url ?? undefined} alt={user?.name ?? ""} />
+                        <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
+                          {userInitials}
+                        </AvatarFallback>
+                      </Avatar>
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>{user?.name || "Usuario"}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <DropdownMenuContent align="start" side="right" className="w-56">
+              <DropdownMenuItem onClick={() => router.push("/perfil")}>
+                <User className="mr-2 h-4 w-4" />
+                {t("nav.profile")}
+              </DropdownMenuItem>
+              {canAccessSection("settings", permissions, role) ? <DropdownMenuItem onClick={() => router.push("/configuracion")}>
+                <Settings className="mr-2 h-4 w-4" />
+                {t("nav.settings")}
+              </DropdownMenuItem> : null}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+                <LogOut className="mr-2 h-4 w-4" />
+                {t("nav.logout")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <div className="flex justify-center">
             <ThemeToggle />
           </div>

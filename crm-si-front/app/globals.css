@@ -21,6 +21,10 @@
   --accent-foreground: oklch(1 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(1 0 0);
+  /* Estados de mensaje: roles semánticos medidos contra su superficie. */
+  --success: oklch(0.532 0.135 155);
+  --message-status-on-primary: oklch(0.988 0.003 279);
+  --message-read-on-primary: oklch(0.32 0.1 155);
   --border: oklch(0.922 0.013 106.423);
   --input: oklch(0.976 0.006 106.423);
   --ring: oklch(0.631 0.206 221.275 / 0.5);
@@ -61,6 +65,9 @@
   --accent-foreground: oklch(1 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(1 0 0);
+  --success: oklch(0.69 0.12 155);
+  --message-status-on-primary: oklch(0.965 0.004 279);
+  --message-read-on-primary: oklch(0.32 0.1 155);
   --border: oklch(0.269 0.015 258.338);
   --input: oklch(0.269 0.015 258.338);
   --ring: oklch(0.631 0.206 221.275 / 0.5);
@@ -102,6 +109,9 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-message-status-on-primary: var(--message-status-on-primary);
+  --color-message-read-on-primary: var(--message-read-on-primary);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -147,6 +157,67 @@
 }
 
 @layer utilities {
+  /*
+   * Profundidad del hilo de chat.
+   *
+   * La retícula de fondo se desplaza contra el scroll de los mensajes y se
+   * abre a medida que uno baja: densa y presente arriba (historial), más
+   * aireada abajo (mensajes recientes). El desplazamiento total son ~10px,
+   * suficiente para leerse como profundidad y no como movimiento.
+   *
+   * Va todo por CSS con scroll-driven animations: cero JS, cero trabajo en el
+   * hilo principal, el compositor lo resuelve solo. El scroller nombra el
+   * timeline y el fondo lo consume aunque sea su hermano, vía timeline-scope.
+   */
+  .thread-scroll-root {
+    timeline-scope: --thread-scroll;
+  }
+
+  .thread-scroller {
+    scroll-timeline: --thread-scroll block;
+  }
+
+  /* Fallback (Firefox, y quien pida menos movimiento): retícula fija en su
+     estado presente. Es un fondo estático correcto, no una degradación. */
+  .thread-depth {
+    opacity: var(--thread-depth-from, 0.16);
+  }
+
+  @keyframes thread-depth {
+    from {
+      transform: translate3d(0, 0, 0);
+      opacity: var(--thread-depth-from, 0.16);
+    }
+    to {
+      transform: translate3d(0, calc(var(--thread-depth-shift, 6px) * -1), 0);
+      opacity: var(--thread-depth-to, 0.06);
+    }
+  }
+
+  @supports (animation-timeline: scroll()) {
+    .thread-depth {
+      animation: thread-depth linear both;
+      animation-timeline: --thread-scroll;
+      will-change: transform, opacity;
+    }
+
+    /* La capa cercana recorre más: eso es el parálax. */
+    .thread-depth--near {
+      --thread-depth-shift: 14px;
+    }
+
+    /* Dentro del @supports para que gane por orden de cascada: si la guarda
+       vive afuera, esta misma regla la vuelve a activar. */
+    @media (prefers-reduced-motion: reduce) {
+      .thread-depth {
+        animation: none;
+        transform: none;
+        opacity: var(--thread-depth-from, 0.16);
+      }
+    }
+  }
+
+
   /* Entrada escalonada de la landing. Solo opacity/transform. */
   @keyframes landing-rise {
     from {

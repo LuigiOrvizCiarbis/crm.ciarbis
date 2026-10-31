@@ -72,6 +72,24 @@ class MessagePolicy
     }
 
     /**
+     * Reaccionar es enviar algo al contacto: se autoriza con el mismo
+     * permiso que mandar un mensaje (conversations.send_message), no con
+     * messages.update (que es "editar lo mío"). No hay un permiso dedicado
+     * a propósito: quien puede escribir en la conversación puede reaccionar.
+     */
+    public function react(User $user, Message $message): bool
+    {
+        if (! $this->sameTenant($user, $message)) {
+            return false;
+        }
+
+        $conversation = $message->conversation;
+
+        return $conversation !== null
+            && $this->conversations->sendMessage($user, $conversation);
+    }
+
+    /**
      * Message does not use the BelongsToTenant global scope, so route model
      * binding can resolve cross-tenant messages. Enforce tenancy here so the
      * delete_any/update_any short-circuits never apply across tenants.

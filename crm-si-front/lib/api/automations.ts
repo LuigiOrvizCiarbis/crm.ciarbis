@@ -16,11 +16,12 @@ export interface AutomationCondition {
 export interface AutomationAction {
   id?: number
   position?: number
-  type: "whatsapp_template"
+  type: "whatsapp_template" | "instagram_private_reply"
   config: {
     channel_id?: number
     template_id?: number
     parameters?: Array<{ component?: string; name?: string; source: "literal" | "field" | "media_asset"; value?: string; path?: string; fallback?: string; media_asset_id?: number }>
+    message?: string
   }
 }
 
@@ -42,7 +43,7 @@ export interface AutomationRule {
 export interface AutomationRun {
   id: number
   status: AutomationRunStatus
-  subject_type: "contact" | "conversation"
+  subject_type: "contact" | "conversation" | "instagram_comment"
   subject_id: number
   scheduled_for: string | null
   finished_at: string | null
@@ -83,8 +84,26 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const getAutomations = async () => {
-  const data = await request<{ data: AutomationRule[] } | AutomationRule[]>("/api/automations")
-  return Array.isArray(data) ? data : data.data
+  const token = getAuthToken()
+  if (!token) throw new Error("No authentication token found")
+
+  const all: AutomationRule[] = []
+  let page = 1
+  let lastPage = 1
+
+  do {
+    const response = await fetch(`/api/automations?per_page=100&page=${page}`, {
+      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throwApiError(response.status, payload, "Error al cargar automatizaciones")
+
+    all.push(...(payload.data ?? []))
+    lastPage = Number(payload.meta?.last_page ?? page)
+    page += 1
+  } while (page <= lastPage)
+
+  return all
 }
 export const createAutomation = (payload: AutomationPayload) => request<AutomationRule>("/api/automations", { method: "POST", body: JSON.stringify(payload) })
 export const updateAutomation = (id: number, payload: AutomationPayload) => request<AutomationRule>(`/api/automations/${id}`, { method: "PUT", body: JSON.stringify(payload) })

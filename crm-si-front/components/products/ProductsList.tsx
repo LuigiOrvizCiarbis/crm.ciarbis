@@ -19,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { DataTable, type DataTableColumn, type DataTableSort } from "@/components/ui/data-table"
-import { CustomFieldInput } from "@/components/CustomFieldInput"
+import { CustomChoiceBadge, CustomFieldInput } from "@/components/CustomFieldInput"
 import { useProductFieldsStore } from "@/store/useProductFieldsStore"
 import type { ProductField } from "@/lib/api/product-fields"
 import {
@@ -46,7 +46,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { ImportProductsDialog } from "@/components/products/import-products-dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { UniversalImportDialog } from "@/components/import/universal-import-dialog"
 
 interface FormState {
   name: string
@@ -64,7 +71,8 @@ const EMPTY_FORM: FormState = {
   custom_data: {},
 }
 
-const PAGE_SIZE = 10
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+const DEFAULT_PAGE_SIZE = 25
 
 // Keys that map to real product columns rather than to custom_data. `name` is
 // always fixed; price/description/is_active are seeded ProductField defaults but
@@ -75,9 +83,60 @@ type TranslateFn = ReturnType<typeof useTranslation>["t"]
 
 function formatCustomValue(raw: unknown, type: ProductField["type"], t: TranslateFn): string {
   if (raw === null || raw === undefined || raw === "") return "—"
+  if (type === "repeater" && Array.isArray(raw)) return `${raw.length} ${raw.length === 1 ? "element" : "elements"}`
   if (Array.isArray(raw)) return raw.length ? raw.join(", ") : "—"
   if (type === "boolean") return raw ? t("common.yes") : t("common.no")
   return String(raw)
+}
+
+/**
+ * Compara dos valores de un campo custom para ordenar la tabla.
+ *
+ * El criterio depende del tipo, igual que el orden server-side de contactos:
+ * numéricos y moneda como número (si no, "9" > "10"), booleanos por
+ * verdadero/falso, fechas por su ISO (que ordena igual que cronológicamente) y
+ * el resto por texto con locale. Los valores vacíos van siempre al final, en
+ * ambas direcciones: la ausencia de dato no es "el valor más chico".
+ */
+function compareCustomValues(
+  a: unknown,
+  b: unknown,
+  type: ProductField["type"],
+  dir: number,
+): number {
+  const isEmpty = (v: unknown) =>
+    v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0)
+
+  const aEmpty = isEmpty(a)
+  const bEmpty = isEmpty(b)
+  if (aEmpty && bEmpty) return 0
+  if (aEmpty) return 1
+  if (bEmpty) return -1
+
+  if (type === "number" || type === "currency") {
+    const av = Number(a)
+    const bv = Number(b)
+    // Un valor no numérico cargado a mano no puede compararse; se trata como
+    // vacío para que no altere el orden del resto.
+    if (Number.isNaN(av) && Number.isNaN(bv)) return 0
+    if (Number.isNaN(av)) return 1
+    if (Number.isNaN(bv)) return -1
+    return (av - bv) * dir
+  }
+
+  if (type === "boolean") {
+    return (Number(Boolean(a)) - Number(Boolean(b))) * dir
+  }
+
+  if (type === "repeater" || type === "multi_select") {
+    // Colecciones: ordenar por cantidad de elementos es lo único comparable,
+    // y coincide con lo que muestra la celda.
+    const av = Array.isArray(a) ? a.length : 0
+    const bv = Array.isArray(b) ? b.length : 0
+    return (av - bv) * dir
+  }
+
+  return String(a).localeCompare(String(b), undefined, { numeric: true }) * dir
 }
 
 const sourceColors: Record<string, string> = {
@@ -100,6 +159,7 @@ export function ProductsList() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
@@ -138,6 +198,14 @@ export function ProductsList() {
     () => productFields.filter((f) => !NATIVE_FIELD_KEYS.has(f.key)),
     [productFields],
   )
+
+  // Un campo custom eliminado deja el sort apuntando a una columna que ya no
+  // se renderiza; se descarta para no mostrar un orden que no está aplicado.
+  useEffect(() => {
+    if (!fieldsLoaded || !sort?.columnId.startsWith("custom:")) return
+    if (customFields.some((f) => `custom:${f.key}` === sort.columnId)) return
+    setSort(null)
+  }, [fieldsLoaded, customFields, sort])
 
   const load = useCallback(
     async (searchTerm?: string) => {
@@ -245,6 +313,22 @@ export function ProductsList() {
   const sortedProducts = useMemo(() => {
     if (!sort) return products
     const dir = sort.direction === "asc" ? 1 : -1
+    const customField = sort.columnId.startsWith("custom:")
+      ? customFields.find((f) => `custom:${f.key}` === sort.columnId)
+      : undefined
+
+    if (customField) {
+      return [...products].sort(
+        (a, b) =>
+          compareCustomValues(
+            a.custom_data?.[customField.key],
+            b.custom_data?.[customField.key],
+            customField.type,
+            dir,
+          ),
+      )
+    }
+
     return [...products].sort((a, b) => {
       switch (sort.columnId) {
         case "name":
@@ -262,12 +346,12 @@ export function ProductsList() {
           return 0
       }
     })
-  }, [products, sort])
+  }, [products, sort, customFields])
 
-  const totalPages = Math.max(1, Math.ceil(sortedProducts.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(sortedProducts.length / pageSize))
   const currentPage = Math.min(page, totalPages)
-  const pageStart = (currentPage - 1) * PAGE_SIZE
-  const paginatedProducts = sortedProducts.slice(pageStart, pageStart + PAGE_SIZE)
+  const pageStart = (currentPage - 1) * pageSize
+  const paginatedProducts = sortedProducts.slice(pageStart, pageStart + pageSize)
 
   const formatPrice = (price: string | null) => {
     if (price === null || price === "") return "—"
@@ -360,11 +444,21 @@ export function ProductsList() {
     ...customFields.map<DataTableColumn<Product>>((field) => ({
       id: `custom:${field.key}`,
       header: field.label,
+      sortable: true,
       minWidth: "140px",
       cell: (product) => (
-        <span className="text-sm">
-          {formatCustomValue(product.custom_data?.[field.key], field.type, t)}
-        </span>
+        field.type === "repeater" ? (
+          <button type="button" className="text-left text-sm underline-offset-2 hover:underline" onClick={() => openEdit(product)}>
+            {formatCustomValue(product.custom_data?.[field.key], field.type, t)}
+          </button>
+        ) : field.type === "select" && product.custom_data?.[field.key] ? (
+          <CustomChoiceBadge
+            choice={String(product.custom_data[field.key])}
+            color={field.options?.choice_colors?.[String(product.custom_data[field.key])]}
+          />
+        ) : (
+          <span className="text-sm">{formatCustomValue(product.custom_data?.[field.key], field.type, t)}</span>
+        )
       ),
     })),
     {
@@ -483,6 +577,25 @@ export function ProductsList() {
             })}
           </p>
           <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">{t("catalog.perPage")}</span>
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => {
+                setPageSize(Number(value))
+                setPage(1)
+              }}
+            >
+              <SelectTrigger className="h-8 w-20">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZE_OPTIONS.map((option) => (
+                  <SelectItem key={option} value={String(option)}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               variant="outline"
               size="sm"
@@ -630,9 +743,10 @@ export function ProductsList() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <ImportProductsDialog
+      <UniversalImportDialog
         open={importOpen}
         onOpenChange={setImportOpen}
+        productFields={productFields}
         onImportComplete={() => void load(search.trim() || undefined)}
       />
     </div>

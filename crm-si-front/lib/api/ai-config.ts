@@ -6,6 +6,7 @@ export interface AiConfig {
   provider: AiProviderId | null
   model: string | null
   enabled: boolean
+  human_handoff_enabled: boolean
   system_prompt: string | null
   has_api_key: boolean
 }
@@ -14,6 +15,7 @@ export interface AiConfigInput {
   provider: AiProviderId
   model?: string | null
   enabled: boolean
+  human_handoff_enabled?: boolean
   system_prompt?: string | null
   // Write-only: solo se manda si el usuario cargó una nueva key.
   api_key?: string

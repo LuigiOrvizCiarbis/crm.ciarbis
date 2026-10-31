@@ -450,6 +450,55 @@ class AutomationEngineTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_date_field_is_sent_as_a_readable_date_instead_of_the_iso_value(): void
+    {
+        [$owner, $channel, $template] = $this->context();
+        ContactField::create(['tenant_id' => $owner->tenant_id, 'key' => 'vencimiento', 'label' => 'Vencimiento', 'type' => ContactFieldType::Date]);
+        $contact = Contact::create(['tenant_id' => $owner->tenant_id, 'name' => 'Ada', 'phone' => '5491155555555', 'source' => 'manual', 'custom_data' => ['vencimiento' => '2026-09-13']]);
+
+        $rule = $this->activeRule($owner, $channel, $template);
+        $rule->actions()->first()->update(['config' => ['channel_id' => $channel->id, 'template_id' => $template->id, 'parameters' => [
+            ['name' => 'nombre', 'source' => 'field', 'path' => 'contact.custom_data.vencimiento'],
+        ]]]);
+        $run = $this->queuedRun($rule->load('actions'), $contact);
+        Http::fake(['https://graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.date']]], 200)]);
+
+        app(AutomationEngine::class)->execute($run);
+
+        // El día es el guardado, no el anterior: la fecha pelada no se convierte
+        // pasando por un timestamp, así que no hay corrimiento por zona horaria.
+        Http::assertSent(function ($request) {
+            $body = collect($request['template']['components'] ?? [])->firstWhere('type', 'body');
+
+            return $body !== null && $body['parameters'][0]['text'] === '13/09/2026';
+        });
+        $this->assertSame(AutomationRunStatus::Succeeded, $run->fresh()->status);
+    }
+
+    public function test_a_date_field_holding_a_non_iso_value_is_sent_untouched(): void
+    {
+        [$owner, $channel, $template] = $this->context();
+        ContactField::create(['tenant_id' => $owner->tenant_id, 'key' => 'vencimiento', 'label' => 'Vencimiento', 'type' => ContactFieldType::Date]);
+        $contact = Contact::create(['tenant_id' => $owner->tenant_id, 'name' => 'Ada', 'phone' => '5491144444444', 'source' => 'manual', 'custom_data' => ['vencimiento' => 'a confirmar']]);
+
+        $rule = $this->activeRule($owner, $channel, $template);
+        $rule->actions()->first()->update(['config' => ['channel_id' => $channel->id, 'template_id' => $template->id, 'parameters' => [
+            ['name' => 'nombre', 'source' => 'field', 'path' => 'contact.custom_data.vencimiento'],
+        ]]]);
+        $run = $this->queuedRun($rule->load('actions'), $contact);
+        Http::fake(['https://graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.raw']]], 200)]);
+
+        app(AutomationEngine::class)->execute($run);
+
+        // Un dato viejo o importado flojo no rompe el envío: se manda tal cual.
+        Http::assertSent(function ($request) {
+            $body = collect($request['template']['components'] ?? [])->firstWhere('type', 'body');
+
+            return $body !== null && $body['parameters'][0]['text'] === 'a confirmar';
+        });
+        $this->assertSame(AutomationRunStatus::Succeeded, $run->fresh()->status);
+    }
+
     private function payload(int $channelId, int $templateId): array
     {
         return [

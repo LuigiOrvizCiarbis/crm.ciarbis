@@ -1,9 +1,10 @@
-import { getAuthToken } from "./auth-token";
+import { getAuthToken, workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 
 export type ContactFieldType =
   | "text"
   | "number"
+  | "currency"
   | "date"
   | "boolean"
   | "select"
@@ -11,10 +12,29 @@ export type ContactFieldType =
   | "email"
   | "url"
   | "phone"
-  | "file";
+  | "file"
+  | "repeater";
 
 export interface ContactFieldOptions {
   choices?: string[];
+  /** Color opcional por valor de los campos select/multi_select. */
+  choice_colors?: Record<string, string>;
+  /** Divisa de un campo tipo moneda (ARS | USD). El valor guardado es el importe pelado. */
+  currency?: string;
+  fields?: RepeaterSubfield[];
+  min_items?: number;
+  max_items?: number;
+}
+
+export type RepeaterSubfieldType = Exclude<ContactFieldType, "file" | "multi_select" | "repeater">;
+
+export interface RepeaterSubfield {
+  key?: string;
+  label: string;
+  type: RepeaterSubfieldType;
+  options?: { choices?: string[]; currency?: string } | null;
+  is_required?: boolean;
+  is_active?: boolean;
 }
 
 export interface ContactField {
@@ -58,6 +78,7 @@ function headers(): HeadersInit {
     Authorization: token ? `Bearer ${token}` : "",
     Accept: "application/json",
     "Content-Type": "application/json",
+    ...workspaceHeaders(),
   };
 }
 
@@ -125,4 +146,31 @@ export async function reorderContactFields(items: Array<{ id: number; display_or
     const payload = await response.json().catch(() => ({}));
     throwApiError(response.status, payload, "Error al reordenar campos");
   }
+}
+
+export type ContactFieldPreset = "rental_contract";
+
+export interface ApplyPresetResult {
+  data: ContactField[];
+  /** Keys creadas por el preset. */
+  created: string[];
+  /** Keys que ya existían: no se duplican ni se pisan. */
+  existing: string[];
+}
+
+/**
+ * Crea de una vez los campos de una plantilla (por ejemplo un contrato de
+ * alquiler). Quedan como campos normales: editables, reordenables y borrables.
+ */
+export async function applyContactFieldPreset(preset: ContactFieldPreset): Promise<ApplyPresetResult> {
+  const response = await fetch("/api/contact-fields/apply-preset", {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ preset }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throwApiError(response.status, payload, "Error al aplicar la plantilla");
+
+  return payload as ApplyPresetResult;
 }

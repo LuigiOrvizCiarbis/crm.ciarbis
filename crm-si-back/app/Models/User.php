@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\NotificationType;
 use App\Models\Concerns\BelongsToTenant;
 use App\Notifications\CustomResetPassword;
 use App\Notifications\CustomVerifyEmail;
@@ -34,6 +35,16 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     protected string $guard_name = 'web';
 
+    /**
+     * Defaults aplicados por el accessor `preferences` sobre lo guardado en
+     * DB, para que el front nunca reciba claves faltantes.
+     */
+    public const DEFAULT_PREFERENCES = [
+        'locale' => 'es',
+        'timezone' => 'America/Argentina/Buenos_Aires',
+        'date_format' => 'dd/MM/yyyy',
+    ];
+
     protected $fillable = [
         'name',
         'email',
@@ -41,6 +52,10 @@ class User extends Authenticatable implements MustVerifyEmail
         'tenant_id',
         'branch_id',
         'email_verified_at',
+        'avatar_path',
+        'phone',
+        'job_title',
+        'preferences',
     ];
 
     protected ?bool $isTenantOwnerCache = null;
@@ -55,7 +70,63 @@ class User extends Authenticatable implements MustVerifyEmail
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'preferences' => 'array',
         ];
+    }
+
+    /**
+     * URL pública del avatar, o null si no tiene. Mismo patrón que
+     * MediaAsset::publicUrl().
+     */
+    public function avatarUrl(): ?string
+    {
+        if ($this->avatar_path === null) {
+            return null;
+        }
+
+        $base = config('app.url');
+
+        return rtrim((string) $base, '/').'/storage/'.$this->avatar_path;
+    }
+
+    /**
+     * Preferencias del usuario con los defaults ya mezclados.
+     *
+     * @return array<string, mixed>
+     */
+    public function preferencesWithDefaults(): array
+    {
+        return array_merge(self::DEFAULT_PREFERENCES, $this->preferences ?? [], [
+            'notifications' => $this->notificationPreferences(),
+        ]);
+    }
+
+    /**
+     * Preferencias de notificaciones in-app con defaults: todos los tipos
+     * activos, sonido sí, notificación del navegador no (requiere permiso).
+     *
+     * @return array{types: array<string, bool>, sound: bool, browser: bool}
+     */
+    public function notificationPreferences(): array
+    {
+        $stored = $this->preferences['notifications'] ?? [];
+        $types = array_fill_keys(NotificationType::values(), true);
+        foreach ((array) ($stored['types'] ?? []) as $type => $enabled) {
+            if (array_key_exists($type, $types)) {
+                $types[$type] = (bool) $enabled;
+            }
+        }
+
+        return [
+            'types' => $types,
+            'sound' => (bool) ($stored['sound'] ?? true),
+            'browser' => (bool) ($stored['browser'] ?? false),
+        ];
+    }
+
+    public function wantsNotification(NotificationType $type): bool
+    {
+        return $this->notificationPreferences()['types'][$type->value];
     }
 
     public function sendEmailVerificationNotification(): void
@@ -122,6 +193,24 @@ class User extends Authenticatable implements MustVerifyEmail
     public function tenant(): BelongsTo
     {
         return $this->belongsTo(Tenant::class);
+    }
+
+    public function memberships(): HasMany
+    {
+        return $this->hasMany(TenantMembership::class);
+    }
+
+    public function activeMemberships(): HasMany
+    {
+        return $this->memberships()->whereNull('removed_at');
+    }
+
+    public function tenants(): BelongsToMany
+    {
+        return $this->belongsToMany(Tenant::class, 'tenant_memberships')
+            ->wherePivotNull('removed_at')
+            ->withPivot(['id', 'branch_id', 'joined_at', 'removed_at'])
+            ->withTimestamps();
     }
 
     public function branch(): BelongsTo

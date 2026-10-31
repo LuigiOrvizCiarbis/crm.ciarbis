@@ -8,6 +8,7 @@ enum ContactFieldType: string
 {
     case Text = 'text';
     case Number = 'number';
+    case Currency = 'currency';
     case Date = 'date';
     case Boolean = 'boolean';
     case Select = 'select';
@@ -16,6 +17,9 @@ enum ContactFieldType: string
     case Url = 'url';
     case Phone = 'phone';
     case File = 'file';
+    case Repeater = 'repeater';
+
+    public const DEFAULT_CURRENCY = 'ARS';
 
     /**
      * @return array<int, string>
@@ -27,7 +31,22 @@ enum ContactFieldType: string
 
     public function requiresOptions(): bool
     {
-        return in_array($this, [self::Select, self::MultiSelect], true);
+        return in_array($this, [self::Select, self::MultiSelect, self::Repeater, self::Currency], true);
+    }
+
+    /**
+     * Divisas admitidas por un campo Currency.
+     *
+     * Lista corta y cerrada a propósito: el valor guardado sigue siendo un
+     * número plano, la divisa vive en la definición del campo. No hay
+     * conversión entre divisas — un importe en USD y otro en ARS no son
+     * comparables y el CRM no intenta fingir que lo son.
+     *
+     * @return list<string>
+     */
+    public static function currencies(): array
+    {
+        return ['ARS', 'USD'];
     }
 
     /**
@@ -43,6 +62,9 @@ enum ContactFieldType: string
         return match ($this) {
             self::Text => ['nullable', 'string', 'max:1000'],
             self::Number => ['nullable', 'numeric'],
+            // El valor de un Currency es el importe a secas; la divisa la define
+            // el campo (options.currency), no cada valor.
+            self::Currency => ['nullable', 'numeric'],
             self::Date => ['nullable', 'date'],
             self::Boolean => ['nullable', 'boolean'],
             self::Select => ['nullable', 'string', Rule::in($choices)],
@@ -55,6 +77,9 @@ enum ContactFieldType: string
             // pertenencia al tenant la refuerza ValidContactCustomData, que sí
             // conoce el tenant en contexto.
             self::File => ['nullable', 'integer'],
+            // Repeater values are validated against their nested schema by
+            // ValidContactCustomData / ValidProductCustomData.
+            self::Repeater => ['nullable', 'array'],
         };
     }
 

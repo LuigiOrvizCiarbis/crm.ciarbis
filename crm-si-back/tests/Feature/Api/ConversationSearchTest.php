@@ -103,6 +103,26 @@ class ConversationSearchTest extends TestCase
         $this->assertFalse($ids->contains($other->id));
     }
 
+    public function test_search_matches_structured_email_subject(): void
+    {
+        $conversation = $this->createConversationWithMessage(
+            $this->tenant,
+            $this->owner,
+            'El cuerpo no contiene el término buscado',
+            '+5491111111111',
+        );
+        $conversation->messages()->first()->mailDetails()->create([
+            'subject' => 'Renovación del contrato anual',
+            'body_text' => 'El cuerpo no contiene el término buscado',
+        ]);
+
+        Sanctum::actingAs($this->owner);
+
+        $ids = collect($this->getJson('/api/conversations?search=renovación')->assertOk()->json('data'))->pluck('id');
+
+        $this->assertTrue($ids->contains($conversation->id));
+    }
+
     public function test_search_does_not_leak_other_tenants_conversations(): void
     {
         $otherTenant = $this->seedTenantWithRoles('Globex');

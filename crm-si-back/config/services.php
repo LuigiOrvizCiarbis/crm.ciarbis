@@ -49,7 +49,7 @@ return [
         'max_history' => env('AI_MAX_HISTORY', 20),
         // Cota del catálogo inyectado al system prompt, para no exceder el
         // límite de contexto del proveedor (haría que generate() devuelva null).
-        'catalog_max_products' => env('AI_CATALOG_MAX_PRODUCTS', 100),
+        'catalog_max_products' => env('AI_CATALOG_MAX_PRODUCTS', 12),
         'catalog_max_description_chars' => env('AI_CATALOG_MAX_DESCRIPTION_CHARS', 300),
         'catalog_max_chars' => env('AI_CATALOG_MAX_CHARS', 12000),
         // Cantidad máxima de imágenes del historial que se envían como bloque
@@ -73,12 +73,65 @@ return [
             'openai' => env('AI_OPENAI_TRANSLATION_MODEL', 'gpt-5-mini'),
             'claude' => env('AI_CLAUDE_TRANSLATION_MODEL', 'claude-haiku-4-5-20251001'),
         ],
+        // Extracción de datos desde documentos. Al documento se le saca el texto
+        // localmente con pdftotext y se manda TEXTO al modelo (no el PDF), así
+        // cualquier modelo de texto sirve y el costo baja ~10x contra visión.
+        'extraction' => [
+            'model' => env('AI_CLAUDE_EXTRACTION_MODEL', 'claude-opus-5'),
+            // Timeout del request al proveedor. Debe quedar por debajo del timeout
+            // del job, que a su vez queda por debajo del --timeout del worker.
+            'timeout' => env('AI_EXTRACTION_TIMEOUT', 120),
+            'max_tokens' => env('AI_EXTRACTION_MAX_TOKENS', 8000),
+            // Cotas del documento. Excederlas es un error explícito, NO se trunca:
+            // el modelo interpretaría lo que quedó afuera como dato ausente y
+            // devolvería null para cláusulas que sí están en el contrato.
+            'max_chars' => env('AI_EXTRACTION_MAX_CHARS', 120000),
+            'max_pages' => env('AI_EXTRACTION_MAX_PAGES', 100),
+            'max_file_bytes' => env('AI_EXTRACTION_MAX_FILE_BYTES', 20971520), // 20 MB
+            // Mínimo de caracteres por página para considerarla legible.
+            'min_page_chars' => env('AI_EXTRACTION_MIN_PAGE_CHARS', 20),
+            // pdftotext: timeout del proceso y tope de memoria virtual (KB) via
+            // ulimit -v. El worker de producción tiene 256 MB: sin esta cota un
+            // PDF patológico puede provocar OOM y matar el worker entero.
+            'pdftotext_timeout' => env('AI_EXTRACTION_PDFTOTEXT_TIMEOUT', 30),
+            'pdftotext_memory_kb' => env('AI_EXTRACTION_PDFTOTEXT_MEMORY_KB', 131072), // 128 MB
+            // TTL de un job en processing antes de que el watchdog lo recupere.
+            // Cubre worker muerto por OOM/deploy, que dejaría la fila colgada.
+            'lease_seconds' => env('AI_EXTRACTION_LEASE_SECONDS', 600),
+            // Horas que sobrevive un PDF subido que nunca llegó a usarse (el
+            // usuario cerró el diálogo antes de encolar). Un asset referenciado
+            // por una extracción o por un campo File no se borra nunca.
+            'orphan_ttl_hours' => env('AI_EXTRACTION_ORPHAN_TTL_HOURS', 24),
+            // Fallback para PDFs escaneados (sin capa de texto): se rasterizan
+            // las páginas y se mandan como imágenes a un modelo con visión.
+            // Cuesta bastante más que el camino de texto, así que sólo se activa
+            // cuando pdftotext no encontró nada.
+            'vision' => [
+                'enabled' => env('AI_EXTRACTION_VISION_ENABLED', true),
+                // 120 DPI: legible para OCR del modelo y ~4 MB en base64 para un
+                // contrato de 13 páginas, holgado contra el tope de 32 MB de la API.
+                'dpi' => env('AI_EXTRACTION_VISION_DPI', 120),
+                // Tope de páginas: cada una es una imagen y el costo escala lineal.
+                'max_pages' => env('AI_EXTRACTION_VISION_MAX_PAGES', 20),
+                // Cota del payload total en base64, por debajo del límite de la API.
+                'max_total_bytes' => env('AI_EXTRACTION_VISION_MAX_TOTAL_BYTES', 20971520),
+                // Memoria propia (KB): rasterizar es mucho más pesado que extraer
+                // texto — poppler reserva el bitmap RGB completo de la página más
+                // los buffers del encoder JPEG. Reusar el tope de pdftotext
+                // (128 MB) mata la conversión de escaneos con imágenes grandes.
+                'memory_kb' => env('AI_EXTRACTION_VISION_MEMORY_KB', 786432), // 768 MB
+                // Timeout total del rasterizado, sin escalar por página: el job
+                // tiene su propio timeout y el lease del watchdog corre en
+                // paralelo, así que esto no puede crecer sin control.
+                'timeout' => env('AI_EXTRACTION_VISION_TIMEOUT', 120),
+            ],
+        ],
     ],
 
     'facebook' => [
         'app_id' => env('FACEBOOK_APP_ID'),
         'app_secret' => env('FACEBOOK_APP_SECRET'),
-        'graph_version' => env('FACEBOOK_GRAPH_API_VERSION', 'v21.0'),
+        'graph_version' => env('FACEBOOK_GRAPH_API_VERSION', 'v26.0'),
         'verify_token' => env('FACEBOOK_VERIFY_TOKEN', 'embbebedsecret'),
         // Base pública desde la que Meta puede fetchear media saliente (imágenes,
         // audio) enviada por attachment.url. Debe ser HTTPS y accesible desde
@@ -86,11 +139,27 @@ return [
         'public_media_base_url' => env('META_PUBLIC_MEDIA_BASE_URL', env('APP_URL')),
     ],
 
+    // Número central de SI CRM que avisa al número del canal (coexistence)
+    // cuando la IA deriva una conversación a un humano. Sus webhooks llegan
+    // al mismo /whatsapp-webhook de la app y se separan por phone_number_id.
+    'si_crm_alerts' => [
+        'enabled' => (bool) env('SI_CRM_ALERTS_ENABLED', false),
+        'phone_number_id' => env('SI_CRM_ALERTS_WA_PHONE_NUMBER_ID'),
+        'waba_id' => env('SI_CRM_ALERTS_WA_WABA_ID'),
+        'access_token' => env('SI_CRM_ALERTS_WA_ACCESS_TOKEN'),
+        'display_number' => env('SI_CRM_ALERTS_WA_DISPLAY_NUMBER'),
+        'handoff_templates' => [
+            'es' => env('SI_CRM_ALERTS_HANDOFF_TEMPLATE_ES', 'si_crm_alerts_handoff_es'),
+            'en' => env('SI_CRM_ALERTS_HANDOFF_TEMPLATE_EN', 'si_crm_alerts_handoff_en'),
+        ],
+    ],
+
     'instagram' => [
         // Permiso exacto de mensajería de Instagram: verificar el nombre vigente
         // en el dashboard de Meta (App Review). Documentado como
         // 'instagram_manage_messages' al momento de implementar.
         'messaging_permission' => env('INSTAGRAM_MESSAGING_PERMISSION', 'instagram_manage_messages'),
+        'comments_permission' => env('INSTAGRAM_COMMENTS_PERMISSION', 'instagram_manage_comments'),
     ],
 
     'messenger' => [

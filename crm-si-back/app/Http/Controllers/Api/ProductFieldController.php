@@ -8,6 +8,7 @@ use App\Http\Requests\StoreProductFieldRequest;
 use App\Http\Requests\UpdateProductFieldRequest;
 use App\Models\ProductField;
 use App\Support\ProductFieldRegistry;
+use App\Support\RepeaterFieldSchema;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -46,9 +47,14 @@ class ProductFieldController extends Controller
             'tenant_id' => $tenantId,
             'label' => $label,
             'type' => $type,
-            'options' => $type->requiresOptions() ? $request->input('options') : null,
+            'options' => match (true) {
+                $type === ContactFieldType::Repeater => RepeaterFieldSchema::normalize((array) $request->input('options', [])),
+                $type === ContactFieldType::Currency => ['currency' => $this->normalizeCurrency($request->input('options.currency'))],
+                $type->requiresOptions() => $request->input('options'),
+                default => null,
+            },
             'is_required' => (bool) $request->boolean('is_required'),
-            'is_unique' => (bool) $request->boolean('is_unique'),
+            'is_unique' => $type === ContactFieldType::Repeater ? false : (bool) $request->boolean('is_unique'),
             'display_order' => (int) ($request->input('display_order')
                 ?? ((int) ProductField::query()->max('display_order') + 1)),
         ];
@@ -65,7 +71,21 @@ class ProductFieldController extends Controller
     {
         $payload = $request->only(['label', 'options', 'is_required', 'is_unique', 'display_order']);
 
-        if (! $productField->type->requiresOptions()) {
+        if ($productField->type === ContactFieldType::Repeater) {
+            $payload['is_unique'] = false;
+            if (isset($payload['options'])) {
+                $payload['options'] = RepeaterFieldSchema::normalize(
+                    (array) $payload['options'],
+                    $productField->options,
+                );
+            }
+        } elseif ($productField->type === ContactFieldType::Currency) {
+            if (array_key_exists('options', $payload)) {
+                $payload['options'] = ['currency' => $this->normalizeCurrency(
+                    $request->input('options.currency') ?? ($productField->options['currency'] ?? null),
+                )];
+            }
+        } elseif (! $productField->type->requiresOptions()) {
             unset($payload['options']);
         }
 
@@ -164,6 +184,18 @@ class ProductFieldController extends Controller
         }
 
         return $candidate;
+    }
+
+    /**
+     * Una divisa ausente o no soportada cae en el default en vez de fallar: la
+     * validación ya rechazó lo inválido, y un campo sin divisa explícita es
+     * legítimo desde el importador o un cliente viejo.
+     */
+    private function normalizeCurrency(mixed $currency): string
+    {
+        return is_string($currency) && in_array($currency, ContactFieldType::currencies(), true)
+            ? $currency
+            : ContactFieldType::DEFAULT_CURRENCY;
     }
 
     /**

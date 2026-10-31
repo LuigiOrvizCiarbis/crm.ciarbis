@@ -3,12 +3,19 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { TrendingUp, UserCheck, UserPlus, Users, type LucideIcon } from "lucide-react"
+import { AlertTriangle, CalendarClock, CircleCheck, TrendingUp, UserCheck, UserPlus, Users, type LucideIcon } from "lucide-react"
 import { useTranslation } from "@/hooks/useTranslation"
 import { getContactsSummary, type ContactsSummary } from "@/lib/api/contacts"
 
 interface ContactsStatsProps {
   refreshKey?: number
+  /**
+   * Avisa al padre si el tenant tiene el módulo de cobranzas habilitado. Se
+   * deriva del mismo summary que ya pide este componente para las tarjetas,
+   * así el header no necesita repetir el request solo para saber si mostrar
+   * el filtro de clientes.
+   */
+  onBillingAvailabilityChange?: (available: boolean) => void
 }
 
 interface StatCardProps {
@@ -60,7 +67,7 @@ function LoadingStat() {
   )
 }
 
-export function ContactsStats({ refreshKey = 0 }: ContactsStatsProps) {
+export function ContactsStats({ refreshKey = 0, onBillingAvailabilityChange }: ContactsStatsProps) {
   const { t } = useTranslation()
   const [data, setData] = useState<ContactsSummary | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -70,10 +77,14 @@ export function ContactsStats({ refreshKey = 0 }: ContactsStatsProps) {
     setIsLoading(true)
     getContactsSummary()
       .then((summary) => {
-        if (!cancelled) setData(summary)
+        if (cancelled) return
+        setData(summary)
+        onBillingAvailabilityChange?.(summary.billing_al_dia !== undefined)
       })
       .catch(() => {
-        if (!cancelled) setData(null)
+        if (cancelled) return
+        setData(null)
+        onBillingAvailabilityChange?.(false)
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false)
@@ -82,7 +93,7 @@ export function ContactsStats({ refreshKey = 0 }: ContactsStatsProps) {
     return () => {
       cancelled = true
     }
-  }, [refreshKey])
+  }, [refreshKey, onBillingAvailabilityChange])
 
   if (isLoading || !data) {
     return (
@@ -95,8 +106,46 @@ export function ContactsStats({ refreshKey = 0 }: ContactsStatsProps) {
     )
   }
 
+  // El backend omite las claves de cobranzas cuando el módulo está apagado
+  // para ese tenant: sin config no se muestran tarjetas en vez de mostrarlas
+  // en 0, que se leería como "todos al día" en vez de "no configurado".
+  const hasBilling = data.billing_al_dia !== undefined
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="space-y-4">
+      {hasBilling && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <StatCard
+            title={t("contactsPage.stats.billingAlDia")}
+            value={formatNumber(data.billing_al_dia ?? 0)}
+            icon={CircleCheck}
+            iconBg="bg-emerald-500/15"
+            iconColor="text-emerald-400"
+            gradientFrom="from-emerald-500"
+            gradientTo="to-teal-500"
+          />
+          <StatCard
+            title={t("contactsPage.stats.billingPorVencer")}
+            value={formatNumber(data.billing_por_vencer ?? 0)}
+            icon={CalendarClock}
+            iconBg="bg-amber-500/15"
+            iconColor="text-amber-400"
+            gradientFrom="from-amber-500"
+            gradientTo="to-yellow-500"
+          />
+          <StatCard
+            title={t("contactsPage.stats.billingVencido")}
+            value={formatNumber(data.billing_vencido ?? 0)}
+            icon={AlertTriangle}
+            iconBg="bg-red-500/15"
+            iconColor="text-red-400"
+            gradientFrom="from-red-500"
+            gradientTo="to-rose-500"
+          />
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       <StatCard
         title={t("contactsPage.stats.total")}
         value={formatNumber(data.total_contacts)}
@@ -133,6 +182,7 @@ export function ContactsStats({ refreshKey = 0 }: ContactsStatsProps) {
         gradientFrom="from-orange-500"
         gradientTo="to-amber-500"
       />
+      </div>
     </div>
   )
 }

@@ -1,13 +1,16 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { useToast } from "@/components/Toast"
-import { Archive, Loader2, Mail, MailOpen, Tag as TagLucideIcon } from "lucide-react"
+import { Archive, Briefcase, Loader2, Mail, MailOpen, Plus, Tag as TagLucideIcon } from "lucide-react"
 import { getPipelineStages, PipelineStage } from "@/lib/api/pipeline"
 import { getUsers } from "@/lib/api/users"
 import { updateConversationStage, assignConversationUser } from "@/lib/api/conversations"
+import { getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
+import { ChatOpportunityRail, type ChatOpportunity } from "@/components/ChatOpportunityRail"
+import { ContactPipelineDialog } from "@/components/contact-pipeline-dialog"
 import type { Tag } from "@/lib/api/tags"
 import { useTranslation } from "@/hooks/useTranslation"
 import { TagChips } from "@/components/tags/TagChips"
@@ -29,8 +32,12 @@ interface TeamUser {
   role: string
 }
 
+function StageDot({ color }: { color?: string }) {
+  return <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-muted-foreground" style={color ? { backgroundColor: color } : undefined} />
+}
+
 interface ChatQuickBarValue {
-  stageId?: number // Cambiado de stage: Stage a stageId: number
+  stageId?: number
   priority?: Priority
   assigneeId?: number | string
   archived?: boolean
@@ -38,9 +45,11 @@ interface ChatQuickBarValue {
 
 interface ChatQuickBarProps {
   chatId: number
+  /** Contacto del chat; null en grupos, que no pueden tener oportunidades. */
+  contact?: { id: number; name: string } | null
   value: ChatQuickBarValue
   team: TeamUser[]
-  onChangeStage: (stageId: number, stageName: string) => void // Ajustado para recibir ID y nombre
+  onChangeStage: (stageId: number, stageName: string) => void
   onChangePriority: (priority: Priority) => void
   onChangeAssignee: (id: number) => void
   onToggleArchive: () => void
@@ -48,12 +57,15 @@ interface ChatQuickBarProps {
   onToggleReadStatus?: () => void
   tags?: Tag[]
   onTagsChange?: (tags: Tag[]) => void
+  /** Etapas de las oportunidades del chat, cada vez que se cargan o se mueven. */
+  onOpportunityStagesChange?: (chatId: number, stageIds: number[]) => void
 }
 
 // Eliminado TEAM fijo: ahora se cargan usuarios reales desde API. Se mantiene posibilidad de pasar prop "team" como override.
 
 export function ChatQuickBar({
   chatId,
+  contact = null,
   value,
   team = [],
   onChangeStage,
@@ -64,13 +76,25 @@ export function ChatQuickBar({
   onToggleReadStatus,
   tags = [],
   onTagsChange,
+  onOpportunityStagesChange,
 }: ChatQuickBarProps) {
   const { addToast } = useToast()
   const { t } = useTranslation()
   const [isTagsSheetOpen, setIsTagsSheetOpen] = useState(false)
 
+  // Etapa del chat (pipeline predeterminado): dispara automatizaciones y filtra campañas.
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([])
   const [isLoadingStages, setIsLoadingStages] = useState(true)
+  // Oportunidades vinculadas al chat; cada una se mueve dentro de su propio pipeline.
+  // Las oportunidades se guardan con el chat al que pertenecen: el componente
+  // no se remonta al cambiar de chat y una respuesta tardía no debe mostrarse
+  // (ni moverse) en otro.
+  const [loadedOpportunities, setLoadedOpportunities] = useState<{ chatId: number; items: ChatOpportunity[] } | null>(null)
+  const opportunities = loadedOpportunities?.chatId === chatId ? loadedOpportunities.items : []
+  const currentChatIdRef = useRef(chatId)
+  const [stagesByPipeline, setStagesByPipeline] = useState<Record<number, PipelineStage[]>>({})
+  const [isNewOpportunityOpen, setIsNewOpportunityOpen] = useState(false)
+  const [pendingOpportunityId, setPendingOpportunityId] = useState<number | null>(null)
   const [users, setUsers] = useState<TeamUser[]>([])
   const [isLoadingUsers, setIsLoadingUsers] = useState(true)
 
@@ -108,6 +132,100 @@ export function ChatQuickBar({
     }
     loadData()
   }, [])
+
+  useEffect(() => {
+    currentChatIdRef.current = chatId
+  }, [chatId])
+
+  // Avisa a la bandeja las etapas actuales: su filtro por etapa lee de ahí.
+  const onOpportunityStagesChangeRef = useRef(onOpportunityStagesChange)
+  useEffect(() => {
+    onOpportunityStagesChangeRef.current = onOpportunityStagesChange
+  })
+  const opportunityStagesKey = loadedOpportunities
+    ? `${loadedOpportunities.chatId}:${loadedOpportunities.items.map((item) => item.pipeline_stage_id ?? "").join(",")}`
+    : ""
+  useEffect(() => {
+    if (!loadedOpportunities) return
+    const stageIds = loadedOpportunities.items.flatMap((item) => item.pipeline_stage_id ? [item.pipeline_stage_id] : [])
+    onOpportunityStagesChangeRef.current?.(loadedOpportunities.chatId, [...new Set(stageIds)])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sólo cuando cambian las etapas
+  }, [opportunityStagesKey])
+
+  /** Trae las oportunidades del chat; descarta la respuesta si ya se cambió de chat. */
+  const fetchOpportunities = useCallback(async (targetChatId: number): Promise<ChatOpportunity[] | null> => {
+    const items = (await getOpportunities({ conversationId: targetChatId }).catch(() => [])) as ChatOpportunity[]
+    if (currentChatIdRef.current !== targetChatId) return null
+    setLoadedOpportunities({ chatId: targetChatId, items })
+    return items
+  }, [])
+
+  useEffect(() => {
+    void fetchOpportunities(chatId)
+  }, [chatId, fetchOpportunities])
+
+  // Etapas de cada pipeline presente en las oportunidades del chat.
+  const pipelineIdsKey = [...new Set(opportunities.map((item) => item.pipeline_id))].sort((a, b) => a - b).join(",")
+
+  useEffect(() => {
+    if (!pipelineIdsKey) return
+    let cancelled = false
+    Promise.all(
+      pipelineIdsKey.split(",").map(Number).map(async (pipelineId) => {
+        const stages = await getPipelineStages(pipelineId).catch(() => [])
+        return [pipelineId, [...stages].sort((a, b) => a.sort_order - b.sort_order)] as const
+      }),
+    ).then((entries) => {
+      if (!cancelled) setStagesByPipeline(Object.fromEntries(entries))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [pipelineIdsKey])
+
+  const handleOpportunityCreated = async () => {
+    const before = new Set(opportunities.map((item) => item.id))
+    const items = await fetchOpportunities(chatId)
+    if (!items) return
+    const created = items.find((item) => !before.has(item.id))
+    // El backend ya movió la etapa del chat; reflejarlo en la barra.
+    if (created?.pipeline?.is_default && created.pipeline_stage_id) {
+      const chatStage = pipelineStages.find((s) => s.id === created.pipeline_stage_id)
+      if (chatStage) onChangeStage(chatStage.id, chatStage.name)
+    }
+    addToast({ type: "success", title: t("chats.opportunityCreated"), description: created?.title ?? t("chats.opportunityLinkedToChat") })
+  }
+
+  const handleOpportunityStageChange = (opportunity: ChatOpportunity, stageId: number) => {
+    const stage = stagesByPipeline[opportunity.pipeline_id]?.find((s) => s.id === stageId)
+    if (!stage || stageId === opportunity.pipeline_stage_id) return
+
+    const originChatId = chatId
+    setPendingOpportunityId(opportunity.id)
+    updateOpportunityStage(opportunity.id, stageId, opportunity.pipeline_id)
+      .then(() => {
+        setLoadedOpportunities((current) => current?.chatId === originChatId
+          ? { ...current, items: current.items.map((item) => item.id === opportunity.id ? { ...item, pipeline_stage_id: stageId } : item) }
+          : current)
+        // Si ya se cambió de chat, la etapa del chat sincronizada es del anterior.
+        if (opportunity.pipeline?.is_default && currentChatIdRef.current === originChatId) onChangeStage(stageId, stage.name)
+        addToast({
+          type: "success",
+          title: t("chats.opportunityUpdated"),
+          description: `${opportunity.title} → ${stage.name}`,
+        })
+      })
+      .catch((error) => {
+        addToast({
+          type: "error",
+          title: t("chats.stageUpdateError"),
+          description: error.message,
+        })
+      })
+      .finally(() => setPendingOpportunityId(null))
+  }
+
+  const openNewOpportunity = () => setIsNewOpportunityOpen(true)
 
   const handleStageChange = (stageId: number) => {
     // Encontrar la etapa por ID
@@ -210,18 +328,24 @@ export function ChatQuickBar({
     })
   }
 
+  /**
+   * Los hex fijos anteriores (#9AA4B2, #00E18C, #00F7FF) estaban elegidos sólo
+   * para el tema oscuro: sobre fondo claro daban 2.4:1, 1.7:1 y 1.28:1 de
+   * contraste, los tres por debajo del mínimo AA de 4.5:1 ("Alta" en cian sobre
+   * blanco era prácticamente invisible). Cada nivel lleva ahora un tono por
+   * tema: el oscuro para fondo claro, el claro para fondo oscuro.
+   */
   const getPriorityColor = (priority: Priority) => {
     switch (priority) {
-      case "baja":
-        return "text-[#9AA4B2]"
       case "media":
-        return "text-[#00E18C]"
+        return "text-emerald-700 dark:text-emerald-400"
       case "alta":
-        return "text-[#00F7FF]"
+        return "text-cyan-700 dark:text-cyan-300"
       case "hot":
-        return "text-red-500"
+        return "text-red-600 dark:text-red-400"
+      case "baja":
       default:
-        return "text-[#9AA4B2]"
+        return "text-slate-600 dark:text-slate-400"
     }
   }
 
@@ -248,14 +372,21 @@ export function ChatQuickBar({
       const selectedAssigneeId = toNumber(value.assigneeId) ?? desktopFallbackId ?? ''
       const selectedAssigneeName = effectiveTeam.find((m) => String(m.id) === String(selectedAssigneeId))?.name || t("chats.select")
       const selectedStageName = pipelineStages.find((s) => s.id === value.stageId)?.name || t("chats.select")
+      const chatStageColor = pipelineStages.find((s) => s.id === value.stageId)?.color
+      // Con una oportunidad en el pipeline predeterminado, la etapa del chat
+      // la sigue y el riel ya la muestra: el selector sobra.
+      const showChatStage = !opportunities.some((item) => item.pipeline?.is_default)
+      const hasOpportunities = Boolean(contact) && opportunities.length > 0
 
       return (
-    <div className="sticky top-0 z-10 bg-[#0F1117]/80 backdrop-blur rounded-xl border border-[#1e2533] p-2">
+    <div className="sticky top-0 z-10 rounded-xl border border-border bg-card/80 p-1.5 backdrop-blur sm:p-2">
       {/* Desktop Layout */}
       <div className="hidden md:flex items-center gap-2">
-        {/* Stage Select */}
-        <div className="inline-flex items-center gap-2 text-[12px] text-[#9AA4B2] bg-[#131722] border border-[#1e2533] rounded-xl px-3 py-1.5">
-          <span>{t("chats.stageLabel")}:</span>
+        {/* Stage Select: etapa del chat (sólo si ninguna oportunidad la maneja) */}
+        {showChatStage && (
+        <div className="inline-flex shrink-0 items-center gap-2 text-[12px] text-[#9AA4B2] bg-[#131722] border border-[#1e2533] rounded-xl px-3 py-1.5">
+          <StageDot color={chatStageColor} />
+          <span>{t("chats.chatStageLabel")}:</span>
           {isLoadingStages ? (
             <Loader2 className="h-3 w-3 animate-spin" />
           ) : (
@@ -273,8 +404,8 @@ export function ChatQuickBar({
               </SelectTrigger>
               <SelectContent className="bg-[#0F1117] border-[#1e2533] text-[#D8DEE9]">
                 {pipelineStages.map((stage) => (
-                  <SelectItem 
-                    key={stage.id} 
+                  <SelectItem
+                    key={stage.id}
                     value={String(stage.id)}
                     className="focus:bg-[#1A1F2B] focus:text-[#D8DEE9] cursor-pointer"
                   >
@@ -285,6 +416,7 @@ export function ChatQuickBar({
             </Select>
           )}
         </div>
+        )}
 
         {/* Priority Select */}
         <div className="inline-flex items-center gap-2 text-[12px] text-[#9AA4B2] bg-[#131722] border border-[#1e2533] rounded-xl px-3 py-1.5">
@@ -344,6 +476,20 @@ export function ChatQuickBar({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-1 ml-auto">
+          {/* Sin oportunidades: acceso discreto para crear la primera */}
+          {contact && !hasOpportunities && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="relative p-2 rounded-lg border border-[#1e2533] hover:bg-[#1A1F2B] text-[#D8DEE9]"
+              onClick={openNewOpportunity}
+              title={t("chats.newOpportunity")}
+              aria-label={t("chats.newOpportunity")}
+            >
+              <Briefcase className="w-4 h-4" />
+              <Plus className="absolute bottom-1 right-1 h-2.5 w-2.5 rounded-full bg-[#131722] stroke-[3]" aria-hidden="true" />
+            </Button>
+          )}
           {onToggleReadStatus && (
             <Button
               variant="ghost"
@@ -368,19 +514,27 @@ export function ChatQuickBar({
         </div>
       </div>
 
-      {/* Mobile Layout */}
-      <div className="md:hidden flex flex-col gap-2">
-        {/* Selects editables inline */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
-          <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[#1e2533] bg-[#131722] px-2.5 py-1.5 text-[12px] text-[#9AA4B2]">
-            <span>{t("chats.stageLabel")}:</span>
+      {/* Mobile Layout: una sola fila, sin scroll horizontal.
+          Los tres selects se reparten el ancho disponible (`flex-1 min-w-0`) y
+          las acciones quedan fijas a la derecha, siempre alcanzables.
+          Los prefijos ("Etapa:", "Prioridad:", "Derivar a:") existen sólo como
+          `aria-label`: gastaban ~200px repitiendo lo que el propio valor ya
+          dice, y ese exceso era justo lo que empujaba las acciones fuera de
+          pantalla. Se distinguen por posición, que es estable, y por el color
+          en el caso de prioridad. */}
+      <div className="flex items-center gap-1.5 md:hidden">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          {showChatStage && (
+          <div className="flex min-w-0 flex-1 items-center rounded-lg border border-border bg-muted/50 px-2 py-1">
             {isLoadingStages ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
             ) : (
               <select
                 value={String(value.stageId ?? "")}
                 onChange={(e) => handleStageChange(Number(e.target.value))}
-                className="max-w-[7.5rem] truncate bg-transparent text-sm text-[#D8DEE9] focus:outline-none"
+                className="w-full min-w-0 truncate bg-transparent text-xs text-foreground focus:outline-none"
+                aria-label={t("chats.chatStageLabel")}
+                title={t("chats.chatStageLabel")}
               >
                 {pipelineStages.map((stage) => (
                   <option key={stage.id} value={String(stage.id)}>
@@ -390,13 +544,15 @@ export function ChatQuickBar({
               </select>
             )}
           </div>
+          )}
 
-          <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[#1e2533] bg-[#131722] px-2.5 py-1.5 text-[12px] text-[#9AA4B2]">
-            <span>{t("chats.priorityLabel")}:</span>
+          <div className="flex min-w-0 shrink items-center rounded-lg border border-border bg-muted/50 px-2 py-1">
             <select
               value={value.priority || "baja"}
               onChange={(e) => handlePriorityChange(e.target.value as Priority)}
-              className={`bg-transparent text-sm focus:outline-none ${getPriorityColor(value.priority || "baja")}`}
+              className={`w-full min-w-0 truncate bg-transparent text-xs focus:outline-none ${getPriorityColor(value.priority || "baja")}`}
+              aria-label={t("chats.priorityLabel")}
+              title={t("chats.priorityLabel")}
             >
               <option value="baja">{t("chats.priorityLow")}</option>
               <option value="media">{t("chats.priorityMedium")}</option>
@@ -405,15 +561,16 @@ export function ChatQuickBar({
             </select>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-[#1e2533] bg-[#131722] px-2.5 py-1.5 text-[12px] text-[#9AA4B2]">
-            <span>{t("chats.assignToLabel")}:</span>
+          <div className="flex min-w-0 flex-1 items-center rounded-lg border border-border bg-muted/50 px-2 py-1">
             {isLoadingUsers ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
             ) : (
               <select
                 value={String(selectedAssigneeId)}
                 onChange={(e) => handleAssigneeChange(Number(e.target.value))}
-                className="max-w-[7.5rem] truncate bg-transparent text-sm text-[#D8DEE9] focus:outline-none"
+                className="w-full min-w-0 truncate bg-transparent text-xs text-foreground focus:outline-none"
+                aria-label={t("chats.assignToLabel")}
+                title={t("chats.assignToLabel")}
               >
                 {effectiveTeam.map((member) => (
                   <option key={member.id} value={String(member.id)}>
@@ -425,30 +582,41 @@ export function ChatQuickBar({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-2">
-        <TagChips tags={tags} maxVisible={3} />
+        <div className="flex shrink-0 items-center gap-0.5">
+          {contact && !hasOpportunities && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="relative h-10 w-10 rounded-lg p-0"
+              onClick={openNewOpportunity}
+              title={t("chats.newOpportunity")}
+              aria-label={t("chats.newOpportunity")}
+            >
+              <Briefcase className="h-4 w-4" />
+              <Plus className="absolute bottom-2 right-2 h-2.5 w-2.5 rounded-full bg-background stroke-[3]" aria-hidden="true" />
+            </Button>
+          )}
 
-        <div className="flex items-center gap-2">
           <Sheet open={isTagsSheetOpen} onOpenChange={setIsTagsSheetOpen}>
             <SheetTrigger asChild>
               <Button
                 variant="ghost"
                 size="sm"
-                className="relative p-2 rounded-lg border border-[#1e2533] hover:bg-[#1A1F2B] text-[#D8DEE9]"
-                title="Etiquetas"
-                aria-label="Etiquetas"
+                className="relative h-10 w-10 rounded-lg p-0"
+                title={t("chats.tagsLabel")}
+                aria-label={t("chats.tagsLabel")}
               >
-                <TagLucideIcon className="w-4 h-4" />
+                <TagLucideIcon className="h-4 w-4" />
                 {tags.length > 0 && (
-                  <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#00F7FF] px-1 text-[10px] font-semibold leading-none text-black">
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground">
                     {tags.length}
                   </span>
                 )}
               </Button>
             </SheetTrigger>
-            <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto bg-[#0F1117] border-[#1e2533]">
+            <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto">
               <SheetHeader>
-                <SheetTitle className="text-[#D8DEE9]">Etiquetas</SheetTitle>
+                <SheetTitle>{t("chats.tagsLabel")}</SheetTitle>
               </SheetHeader>
               <div className="mt-4">
                 <TagPicker
@@ -466,26 +634,45 @@ export function ChatQuickBar({
             <Button
               variant="ghost"
               size="sm"
-              className="p-2 rounded-lg border border-[#1e2533] hover:bg-[#1A1F2B] text-[#D8DEE9]"
+              className="h-10 w-10 rounded-lg p-0"
               onClick={onToggleReadStatus}
               title={isUnread ? t("chats.markAsRead") : t("chats.markAsUnread")}
               aria-label={isUnread ? t("chats.markAsRead") : t("chats.markAsUnread")}
             >
-              {isUnread ? <Mail className="w-4 h-4" /> : <MailOpen className="w-4 h-4" />}
+              {isUnread ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
             </Button>
           )}
           <Button
             variant="ghost"
             size="sm"
-            className="p-2 rounded-lg border border-[#1e2533] hover:bg-[#1A1F2B] text-[#D8DEE9]"
+            className="h-10 w-10 rounded-lg p-0"
             onClick={handleToggleArchive}
             title={value.archived ? t("chats.unarchiveShortcut") : t("chats.archiveShortcut")}
+            aria-label={value.archived ? t("chats.unarchiveShortcut") : t("chats.archiveShortcut")}
           >
-            <Archive className="w-4 h-4" />
+            <Archive className="h-4 w-4" />
           </Button>
         </div>
-        </div>
       </div>
+
+      {hasOpportunities && (
+        <ChatOpportunityRail
+          opportunities={opportunities}
+          stagesByPipeline={stagesByPipeline}
+          pendingOpportunityId={pendingOpportunityId}
+          contactName={contact?.name}
+          onMove={handleOpportunityStageChange}
+          onNew={openNewOpportunity}
+        />
+      )}
+
+      <ContactPipelineDialog
+        contact={contact}
+        conversationId={chatId}
+        open={isNewOpportunityOpen && Boolean(contact)}
+        onOpenChange={setIsNewOpportunityOpen}
+        onSaved={() => void handleOpportunityCreated()}
+      />
     </div>
       )
     })()

@@ -6,7 +6,7 @@ import Link from "next/link"
 const content = {
   en: {
     title: "Privacy Policy",
-    lastUpdated: "Last updated: March 24, 2026",
+    lastUpdated: "Last updated: September 2, 2026",
     login: "Log in",
     sections: [
       {
@@ -17,7 +17,8 @@ const content = {
               Social Impulse (&quot;we&quot;, &quot;our&quot;, or &quot;us&quot;) operates the Social Impulse CRM platform
               (the &quot;Service&quot;). This Privacy Policy explains how we collect, use, disclose, and
               safeguard your information when you use our Service, including our integration with
-              third-party messaging platforms such as WhatsApp, Instagram, and Facebook.
+              third-party messaging platforms such as WhatsApp, Instagram, and Facebook, and with Google
+              Calendar when you choose to connect that account.
             </p>
             <p className="mt-2">
               By using Social Impulse, you agree to the collection and use of information in
@@ -53,6 +54,11 @@ const content = {
               <li>Message delivery and read status</li>
               <li>Media files shared in conversations (images, documents, audio)</li>
             </ul>
+            <p className="mt-3">When you connect Google Calendar, we receive only the data needed to manage CRM meetings:</p>
+            <ul className="list-disc pl-6 space-y-1">
+              <li>The email address of the connected Google account</li>
+              <li>The Calendar event created or managed for a CRM meeting, including its Calendar and Google Meet links</li>
+            </ul>
           </>
         ),
       },
@@ -65,6 +71,7 @@ const content = {
               <li>Provide, maintain, and improve our CRM Service</li>
               <li>Enable multi-channel messaging (WhatsApp, Instagram, Facebook) on your behalf</li>
               <li>Manage your contacts, conversations, and sales pipeline</li>
+              <li>Create, update, and cancel meeting events in the Google calendar of the responsible user you select</li>
               <li>Provide AI-powered features such as conversation analysis and automated responses</li>
               <li>Send you service-related notifications</li>
               <li>Monitor and analyze usage patterns to improve user experience</li>
@@ -81,6 +88,7 @@ const content = {
             <p>We do not sell your personal information. We may share your data with:</p>
             <ul className="list-disc pl-6 space-y-1">
               <li><strong>Third-party messaging platforms</strong> (Meta/WhatsApp, Instagram, Facebook) as necessary to deliver messages on your behalf</li>
+              <li><strong>Google Calendar</strong> when you connect the integration, to create and manage meetings requested from the CRM</li>
               <li><strong>Service providers</strong> who assist us in operating our platform (hosting, analytics, payment processing)</li>
               <li><strong>Legal authorities</strong> when required by law, regulation, or legal process</li>
               <li><strong>Business transfers</strong> in connection with a merger, acquisition, or sale of assets</li>
@@ -106,12 +114,23 @@ const content = {
       {
         title: "6. Data Retention",
         content: (
-          <p>
-            We retain your data for as long as your account is active or as needed to provide you
-            with our services. When you delete your account, we will delete or anonymize your
-            personal data within 90 days, except where we are required to retain it for legal or
-            regulatory purposes.
-          </p>
+          <>
+            <p>
+              We retain your data for as long as your account is active or as needed to provide you
+              with our services. When you delete your account, we will delete or anonymize your
+              personal data within 90 days, except where we are required to retain it for legal or
+              regulatory purposes.
+            </p>
+            <p className="mt-2">
+              Google OAuth credentials and connected account information are retained while the
+              Google Calendar integration remains active. When you disconnect the integration, we
+              revoke the available Google access token and delete the stored OAuth credentials and
+              connection record. Event identifiers and Calendar or Google Meet links associated with
+              previously synchronized CRM meetings may remain in the CRM task history until the task
+              or account is deleted. Disconnecting the integration does not delete events already
+              created in your Google Calendar.
+            </p>
+          </>
         ),
       },
       {
@@ -135,16 +154,72 @@ const content = {
         title: "8. Third-Party Services",
         content: (
           <>
-            <p>Our Service integrates with third-party platforms including Meta (WhatsApp, Instagram, Facebook). Your use of these platforms is subject to their respective privacy policies:</p>
+            <p>Our Service integrates with third-party platforms including Meta (WhatsApp, Instagram, Facebook) and Google Calendar. Your use of these platforms is subject to their respective privacy policies:</p>
             <ul className="list-disc pl-6 space-y-1">
               <li>Meta Privacy Policy: <a href="https://www.facebook.com/privacy/policy/" target="_blank" rel="noopener noreferrer" className="text-primary underline">https://www.facebook.com/privacy/policy/</a></li>
               <li>WhatsApp Privacy Policy: <a href="https://www.whatsapp.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary underline">https://www.whatsapp.com/legal/privacy-policy</a></li>
+              <li>Google Privacy Policy: <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">https://policies.google.com/privacy</a></li>
             </ul>
           </>
         ),
       },
       {
-        title: "9. Cookies",
+        title: "9. Google API Data and Artificial Intelligence Services",
+        content: (
+          <>
+            <h3 className="text-lg font-medium mt-4 mb-2">9.1 Google Data We Process</h3>
+            <p>
+              When you connect Google Calendar, we process the connected Google account email
+              address, the scopes granted, OAuth credentials required to maintain the connection,
+              and data for CRM-managed meeting events. Event data may include the event identifier,
+              title, description, start and end time, time zone, recurrence, attendees,
+              synchronization status, Google Calendar link, and Google Meet link. We do not import
+              complete calendars or access, analyze, or store unrelated Calendar events. We do not
+              create aggregated or anonymized datasets from Google Calendar user data.
+            </p>
+
+            <h3 className="text-lg font-medium mt-4 mb-2">9.2 Purpose and Transfer</h3>
+            <p>
+              Google user data is used only to identify the connected account and to create,
+              retrieve, update, and cancel meetings requested by the user through Social Impulse
+              CRM. We do not sell Google user data or share it with advertisers, data brokers, or
+              other third parties for advertising, profiling, lending, or unrelated commercial
+              purposes. Our infrastructure providers may process this data only as necessary to
+              operate and secure the Service and under applicable confidentiality and data
+              protection obligations.
+            </p>
+
+            <h3 className="text-lg font-medium mt-4 mb-2">9.3 AI/ML Data Isolation</h3>
+            <p>
+              Social Impulse CRM offers separate artificial intelligence features for CRM
+              conversations and other content provided directly through the CRM. Raw, aggregated,
+              anonymized, or derived data obtained from Google Workspace APIs—including connected
+              account information, OAuth credentials, event data, synchronization metadata, and
+              Google Calendar or Google Meet links—is not transmitted to OpenAI, Anthropic, or any
+              other AI/ML service. It is not used to develop, train, fine-tune, or improve
+              generalized or personalized AI/ML models and is not transferred to third parties for
+              those purposes.
+            </p>
+
+            <h3 className="text-lg font-medium mt-4 mb-2">9.4 Google Limited Use Compliance</h3>
+            <p>
+              The use and transfer to any other application of information received from Google APIs
+              will adhere to the{" "}
+              <a
+                href="https://developers.google.com/terms/api-services-user-data-policy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline"
+              >
+                Google API Services User Data Policy
+              </a>
+              , including the Limited Use requirements.
+            </p>
+          </>
+        ),
+      },
+      {
+        title: "10. Cookies",
         content: (
           <p>
             We use cookies and similar technologies to maintain your session, remember your
@@ -154,7 +229,7 @@ const content = {
         ),
       },
       {
-        title: "10. Children's Privacy",
+        title: "11. Children's Privacy",
         content: (
           <p>
             Our Service is not directed to individuals under the age of 18. We do not knowingly
@@ -164,7 +239,7 @@ const content = {
         ),
       },
       {
-        title: "11. Changes to This Policy",
+        title: "12. Changes to This Policy",
         content: (
           <p>
             We may update this Privacy Policy from time to time. We will notify you of any
@@ -174,7 +249,7 @@ const content = {
         ),
       },
       {
-        title: "12. Contact Us",
+        title: "13. Contact Us",
         content: (
           <>
             <p>If you have any questions about this Privacy Policy or our data practices, please contact us at:</p>
@@ -189,7 +264,7 @@ const content = {
   },
   es: {
     title: "Política de Privacidad",
-    lastUpdated: "Última actualización: 24 de marzo de 2026",
+    lastUpdated: "Última actualización: 2 de septiembre de 2026",
     login: "Iniciar sesión",
     sections: [
       {
@@ -200,7 +275,8 @@ const content = {
               Social Impulse (&quot;nosotros&quot;, &quot;nuestro&quot; o &quot;nos&quot;) opera la plataforma Social Impulse CRM
               (el &quot;Servicio&quot;). Esta Política de Privacidad explica cómo recopilamos, usamos, divulgamos
               y protegemos su información cuando utiliza nuestro Servicio, incluyendo nuestra integración
-              con plataformas de mensajería de terceros como WhatsApp, Instagram y Facebook.
+              con plataformas de mensajería de terceros como WhatsApp, Instagram y Facebook, y con Google
+              Calendar cuando usted decide conectar esa cuenta.
             </p>
             <p className="mt-2">
               Al utilizar Social Impulse, usted acepta la recopilación y el uso de información de
@@ -236,6 +312,11 @@ const content = {
               <li>Estado de entrega y lectura de mensajes</li>
               <li>Archivos multimedia compartidos en conversaciones (imágenes, documentos, audio)</li>
             </ul>
+            <p className="mt-3">Cuando conecta Google Calendar, recibimos únicamente los datos necesarios para gestionar reuniones del CRM:</p>
+            <ul className="list-disc pl-6 space-y-1">
+              <li>La dirección de correo de la cuenta Google conectada</li>
+              <li>El evento de Calendar creado o administrado por una reunión del CRM, incluido su enlace de Calendar y Google Meet</li>
+            </ul>
           </>
         ),
       },
@@ -248,6 +329,7 @@ const content = {
               <li>Proporcionar, mantener y mejorar nuestro Servicio CRM</li>
               <li>Habilitar mensajería multicanal (WhatsApp, Instagram, Facebook) en su nombre</li>
               <li>Gestionar sus contactos, conversaciones y pipeline de ventas</li>
+              <li>Crear, actualizar y cancelar eventos de reuniones en el calendario de Google del responsable que usted elija</li>
               <li>Proporcionar funciones impulsadas por IA como análisis de conversaciones y respuestas automatizadas</li>
               <li>Enviarle notificaciones relacionadas con el servicio</li>
               <li>Monitorear y analizar patrones de uso para mejorar la experiencia</li>
@@ -264,6 +346,7 @@ const content = {
             <p>No vendemos su información personal. Podemos compartir sus datos con:</p>
             <ul className="list-disc pl-6 space-y-1">
               <li><strong>Plataformas de mensajería de terceros</strong> (Meta/WhatsApp, Instagram, Facebook) según sea necesario para enviar mensajes en su nombre</li>
+              <li><strong>Google Calendar</strong> cuando usted conecta la integración, para crear y administrar las reuniones solicitadas desde el CRM</li>
               <li><strong>Proveedores de servicios</strong> que nos asisten en la operación de nuestra plataforma (hosting, analítica, procesamiento de pagos)</li>
               <li><strong>Autoridades legales</strong> cuando lo requiera la ley, regulación o proceso legal</li>
               <li><strong>Transferencias comerciales</strong> en conexión con una fusión, adquisición o venta de activos</li>
@@ -289,11 +372,22 @@ const content = {
       {
         title: "6. Retención de Datos",
         content: (
-          <p>
-            Retenemos sus datos mientras su cuenta esté activa o según sea necesario para proporcionarle
-            nuestros servicios. Cuando elimine su cuenta, eliminaremos o anonimizaremos sus datos personales
-            dentro de 90 días, excepto cuando estemos obligados a retenerlos por motivos legales o regulatorios.
-          </p>
+          <>
+            <p>
+              Retenemos sus datos mientras su cuenta esté activa o según sea necesario para proporcionarle
+              nuestros servicios. Cuando elimine su cuenta, eliminaremos o anonimizaremos sus datos personales
+              dentro de 90 días, excepto cuando estemos obligados a retenerlos por motivos legales o regulatorios.
+            </p>
+            <p className="mt-2">
+              Las credenciales OAuth de Google y la información de la cuenta conectada se conservan mientras la
+              integración con Google Calendar permanezca activa. Cuando desconecta la integración, revocamos el
+              token de acceso de Google disponible y eliminamos las credenciales OAuth y el registro de conexión
+              almacenados. Los identificadores de eventos y enlaces de Calendar o Google Meet asociados con
+              reuniones del CRM previamente sincronizadas pueden permanecer en el historial de la tarea hasta que
+              la tarea o la cuenta sean eliminadas. Desconectar la integración no elimina los eventos que ya fueron
+              creados en su Google Calendar.
+            </p>
+          </>
         ),
       },
       {
@@ -317,16 +411,72 @@ const content = {
         title: "8. Servicios de Terceros",
         content: (
           <>
-            <p>Nuestro Servicio se integra con plataformas de terceros incluyendo Meta (WhatsApp, Instagram, Facebook). Su uso de estas plataformas está sujeto a sus respectivas políticas de privacidad:</p>
+            <p>Nuestro Servicio se integra con plataformas de terceros incluyendo Meta (WhatsApp, Instagram, Facebook) y Google Calendar. Su uso de estas plataformas está sujeto a sus respectivas políticas de privacidad:</p>
             <ul className="list-disc pl-6 space-y-1">
               <li>Política de Privacidad de Meta: <a href="https://www.facebook.com/privacy/policy/" target="_blank" rel="noopener noreferrer" className="text-primary underline">https://www.facebook.com/privacy/policy/</a></li>
               <li>Política de Privacidad de WhatsApp: <a href="https://www.whatsapp.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary underline">https://www.whatsapp.com/legal/privacy-policy</a></li>
+              <li>Política de Privacidad de Google: <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">https://policies.google.com/privacy</a></li>
             </ul>
           </>
         ),
       },
       {
-        title: "9. Cookies",
+        title: "9. Datos de las APIs de Google y Servicios de Inteligencia Artificial",
+        content: (
+          <>
+            <h3 className="text-lg font-medium mt-4 mb-2">9.1 Datos de Google que Procesamos</h3>
+            <p>
+              Cuando conecta Google Calendar, procesamos la dirección de correo de la cuenta Google conectada,
+              los permisos concedidos, las credenciales OAuth necesarias para mantener la conexión y los datos de
+              los eventos de reuniones gestionados por el CRM. Estos datos pueden incluir el identificador, título,
+              descripción, fecha y hora de inicio y fin, zona horaria, recurrencia, invitados, estado de
+              sincronización, enlace de Google Calendar y enlace de Google Meet. No importamos calendarios completos
+              ni accedemos, analizamos o almacenamos eventos de Calendar ajenos a las reuniones gestionadas por el
+              CRM. No generamos conjuntos de datos agregados o anonimizados a partir de los datos de usuarios de
+              Google Calendar.
+            </p>
+
+            <h3 className="text-lg font-medium mt-4 mb-2">9.2 Finalidad y Transferencia</h3>
+            <p>
+              Los datos de usuarios de Google se utilizan únicamente para identificar la cuenta conectada y crear,
+              consultar, actualizar y cancelar las reuniones solicitadas por el usuario mediante Social Impulse CRM.
+              No vendemos datos de usuarios de Google ni los compartimos con anunciantes, corredores de datos u otros
+              terceros para publicidad, elaboración de perfiles, préstamos o fines comerciales no relacionados.
+              Nuestros proveedores de infraestructura pueden procesar estos datos únicamente en la medida necesaria
+              para operar y proteger el Servicio y bajo las obligaciones aplicables de confidencialidad y protección
+              de datos.
+            </p>
+
+            <h3 className="text-lg font-medium mt-4 mb-2">9.3 Aislamiento de Datos de IA/ML</h3>
+            <p>
+              Social Impulse CRM ofrece funciones independientes de inteligencia artificial para conversaciones del
+              CRM y otros contenidos proporcionados directamente mediante el CRM. Los datos brutos, agregados,
+              anonimizados o derivados obtenidos de las APIs de Google Workspace—incluyendo información de la cuenta
+              conectada, credenciales OAuth, datos de eventos, metadatos de sincronización y enlaces de Google
+              Calendar o Google Meet—no se transmiten a OpenAI, Anthropic ni a ningún otro servicio de IA/ML. Estos
+              datos no se utilizan para desarrollar, entrenar, ajustar o mejorar modelos de IA/ML generales o
+              personalizados, ni se transfieren a terceros para esos fines.
+            </p>
+
+            <h3 className="text-lg font-medium mt-4 mb-2">9.4 Cumplimiento de Uso Limitado de Google</h3>
+            <p>
+              El uso y la transferencia a cualquier otra aplicación de la información recibida de las APIs de Google
+              cumplirán con la{" "}
+              <a
+                href="https://developers.google.com/terms/api-services-user-data-policy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline"
+              >
+                Política de Datos de Usuario de los Servicios de API de Google
+              </a>
+              , incluidos los requisitos de Uso Limitado (Limited Use).
+            </p>
+          </>
+        ),
+      },
+      {
+        title: "10. Cookies",
         content: (
           <p>
             Usamos cookies y tecnologías similares para mantener su sesión, recordar sus preferencias
@@ -336,7 +486,7 @@ const content = {
         ),
       },
       {
-        title: "10. Privacidad de Menores",
+        title: "11. Privacidad de Menores",
         content: (
           <p>
             Nuestro Servicio no está dirigido a personas menores de 18 años. No recopilamos
@@ -346,7 +496,7 @@ const content = {
         ),
       },
       {
-        title: "11. Cambios a Esta Política",
+        title: "12. Cambios a Esta Política",
         content: (
           <p>
             Podemos actualizar esta Política de Privacidad de vez en cuando. Le notificaremos de
@@ -356,7 +506,7 @@ const content = {
         ),
       },
       {
-        title: "12. Contáctenos",
+        title: "13. Contáctenos",
         content: (
           <>
             <p>Si tiene alguna pregunta sobre esta Política de Privacidad o nuestras prácticas de datos, contáctenos en:</p>

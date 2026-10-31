@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -155,24 +155,22 @@ export function MessageHotkeysCard() {
   const personalHotkeys = hotkeys.filter((h) => h.scope === "personal")
 
   return (
-    <Card className="rounded-2xl border-border">
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            <Zap className="w-5 h-5" />
-            {t("settings.hotkeys.title")}
-          </span>
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="w-4 h-4 mr-1" />
-            {t("settings.hotkeys.new")}
-          </Button>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <SettingsBlock
+      title={t("settings.hotkeys.title")}
+      icon={Zap}
+      measure="prose"
+      action={
+        <Button size="sm" onClick={openCreate}>
+          <Plus className="mr-1 size-4" />
+          {t("settings.hotkeys.new")}
+        </Button>
+      }
+    >
+      <div className="space-y-5">
         {loading ? (
           <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
         ) : hotkeys.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-2">
+          <p className="py-2 text-sm text-muted-foreground">
             {t("settings.hotkeys.empty")}
           </p>
         ) : (
@@ -201,7 +199,7 @@ export function MessageHotkeysCard() {
         <p className="text-xs text-muted-foreground">
           {t("settings.hotkeys.variablesHelp")}
         </p>
-      </CardContent>
+      </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
@@ -292,7 +290,7 @@ export function MessageHotkeysCard() {
           </form>
         </DialogContent>
       </Dialog>
-    </Card>
+    </SettingsBlock>
   )
 }
 
@@ -307,39 +305,41 @@ interface HotkeySectionProps {
 function HotkeySection({ title, hotkeys, onEdit, onDelete, canManage }: HotkeySectionProps) {
   return (
     <div className="space-y-2">
-      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+      <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
         {title}
       </p>
-      {hotkeys.map((hotkey) => (
-        <div
-          key={hotkey.id}
-          className="flex items-start justify-between p-3 rounded-lg border border-border gap-3"
-        >
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="font-mono text-xs">
-                /{hotkey.trigger}
-              </Badge>
-              {hotkey.description && (
-                <span className="text-sm font-medium truncate">{hotkey.description}</span>
-              )}
+      <div className="divide-y divide-border border-y border-border">
+        {hotkeys.map((hotkey) => (
+          <div
+            key={hotkey.id}
+            className="flex items-start justify-between gap-3 py-3"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="font-mono text-xs">
+                  /{hotkey.trigger}
+                </Badge>
+                {hotkey.description && (
+                  <span className="truncate text-sm font-medium">{hotkey.description}</span>
+                )}
+              </div>
+              <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs text-muted-foreground">
+                {hotkey.content}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground line-clamp-2 mt-1 whitespace-pre-wrap">
-              {hotkey.content}
-            </p>
+            {canManage(hotkey) && (
+              <div className="flex shrink-0 gap-1">
+                <Button variant="ghost" size="icon" className="size-8" onClick={() => onEdit(hotkey)}>
+                  <Pencil className="size-4" />
+                </Button>
+                <Button variant="ghost" size="icon" className="size-8" onClick={() => onDelete(hotkey)}>
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            )}
           </div>
-          {canManage(hotkey) && (
-            <div className="flex gap-1 shrink-0">
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onEdit(hotkey)}>
-                <Pencil className="w-4 h-4" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onDelete(hotkey)}>
-                <Trash2 className="w-4 h-4" />
-              </Button>
-            </div>
-          )}
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   )
 }

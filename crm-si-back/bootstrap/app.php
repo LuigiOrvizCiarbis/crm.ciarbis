@@ -1,7 +1,8 @@
 <?php
 
+use App\Http\Middleware\EnsureSectionAccess;
 use App\Http\Middleware\EnsureTrialNotExpired;
-use App\Http\Middleware\SetSpatieTeamId;
+use App\Http\Middleware\ResolveWorkspaceContext;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
@@ -9,6 +10,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Validation\ValidationException;
 use Sentry\Laravel\Integration;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
@@ -25,12 +27,19 @@ return Application::configure(basePath: dirname(__DIR__))
         ['prefix' => 'api', 'middleware' => ['api', 'auth:sanctum']],
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->alias([
+            'section' => EnsureSectionAccess::class,
+        ]);
         $middleware->trustProxies(at: '*');
         $middleware->validateCsrfTokens(except: [
             'api/*',
             'webhooks/*',
         ]);
-        $middleware->appendToGroup('api', SetSpatieTeamId::class);
+        $middleware->appendToGroup('api', ResolveWorkspaceContext::class);
+        // El workspace debe resolverse después de autenticar y antes del route
+        // model binding. De lo contrario, modelos con TenantScope se buscan con
+        // el tenant legado y PUT /contacts/{contact} devuelve un falso 404.
+        $middleware->prependToPriorityList(SubstituteBindings::class, ResolveWorkspaceContext::class);
         $middleware->appendToGroup('api', EnsureTrialNotExpired::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

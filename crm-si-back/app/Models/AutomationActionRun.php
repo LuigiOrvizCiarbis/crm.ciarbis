@@ -3,11 +3,14 @@
 namespace App\Models;
 
 use App\Enums\AutomationRunStatus;
+use App\Models\Concerns\HasTimezoneAwareDates;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class AutomationActionRun extends Model
 {
+    use HasTimezoneAwareDates;
+
     protected $fillable = [
         'automation_run_id',
         'automation_action_id',

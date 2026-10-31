@@ -14,13 +14,21 @@ class MediaAsset extends Model
     use HasFactory;
     use SoftDeletes;
 
+    /** Archivo del espacio de automations (comportamiento histórico). */
+    public const PURPOSE_LIBRARY = 'library';
+
+    /** Documento subido sobre un contacto para extraerle datos. */
+    public const PURPOSE_EXTRACTION = 'extraction';
+
     protected $fillable = [
         'tenant_id',
         'uploaded_by',
+        'contact_id',
         'name',
         'path',
         'mime_type',
         'size',
+        'purpose',
     ];
 
     protected $casts = [
@@ -30,6 +38,11 @@ class MediaAsset extends Model
     public function uploader(): BelongsTo
     {
         return $this->belongsTo(User::class, 'uploaded_by');
+    }
+
+    public function contact(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class);
     }
 
     /**

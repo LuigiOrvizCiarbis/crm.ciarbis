@@ -31,6 +31,14 @@ interface TemplatePickerProps {
   conversationId: number
   onSend: (content: string) => void
   disabled?: boolean
+  /**
+   * Apertura controlada desde afuera. En móvil el picker se abre desde la hoja
+   * de acciones del composer, donde no hay lugar para su propio botón.
+   */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** Oculta el botón propio cuando quien abre el diálogo es otro control. */
+  hideTrigger?: boolean
 }
 
 const categoryColors: Record<string, string> = {
@@ -39,8 +47,22 @@ const categoryColors: Record<string, string> = {
   AUTHENTICATION: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
 }
 
-export function TemplatePicker({ channelId, conversationId, onSend, disabled }: TemplatePickerProps) {
-  const [open, setOpen] = useState(false)
+export function TemplatePicker({
+  channelId,
+  conversationId,
+  onSend,
+  disabled,
+  open: controlledOpen,
+  onOpenChange,
+  hideTrigger = false,
+}: TemplatePickerProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const isControlled = controlledOpen !== undefined
+  const open = isControlled ? controlledOpen : uncontrolledOpen
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setUncontrolledOpen(next)
+    onOpenChange?.(next)
+  }
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([])
   const [selected, setSelected] = useState<WhatsAppTemplate | null>(null)
   const [paramValues, setParamValues] = useState<string[]>([])
@@ -156,11 +178,13 @@ export function TemplatePicker({ channelId, conversationId, onSend, disabled }: 
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" disabled={disabled} title="Plantillas de WhatsApp">
-          <FileText className="w-4 h-4" />
-        </Button>
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger asChild>
+          <Button variant="ghost" size="sm" disabled={disabled} title="Plantillas de WhatsApp">
+            <FileText className="w-4 h-4" />
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

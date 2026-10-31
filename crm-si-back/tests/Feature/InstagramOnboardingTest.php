@@ -55,6 +55,10 @@ class InstagramOnboardingTest extends TestCase
         $this->assertSame(ChannelType::INSTAGRAM, $channel->type);
         $this->assertSame('IG_1', $channel->external_id);
         $this->assertSame('@acme', $channel->name);
+
+        Http::assertSent(fn ($request): bool => $request->method() === 'POST'
+            && str_contains((string) $request->url(), '/IG_1/subscribed_apps')
+            && $request['subscribed_fields'] === 'messages,comments');
     }
 
     public function test_multiple_pages_returns_selection_without_reexchanging_code(): void

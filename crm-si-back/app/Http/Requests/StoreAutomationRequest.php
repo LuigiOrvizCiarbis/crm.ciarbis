@@ -2,17 +2,11 @@
 
 namespace App\Http\Requests;
 
+use App\Support\TimezoneAliases;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreAutomationRequest extends FormRequest
 {
-    // `timezone:all` valida contra DateTimeZone::ALL, que excluye los alias
-    // legacy de la IANA. Los navegadores todavía reportan algunos vía
-    // Intl.supportedValuesOf(), así que se canonizan antes de validar.
-    private const TIMEZONE_ALIASES = [
-        'America/Buenos_Aires' => 'America/Argentina/Buenos_Aires',
-    ];
-
     public function authorize(): bool
     {
         return (bool) $this->user()?->can('automations.manage');
@@ -24,10 +18,8 @@ class StoreAutomationRequest extends FormRequest
             return;
         }
 
-        $timezone = $this->string('timezone')->toString();
-
         $this->merge([
-            'timezone' => self::TIMEZONE_ALIASES[$timezone] ?? $timezone,
+            'timezone' => TimezoneAliases::canonicalize($this->string('timezone')->toString()),
         ]);
     }
 

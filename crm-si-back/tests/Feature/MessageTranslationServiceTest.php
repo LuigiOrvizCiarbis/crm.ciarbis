@@ -10,6 +10,7 @@ use App\Exceptions\TranslationException;
 use App\Models\AiConfig;
 use App\Models\Message;
 use App\Models\Tenant;
+use App\Services\Ai\AiExtractionResult;
 use App\Services\Ai\AiProvider;
 use App\Services\Ai\AiToolset;
 use App\Services\Ai\AiVerificationResult;
@@ -132,6 +133,11 @@ class MessageTranslationServiceTest extends TestCase
             public function verify(string $systemPrompt, string $model): AiVerificationResult
             {
                 return AiVerificationResult::ok();
+            }
+
+            public function extract(string $text, array $images, array $schema, string $systemPrompt, string $model): AiExtractionResult
+            {
+                return AiExtractionResult::failure('unsupported');
             }
         };
 

@@ -3,33 +3,50 @@
 namespace App\Services;
 
 use App\Enums\ChannelType;
+use App\Enums\MarketingConsentStatus;
 use App\Enums\MessageDirection;
 use App\Enums\MessageType;
 use App\Enums\SenderType;
+use App\Events\BroadcastResultsUpdated;
 use App\Events\MessageDeleted;
 use App\Events\MessageEdited;
+use App\Events\MessageReactionUpdated;
 use App\Events\MessageSent;
+use App\Events\MessageStatusUpdated;
 use App\Events\TenantMessageReceived;
+use App\Exceptions\MetaApiException;
 use App\Jobs\GenerateAiReplyJob;
-use App\Models\AiConfig;
+use App\Models\BroadcastRecipient;
 use App\Models\Channel;
 use App\Models\Contact;
+use App\Models\ContactField;
 use App\Models\Conversation;
 use App\Models\Message;
-use App\Models\PipelineStage;
+use App\Models\MessageInteraction;
+use App\Models\MessageReaction;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
+use App\Services\Concerns\ResolvesWhatsAppChannel;
+use App\Services\Concerns\ResolvesWhatsAppCredentials;
 use Carbon\Carbon;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
-use Sentry\Severity;
-use Sentry\State\Scope;
+use Illuminate\Support\Str;
 
 class WhatsAppMessageService
 {
-    private const GRAPH_VERSION = 'v21.0';
+    use ResolvesWhatsAppChannel;
+    use ResolvesWhatsAppCredentials;
+
+    private function graphVersion(): string
+    {
+        return config('services.facebook.graph_version', 'v26.0');
+    }
 
     public function processIncomingMessage(array $webhookData): ?Message
     {
@@ -54,6 +71,10 @@ class WhatsAppMessageService
             }
 
             $messageData = $messages[0];
+            if ($this->isSiCrmAlertsPhone($messageData['from'] ?? null)) {
+                Log::info('WhatsApp alert interno ignorado por el pipeline de clientes', ['phone' => $messageData['from']]);
+                return null;
+            }
             $contactData = $value['contacts'][0] ?? null;
             $tenantId = $channel->tenant_id;
             $messageType = $messageData['type'] ?? 'unknown';
@@ -91,6 +112,20 @@ class WhatsAppMessageService
                 return $this->handleIncomingMessageEdited($messageData, $originalEditedId, $tenantId);
             }
 
+            if ($messageType === 'reaction') {
+                $this->handleIncomingReaction($messageData, $contactData, $channel);
+
+                return null;
+            }
+
+            // WhatsApp entrega respuestas rápidas como `button` o como
+            // `interactive.button_reply`. Se guardan como texto entrante para
+            // que sigan apareciendo en el chat, y además como interacción.
+            $interaction = $this->extractReplyInteraction($messageData);
+            if ($interaction !== null) {
+                $messageType = 'text';
+            }
+
             if (! $this->isSupportedMessageType($messageType)) {
                 Log::warning('WhatsApp message type no soportado, payload ignorado', [
                     'type' => $messageType,
@@ -101,10 +136,36 @@ class WhatsAppMessageService
                 return null;
             }
 
+            // Mensaje de grupo: el `from` sigue siendo el teléfono de quien
+            // escribió (misma forma que un 1:1), pero la conversación es la
+            // del grupo, no una nueva 1:1 por participante. Si el grupo no
+            // existe localmente (creado fuera del CRM) se dropea: auto-crearlo
+            // dejaría un grupo sin dueño ni permisos en la bandeja.
+            $groupWaId = $messageData['group_id'] ?? $value['group_id'] ?? null;
+
             /** @var Contact $contact */
             $contact = $this->findOrCreateContact($contactData, $messageData['from'] ?? '', $channel);
-            /** @var Conversation $conversation */
-            $conversation = $this->findOrCreateConversation($contact, $channel);
+
+            if ($groupWaId !== null) {
+                $conversation = $this->resolveGroupConversation((string) $groupWaId, $channel);
+                if (! $conversation) {
+                    Log::warning('processIncomingMessage: grupo no encontrado localmente', [
+                        'group_id' => $groupWaId,
+                        'channel_id' => $channel->id,
+                    ]);
+                    $this->reportDroppedWebhook(
+                        'processIncomingMessage: grupo no encontrado localmente',
+                        ['group_id' => $groupWaId, 'channel_id' => $channel->id]
+                    );
+
+                    return null;
+                }
+
+                $this->touchGroupParticipantFromMessage($conversation, $contact, $messageData);
+            } else {
+                $conversation = $this->findOrCreateConversation($contact, $channel);
+            }
+
             /** @var int $conversationId */
             $conversationId = $conversation->getKey();
             /** @var int $contactId */
@@ -125,13 +186,14 @@ class WhatsAppMessageService
                 }
             }
 
-            return $this->createMessage([
+            $message = $this->createMessage([
                 'tenant_id' => $tenantId,
                 'conversation_id' => $conversationId,
                 'sender_type' => SenderType::CONTACT,
                 'sender_id' => $contactId,
                 'content' => $extracted['content'],
                 'message_type' => $extracted['type'],
+                'contacts' => $extracted['contacts'] ?? null,
                 'media_url' => $mediaFields['url'] ?? null,
                 'media_mime_type' => $mediaFields['mime_type'] ?? null,
                 'media_filename' => $mediaFields['filename'] ?? null,
@@ -139,12 +201,33 @@ class WhatsAppMessageService
                 'external_id' => $messageData['id'] ?? null,
                 'delivered_at' => $this->parseWebhookTimestamp($messageData['timestamp'] ?? null),
             ]);
-        } catch (\Exception $e) {
+
+            if ($interaction !== null) {
+                $this->recordReplyInteraction($message, $interaction);
+            } else {
+                $this->recordGenericReplyInteraction($message, $messageData);
+            }
+
+            return $message;
+        } catch (QueryException $e) {
+            // Meta puede reenviar un mensaje cuyo wamid ya persistió (incluido
+            // el caso de fallo entre el commit y la confirmación del receipt).
+            if (! empty($messageId) && Message::where('external_id', $messageId)->exists()) {
+                Log::info('WhatsApp duplicate message ignored', ['external_id' => $messageId]);
+
+                return null;
+            }
+
+            Log::error('Error procesando mensaje de WhatsApp: '.$e->getMessage(), [
+                'exception' => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        } catch (\Throwable $e) {
             Log::error('Error procesando mensaje de WhatsApp: '.$e->getMessage(), [
                 'exception' => $e->getTraceAsString(),
             ]);
 
-            return null;
+            throw $e;
         }
     }
 
@@ -168,93 +251,49 @@ class WhatsAppMessageService
         );
     }
 
-    private function findOrCreateConversation(Contact $contact, Channel $channel): Conversation
+    /**
+     * Delega en BroadcastConversationResolver, que centraliza cómo nace una
+     * conversación (también lo usa el job de difusiones). El nombre se
+     * mantiene para no tocar los call sites del webhook.
+     */
+    public function findOrCreateConversation(Contact $contact, Channel $channel): Conversation
     {
-        $conversation = Conversation::firstOrCreate(
-            [
-                'tenant_id' => $channel->tenant_id,
-                'contact_id' => $contact->id,
-                'channel_id' => $channel->id,
-            ],
-            [
-                'status' => 'open',
-                'last_message_at' => now(),
-                'branch_id' => $contact->branch_id ?? $channel->branch_id,
-                // El default de auto-respuesta IA se hereda de la config del canal.
-                'ai_autoreply_enabled' => (bool) $channel->whatsappConfig?->ai_autoreply_default,
-            ]
-        );
-
-        // Si es una conversación nueva sin stage, asignar el stage por defecto
-        if (! $conversation->pipeline_stage_id) {
-            $defaultStage = PipelineStage::where('tenant_id', $channel->tenant_id)
-                ->where(function ($query) {
-                    $query->where('is_default', true)
-                        ->orWhereNotNull('id');
-                })
-                ->orderByDesc('is_default')
-                ->orderBy('sort_order', 'asc')
-                ->first();
-
-            if ($defaultStage) {
-                $conversation->update(['pipeline_stage_id' => $defaultStage->id]);
-            }
-        }
-
-        return $conversation;
+        return app(BroadcastConversationResolver::class)->findOrCreate($contact, $channel);
     }
 
-    private function resolveChannelFromWebhook(array $value, string $context): ?Channel
+    private function resolveGroupConversation(string $groupWaId, Channel $channel): ?Conversation
     {
-        $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
-
-        if (! $phoneNumberId) {
-            Log::warning("{$context}: phone_number_id ausente en metadata");
-            $this->reportDroppedWebhook(
-                "{$context}: phone_number_id ausente en metadata",
-                ['context' => $context]
-            );
-
-            return null;
-        }
-
-        $whatsappConfig = WhatsAppConfig::with('channels')
-            ->where('phone_number_id', $phoneNumberId)
+        $group = \App\Models\WhatsAppGroup::query()
+            ->where('group_id', $groupWaId)
+            ->where('channel_id', $channel->id)
             ->first();
 
-        if (! $whatsappConfig || $whatsappConfig->channels->isEmpty()) {
-            Log::warning("{$context}: canal no encontrado para phone_number_id: {$phoneNumberId}");
-            // Un mensaje de cliente que no matchea ningún canal se pierde en silencio.
-            // Lo reportamos como issue en Sentry para detectar config rota / tenant mal armado.
-            $this->reportDroppedWebhook(
-                "{$context}: canal no encontrado para phone_number_id",
-                ['context' => $context, 'phone_number_id' => $phoneNumberId]
-            );
-
-            return null;
-        }
-
-        return $whatsappConfig->channels->first();
+        return $group?->conversation;
     }
 
     /**
-     * Reporta a Sentry un webhook entrante descartado en una rama crítica
-     * (sin canal resoluble → mensaje de cliente que se pierde). Se emite como
-     * captureMessage 'warning' para que genere un issue agrupable y alertable,
-     * además del Log::warning que ya queda en los logs.
-     *
-     * @param  array<string, mixed>  $context
+     * Mantiene fresco el panel de participantes aunque no llegue (o llegue
+     * tarde) el webhook group_participants_update: defensa en profundidad,
+     * no la única fuente de verdad de la membresía.
      */
-    private function reportDroppedWebhook(string $message, array $context): void
+    private function touchGroupParticipantFromMessage(Conversation $conversation, Contact $contact, array $messageData): void
     {
-        if (! app()->bound('sentry')) {
+        $group = $conversation->whatsappGroup;
+        if (! $group) {
             return;
         }
 
-        \Sentry\withScope(function (Scope $scope) use ($message, $context): void {
-            $scope->setContext('whatsapp_webhook', $context);
-            \Sentry\captureMessage($message, Severity::warning());
-        });
+        \App\Models\WhatsAppGroupParticipant::updateOrCreate(
+            [
+                'whatsapp_group_id' => $group->id,
+                'wa_id' => $messageData['from'] ?? '',
+            ],
+            [
+                'contact_id' => $contact->id,
+                'status' => 'active',
+                'display_name' => $contact->name,
+            ]
+        );
     }
 
     private function parseWebhookTimestamp(?string $timestamp): Carbon
@@ -274,13 +313,13 @@ class WhatsAppMessageService
         ?string $caption,
         User $user
     ): Message {
-        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
 
         $uploadResponse = Http::withToken($businessToken)
             ->timeout(30)
             ->attach('file', Storage::disk('public')->get($localMediaPath), basename($localMediaPath), ['Content-Type' => $mimeType])
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/media", [
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/media", [
                 'messaging_product' => 'whatsapp',
                 'type' => $mimeType,
             ]);
@@ -293,7 +332,7 @@ class WhatsAppMessageService
 
         $messagePayload = [
             'messaging_product' => 'whatsapp',
-            'recipient_type' => 'individual',
+            'recipient_type' => $recipientType,
             'to' => $to,
             'type' => 'image',
             'image' => [
@@ -307,7 +346,7 @@ class WhatsAppMessageService
 
         $sendResponse = Http::withToken($businessToken)
             ->timeout(10)
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/messages", $messagePayload);
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", $messagePayload);
 
         if (! $sendResponse->successful()) {
             throw new \RuntimeException('Error enviando imagen por WhatsApp: '.$sendResponse->body());
@@ -328,7 +367,6 @@ class WhatsAppMessageService
             'media_mime_type' => $mimeType,
             'media_filename' => basename($localMediaPath),
             'direction' => MessageDirection::OUTBOUND,
-            'delivered_at' => now(),
             'external_id' => $externalId,
         ]);
 
@@ -338,6 +376,7 @@ class WhatsAppMessageService
             // Handoff: si un humano responde, el bot se apaga en esta conversación.
             'ai_autoreply_enabled' => false,
         ]);
+        app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
             broadcast(new MessageSent($message));
@@ -349,23 +388,104 @@ class WhatsAppMessageService
         return $message;
     }
 
+    /**
+     * WhatsApp Cloud API sólo acepta audio/aac, audio/mp4, audio/mpeg, audio/amr
+     * y audio/ogg (opus). webm y wav pasan la validación general del CRM (son
+     * lo que graba el navegador en mobile) pero Meta los rechaza en el upload
+     * a /media. Los convertimos acá a ogg/opus, el formato nativo de las notas
+     * de voz de WhatsApp, antes de subir.
+     *
+     * Devuelve [path local (posiblemente convertido), mime, nombre de archivo].
+     * Si el mime ya es compatible con Meta, no toca nada.
+     */
+    private function ensureWhatsAppCompatibleAudio(string $localMediaPath, string $mimeType): array
+    {
+        // PHP/fileinfo suele detectar los .m4a como audio/x-m4a, pero Meta sólo
+        // acepta ese contenedor con el MIME estándar audio/mp4.
+        if ($mimeType === 'audio/x-m4a') {
+            return [$localMediaPath, 'audio/mp4', basename($localMediaPath)];
+        }
+
+        $metaCompatible = ['audio/aac', 'audio/mp4', 'audio/mpeg', 'audio/mp3', 'audio/amr', 'audio/3gpp', 'audio/ogg'];
+        $needsTranscode = ! in_array($mimeType, $metaCompatible, true);
+
+        if (! $needsTranscode) {
+            return [$localMediaPath, $mimeType, basename($localMediaPath)];
+        }
+
+        if (! $this->ffmpegAvailable()) {
+            throw new \InvalidArgumentException(
+                'Este formato de audio no es compatible con WhatsApp y el servidor no puede convertirlo. Probá grabar de nuevo o adjuntar un MP3, OGG o M4A.'
+            );
+        }
+
+        $sourceAbsolutePath = Storage::disk('public')->path($localMediaPath);
+        // Guardamos el convertido junto al original (mismo directorio "messages/{tenant}")
+        // con nombre nuevo; si el path viniera plano, dirname() devuelve "." y el
+        // resultado queda igual de válido para Storage::disk('public').
+        $convertedRelativePath = ($dir = dirname($localMediaPath)) !== '.'
+            ? $dir.'/'.Str::uuid().'.ogg'
+            : Str::uuid().'.ogg';
+        $convertedAbsolutePath = Storage::disk('public')->path($convertedRelativePath);
+
+        $result = Process::timeout(30)->run([
+            'ffmpeg', '-y',
+            '-i', $sourceAbsolutePath,
+            '-c:a', 'libopus',
+            '-b:a', '64k',
+            '-vn',
+            $convertedAbsolutePath,
+        ]);
+
+        if ($result->failed() || ! is_file($convertedAbsolutePath)) {
+            Log::error('Error transcodificando audio a ogg/opus para WhatsApp', [
+                'source' => $localMediaPath,
+                'mime' => $mimeType,
+                'exit_code' => $result->exitCode(),
+                'stderr' => $result->errorOutput(),
+            ]);
+
+            throw new \InvalidArgumentException(
+                'No se pudo convertir el audio a un formato compatible con WhatsApp. Probá grabar de nuevo.'
+            );
+        }
+
+        return [$convertedRelativePath, 'audio/ogg', basename($convertedRelativePath)];
+    }
+
+    private function ffmpegAvailable(): bool
+    {
+        return Process::run(['which', 'ffmpeg'])->successful();
+    }
+
     public function sendAudioMessageFromCRM(
         Conversation $conversation,
         string $localMediaPath,
         string $mediaUrl,
         string $mimeType,
-        User $user
+        User $user,
+        bool $voice = false
     ): Message {
-        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
+
+        [$uploadMediaPath, $uploadMimeType, $uploadFilename] =
+            $this->ensureWhatsAppCompatibleAudio($localMediaPath, $mimeType);
+        $wasTranscoded = $uploadMediaPath !== $localMediaPath;
 
         $uploadResponse = Http::withToken($businessToken)
             ->timeout(30)
-            ->attach('file', Storage::disk('public')->get($localMediaPath), basename($localMediaPath), ['Content-Type' => $mimeType])
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/media", [
+            ->attach('file', Storage::disk('public')->get($uploadMediaPath), $uploadFilename, ['Content-Type' => $uploadMimeType])
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/media", [
                 'messaging_product' => 'whatsapp',
-                'type' => $mimeType,
+                'type' => $uploadMimeType,
             ]);
+
+        // El .ogg convertido es sólo para el upload a Meta; el CRM conserva y
+        // reproduce el archivo original. Lo borramos apenas termina el upload.
+        if ($wasTranscoded) {
+            Storage::disk('public')->delete($uploadMediaPath);
+        }
 
         if (! $uploadResponse->successful()) {
             throw new \RuntimeException('Error subiendo audio a WhatsApp: '.$uploadResponse->body());
@@ -375,13 +495,14 @@ class WhatsAppMessageService
 
         $sendResponse = Http::withToken($businessToken)
             ->timeout(10)
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/messages", [
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
-                'recipient_type' => 'individual',
+                'recipient_type' => $recipientType,
                 'to' => $to,
                 'type' => 'audio',
                 'audio' => [
                     'id' => $whatsappMediaId,
+                    ...($voice ? ['voice' => true] : []),
                 ],
             ]);
 
@@ -402,7 +523,6 @@ class WhatsAppMessageService
             'media_mime_type' => $mimeType,
             'media_filename' => basename($localMediaPath),
             'direction' => MessageDirection::OUTBOUND,
-            'delivered_at' => now(),
             'external_id' => $externalId,
         ]);
 
@@ -412,6 +532,7 @@ class WhatsAppMessageService
             // Handoff: si un humano responde, el bot se apaga en esta conversación.
             'ai_autoreply_enabled' => false,
         ]);
+        app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
             broadcast(new MessageSent($message));
@@ -440,6 +561,350 @@ class WhatsAppMessageService
             'location',
             'contacts',
         ], true);
+    }
+
+    /** @return array{type: string, value: ?string, content: string, target_external_id: ?string}|null */
+    private function extractReplyInteraction(array $messageData): ?array
+    {
+        $type = $messageData['type'] ?? null;
+        if ($type === 'button') {
+            return [
+                'type' => 'quick_reply',
+                'value' => $messageData['button']['payload'] ?? $messageData['button']['text'] ?? null,
+                'content' => (string) ($messageData['button']['text'] ?? ''),
+                'target_external_id' => $messageData['context']['id'] ?? null,
+            ];
+        }
+        if ($type === 'interactive' && isset($messageData['interactive']['button_reply'])) {
+            $reply = $messageData['interactive']['button_reply'];
+
+            return [
+                'type' => 'quick_reply',
+                'value' => $reply['id'] ?? $reply['title'] ?? null,
+                'content' => (string) ($reply['title'] ?? ''),
+                'target_external_id' => $messageData['context']['id'] ?? null,
+            ];
+        }
+
+        return null;
+    }
+
+    private function recordReplyInteraction(Message $source, array $interaction): void
+    {
+        $target = $interaction['target_external_id']
+            ? Message::query()->where('external_id', $interaction['target_external_id'])->first()
+            : null;
+        $recipient = $target?->broadcastRecipient;
+        if (! $recipient || ! $recipient->campaign->resultsEnabled()) {
+            return;
+        }
+        MessageInteraction::firstOrCreate(
+            ['deduplication_key' => 'reply:'.$source->external_id],
+            [
+                'broadcast_recipient_id' => $recipient->id,
+                'target_message_id' => $target->id,
+                'source_message_id' => $source->id,
+                'contact_id' => $source->sender_id,
+                'type' => $interaction['type'],
+                'value' => $interaction['value'],
+                'content' => $interaction['content'],
+                'payload' => $interaction,
+                'occurred_at' => $source->created_at ?? now(),
+            ],
+        );
+        broadcast(new BroadcastResultsUpdated($recipient->campaign->id, $recipient->id));
+    }
+
+    private function recordGenericReplyInteraction(Message $source, array $messageData): void
+    {
+        $contextId = $messageData['context']['id'] ?? null;
+        $target = $contextId ? Message::query()->where('external_id', $contextId)->first() : null;
+        $recipient = $target?->broadcastRecipient;
+        if (! $recipient) {
+            // broadcast_recipients.sent_at es timestamptz, mientras messages.created_at
+            // es timestamp local. Usar el timestamp UTC de Meta evita comparar una
+            // hora local contra UTC y descartar respuestas válidas como si la
+            // difusión se hubiera enviado tres horas en el futuro.
+            $receivedAt = $this->parseWebhookTimestamp($messageData['timestamp'] ?? null)->utc();
+            $recipient = BroadcastRecipient::query()
+                ->where('contact_id', $source->sender_id)
+                ->whereHas('campaign', fn ($q) => $q->where('results_tracking_version', 1))
+                ->whereNotNull('sent_at')
+                ->whereBetween('sent_at', [$receivedAt->copy()->subDay(), $receivedAt])
+                ->whereDoesntHave('interactions', fn ($q) => $q->where('type', 'reply'))
+                ->latest('sent_at')->first();
+            $target = $recipient?->message;
+        }
+        if (! $recipient || ! $recipient->campaign->resultsEnabled()) {
+            return;
+        }
+        MessageInteraction::firstOrCreate(
+            ['deduplication_key' => 'generic-reply:'.$source->external_id],
+            [
+                'broadcast_recipient_id' => $recipient->id,
+                'target_message_id' => $target?->id,
+                'source_message_id' => $source->id,
+                'contact_id' => $source->sender_id,
+                'type' => 'reply',
+                'content' => $source->content,
+                'payload' => ['inferred' => ! $contextId],
+                'occurred_at' => $source->created_at ?? now(),
+            ],
+        );
+        broadcast(new BroadcastResultsUpdated($recipient->campaign->id, $recipient->id));
+    }
+
+    /**
+     * Reacción entrante del contacto. A diferencia del handler viejo
+     * (recordReactionInteraction, más abajo), esto se guarda SIEMPRE en
+     * message_reactions — no sólo si el target es de una campaña de difusión
+     * con resultados habilitados. La escritura en message_interactions se
+     * mantiene al final, sin tocarla, para no romper los reportes de difusión.
+     */
+    private function handleIncomingReaction(array $messageData, ?array $contactData, Channel $channel): void
+    {
+        $targetExternalId = $messageData['reaction']['message_id'] ?? null;
+        if (! $targetExternalId) {
+            Log::warning('WhatsApp reacción sin message_id, payload ignorado', [
+                'reaction' => $messageData['reaction'] ?? null,
+                'channel_id' => $channel->id,
+            ]);
+
+            return;
+        }
+
+        // withTrashed() es deliberado: si el mensaje fue borrado en el CRM
+        // pero el contacto igual reaccionó en su teléfono, se registra sin
+        // explotar. La burbuja no se ve (tombstone), pero el dato queda.
+        $target = Message::withTrashed()->where('external_id', $targetExternalId)->first();
+        if (! $target) {
+            Log::info('WhatsApp reacción a mensaje desconocido en el CRM', [
+                'external_id' => $targetExternalId,
+                'channel_id' => $channel->id,
+            ]);
+
+            return;
+        }
+
+        // external_id es unique GLOBAL y el webhook es público sin validación
+        // de firma: sin este guard, un wamid ajeno podría resolver a un
+        // mensaje de otro tenant y filtrar quién reaccionó a qué.
+        if ($target->tenant_id !== $channel->tenant_id) {
+            Log::warning('WhatsApp reacción: mensaje resuelto pertenece a otro tenant, ignorada', [
+                'external_id' => $targetExternalId,
+                'target_tenant_id' => $target->tenant_id,
+                'channel_tenant_id' => $channel->tenant_id,
+            ]);
+
+            return;
+        }
+
+        $contact = $this->findOrCreateContact($contactData, $messageData['from'] ?? '', $channel);
+
+        // La forma exacta del "remove" no está documentada por Meta; se trata
+        // emoji ausente, null o vacío como remoción, de forma defensiva.
+        $emoji = trim((string) ($messageData['reaction']['emoji'] ?? ''));
+
+        Log::info('WhatsApp reaction payload', ['reaction' => $messageData['reaction'] ?? null]);
+
+        $reactorKey = [
+            'message_id' => $target->id,
+            'reactor_type' => SenderType::CONTACT,
+            'reactor_id' => $contact->id,
+        ];
+
+        $eventReactedAt = $this->parseWebhookTimestamp($messageData['timestamp'] ?? null)->utc();
+
+        // Meta entrega con garantía at-least-once: un webhook reentregado o
+        // fuera de orden no debe pisar un estado más nuevo (p.ej. 👍 luego ❤️,
+        // donde el 👍 llega tarde) ni resucitar una reacción ya removida.
+        //
+        // Se compara contra el valor CRUDO de la columna, no contra el
+        // atributo casteado: `reacted_at` es timestampTz y siempre se
+        // escribe en UTC (acá y en el envío saliente), pero el cast
+        // 'datetime' de Eloquent reaplica config('app.timezone') al parsear
+        // sin importar el offset guardado — inofensivo en Postgres (el
+        // driver preserva el offset real), pero en SQLite (usado en tests)
+        // el offset se pierde y el valor se relee corrido 3h. Parsear el
+        // crudo como UTC explícito evita depender de esa diferencia de
+        // driver. Comparación a nivel de segundo porque el timestamp de
+        // Meta viene truncado a segundos, mientras que un `reacted_at`
+        // seteado con now() (envío saliente desde el CRM) conserva
+        // microsegundos.
+        $existing = MessageReaction::where($reactorKey)->first();
+        if ($existing) {
+            $existingReactedAt = Carbon::parse($existing->getRawOriginal('reacted_at'), 'UTC')->startOfSecond();
+            if ($eventReactedAt->lt($existingReactedAt)) {
+                Log::info('WhatsApp reacción fuera de orden ignorada', [
+                    'external_id' => $messageData['id'] ?? null,
+                    'existing_reacted_at' => $existingReactedAt,
+                    'event_reacted_at' => $eventReactedAt,
+                ]);
+
+                return;
+            }
+        }
+
+        try {
+            if ($emoji === '') {
+                MessageReaction::where($reactorKey)->delete();
+            } else {
+                MessageReaction::updateOrCreate($reactorKey, [
+                    'tenant_id' => $target->tenant_id,
+                    'conversation_id' => $target->conversation_id,
+                    'emoji' => $emoji,
+                    'external_id' => $messageData['id'] ?? null,
+                    'reacted_at' => $eventReactedAt,
+                ]);
+            }
+        } catch (QueryException $e) {
+            // Dos webhooks concurrentes pasando el check-then-insert a la vez
+            // sobre la unique de external_id: reentrega benigna, se ignora.
+            Log::info('WhatsApp reacción duplicada ignorada (unique constraint)', [
+                'external_id' => $messageData['id'] ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            return;
+        }
+
+        try {
+            broadcast(MessageReactionUpdated::forMessage($target));
+        } catch (\Exception $e) {
+            Log::error('Error broadcasting reacción entrante: '.$e->getMessage());
+        }
+
+        // No tocar: mantiene el flujo de analítica de difusiones intacto.
+        $this->recordReactionInteraction($messageData, $channel->tenant_id);
+    }
+
+    /**
+     * Registra la reacción como MessageInteraction únicamente cuando el
+     * mensaje reaccionado pertenece a una campaña de difusión con resultados
+     * habilitados — es la tabla de analítica de campañas, no el almacén de
+     * reacciones del chat (eso es message_reactions, ver handleIncomingReaction).
+     */
+    private function recordReactionInteraction(array $messageData, int $tenantId): void
+    {
+        $targetExternalId = $messageData['reaction']['message_id'] ?? null;
+        if (! $targetExternalId) {
+            return;
+        }
+        $target = Message::query()->where('external_id', $targetExternalId)->first();
+        $recipient = $target?->broadcastRecipient;
+        if (! $target || ! $recipient || ! $recipient->campaign->resultsEnabled()) {
+            return;
+        }
+        $emoji = $messageData['reaction']['emoji'] ?? null;
+        MessageInteraction::firstOrCreate(
+            ['deduplication_key' => 'reaction:'.($messageData['id'] ?? sha1(json_encode($messageData)))],
+            [
+                'broadcast_recipient_id' => $recipient->id,
+                'target_message_id' => $target->id,
+                'contact_id' => $target->conversation?->contact_id,
+                'type' => $emoji ? 'reaction' : 'reaction_removed',
+                'value' => $emoji,
+                'payload' => $messageData['reaction'],
+                // occurred_at es timestampTz: sin ->utc() acá queda 3h corrido
+                // respecto de message_reactions.reacted_at para el mismo evento
+                // (parseWebhookTimestamp devuelve hora local de la app).
+                'occurred_at' => $this->parseWebhookTimestamp($messageData['timestamp'] ?? null)->utc(),
+            ],
+        );
+        broadcast(new BroadcastResultsUpdated($recipient->campaign->id, $recipient->id));
+    }
+
+    /** Build the native WhatsApp contacts payload from CRM contacts. */
+    public function buildContactCards(iterable $contacts): array
+    {
+        $contacts = collect($contacts)->values();
+        $fields = ContactField::forTenant((int) ($contacts->first()?->tenant_id ?? 0));
+
+        return $contacts->map(function (Contact $contact) use ($fields): array {
+            $custom = is_array($contact->custom_data) ? $contact->custom_data : [];
+            $phones = [];
+            if ($contact->phone) {
+                $phones[] = ['phone' => $contact->phone];
+            }
+            $emails = [];
+            if ($contact->email) {
+                $emails[] = ['email' => $contact->email];
+            }
+            foreach ($fields as $field) {
+                $value = $custom[$field->key] ?? null;
+                if ($value === null || $value === '' || is_array($value)) {
+                    continue;
+                }
+                if ($field->type?->value === 'phone') {
+                    $phones[] = ['phone' => (string) $value];
+                }
+                if ($field->type?->value === 'email') {
+                    $emails[] = ['email' => (string) $value];
+                }
+            }
+            $dedupe = static fn (array $items, string $key): array => collect($items)->unique(fn ($item) => strtolower((string) ($item[$key] ?? '')))->values()->all();
+            $card = [
+                'name' => ['formatted_name' => (string) ($contact->name ?: $contact->phone ?: 'Sin nombre')],
+            ];
+            if ($phones !== []) {
+                $card['phones'] = $dedupe($phones, 'phone');
+            }
+            if ($emails !== []) {
+                $card['emails'] = $dedupe($emails, 'email');
+            }
+            $org = [];
+            foreach (['company' => 'company', 'department' => 'department', 'job_title' => 'title'] as $key => $target) {
+                if (($custom[$key] ?? null) !== null && $custom[$key] !== '') {
+                    $org[$target] = (string) $custom[$key];
+                }
+            }
+            if ($org !== []) {
+                $card['org'] = $org;
+            }
+            if (($birthday = $custom['birthday'] ?? null) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $birthday)) {
+                $card['birthday'] = $birthday;
+            }
+            $urls = [];
+            foreach ($fields as $field) {
+                if ($field->type?->value === 'url' && ! empty($custom[$field->key]) && is_string($custom[$field->key])) {
+                    $urls[] = ['url' => $custom[$field->key]];
+                }
+            }
+            if ($urls !== []) {
+                $card['urls'] = $dedupe($urls, 'url');
+            }
+
+            return $card;
+        })->values()->all();
+    }
+
+    public function sendContactsMessageFromCRM(Conversation $conversation, array $cards, User $user): Message
+    {
+        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] = $this->resolveOutboundWhatsAppContext($conversation);
+        $response = Http::withToken($businessToken)->timeout(10)->post(
+            'https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages",
+            ['messaging_product' => 'whatsapp', 'recipient_type' => 'individual', 'to' => $to, 'type' => 'contacts', 'contacts' => $cards]
+        );
+        if (! $response->successful()) {
+            throw new \RuntimeException('Error enviando contactos a WhatsApp: '.$response->body());
+        }
+        $message = Message::create([
+            'tenant_id' => $conversation->tenant_id, 'conversation_id' => $conversation->id,
+            'sender_type' => SenderType::USER, 'sender_id' => $user->id,
+            'content' => count($cards).' contactos compartidos', 'message_type' => MessageType::Contacts,
+            'contacts' => $cards, 'direction' => MessageDirection::OUTBOUND,
+            'delivered_at' => now(), 'external_id' => $response->json('messages.0.id'),
+        ]);
+        $conversation->update(['last_message_at' => $message->created_at, 'last_message_content' => '👤 '.count($cards).' contactos compartidos', 'ai_autoreply_enabled' => false]);
+        app(AiTypingIndicatorService::class)->stop($conversation->id);
+        try {
+            broadcast(new MessageSent($message));
+            broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
+        } catch (\Exception $e) {
+            Log::error('Error broadcasting outbound contacts message: '.$e->getMessage());
+        }
+
+        return $message;
     }
 
     /**
@@ -540,6 +1005,8 @@ class WhatsAppMessageService
 
         $content = match ($type) {
             'text' => $messageData['text']['body'] ?? '',
+            'button' => $messageData['button']['text'] ?? '',
+            'interactive' => $messageData['interactive']['button_reply']['title'] ?? $messageData['interactive']['list_reply']['title'] ?? '',
             'edit' => $messageData['edit']['message']['text']['body']
                 ?? $messageData['edit']['text']['body']
                 ?? '',
@@ -549,7 +1016,7 @@ class WhatsAppMessageService
             'audio' => '',
             'video' => $messageData['video']['caption'] ?? '',
             'location' => 'Ubicación compartida',
-            'contacts' => 'Contacto compartido',
+            'contacts' => count($messageData['contacts'] ?? []).' contactos compartidos',
             default => '',
         };
 
@@ -570,6 +1037,7 @@ class WhatsAppMessageService
             'document' => 'document',
             'audio' => 'audio',
             'video' => 'video',
+            'contacts' => 'contacts',
             default => 'text',
         };
 
@@ -577,6 +1045,7 @@ class WhatsAppMessageService
             'content' => $content,
             'type' => $mappedType,
             'media_id' => $mediaId,
+            'contacts' => ($type === 'contacts' && is_array($messageData['contacts'] ?? null)) ? $messageData['contacts'] : null,
         ];
     }
 
@@ -588,7 +1057,7 @@ class WhatsAppMessageService
 
         $metaResponse = Http::withToken($accessToken)
             ->timeout(10)
-            ->get("https://graph.facebook.com/v21.0/{$mediaId}");
+            ->get("https://graph.facebook.com/{$this->graphVersion()}/{$mediaId}");
 
         if (! $metaResponse->successful()) {
             Log::error("Error obteniendo URL de media WhatsApp: {$metaResponse->body()}");
@@ -629,8 +1098,17 @@ class WhatsAppMessageService
         return $phone;
     }
 
+    private function isSiCrmAlertsPhone(?string $phone): bool
+    {
+        $alerts = preg_replace('/\D+/', '', (string) config('services.si_crm_alerts.display_number'));
+        $candidate = preg_replace('/\D+/', '', (string) $phone);
+        if (str_starts_with($alerts, '549')) $alerts = '54'.substr($alerts, 3);
+        if (str_starts_with($candidate, '549')) $candidate = '54'.substr($candidate, 3);
+        return $alerts !== '' && $candidate !== '' && hash_equals($alerts, $candidate);
+    }
+
     /**
-     * @return array{to: string, business_phone_id: string, business_token: string}
+     * @return array{to: string, recipient_type: string, business_phone_id: string, business_token: string}
      */
     private function resolveOutboundWhatsAppContext(Conversation $conversation): array
     {
@@ -639,22 +1117,19 @@ class WhatsAppMessageService
             throw new \InvalidArgumentException('La conversación no tiene un canal asociado.');
         }
 
-        if ($channel->type !== ChannelType::WHATSAPP) {
-            throw new \InvalidArgumentException('Solo se pueden enviar mensajes desde conversaciones de WhatsApp.');
-        }
+        $credentials = $this->resolveWhatsAppCredentials($channel);
 
-        if (! $channel->isActive()) {
-            throw new \InvalidArgumentException('El canal de WhatsApp está desconectado.');
-        }
+        if ($conversation->isGroup()) {
+            $group = $conversation->whatsappGroup;
+            if (! $group || ! $group->group_id || ! $group->isActive()) {
+                throw new \InvalidArgumentException('El grupo todavía se está creando en WhatsApp o ya no está activo.');
+            }
 
-        $waConfig = $channel->whatsappConfig;
-        if (! $waConfig || ! $waConfig->phone_number_id) {
-            throw new \InvalidArgumentException('El canal no tiene una configuración válida de WhatsApp.');
-        }
-
-        $businessToken = $waConfig->getDecryptedToken();
-        if (! $businessToken) {
-            throw new \InvalidArgumentException('No se pudo obtener el token de WhatsApp del canal.');
+            return [
+                'to' => $group->group_id,
+                'recipient_type' => 'group',
+                ...$credentials,
+            ];
         }
 
         $phone = $conversation->contact?->phone;
@@ -664,8 +1139,8 @@ class WhatsAppMessageService
 
         return [
             'to' => $this->normalizePhoneForWhatsApp($phone),
-            'business_phone_id' => $waConfig->phone_number_id,
-            'business_token' => $businessToken,
+            'recipient_type' => 'individual',
+            ...$credentials,
         ];
     }
 
@@ -693,7 +1168,7 @@ class WhatsAppMessageService
 
             $response = Http::withToken($businessToken)
                 ->timeout(10)
-                ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$waConfig->phone_number_id}/messages", [
+                ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$waConfig->phone_number_id}/messages", [
                     'messaging_product' => 'whatsapp',
                     'status' => 'read',
                     'message_id' => $externalId,
@@ -736,6 +1211,15 @@ class WhatsAppMessageService
     {
         $message = Message::create($messageData);
 
+        // Si el contacto responde después de un mensaje saliente, necesariamente
+        // abrió la conversación. Meta puede omitir el webhook `read` cuando el
+        // contacto desactiva las confirmaciones de lectura; la respuesta es una
+        // evidencia más fuerte y permite completar el estado sin inventarlo.
+        if ($message->direction === MessageDirection::INBOUND) {
+            $this->grantConsentFromInboundMessage($message);
+            $this->inferReadFromInboundReply($message);
+        }
+
         if (isset($messageData['conversation_id'])) {
             $type = $messageData['message_type'] ?? 'text';
             $lastContent = match ($type) {
@@ -744,6 +1228,7 @@ class WhatsAppMessageService
                 'video' => '🎥 '.($messageData['content'] ?: 'Video'),
                 'audio' => '🎵 Audio',
                 'document' => '📄 '.($messageData['content'] ?: 'Documento'),
+                'contacts' => '👤 '.($messageData['content'] ?: 'Contactos compartidos'),
                 default => $messageData['content'] ?? '',
             };
 
@@ -763,9 +1248,14 @@ class WhatsAppMessageService
 
             Conversation::where('id', $messageData['conversation_id'])
                 ->update($conversationUpdates);
+            if ($message->direction === MessageDirection::OUTBOUND
+                && $message->sender_type === SenderType::USER) {
+                app(AiTypingIndicatorService::class)->stop((int) $messageData['conversation_id']);
+            }
         }
 
         try {
+            $this->attachSenderNameForGroupBroadcast($message);
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $messageData['tenant_id']));
         } catch (\Exception $e) {
@@ -775,6 +1265,81 @@ class WhatsAppMessageService
         $this->maybeDispatchAiReply($message);
 
         return $message;
+    }
+
+    /**
+     * Escribir un mensaje INBOUND es la misma evidencia de consentimiento que
+     * usa el backfill de la migración 2026_08_30_090000: si la persona inició
+     * o continuó la conversación, dio su opt-in. Sin esto, un contacto nuevo
+     * que escribe después del deploy —o uno existente que recién ahora
+     * inicia contacto— quedaría en `unknown` para siempre y una difusión de
+     * marketing normal lo excluiría igual que a alguien que nunca escribió.
+     *
+     * No pisa `denied`: es un opt-out explícito (incluye el que deja el
+     * error 131050 de Meta) y no se revierte por seguir recibiendo mensajes
+     * del mismo contacto. Tampoco reescribe un `granted` ya existente.
+     */
+    private function grantConsentFromInboundMessage(Message $message): void
+    {
+        if ($message->sender_type !== SenderType::CONTACT || $message->sender_id === null) {
+            return;
+        }
+
+        Contact::whereKey($message->sender_id)
+            ->whereNull('marketing_consent_status')
+            ->update([
+                'marketing_consent_status' => MarketingConsentStatus::Granted->value,
+                'marketing_consent_source' => 'inbound_message',
+                'marketing_consent_at' => $message->created_at,
+            ]);
+    }
+
+    /**
+     * Igual que ConversationController::attachSenderNames() pero para el
+     * mensaje único que se está por emitir por WebSocket: sin esto, un
+     * inbound de grupo llega en vivo sin nombre de autor y sólo lo recupera
+     * al recargar la conversación (show()/fetchMessages() sí lo adjuntan).
+     */
+    private function attachSenderNameForGroupBroadcast(Message $message): void
+    {
+        if ($message->sender_type !== SenderType::CONTACT || ! $message->sender_id) {
+            return;
+        }
+
+        $conversation = Conversation::withoutGlobalScopes()->find($message->conversation_id);
+        if (! $conversation || ! $conversation->isGroup()) {
+            return;
+        }
+
+        $name = Contact::withoutGlobalScopes()->where('id', $message->sender_id)->value('name');
+        if ($name) {
+            $message->setAttribute('sender', ['id' => $message->sender_id, 'name' => $name]);
+        }
+    }
+
+    private function inferReadFromInboundReply(Message $inboundMessage): void
+    {
+        $readAt = $inboundMessage->delivered_at ?? $inboundMessage->created_at;
+
+        $unreadOutboundMessages = Message::query()
+            ->where('conversation_id', $inboundMessage->conversation_id)
+            ->where('direction', MessageDirection::OUTBOUND)
+            ->whereNull('read_at')
+            ->where('id', '<', $inboundMessage->id)
+            ->get();
+
+        foreach ($unreadOutboundMessages as $outboundMessage) {
+            $outboundMessage->update([
+                'delivered_at' => $outboundMessage->delivered_at ?? $readAt,
+                'read_at' => $readAt,
+            ]);
+
+            try {
+                broadcast(new MessageStatusUpdated($outboundMessage));
+            } catch (\Exception $e) {
+                Log::error('Error broadcasting inferred WhatsApp read status: '.$e->getMessage());
+            }
+        }
     }
 
     /**
@@ -799,34 +1364,50 @@ class WhatsAppMessageService
             return;
         }
 
-        // Chequeo barato para no encolar jobs no-op en tenants sin IA activa.
-        // El job hace la validación completa (incluye desencriptar la key).
-        $hasEnabledAiConfig = AiConfig::withoutGlobalScopes()
-            ->where('tenant_id', $message->tenant_id)
-            ->where('enabled', true)
-            ->exists();
-
-        if (! $hasEnabledAiConfig) {
+        // Guard duro: un bot respondiendo en un grupo de venta es un riesgo
+        // real. No alcanza con ai_autoreply_enabled=false al crear el grupo
+        // (alguien podría reactivarlo); se corta acá sin importar el flag.
+        if ($conversation->isGroup()) {
             return;
         }
 
-        GenerateAiReplyJob::dispatch($conversation->id)
-            ->delay(now()->addSeconds(8));
+        // Chequeo barato para no encolar jobs no-op en tenants sin IA activa.
+        // El job hace la validación completa (incluye desencriptar la key).
+        if (! app(AiReplyEligibility::class)->hasUsableConfig($message->tenant_id)) {
+            return;
+        }
+
+        $typing = app(AiTypingIndicatorService::class);
+        $typing->start($conversation, $message);
+
+        try {
+            GenerateAiReplyJob::dispatch($conversation->id)
+                ->delay(now()->addSeconds(8));
+        } catch (\Throwable $e) {
+            $typing->stop($conversation->id, $message->id);
+            throw $e;
+        }
     }
 
     /**
      * Procesa el webhook smb_app_state_sync (coexistencia).
      * Sincroniza los contactos del WhatsApp Business App al CRM.
      *
-     * Actions soportadas (normalizadas a lowercase):
-     *   upsert  → add, added, edit, edited, update, updated
-     *   remove lógico (no se borra del CRM para preservar historial)
-     *           → remove, removed, delete, deleted
+     * Meta sólo define dos actions: `add` (que cubre alta Y edición) y `remove`,
+     * que además llega sin los campos de nombre. Aceptamos variantes extra
+     * (added/edit/update/delete…) por robustez, pero no son parte del contrato.
      *
-     * @see https://developers.facebook.com/docs/whatsapp/embedded-signup/onboarding-business-app-users
+     * Ojo: el objeto `contact` de Meta trae full_name, first_name y phone_number.
+     * No incluye ningún id de usuario, así que el phone es la única clave estable.
+     *
+     * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
+     *
+     * @return int Contactos creados o actualizados en este lote. El caller lo usa
+     *             para registrar que el sync realmente trajo datos.
      */
-    public function processSmbAppStateSync(array $changeValue, int $tenantId): void
+    public function processSmbAppStateSync(array $changeValue, int $tenantId): int
     {
+        $upserted = 0;
         $stateSync = $changeValue['state_sync'] ?? [];
 
         // Acciones que significan crear/actualizar el contacto en el CRM.
@@ -842,6 +1423,7 @@ class WhatsAppMessageService
             }
 
             $contactData = $syncItem['contact'] ?? [];
+            $this->logUnexpectedContactFields($contactData);
             $action = strtolower(trim($syncItem['action'] ?? 'add'));
             $phoneNumber = $contactData['phone_number'] ?? null;
             $bsuid = $contactData['user_id'] ?? null;
@@ -871,6 +1453,7 @@ class WhatsAppMessageService
                                 'phone' => $phoneNumber,
                                 'name' => $fullName,
                             ]);
+                            $upserted++;
 
                             continue;
                         }
@@ -880,6 +1463,7 @@ class WhatsAppMessageService
                         ['tenant_id' => $tenantId, 'phone' => $phoneNumber],
                         ['name' => $fullName, 'external_id' => $bsuid, 'source' => 'whatsapp']
                     );
+                    $upserted++;
                 } else {
                     // Sin phone_number (username activado o sin mensajes recientes).
                     // Anti-duplicado: si ya existe por external_id, actualizamos ese registro
@@ -890,6 +1474,7 @@ class WhatsAppMessageService
 
                     if ($existingByBsuid) {
                         $existingByBsuid->update(['name' => $fullName]);
+                        $upserted++;
 
                         continue;
                     }
@@ -898,6 +1483,7 @@ class WhatsAppMessageService
                         ['tenant_id' => $tenantId, 'external_id' => $bsuid],
                         ['name' => $fullName, 'source' => 'whatsapp']
                     );
+                    $upserted++;
                 }
             } elseif (in_array($action, $removeActions, true)) {
                 // Preservamos el contacto y su historial; solo lo logueamos.
@@ -915,6 +1501,55 @@ class WhatsAppMessageService
                 ]);
             }
         }
+
+        return $upserted;
+    }
+
+    /**
+     * Campos que Meta documenta para el objeto `contact` de smb_app_state_sync.
+     *
+     * `user_id` (BSUID) no figura en el ejemplo de la doc de coexistencia pero sí
+     * llega cuando el feature está habilitado, y ya lo consumimos más arriba.
+     *
+     * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
+     */
+    private const KNOWN_SMB_CONTACT_FIELDS = [
+        'full_name',
+        'first_name',
+        'phone_number',
+        'user_id',
+        'parent_user_id',
+        'username',
+    ];
+
+    /**
+     * Loguea los NOMBRES de campos no documentados que Meta mande en el objeto
+     * `contact`.
+     *
+     * Motivo: la doc de Meta no expone ninguna foto de perfil del contacto — el
+     * único `profile_picture_url` de la Graph API pertenece al perfil del NEGOCIO,
+     * no al del cliente. Esta sonda existe para verificar ese negativo contra
+     * tráfico real, porque Meta a veces agrega campos antes de documentarlos. Si
+     * algún día aparece algo con forma de imagen, queda registrado acá.
+     *
+     * Sólo se loguean las CLAVES, nunca los valores: el contenido son datos
+     * personales del contacto y no deben terminar en los logs.
+     */
+    private function logUnexpectedContactFields(array $contactData): void
+    {
+        if ($contactData === []) {
+            return;
+        }
+
+        $unexpected = array_diff(array_keys($contactData), self::KNOWN_SMB_CONTACT_FIELDS);
+
+        if ($unexpected === []) {
+            return;
+        }
+
+        Log::info('smb_app_state_sync: campos no documentados en el contacto', [
+            'fields' => array_values($unexpected),
+        ]);
     }
 
     /**
@@ -944,6 +1579,9 @@ class WhatsAppMessageService
         foreach ($echoes as $echo) {
             $customerPhone = $echo['to'] ?? null;
             if (! $customerPhone) {
+                continue;
+            }
+            if ($this->isSiCrmAlertsPhone($customerPhone)) {
                 continue;
             }
 
@@ -997,16 +1635,286 @@ class WhatsAppMessageService
         }
     }
 
+    /**
+     * Procesa el webhook del paso 2 de coexistencia (sync_type=history).
+     *
+     * Shape real, confirmado contra la doc oficial de Meta (Onboard WhatsApp
+     * Business app users) y contra payloads de producción:
+     *   value.history[] = [{
+     *     metadata: { phase, chunk_order, progress },
+     *     threads: [{
+     *       id: "<wa_id del contacto, SIN 9 en AR>",
+     *       messages: [{ id, from, to?, timestamp, type, text: {...}, history_context: { status }, ... }],
+     *     }],
+     *   }]
+     *
+     * El teléfono del contacto sale de threads[].id, no de messages[].to: `to`
+     * sólo viene poblado cuando el mensaje representa un smb_message_echo, no en
+     * el resto del historial (documentado explícitamente por Meta).
+     *
+     * La dirección se determina comparando `from` contra el número del negocio
+     * (metadata.display_phone_number del propio webhook, más phone_number/
+     * display_phone_number de la config) normalizados a dígitos puros vía
+     * normalizePhoneForWhatsApp, porque display_phone_number en DB puede venir
+     * formateado ("+54 9 223 436-3047") mientras que `from` siempre llega en
+     * dígitos puros sin el 9 argentino.
+     *
+     * media_placeholder no se descarta: se persiste como mensaje de texto
+     * provisorio. Meta promete un webhook posterior con el mismo wamid y el
+     * contenido real "only if the message was sent within the last two weeks";
+     * ese caso se resuelve con un updateOrCreate por external_id (ver más abajo),
+     * nunca con un create nuevo, porque external_id es unique global en messages.
+     *
+     * @return array{imported: int, progress: int, phase: int|null, error_code: int|null}
+     */
+    public function processHistorySync(array $value, Channel $channel): array
+    {
+        $historyChunks = $value['history'] ?? [];
+
+        // "Messaging history not shared": Meta entrega un chunk sin threads y con
+        // un error explícito en vez de contenido. No es un fallo de nuestro lado.
+        $errorCode = data_get($value, 'history.0.error.code') ?? data_get($value, 'errors.0.code');
+
+        if (empty($historyChunks)) {
+            return ['imported' => 0, 'progress' => 0, 'phase' => null, 'error_code' => $errorCode];
+        }
+
+        $tenantId = $channel->tenant_id;
+        $waConfig = $channel->whatsappConfig;
+        $businessNumbers = array_filter(array_map(
+            fn (?string $n) => $n ? $this->normalizePhoneForWhatsApp(preg_replace('/\D/', '', $n)) : null,
+            [
+                $waConfig?->phone_number,
+                $waConfig?->display_phone_number,
+                data_get($value, 'metadata.display_phone_number'),
+            ]
+        ));
+
+        $imported = 0;
+        $progress = 0;
+        $phase = null;
+
+        foreach ($historyChunks as $chunk) {
+            $progress = max($progress, (int) ($chunk['metadata']['progress'] ?? 0));
+            $phase = $chunk['metadata']['phase'] ?? $phase;
+
+            foreach ($chunk['threads'] ?? [] as $thread) {
+                $threadPhone = $thread['id'] ?? null;
+
+                foreach ($thread['messages'] ?? [] as $historyMessage) {
+                    // Sólo se cuenta el `create`: un `update` es un placeholder
+                    // resuelto por un webhook posterior con el mismo wamid, y
+                    // Meta reentrega contenido duplicado entre chunks del mismo
+                    // sync. Contar ambos infla el número muy por encima de los
+                    // mensajes que realmente terminan en el chat.
+                    if ($this->importHistoryMessage($historyMessage, $threadPhone, $businessNumbers, $channel, $tenantId) === 'created') {
+                        $imported++;
+                    }
+                }
+            }
+        }
+
+        return ['imported' => $imported, 'progress' => $progress, 'phase' => $phase, 'error_code' => $errorCode];
+    }
+
+    /**
+     * @return 'created'|'updated'|'skipped'
+     */
+    private function importHistoryMessage(
+        array $historyMessage,
+        ?string $threadPhone,
+        array $businessNumbers,
+        Channel $channel,
+        int $tenantId
+    ): string {
+        $externalId = $historyMessage['id'] ?? null;
+        $type = $historyMessage['type'] ?? 'unknown';
+
+        $isPlaceholder = $type === 'media_placeholder';
+        if (! $isPlaceholder && ! $this->isSupportedMessageType($type)) {
+            // reaction/edit/revoke/button/errors: mismo criterio que
+            // processIncomingMessage, se ignoran sin frenar el resto del batch.
+            return 'skipped';
+        }
+
+        $from = $historyMessage['from'] ?? null;
+        if ($this->isSiCrmAlertsPhone($from) || $this->isSiCrmAlertsPhone($historyMessage['to'] ?? null)) {
+            return 'skipped';
+        }
+        $fromNormalized = $from ? $this->normalizePhoneForWhatsApp(preg_replace('/\D/', '', $from)) : null;
+        $isOutbound = $fromNormalized && in_array($fromNormalized, $businessNumbers, true);
+
+        // El contacto siempre es el otro extremo del thread, nunca el negocio.
+        $customerPhone = $isOutbound
+            ? ($threadPhone ?? $historyMessage['to'] ?? null)
+            : ($from ?? $threadPhone);
+
+        if (! $customerPhone) {
+            return 'skipped';
+        }
+
+        $existing = $externalId ? Message::where('external_id', $externalId)->first() : null;
+
+        $contact = $this->findOrCreateContact(null, $customerPhone, $channel);
+        $conversation = $this->findOrCreateConversation($contact, $channel);
+
+        if ($isPlaceholder) {
+            if ($existing) {
+                // Ya se resolvió por un webhook de contenido posterior; nada que hacer.
+                return 'skipped';
+            }
+
+            $this->createMessage([
+                'tenant_id' => $tenantId,
+                'conversation_id' => $conversation->id,
+                'sender_type' => $isOutbound ? SenderType::USER : SenderType::CONTACT,
+                'sender_id' => $isOutbound ? $channel->user_id : $contact->id,
+                'content' => 'Multimedia no disponible',
+                'message_type' => MessageType::Text,
+                'direction' => $isOutbound ? MessageDirection::OUTBOUND : MessageDirection::INBOUND,
+                'external_id' => $externalId,
+                'delivered_at' => $this->parseWebhookTimestamp($historyMessage['timestamp'] ?? null),
+            ]);
+
+            return 'created';
+        }
+
+        $extracted = $this->extractMessageData($historyMessage);
+        $status = strtoupper((string) ($historyMessage['history_context']['status'] ?? ''));
+
+        $attributes = [
+            'tenant_id' => $tenantId,
+            'conversation_id' => $conversation->id,
+            'sender_type' => $isOutbound ? SenderType::USER : SenderType::CONTACT,
+            'sender_id' => $isOutbound ? $channel->user_id : $contact->id,
+            'content' => $extracted['content'],
+            'message_type' => $extracted['type'],
+            'direction' => $isOutbound ? MessageDirection::OUTBOUND : MessageDirection::INBOUND,
+            'external_id' => $externalId,
+            'delivered_at' => $this->parseWebhookTimestamp($historyMessage['timestamp'] ?? null),
+            'read_at' => $status === 'READ' ? $this->parseWebhookTimestamp($historyMessage['timestamp'] ?? null) : null,
+        ];
+
+        if ($existing) {
+            // Resuelve un media_placeholder previo (mismo wamid) con el contenido
+            // real que llega en un webhook history separado, dentro de las 2
+            // semanas. external_id es unique global: nunca un create nuevo acá.
+            $existing->update($attributes);
+
+            return 'updated';
+        }
+
+        $this->createMessage($attributes);
+
+        return 'created';
+    }
+
+    /**
+     * Reacciona a un mensaje desde el CRM. $emoji vacío o null quita la
+     * reacción (contrato de Meta: mismo payload con emoji: ""). No crea un
+     * Message: la reacción es un atributo de otro mensaje, no una entrada
+     * nueva del timeline — por eso tampoco toca last_message_at/
+     * last_message_content ni apaga ai_autoreply_enabled (una reacción no es
+     * una respuesta ni un handoff).
+     */
+    public function sendReactionFromCRM(Message $message, ?string $emoji, User $user): ?MessageReaction
+    {
+        $conversation = $message->conversation;
+        if (! $conversation) {
+            throw new \InvalidArgumentException('El mensaje no tiene una conversación asociada.');
+        }
+
+        if ($conversation->channel?->type !== ChannelType::WHATSAPP) {
+            throw new \InvalidArgumentException('Las reacciones sólo están disponibles en canales de WhatsApp.');
+        }
+
+        if (! $message->external_id) {
+            throw new \InvalidArgumentException('Este mensaje todavía no se sincronizó con WhatsApp.');
+        }
+
+        if ($message->trashed()) {
+            throw new \InvalidArgumentException('No se puede reaccionar a un mensaje eliminado.');
+        }
+
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+            $this->resolveOutboundWhatsAppContext($conversation);
+
+        $emoji = trim((string) $emoji);
+
+        $response = Http::withToken($businessToken)
+            ->timeout(10)
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
+                'messaging_product' => 'whatsapp',
+                'recipient_type' => $recipientType,
+                'to' => $to,
+                'type' => 'reaction',
+                'reaction' => [
+                    'message_id' => $message->external_id,
+                    'emoji' => $emoji,
+                ],
+            ]);
+
+        if (! $response->successful()) {
+            throw MetaApiException::fromGraphResponse(ChannelType::WHATSAPP, $response->json());
+        }
+
+        // Q1: el contacto sólo ve una reacción del negocio (un solo número de
+        // WhatsApp), así que si otro usuario del CRM ya había reaccionado a
+        // este mensaje, se reemplaza en vez de acumularse. Transacción: Meta
+        // ya confirmó el envío, así que borrar la fila vieja y crear la nueva
+        // deben ser atómicos — si el create fallara suelto, el mensaje
+        // quedaría sin ninguna reacción local pese a que WhatsApp sí la tiene.
+        $reaction = DB::transaction(function () use ($message, $conversation, $user, $emoji, $response) {
+            MessageReaction::where([
+                'message_id' => $message->id,
+                'reactor_type' => SenderType::USER,
+            ])->delete();
+
+            if ($emoji === '') {
+                return null;
+            }
+
+            return MessageReaction::create([
+                'tenant_id' => $message->tenant_id,
+                'message_id' => $message->id,
+                'conversation_id' => $conversation->id,
+                'reactor_type' => SenderType::USER,
+                'reactor_id' => $user->id,
+                'emoji' => $emoji,
+                'external_id' => $response->json('messages.0.id'),
+                'reacted_at' => now(),
+            ]);
+        });
+
+        if ($emoji === '') {
+            try {
+                broadcast(MessageReactionUpdated::forMessage($message));
+            } catch (\Exception $e) {
+                Log::error('Error broadcasting reacción saliente removida: '.$e->getMessage());
+            }
+
+            return null;
+        }
+
+        try {
+            broadcast(MessageReactionUpdated::forMessage($message));
+        } catch (\Exception $e) {
+            Log::error('Error broadcasting reacción saliente: '.$e->getMessage());
+        }
+
+        return $reaction;
+    }
+
     public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
     {
-        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
 
         $response = Http::withToken($businessToken)
             ->timeout(10)
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/messages", [
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
-                'recipient_type' => 'individual',
+                'recipient_type' => $recipientType,
                 'to' => $to,
                 'type' => 'text',
                 'text' => [
@@ -1027,7 +1935,6 @@ class WhatsAppMessageService
             'sender_id' => $user->id,
             'content' => $content,
             'direction' => MessageDirection::OUTBOUND,
-            'delivered_at' => now(),
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
         ]);
@@ -1038,6 +1945,7 @@ class WhatsAppMessageService
             // Handoff: si un humano responde, el bot se apaga en esta conversación.
             'ai_autoreply_enabled' => false,
         ]);
+        app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
             broadcast(new MessageSent($message));
@@ -1056,7 +1964,7 @@ class WhatsAppMessageService
      */
     public function sendSystemTextMessageFromCRM(Conversation $conversation, string $content): Message
     {
-        ['to' => $to, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
+        ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
 
         // Timeout explícito: esta llamada corre en GenerateAiReplyJob (worker
@@ -1065,9 +1973,9 @@ class WhatsAppMessageService
         // conversaciones/tenants. tries=1 en el job evita duplicar el envío.
         $response = Http::withToken($businessToken)
             ->timeout(10)
-            ->post('https://graph.facebook.com/'.self::GRAPH_VERSION."/{$businessPhoneId}/messages", [
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
                 'messaging_product' => 'whatsapp',
-                'recipient_type' => 'individual',
+                'recipient_type' => $recipientType,
                 'to' => $to,
                 'type' => 'text',
                 'text' => [
@@ -1087,7 +1995,6 @@ class WhatsAppMessageService
             'sender_type' => SenderType::SYSTEM,
             'content' => $content,
             'direction' => MessageDirection::OUTBOUND,
-            'delivered_at' => now(),
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
         ]);

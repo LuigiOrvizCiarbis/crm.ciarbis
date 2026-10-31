@@ -4,8 +4,20 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { PlatformIcon } from '@/components/chat/PlatformIcon'
 import { EmptyState } from '@/components/EmptyState'
-import { MessageSquare, Wifi, WifiOff, Pencil, Check, X } from 'lucide-react'
+import { MessageSquare, Wifi, WifiOff, Pencil, Check, X, RefreshCw, Unplug, Loader2, UserCog } from 'lucide-react'
+import { ChannelHandoffDialog } from '@/components/chat/ChannelHandoffDialog'
+import type { ChannelHandoffSettings } from '@/lib/api/channels'
 import { Input } from '@/components/ui/input'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Channel, FilterType } from '@/data/types'
 import { ChannelType, channelTypeToFilterType, getChannelDisplayName, filterTypeToChannelType } from '@/data/enums'
 import {
@@ -26,6 +38,9 @@ interface ChannelsListProps {
   onChannelSelect: (channelId: number) => void
   onRetry?: () => void
   onRenameChannel?: (channelId: number, name: string) => void | Promise<void>
+  onSyncMailChannel?: (channelId: number) => void | Promise<void>
+  onDisconnectChannel?: (channelId: number) => void | Promise<void>
+  onSaveHandoffSettings?: (channelId: number, settings: ChannelHandoffSettings) => Promise<void>
 }
 
 export function ChannelsList({
@@ -37,10 +52,27 @@ export function ChannelsList({
   onChannelSelect,
   onRetry,
   onRenameChannel,
+  onSyncMailChannel,
+  onDisconnectChannel,
+  onSaveHandoffSettings,
 }: ChannelsListProps) {
   const { t } = useTranslation()
   const [editingId, setEditingId] = useState<number | null>(null)
   const [draftName, setDraftName] = useState("")
+  const [syncingId, setSyncingId] = useState<number | null>(null)
+  const [disconnectTarget, setDisconnectTarget] = useState<Channel | null>(null)
+  const [disconnecting, setDisconnecting] = useState(false)
+  const [handoffTarget, setHandoffTarget] = useState<Channel | null>(null)
+
+  const handleSync = async (channelId: number) => {
+    if (!onSyncMailChannel || syncingId !== null) return
+    setSyncingId(channelId)
+    try {
+      await onSyncMailChannel(channelId)
+    } finally {
+      setSyncingId(null)
+    }
+  }
 
   const startEditing = (channel: Channel) => {
     setEditingId(channel.id)
@@ -58,6 +90,17 @@ export function ChannelsList({
       await onRenameChannel(channelId, trimmed)
     }
     cancelEditing()
+  }
+
+  const confirmDisconnect = async () => {
+    if (!disconnectTarget || !onDisconnectChannel) return
+    setDisconnecting(true)
+    try {
+      await onDisconnectChannel(disconnectTarget.id)
+      setDisconnectTarget(null)
+    } finally {
+      setDisconnecting(false)
+    }
   }
 
   const { connected, disconnected } = useMemo(() => ({
@@ -192,6 +235,20 @@ export function ChannelsList({
                           {t("chats.readOnly")}
                         </Badge>
                       )}
+                      {/* Los canales de email entran por polling: el botón
+                          permite forzar la sincronización sin esperar el tick. */}
+                      {channel.type === ChannelType.MAIL && onSyncMailChannel && (
+                        <button
+                          type="button"
+                          aria-label={t("chats.mailSyncNow")}
+                          title={t("chats.mailSyncNow")}
+                          disabled={syncingId === channel.id}
+                          className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary transition-colors hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:opacity-50 sm:h-8 sm:w-8"
+                          onClick={(e) => { e.stopPropagation(); void handleSync(channel.id) }}
+                        >
+                          <RefreshCw className={`h-4 w-4 ${syncingId === channel.id ? 'animate-spin' : ''}`} />
+                        </button>
+                      )}
                       {onRenameChannel && (
                         <button
                           type="button"
@@ -200,6 +257,27 @@ export function ChannelsList({
                           onClick={(e) => { e.stopPropagation(); startEditing(channel) }}
                         >
                           <Pencil className="h-4 w-4" />
+                        </button>
+                      )}
+                      {onSaveHandoffSettings && (
+                        <button
+                          type="button"
+                          aria-label={t("chats.handoffSettings.open")}
+                          title={t("chats.handoffSettings.open")}
+                          className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground sm:h-8 sm:w-8 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:focus-visible:opacity-100"
+                          onClick={(e) => { e.stopPropagation(); setHandoffTarget(channel) }}
+                        >
+                          <UserCog className="h-4 w-4" />
+                        </button>
+                      )}
+                      {onDisconnectChannel && (
+                        <button
+                          type="button"
+                          aria-label={t("chats.disconnectChannel")}
+                          className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-destructive/10 hover:text-destructive sm:h-8 sm:w-8 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:focus-visible:opacity-100"
+                          onClick={(e) => { e.stopPropagation(); setDisconnectTarget(channel) }}
+                        >
+                          <Unplug className="h-4 w-4" />
                         </button>
                       )}
                     </>
@@ -256,6 +334,35 @@ export function ChannelsList({
         </div>
       )}
 
+      <AlertDialog open={disconnectTarget !== null} onOpenChange={(open) => { if (!open && !disconnecting) setDisconnectTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("chats.disconnectChannelTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("chats.disconnectChannelDesc", { name: disconnectTarget?.name ?? "" })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={disconnecting}>{t("chats.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); void confirmDisconnect() }}
+              disabled={disconnecting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {disconnecting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t("chats.disconnectChannel")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {onSaveHandoffSettings && (
+        <ChannelHandoffDialog
+          channel={handoffTarget}
+          onOpenChange={(open) => { if (!open) setHandoffTarget(null) }}
+          onSave={onSaveHandoffSettings}
+        />
+      )}
     </div>
   )
 }

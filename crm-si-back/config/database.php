@@ -98,6 +98,23 @@ return [
             'sslmode' => 'prefer',
         ],
 
+        // Solo para tests que necesitan distinguir timestamp de timestamptz
+        // (SQLite no lo hace). Usa el mismo Postgres del entorno de dev, base
+        // aparte. Ver tests/TestCase.php y HasTimezoneAwareDates.
+        'pgsql_testing' => [
+            'driver' => 'pgsql',
+            'host' => env('DB_HOST', '127.0.0.1'),
+            'port' => env('DB_PORT', '5432'),
+            'database' => env('DB_TESTING_DATABASE', 'si_crm_test'),
+            'username' => env('DB_USERNAME', 'root'),
+            'password' => env('DB_PASSWORD', ''),
+            'charset' => env('DB_CHARSET', 'utf8'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => 'prefer',
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),

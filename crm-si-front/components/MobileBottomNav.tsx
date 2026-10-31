@@ -7,11 +7,15 @@ import { Badge } from "@/components/ui/badge"
 import { getConversationUnreadCount } from "@/lib/api/conversations"
 import { useAuthStore } from "@/store/useAuthStore"
 import { useTaskStore } from "@/store/useTaskStore"
-import { MessageSquare, Users, Target, CheckSquare, BarChart3, Menu, Settings, LogOut } from "lucide-react"
+import { Bell, Menu, LogOut, User } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "@/hooks/useTranslation"
+import { resolveNavigationLabel } from "@/data/navigation"
+import { accessibleNavigationItems } from "@/lib/section-access"
+import { NotificationsPanel } from "@/components/notifications/NotificationsPanel"
+import { useNotificationsStore } from "@/store/useNotificationsStore"
 
 interface MobileBottomNavProps {
   className?: string
@@ -22,11 +26,16 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
   const router = useRouter()
   const { t } = useTranslation()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
+  const unreadNotifications = useNotificationsStore((state) => state.unreadCount)
   const [isMobileViewport, setIsMobileViewport] = useState(false)
   const [unreadChats, setUnreadChats] = useState(0)
   const hasRequestedTasks = useRef(false)
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const token = useAuthStore((state) => state.token)
+  const navigationLabels = useAuthStore((state) => state.user?.tenant?.navigation_labels)
+  const permissions = useAuthStore((state) => state.permissions)
+  const role = useAuthStore((state) => state.role)
   const logoutStore = useAuthStore((state) => state.logout)
   const tasks = useTaskStore((state) => state.tasks)
   const isTasksLoading = useTaskStore((state) => state.isLoading)
@@ -109,48 +118,19 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
 
   const formatBadgeCount = (count: number) => (count > 99 ? "99+" : String(count))
 
-  const mainNavItems = [
-    {
-      href: "/dashboard",
-      icon: BarChart3,
-      label: "Panel",
-      isActive: pathname === "/dashboard",
-    },
-    {
-      href: "/chats",
-      icon: MessageSquare,
-      label: "Chats",
-      isActive: pathname === "/chats",
-      badge: unreadChats,
-    },
-    {
-      href: "/contactos",
-      icon: Users,
-      label: "Contactos",
-      isActive: pathname === "/contactos",
-    },
-    {
-      href: "/oportunidades",
-      icon: Target,
-      label: "Pipeline",
-      isActive: pathname === "/oportunidades",
-    },
-    {
-      href: "/tareas",
-      icon: CheckSquare,
-      label: "Tareas",
-      isActive: pathname === "/tareas",
-      badge: pendingTasks,
-    },
-  ]
+  const accessibleItems = accessibleNavigationItems(permissions, role)
+  const mainNavItems = accessibleItems
+    .filter((item) => ["dashboard", "chats", "contacts", "pipeline", "tasks"].includes(item.key))
+    .map((item) => ({
+      ...item,
+      label: resolveNavigationLabel(item, navigationLabels, t),
+      isActive: pathname === item.href,
+      badge: item.key === "chats" ? unreadChats : item.key === "tasks" ? pendingTasks : 0,
+    }))
 
-  const menuItems: { href: string; icon: typeof Settings; label: string; onClick?: () => void }[] = [
-    {
-      href: "/configuracion",
-      icon: Settings,
-      label: "Configuración",
-    },
-  ]
+  const menuItems = accessibleItems
+    .filter((item) => ["instagram_comments", "catalog", "broadcasts", "settings"].includes(item.key))
+    .map((item) => ({ ...item, label: resolveNavigationLabel(item, navigationLabels, t) }))
 
   return (
     <div
@@ -170,9 +150,10 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
                 "flex flex-col items-center gap-1 h-auto py-2 px-1 relative min-h-11",
                 item.isActive ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground",
               )}
+              title={item.label}
             >
               <item.icon className="w-5 h-5" />
-              <span className="text-xs font-medium">{item.label}</span>
+              <span className="w-full truncate text-xs font-medium">{item.label}</span>
               {item.badge ? (
                 <Badge
                   variant="destructive"
@@ -190,10 +171,18 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
             <Button
               variant="ghost"
               size="sm"
-              className="flex flex-col items-center gap-1 h-auto py-2 px-1 text-muted-foreground hover:text-foreground min-h-11"
+              className="flex flex-col items-center gap-1 h-auto py-2 px-1 text-muted-foreground hover:text-foreground min-h-11 relative"
             >
               <Menu className="w-5 h-5" />
               <span className="text-xs font-medium">Menú</span>
+              {unreadNotifications ? (
+                <Badge
+                  variant="destructive"
+                  className="absolute -top-1 -right-1 h-5 min-w-5 px-1 text-xs flex items-center justify-center"
+                >
+                  {formatBadgeCount(unreadNotifications)}
+                </Badge>
+              ) : null}
             </Button>
           </SheetTrigger>
           <SheetContent side="bottom" className="h-auto">
@@ -202,20 +191,39 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
                 <SheetTitle>Menú</SheetTitle>
               </SheetHeader>
               <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-3 h-12 bg-transparent col-span-2"
+                  onClick={() => {
+                    setIsMenuOpen(false)
+                    setIsNotificationsOpen(true)
+                  }}
+                >
+                  <Bell className="w-5 h-5 shrink-0" />
+                  <span className="truncate">{t("notifications.title")}</span>
+                  {unreadNotifications ? (
+                    <Badge variant="destructive" className="ml-auto h-5 min-w-5 px-1 text-xs">
+                      {formatBadgeCount(unreadNotifications)}
+                    </Badge>
+                  ) : null}
+                </Button>
+                <Link href="/perfil" onClick={() => setIsMenuOpen(false)}>
+                  <Button variant="outline" className="w-full justify-start gap-3 h-12 bg-transparent" title={t("nav.profile")}>
+                    <User className="w-5 h-5 shrink-0" />
+                    <span className="truncate">{t("nav.profile")}</span>
+                  </Button>
+                </Link>
                 {menuItems.map((item) => (
                   <Link
                     key={item.href}
                     href={item.href}
                     onClick={() => {
-                      if (item.onClick) {
-                        item.onClick()
-                      }
                       setIsMenuOpen(false)
                     }}
                   >
-                    <Button variant="outline" className="w-full justify-start gap-3 h-12 bg-transparent">
-                      <item.icon className="w-5 h-5" />
-                      {item.label}
+                    <Button variant="outline" className="w-full justify-start gap-3 h-12 bg-transparent" title={item.label}>
+                      <item.icon className="w-5 h-5 shrink-0" />
+                      <span className="truncate">{item.label}</span>
                     </Button>
                   </Link>
                 ))}
@@ -229,6 +237,15 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
                 </Button>
               </div>
             </div>
+          </SheetContent>
+        </Sheet>
+
+        <Sheet open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
+          <SheetContent side="bottom" className="h-auto max-h-[85dvh] gap-0 p-0">
+            <SheetHeader className="sr-only">
+              <SheetTitle>{t("notifications.title")}</SheetTitle>
+            </SheetHeader>
+            <NotificationsPanel onNavigate={() => setIsNotificationsOpen(false)} headerClassName="pr-12" className="pb-[max(env(safe-area-inset-bottom),0px)]" />
           </SheetContent>
         </Sheet>
       </div>

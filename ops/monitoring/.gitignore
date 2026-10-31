@@ -1,0 +1,9 @@
+# Config real de notificaciones: se genera en el VPS desde el .example.
+# No tiene secretos hoy, pero es el archivo donde se tocan destinatarios y
+# no queremos que una edicion local se cuele en un commit.
+health_alarm_notify.conf
+
+# Cualquier msmtprc con la password real. El repo solo lleva el .example.
+msmtprc
+msmtprc.real
+*.real

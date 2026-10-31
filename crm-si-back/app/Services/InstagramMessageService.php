@@ -10,7 +10,6 @@ use App\Events\MessageSent;
 use App\Events\TenantMessageReceived;
 use App\Exceptions\MetaApiException;
 use App\Jobs\GenerateAiReplyJob;
-use App\Models\AiConfig;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
@@ -143,12 +142,25 @@ class InstagramMessageService
         }
 
         // Backfill sólo cuando nunca se seteó: sobreescribir un valor existente
-        // degradaría la resolución si el entry.id llegara con otro id.
+        // degradaría la resolución si el entry.id llegara con otro id. Va antes
+        // del chequeo de canal activo: mantener el mapeo al día es correcto
+        // aunque descartemos el mensaje, así la reconexión funciona.
         if ($entryId && $config->webhook_object_id === null) {
             $config->update(['webhook_object_id' => $entryId]);
         }
 
-        return $config->channels->first();
+        $channel = $config->channels->firstWhere('status', 'active');
+
+        if (! $channel) {
+            Log::info('Instagram webhook ignorado: no hay canal activo para la config', [
+                'instagram_config_id' => $config->id,
+                'entry_id' => $entryId,
+            ]);
+
+            return null;
+        }
+
+        return $channel;
     }
 
     private function findOrCreateContact(Channel $channel, string $igsid): Contact
@@ -182,7 +194,7 @@ class InstagramMessageService
                 return;
             }
 
-            $version = config('services.facebook.graph_version', 'v21.0');
+            $version = config('services.facebook.graph_version', 'v26.0');
             $response = Http::withToken($token)
                 ->timeout(10)
                 ->get("https://graph.facebook.com/{$version}/{$igsid}", [
@@ -222,6 +234,7 @@ class InstagramMessageService
 
         if (! $conversation->pipeline_stage_id) {
             $defaultStage = PipelineStage::where('tenant_id', $channel->tenant_id)
+                ->whereHas('pipeline', fn ($query) => $query->where('is_default', true))
                 ->where(function ($query) {
                     $query->where('is_default', true)
                         ->orWhereNotNull('id');
@@ -383,6 +396,9 @@ class InstagramMessageService
         }
 
         Conversation::where('id', $messageData['conversation_id'])->update($conversationUpdates);
+        if ($isEcho) {
+            app(AiTypingIndicatorService::class)->stop((int) $messageData['conversation_id']);
+        }
 
         try {
             broadcast(new MessageSent($message));
@@ -416,17 +432,20 @@ class InstagramMessageService
         }
 
         // Chequeo barato para no encolar jobs no-op en tenants sin IA activa.
-        $hasEnabledAiConfig = AiConfig::withoutGlobalScopes()
-            ->where('tenant_id', $message->tenant_id)
-            ->where('enabled', true)
-            ->exists();
-
-        if (! $hasEnabledAiConfig) {
+        if (! app(AiReplyEligibility::class)->hasUsableConfig($message->tenant_id)) {
             return;
         }
 
-        GenerateAiReplyJob::dispatch($conversation->id)
-            ->delay(now()->addSeconds(8));
+        $typing = app(AiTypingIndicatorService::class);
+        $typing->start($conversation, $message);
+
+        try {
+            GenerateAiReplyJob::dispatch($conversation->id)
+                ->delay(now()->addSeconds(8));
+        } catch (\Throwable $e) {
+            $typing->stop($conversation->id, $message->id);
+            throw $e;
+        }
     }
 
     private function isUniqueViolation(QueryException $e): bool
@@ -575,7 +594,7 @@ class InstagramMessageService
      */
     private function postMessage(string $pageId, string $token, array $payload): ?string
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         $response = Http::withToken($token)
             ->timeout(15)
@@ -628,6 +647,7 @@ class InstagramMessageService
             // Handoff: si un humano responde desde el CRM, el bot se apaga.
             'ai_autoreply_enabled' => false,
         ]);
+        app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
             broadcast(new MessageSent($message));

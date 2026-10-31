@@ -9,7 +9,6 @@ use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Opportunity;
 use App\Models\PipelineStage;
-use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -26,12 +25,13 @@ class DashboardMetricsTest extends TestCase
 
     public function test_authenticated_request_returns_expected_payload_shape(): void
     {
-        $tenant = Tenant::create(['name' => 'Acme']);
+        $tenant = $this->createTenantWithRoles();
 
         $user = User::factory()->create([
             'tenant_id' => $tenant->id,
             'role' => UserRole::ADMIN,
         ]);
+        $user->assignRole('Owner');
 
         Sanctum::actingAs($user);
 
@@ -62,11 +62,12 @@ class DashboardMetricsTest extends TestCase
 
     public function test_stage_breakdown_includes_conversations_without_linked_opportunity(): void
     {
-        $tenant = Tenant::create(['name' => 'Acme']);
+        $tenant = $this->createTenantWithRoles();
         $user = User::factory()->create([
             'tenant_id' => $tenant->id,
             'role' => UserRole::ADMIN,
         ]);
+        $user->assignRole('Owner');
         $stage = PipelineStage::where('tenant_id', $tenant->id)
             ->where('name', 'Capturados')
             ->firstOrFail();
@@ -131,12 +132,13 @@ class DashboardMetricsTest extends TestCase
 
     public function test_invalid_periodo_is_rejected(): void
     {
-        $tenant = Tenant::create(['name' => 'Acme']);
+        $tenant = $this->createTenantWithRoles();
 
         $user = User::factory()->create([
             'tenant_id' => $tenant->id,
             'role' => UserRole::ADMIN,
         ]);
+        $user->assignRole('Owner');
 
         Sanctum::actingAs($user);
 

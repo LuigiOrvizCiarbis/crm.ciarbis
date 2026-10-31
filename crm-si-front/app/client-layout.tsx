@@ -12,6 +12,7 @@ import { useToast } from "@/components/Toast"
 import { AuthGuard } from "@/components/AuthGuard"
 import { AppShell } from "@/components/AppShell"
 import { isRouteMatch, routesWithoutAppShell } from "@/lib/routes"
+import { SectionAccessGuard } from "@/components/auth/SectionAccessGuard"
 import "./globals.css"
 
 function ToastProvider({ children }: { children: React.ReactNode }) {
@@ -46,7 +47,9 @@ export default function ClientLayout({
           <ToastProvider>
             <AuthGuard>
               <AppShell>
-                <Suspense fallback={null}>{children}</Suspense>
+                <SectionAccessGuard>
+                  <Suspense fallback={null}>{children}</Suspense>
+                </SectionAccessGuard>
               </AppShell>
               {!shouldSkipShell ? (
                 <>

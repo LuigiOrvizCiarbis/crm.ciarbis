@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
@@ -18,10 +19,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int|null $whatsapp_config_id
  * @property int|null $instagram_config_id
  * @property int|null $messenger_config_id
+ * @property int|null $mail_config_id
  * @property ChannelType $type
  * @property string $name
  * @property string|null $external_id
  * @property string $status
+ * @property Carbon|null $disconnected_at
+ * @property int|null $disconnected_by
  */
 class Channel extends Model
 {
@@ -32,17 +36,24 @@ class Channel extends Model
         'tenant_id',
         'branch_id',
         'user_id',
+        'handoff_responsible_user_id',
+        'handoff_whatsapp_alert_enabled',
         'whatsapp_config_id',
         'instagram_config_id',
         'messenger_config_id',
+        'mail_config_id',
         'type',
         'name',
         'external_id',
         'status',
+        'disconnected_at',
+        'disconnected_by',
     ];
 
     protected $casts = [
         'type' => ChannelType::class,
+        'disconnected_at' => 'datetime',
+        'handoff_whatsapp_alert_enabled' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -61,6 +72,19 @@ class Channel extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function handoffResponsible(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'handoff_responsible_user_id');
+    }
+
+    /**
+     * Usuario que desconectó el canal por última vez.
+     */
+    public function disconnectedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'disconnected_by');
     }
 
     /**
@@ -107,6 +131,14 @@ class Channel extends Model
     public function facebookConfig(): BelongsTo
     {
         return $this->belongsTo(MessengerConfig::class, 'messenger_config_id');
+    }
+
+    /**
+     * Relación con MailConfig (muchos canales pueden compartir una config)
+     */
+    public function mailConfig(): BelongsTo
+    {
+        return $this->belongsTo(MailConfig::class);
     }
 
     /**
@@ -162,18 +194,27 @@ class Channel extends Model
     }
 
     /**
-     * Activar el canal
+     * Activar el canal. Limpia la auditoría de una desconexión previa: sin
+     * esto, un canal reconectado arrastraría el disconnected_at/by viejo.
      */
     public function activate(): void
     {
-        $this->update(['status' => 'active']);
+        $this->update([
+            'status' => 'active',
+            'disconnected_at' => null,
+            'disconnected_by' => null,
+        ]);
     }
 
     /**
      * Desconectar el canal
      */
-    public function disconnect(): void
+    public function disconnect(?User $actor = null): void
     {
-        $this->update(['status' => 'disconnected']);
+        $this->update([
+            'status' => 'disconnected',
+            'disconnected_at' => now(),
+            'disconnected_by' => $actor?->id,
+        ]);
     }
 }

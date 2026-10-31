@@ -38,7 +38,7 @@ const googleScopes = [
   {
     scope: "https://www.googleapis.com/auth/calendar.events.owned",
     usage:
-      "Crear, actualizar y cancelar en tu Google Calendar únicamente los eventos de las reuniones que agendás desde el CRM. Es un permiso acotado: la aplicación solo puede ver y modificar los eventos que ella misma creó, no el resto de tu calendario.",
+      "Permitir crear, consultar, actualizar y cancelar eventos en los calendarios de Google de los que sos propietario. Social Impulse usa ese permiso únicamente para gestionar las reuniones que agendás desde el CRM; no importa ni analiza el resto de tus eventos.",
   },
   {
     scope: "openid · email",

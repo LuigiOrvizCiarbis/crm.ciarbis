@@ -6,6 +6,7 @@ use App\Models\Contact;
 use App\Models\ContactField;
 use App\Models\WebhookEndpoint;
 use App\Rules\ValidContactCustomData;
+use App\Support\ContactCustomDataNormalizer;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Validator;
 
@@ -41,6 +42,7 @@ class WebhookContactUpsertService
         foreach ($items as $index => $item) {
             $externalId = $item['external_id'];
             $customData = is_array($item['custom_data'] ?? null) ? $item['custom_data'] : [];
+            $customData = ContactCustomDataNormalizer::normalize($customData, $tenantId);
 
             $unknownKeys = array_diff(array_keys($customData), $knownKeys);
             if ($unknownKeys !== []) {

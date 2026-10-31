@@ -1,0 +1,58 @@
+# Netdata - notificaciones por email
+#
+# COPIAR a health_alarm_notify.conf en el VPS (ese archivo NO va a git).
+#   cp health_alarm_notify.conf.example health_alarm_notify.conf
+#
+# No tiene secretos: las credenciales SMTP viven en /etc/msmtprc del host.
+# Esta copia existe para poder cambiar destinatarios sin tocar el repo.
+
+# ---------------------------------------------------------------------------
+# EMAIL
+# ---------------------------------------------------------------------------
+SEND_EMAIL="YES"
+
+# A donde llegan las alertas.
+DEFAULT_RECIPIENT_EMAIL="contacto@atlanticosoft.dev"
+
+# Remitente. DEBE ser la casilla autenticada en Hostinger (la misma de
+# /etc/msmtprc), NO el destinatario: si el From no coincide con la cuenta
+# SMTP, Hostinger rechaza el envio con "sender address not allowed".
+EMAIL_SENDER="info@sicrmapp.com"
+
+# Binario que entrega el mail.
+#
+# La imagen netdata:v2.11.1 YA TRAE msmtp, con /usr/sbin/sendmail como symlink
+# a /usr/bin/msmtp (verificado en la imagen). No hay que instalar nada en el
+# host: solo montar /etc/msmtprc dentro del container (ver el compose).
+sendmail="/usr/sbin/sendmail"
+
+# ---------------------------------------------------------------------------
+# Resto de canales: apagados
+# ---------------------------------------------------------------------------
+SEND_SLACK="NO"
+SEND_DISCORD="NO"
+SEND_TELEGRAM="NO"
+SEND_PUSHOVER="NO"
+SEND_PUSHBULLET="NO"
+SEND_TWILIO="NO"
+SEND_MESSAGEBIRD="NO"
+SEND_KAVENEGAR="NO"
+SEND_EMAIL_PLAIN="NO"
+SEND_FLEEP="NO"
+SEND_IRC="NO"
+SEND_AWSSNS="NO"
+SEND_SYSLOG="NO"
+SEND_HANGOUTS="NO"
+SEND_MATRIX="NO"
+SEND_PD="NO"
+SEND_CUSTOM="NO"
+
+# ---------------------------------------------------------------------------
+# Ruido
+# ---------------------------------------------------------------------------
+# Avisar tambien cuando una alarma vuelve a la normalidad: sin esto uno se
+# entera del problema pero nunca de que se resolvio.
+SEND_CLEAR_NOTIFICATIONS="YES"
+
+# No notificar transiciones intrascendentes (unknown -> clear, etc).
+CLEAR_NOTIFICATIONS_DELAY="60"

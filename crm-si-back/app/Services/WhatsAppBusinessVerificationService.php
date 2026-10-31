@@ -79,7 +79,7 @@ class WhatsAppBusinessVerificationService
      */
     private function deriveBusinessIdFromWaba(WhatsAppConfig $config, string $token): ?string
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($token)
@@ -115,7 +115,7 @@ class WhatsAppBusinessVerificationService
      */
     private function fetchBusinessStatus(string $businessId, string $token): array
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($token)

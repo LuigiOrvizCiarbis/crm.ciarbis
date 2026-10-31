@@ -12,6 +12,18 @@ class PermissionCatalog
     public static function grouped(): array
     {
         return [
+            'sections' => [
+                'sections.dashboard',
+                'sections.chats',
+                'sections.instagram_comments',
+                'sections.contacts',
+                'sections.catalog',
+                'sections.pipeline',
+                'sections.tasks',
+                'sections.broadcasts',
+                'sections.invoices',
+                'sections.settings',
+            ],
             'conversations' => [
                 'conversations.view_any',
                 'conversations.view_assigned',
@@ -43,6 +55,9 @@ class PermissionCatalog
             'contact_fields' => [
                 'contact_fields.view',
                 'contact_fields.manage',
+            ],
+            'document_extraction' => [
+                'document_extraction.use',
             ],
             'opportunities' => [
                 'opportunities.view_any',
@@ -90,8 +105,10 @@ class PermissionCatalog
                 'channels.create',
                 'channels.update',
                 'channels.delete',
+                'channels.disconnect',
                 'channels.manage_users',
                 'channels.connect_whatsapp',
+                'channels.connect_mail',
             ],
             'ai_config' => [
                 'ai_config.view',
@@ -109,12 +126,30 @@ class PermissionCatalog
                 'automations.view',
                 'automations.manage',
             ],
+            'billing' => [
+                'billing.view',
+                'billing.manage',
+            ],
+            'invoices' => [
+                'invoices.view',
+                'invoices.manage',
+                'invoices.payments',
+                'invoices.configure',
+            ],
             'templates' => [
                 'templates.view',
                 'templates.sync',
                 'templates.create',
                 'templates.delete',
                 'templates.send',
+            ],
+            'whatsapp_groups' => [
+                'whatsapp_groups.view',
+                'whatsapp_groups.create',
+                'whatsapp_groups.update',
+                'whatsapp_groups.delete',
+                'whatsapp_groups.invite',
+                'whatsapp_groups.manage_participants',
             ],
             'analytics' => [
                 'analytics.view',
@@ -143,6 +178,9 @@ class PermissionCatalog
                 'branches.view',
                 'branches.manage',
                 'branches.view_all',
+            ],
+            'navigation_labels' => [
+                'navigation_labels.manage',
             ],
         ];
     }
@@ -178,6 +216,7 @@ class PermissionCatalog
             'roles.manage',
             'channels.delete',
             'users.deactivate',
+            'navigation_labels.manage',
         ];
 
         return array_values(array_diff(self::all(), $excluded));
@@ -194,6 +233,7 @@ class PermissionCatalog
     public static function memberPermissions(): array
     {
         return [
+            ...self::sectionPermissions(),
             'conversations.view_assigned',
             'conversations.view',
             'conversations.send_message',
@@ -207,6 +247,8 @@ class PermissionCatalog
             'contacts.update',
             'contacts.view_history',
             'contact_fields.view',
+            'billing.view',
+            'document_extraction.use',
             'opportunities.view_assigned',
             'opportunities.view',
             'opportunities.create',
@@ -226,6 +268,17 @@ class PermissionCatalog
             'analytics.view',
             'branches.view_any',
             'branches.view',
+            // Un vendedor puede armar el grupo de su propia venta e invitar;
+            // editar, quitar participantes y eliminar quedan para admin.
+            'whatsapp_groups.view',
+            'whatsapp_groups.create',
+            'whatsapp_groups.invite',
         ];
+    }
+
+    /** @return list<string> */
+    public static function sectionPermissions(): array
+    {
+        return self::grouped()['sections'];
     }
 }

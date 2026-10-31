@@ -9,6 +9,7 @@ use App\Models\Channel;
 use App\Models\InstagramConfig;
 use App\Models\Scopes\TenantScope;
 use App\Services\InstagramMessageService;
+use App\Services\InstagramCommentService;
 use App\Support\MetaOAuth;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -31,7 +32,8 @@ class InstagramController extends Controller
     private const ONBOARDING_TTL_SECONDS = 600; // 10 minutos
 
     public function __construct(
-        private InstagramMessageService $messageService
+        private InstagramMessageService $messageService,
+        private InstagramCommentService $commentService
     ) {}
 
     public function handleAuth(InstagramChannelStoreRequest $request): JsonResponse
@@ -164,7 +166,7 @@ class InstagramController extends Controller
      */
     private function fetchPagesWithInstagram(string $userToken): array
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         $response = Http::withToken($userToken)
             ->timeout(15)
@@ -258,7 +260,7 @@ class InstagramController extends Controller
                 ->first();
 
             if ($existing) {
-                $existing->fill(['status' => 'active'])->save();
+                $existing->activate();
 
                 return $existing;
             }
@@ -277,7 +279,7 @@ class InstagramController extends Controller
         });
 
         $warnings = [];
-        if (! $this->subscribeToWebhooks($page['page_id'], $page['page_access_token'])) {
+        if (! $this->subscribeToWebhooks($page['ig_user_id'], $page['page_access_token'])) {
             $warnings[] = 'No se pudo suscribir a los webhooks de Meta. Los mensajes entrantes pueden no llegar.';
         }
 
@@ -289,17 +291,17 @@ class InstagramController extends Controller
     }
 
     /**
-     * Suscribe la app a los webhooks de mensajes de la página (campo `messages`).
+     * Suscribe la app a los webhooks de la cuenta profesional de Instagram.
      */
-    private function subscribeToWebhooks(string $pageId, string $pageToken): bool
+    private function subscribeToWebhooks(string $igUserId, string $pageToken): bool
     {
-        $version = config('services.facebook.graph_version', 'v21.0');
+        $version = config('services.facebook.graph_version', 'v26.0');
 
         try {
             $response = Http::withToken($pageToken)
                 ->timeout(15)
-                ->post("https://graph.facebook.com/{$version}/{$pageId}/subscribed_apps", [
-                    'subscribed_fields' => 'messages',
+                ->post("https://graph.facebook.com/{$version}/{$igUserId}/subscribed_apps", [
+                    'subscribed_fields' => 'messages,comments',
                 ]);
 
             if (! $response->successful()) {
@@ -361,6 +363,22 @@ class InstagramController extends Controller
 
             foreach ($request->input('entry', []) as $entry) {
                 $entryId = $entry['id'] ?? null;
+
+                // Meta documenta comentarios tanto como field/value directo
+                // en entry como dentro de entry.changes[]. Normalizamos ambos.
+                $changes = $entry['changes'] ?? [];
+                if (isset($entry['field'])) {
+                    $changes[] = [
+                        'field' => $entry['field'],
+                        'value' => $entry['value'] ?? null,
+                    ];
+                }
+
+                foreach ($changes as $change) {
+                    if (($change['field'] ?? null) === 'comments' && $entryId && is_array($change['value'] ?? null)) {
+                        $this->commentService->processWebhook((string) $entryId, $change['value']);
+                    }
+                }
 
                 $events = $this->extractMessagingEvents($entry);
                 foreach ($events as $event) {

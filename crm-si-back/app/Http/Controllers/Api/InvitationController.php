@@ -6,11 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Models\Invitation;
 use App\Models\Scopes\TenantScope;
 use App\Models\Tenant;
+use App\Models\TenantMembership;
 use App\Models\User;
+use App\Models\WorkspaceAuditEvent;
 use App\Notifications\InvitationNotification;
 use App\Support\RolePayload;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Spatie\Permission\Models\Role;
@@ -66,14 +69,15 @@ class InvitationController extends Controller
         }
 
         // Check if already a member of this tenant
-        $existingUserTenantId = User::where('email', $validated['email'])->value('tenant_id');
-        if ($existingUserTenantId !== null && (int) $existingUserTenantId === (int) $tenantId) {
+        $existingUser = User::withoutGlobalScopes()->where('email', $validated['email'])->first();
+        if ($existingUser !== null && TenantMembership::active()->where('tenant_id', $tenantId)->where('user_id', $existingUser->id)->exists()) {
             return response()->json(['message' => 'Este email ya es miembro del equipo.'], 422);
         }
 
         // Check for pending invitation
         $existingInvitation = Invitation::pending()
             ->where('email', $validated['email'])
+            ->where('tenant_id', $tenantId)
             ->first();
 
         if ($existingInvitation) {
@@ -90,6 +94,13 @@ class InvitationController extends Controller
         ]);
 
         $invitation->load(['invitedBy:id,name,email', 'tenant:id,name']);
+
+        WorkspaceAuditEvent::create([
+            'tenant_id' => $tenantId,
+            'actor_user_id' => $actor->id,
+            'event' => 'invitation.created',
+            'metadata' => ['invitation_id' => $invitation->id, 'email' => $invitation->email, 'role' => $invitation->role_name],
+        ]);
 
         Notification::route('mail', $validated['email'])
             ->notify(new InvitationNotification($invitation));
@@ -185,26 +196,34 @@ class InvitationController extends Controller
             return response()->json(['message' => 'El rol asignado a la invitación ya no existe.'], 422);
         }
 
-        // Switch user to new tenant
-        $user->tenant_id = $newTenantId;
-        $user->save();
+        DB::transaction(function () use ($user, $newTenantId, $registrar, $roleName, $invitation): void {
+            $membership = TenantMembership::firstOrNew([
+                'tenant_id' => $newTenantId,
+                'user_id' => $user->id,
+            ]);
+            $membership->branch_id = null;
+            $membership->joined_at = now();
+            $membership->removed_at = null;
+            $membership->save();
 
-        $registrar->setPermissionsTeamId($newTenantId);
-        $user->syncRoles([$roleName]);
-
-        // Mark invitation as accepted
-        $invitation->update(['accepted_at' => now()]);
-
-        // Revoke all tokens and create a new one
-        $user->tokens()->delete();
-        $token = $user->createToken('api-token')->plainTextToken;
+            $registrar->setPermissionsTeamId($newTenantId);
+            $user->syncRoles([$roleName]);
+            $invitation->update(['accepted_at' => now()]);
+            WorkspaceAuditEvent::create([
+                'tenant_id' => $newTenantId,
+                'actor_user_id' => $user->id,
+                'subject_user_id' => $user->id,
+                'event' => 'membership.joined',
+                'metadata' => ['invitation_id' => $invitation->id, 'role' => $roleName],
+            ]);
+        });
 
         $role = $user->roles()->where('roles.tenant_id', $newTenantId)->first();
         $tenant = Tenant::query()->whereKey($newTenantId)->first();
 
         return response()->json([
-            'token' => $token,
-            'user' => $user,
+            'workspace' => ['id' => $newTenantId, 'name' => $tenant?->name],
+            'user' => new \App\Http\Resources\UserResource($user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name'])),
             'role' => RolePayload::transform($role, $tenant),
             'permissions' => $user->getAllPermissions()->pluck('name')->values(),
             'message' => 'Te uniste al equipo exitosamente.',

@@ -57,6 +57,7 @@ export function AiAssistantSettings() {
   const [provider, setProvider] = useState<AiProviderId>("claude")
   const [model, setModel] = useState("")
   const [enabled, setEnabled] = useState(false)
+  const [humanHandoffEnabled, setHumanHandoffEnabled] = useState(true)
   const [systemPrompt, setSystemPrompt] = useState("")
   const [apiKey, setApiKey] = useState("")
   const [hasApiKey, setHasApiKey] = useState(false)
@@ -77,6 +78,7 @@ export function AiAssistantSettings() {
       setProvider(config.provider ?? "claude")
       setModel(config.model ?? "")
       setEnabled(config.enabled)
+      setHumanHandoffEnabled(config.human_handoff_enabled ?? true)
       setSystemPrompt(config.system_prompt ?? "")
       setHasApiKey(config.has_api_key)
       // Si ya hay una key guardada, precargamos la lista de modelos.
@@ -139,6 +141,7 @@ export function AiAssistantSettings() {
       provider,
       model: model.trim() || null,
       enabled,
+      human_handoff_enabled: humanHandoffEnabled,
       system_prompt: systemPrompt.trim() || null,
       // Solo se manda la key si el usuario escribió una nueva (write-only).
       ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
@@ -254,6 +257,22 @@ export function AiAssistantSettings() {
                 id="ai-assistant-enabled"
                 checked={enabled}
                 onCheckedChange={setEnabled}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/30 p-4">
+              <div className="space-y-0.5">
+                <Label htmlFor="ai-assistant-human-handoff">
+                  {t("settings.aiAssistant.humanHandoff")}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.aiAssistant.humanHandoffHint")}
+                </p>
+              </div>
+              <Switch
+                id="ai-assistant-human-handoff"
+                checked={humanHandoffEnabled}
+                onCheckedChange={setHumanHandoffEnabled}
               />
             </div>
 

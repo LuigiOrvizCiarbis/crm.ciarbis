@@ -22,7 +22,13 @@ export const unverifiedAllowedRoutes = [
   "/verify-email/confirm",
 ]
 
-export const trialExpiredAllowedRoutes = ["/trial-expired", "/pricing"]
+// /perfil queda permitido porque el backend exime password y sessions del
+// bloqueo de trial vencido (EnsureTrialNotExpired) — cerrar sesiones ajenas o
+// cambiar la contraseña son acciones de seguridad que un usuario con trial
+// vencido debe poder seguir haciendo. El resto de /perfil (nombre, avatar,
+// preferencias) sigue bloqueado por el backend con 402; cada bloque de la
+// página maneja ese error por su cuenta.
+export const trialExpiredAllowedRoutes = ["/trial-expired", "/pricing", "/perfil"]
 
 export const routesWithoutAppShell = [
   ...publicRoutes,

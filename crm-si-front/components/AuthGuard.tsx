@@ -6,6 +6,9 @@ import { useAuthStore } from "@/store/useAuthStore"
 import { Loader2 } from "lucide-react"
 import { authOnlyRoutes, isRouteMatch, publicRoutes, trialExpiredAllowedRoutes, unverifiedAllowedRoutes } from "@/lib/routes"
 import { isTrialExpired } from "@/lib/trial"
+import { useConfigStore } from "@/store/useConfigStore"
+import { firstAccessibleSection } from "@/lib/section-access"
+import { clearWorkspaceId, setWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -14,14 +17,21 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const { isAuthenticated, emailVerified, token, _hasHydrated, setEmailVerified, updateUser, setRoleAndPermissions } = useAuthStore()
+  const { isAuthenticated, emailVerified, token, _hasHydrated, setEmailVerified, updateUser, setRoleAndPermissions, setWorkspaces } = useAuthStore()
   const [isChecking, setIsChecking] = useState(true)
   const [hasCompletedInitialCheck, setHasCompletedInitialCheck] = useState(false)
+  const [refreshNonce, setRefreshNonce] = useState(0)
 
   const isPublicRoute = isRouteMatch(pathname, publicRoutes)
   const isAuthOnlyRoute = isRouteMatch(pathname, authOnlyRoutes)
   const isUnverifiedAllowed = isRouteMatch(pathname, unverifiedAllowedRoutes)
   const isTrialExpiredAllowed = isRouteMatch(pathname, trialExpiredAllowedRoutes)
+
+  useEffect(() => {
+    const refreshOnFocus = () => setRefreshNonce((value) => value + 1)
+    window.addEventListener("focus", refreshOnFocus)
+    return () => window.removeEventListener("focus", refreshOnFocus)
+  }, [])
 
   useEffect(() => {
     // Esperar a que Zustand se hidrate desde localStorage
@@ -37,7 +47,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
       // Si está autenticado y trata de acceder a login/register, redirigir
       if (isAuthenticated && token && isAuthOnlyRoute) {
         if (emailVerified) {
-          router.replace("/chats")
+          const { permissions, role } = useAuthStore.getState()
+          router.replace(firstAccessibleSection(permissions, role)?.href ?? "/sin-acceso")
         } else {
           router.replace("/verify-email")
         }
@@ -53,9 +64,20 @@ export function AuthGuard({ children }: AuthGuardProps) {
       // Si hay token, verificar estado del usuario
       if (token && !isPublicRoute) {
         try {
-          const res = await fetch("/api/auth/me", {
-            headers: { "Authorization": `Bearer ${token}` },
+          let res = await fetch("/api/auth/me", {
+            headers: { "Authorization": `Bearer ${token}`, ...workspaceHeaders() },
           })
+
+          // Un workspace puede quedar obsoleto si el usuario cambió de cuenta,
+          // fue removido del equipo o abrió un enlace viejo. Eliminamos sólo el
+          // contexto y reintentamos sin header para volver al tenant legado
+          // válido del usuario; no corresponde invalidar su token.
+          if (res.status === 403) {
+            clearWorkspaceId()
+            res = await fetch("/api/auth/me", {
+              headers: { "Authorization": `Bearer ${token}` },
+            })
+          }
           
           if (!res.ok) {
             // Token inválido, limpiar estado y redirigir
@@ -65,6 +87,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
           }
 
           const data = await res.json()
+          if (data.user?.tenant_id) setWorkspaceId(data.user.tenant_id)
+          if (Array.isArray(data.workspaces)) setWorkspaces(data.workspaces)
 
           // Refrescar role y permissions desde el backend en cada chequeo
           if (data.role !== undefined || data.permissions !== undefined) {
@@ -78,15 +102,24 @@ export function AuthGuard({ children }: AuthGuardProps) {
           }
           updateUser(data.user)
 
+          // El idioma sólo se aplica desde el backend en el chequeo inicial
+          // de la sesión. updateUser() de arriba mergea el `user` completo
+          // (incluida `preferences`) en cada navegación — si aplicáramos el
+          // idioma acá siempre, un cambio hecho en /perfil quedaría revertido
+          // por el /me viejo en la primera navegación posterior al guardado.
+          if (!hasCompletedInitialCheck) {
+            const locale = data.user?.preferences?.locale
+            if (locale === "es" || locale === "en") {
+              const currentLanguage = useConfigStore.getState().language
+              if (currentLanguage !== locale) {
+                useConfigStore.getState().setLanguage(locale)
+              }
+            }
+          }
+
           // Si el email no está verificado y no está en ruta permitida, redirigir
           if (!isVerified && !isUnverifiedAllowed) {
             router.replace("/verify-email")
-            return
-          }
-
-          // Si el email está verificado y está en verify-email, redirigir a chats
-          if (isVerified && pathname === "/verify-email") {
-            router.replace("/chats")
             return
           }
 
@@ -100,7 +133,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
           // Trial ya no está vencido (upgrade) y sigue en la pantalla de bloqueo
           if (isVerified && !trialExpired && pathname === "/trial-expired") {
-            router.replace("/chats")
+            router.replace(firstAccessibleSection(data.permissions ?? [], data.role ?? null)?.href ?? "/sin-acceso")
             return
           }
         } catch {
@@ -123,11 +156,13 @@ export function AuthGuard({ children }: AuthGuardProps) {
     setEmailVerified,
     updateUser,
     setRoleAndPermissions,
+    setWorkspaces,
     hasCompletedInitialCheck,
     isPublicRoute,
     isAuthOnlyRoute,
     isUnverifiedAllowed,
     isTrialExpiredAllowed,
+    refreshNonce,
   ])
 
   // Las rutas públicas se renderizan siempre: no dependen del estado de auth y

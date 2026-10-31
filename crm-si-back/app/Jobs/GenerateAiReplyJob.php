@@ -2,10 +2,17 @@
 
 namespace App\Jobs;
 
+use App\Enums\ChannelType;
 use App\Models\AiConfig;
 use App\Models\Conversation;
+use App\Services\Ai\AiReplyDecision;
 use App\Services\AiReplyService;
-use App\Services\SystemMessageSender;
+use App\Services\AiTypingIndicatorService;
+use App\Services\HumanHandoffService;
+use App\Services\InstagramMessageService;
+use App\Services\MailMessageService;
+use App\Services\MessengerMessageService;
+use App\Services\WhatsAppMessageService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -34,6 +41,8 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
      */
     public int $uniqueFor = 180;
 
+    private ?int $typingMessageId = null;
+
     public function __construct(
         public int $conversationId,
     ) {}
@@ -43,13 +52,48 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
         return (string) $this->conversationId;
     }
 
-    public function handle(AiReplyService $aiReplyService, SystemMessageSender $sender): void
-    {
+    public function handle(
+        AiReplyService $aiReplyService,
+        WhatsAppMessageService $whatsAppMessageService,
+        InstagramMessageService $instagramMessageService,
+        MessengerMessageService $messengerMessageService,
+        MailMessageService $mailMessageService,
+        HumanHandoffService $humanHandoffService,
+        AiTypingIndicatorService $aiTypingIndicatorService,
+    ): void {
+        try {
+            $this->typingMessageId = null;
+            $this->sendAiReply(
+                $aiReplyService,
+                $whatsAppMessageService,
+                $instagramMessageService,
+                $messengerMessageService,
+                $mailMessageService,
+                $humanHandoffService,
+            );
+        } finally {
+            $aiTypingIndicatorService->stop($this->conversationId, $this->typingMessageId);
+        }
+    }
+
+    private function sendAiReply(
+        AiReplyService $aiReplyService,
+        WhatsAppMessageService $whatsAppMessageService,
+        InstagramMessageService $instagramMessageService,
+        MessengerMessageService $messengerMessageService,
+        MailMessageService $mailMessageService,
+        HumanHandoffService $humanHandoffService,
+    ): void {
         $conversation = Conversation::withoutGlobalScopes()->find($this->conversationId);
 
         if (! $conversation) {
             return;
         }
+
+        $this->typingMessageId = $conversation->messages()
+            ->where('direction', 'inbound')
+            ->latest('id')
+            ->value('id');
 
         // Re-chequear: un humano pudo intervenir (handoff) durante el delay.
         if (! $conversation->ai_autoreply_enabled) {
@@ -72,7 +116,23 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $reply = $aiReplyService->respond($conversation, $aiConfig);
+        $decision = $aiReplyService->decide($conversation, $aiConfig);
+
+        if ($decision->requestsHandoff()) {
+            $this->handleHandoff(
+                $conversation,
+                $decision,
+                $humanHandoffService,
+                $whatsAppMessageService,
+                $instagramMessageService,
+                $messengerMessageService,
+                $mailMessageService,
+            );
+
+            return;
+        }
+
+        $reply = $decision->reply;
 
         if ($reply === null) {
             Log::warning('GenerateAiReplyJob: sin respuesta de IA', [
@@ -88,9 +148,21 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // El transporte depende del canal de la conversación (ver
-        // SystemMessageSender: un canal sin transporte aborta, no cae en WhatsApp).
-        if (! $sender->supports($conversation)) {
+        // El transporte depende del canal de la conversación: mismas firmas de
+        // envío en los cuatro servicios.
+        //
+        // match exhaustivo con default que aborta, NO un else que asuma WhatsApp:
+        // un canal sin transporte de IA (Telegram, Web, Manual) enviaría el
+        // mensaje por el canal equivocado, o fallaría con un error opaco.
+        $service = $this->systemMessageService(
+            $conversation,
+            $whatsAppMessageService,
+            $instagramMessageService,
+            $messengerMessageService,
+            $mailMessageService,
+        );
+
+        if (! $service) {
             Log::warning('GenerateAiReplyJob: canal sin transporte de IA', [
                 'conversation_id' => $conversation->id,
                 'channel_type' => $conversation->channel?->type?->value,
@@ -99,6 +171,58 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $sender->send($conversation, $reply);
+        $service->sendSystemTextMessageFromCRM($conversation, $reply);
+    }
+
+    private function handleHandoff(
+        Conversation $conversation,
+        AiReplyDecision $decision,
+        HumanHandoffService $humanHandoffService,
+        WhatsAppMessageService $whatsAppMessageService,
+        InstagramMessageService $instagramMessageService,
+        MessengerMessageService $messengerMessageService,
+        MailMessageService $mailMessageService,
+    ): void {
+        $lastInbound = $conversation->messages()->where('direction', 'inbound')->latest('id')->first();
+        $handoff = $humanHandoffService->create(
+            $conversation,
+            $lastInbound,
+            (string) ($decision->handoff['reason'] ?? 'customer_requested_human'),
+            (string) ($decision->handoff['summary'] ?? 'El cliente pidió hablar con una persona.'),
+            (string) ($decision->handoff['customer_locale'] ?? 'es'),
+        );
+        if (! $handoff || $conversation->refresh()->ai_autoreply_enabled !== false) {
+            return;
+        }
+
+        $service = $this->systemMessageService(
+            $conversation,
+            $whatsAppMessageService,
+            $instagramMessageService,
+            $messengerMessageService,
+            $mailMessageService,
+        );
+        // Preferimos el texto que el modelo escribió junto a la tool: mantiene
+        // el tono del asistente del tenant. El fijo queda como respaldo.
+        $ack = $decision->reply ?? (($decision->handoff['customer_locale'] ?? 'es') === 'en'
+            ? 'Of course. I’m transferring you to a team member, who will reply here shortly.'
+            : 'Claro, te derivo con una persona del equipo. En breve te van a responder por acá.');
+        $service?->sendSystemTextMessageFromCRM($conversation, $ack);
+    }
+
+    private function systemMessageService(
+        Conversation $conversation,
+        WhatsAppMessageService $whatsAppMessageService,
+        InstagramMessageService $instagramMessageService,
+        MessengerMessageService $messengerMessageService,
+        MailMessageService $mailMessageService,
+    ): WhatsAppMessageService|InstagramMessageService|MessengerMessageService|MailMessageService|null {
+        return match ($conversation->channel?->type) {
+            ChannelType::WHATSAPP => $whatsAppMessageService,
+            ChannelType::INSTAGRAM => $instagramMessageService,
+            ChannelType::FACEBOOK => $messengerMessageService,
+            ChannelType::MAIL => $mailMessageService,
+            default => null,
+        };
     }
 }

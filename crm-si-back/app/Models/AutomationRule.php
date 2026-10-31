@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\AutomationRuleStatus;
 use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\HasTimezoneAwareDates;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -11,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class AutomationRule extends Model
 {
     use BelongsToTenant;
+    use HasTimezoneAwareDates;
 
     protected $attributes = [
         'version' => 1,

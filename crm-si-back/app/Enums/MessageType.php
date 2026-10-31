@@ -10,6 +10,7 @@ enum MessageType: string
     case Document = 'document';
     case Audio = 'audio';
     case Video = 'video';
+    case Contacts = 'contacts';
 
     public static function values(): array
     {
@@ -25,6 +26,7 @@ enum MessageType: string
             self::Document => 'Documento',
             self::Audio => 'Audio',
             self::Video => 'Video',
+            self::Contacts => 'Contactos',
         };
     }
 }

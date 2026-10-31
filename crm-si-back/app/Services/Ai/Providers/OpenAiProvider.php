@@ -2,9 +2,11 @@
 
 namespace App\Services\Ai\Providers;
 
+use App\Services\Ai\AiExtractionResult;
 use App\Services\Ai\AiProvider;
 use App\Services\Ai\AiTool;
 use App\Services\Ai\AiToolset;
+use App\Services\Ai\AiReplyDecision;
 use App\Services\Ai\AiVerificationResult;
 use App\Services\Ai\ToolLoopDeadline;
 use GuzzleHttp\Client as GuzzleClient;
@@ -162,6 +164,45 @@ class OpenAiProvider implements AiProvider
             ->make();
     }
 
+    public function decide(array $messages, string $systemPrompt, string $model, bool $offerHandoff = true): AiReplyDecision
+    {
+        try {
+            $client = OpenAI::factory()->withApiKey($this->apiKey)->withHttpClient(new GuzzleClient(['timeout' => (int) config('services.ai.generate_timeout', 60)]))->make();
+            $response = $client->chat()->create([
+                'model' => $model, 'max_tokens' => 1024,
+                'messages' => [['role' => 'system', 'content' => $systemPrompt], ...array_map([$this, 'formatMessage'], $messages)],
+                ...($offerHandoff ? ['tools' => [[
+                    'type' => 'function', 'function' => [
+                        'name' => 'request_human_handoff',
+                        'description' => 'Usá esta herramienta únicamente si el cliente pidió explícitamente hablar con una persona. '
+                            .'Junto con la herramienta, escribile al cliente un mensaje breve avisándole que lo va a atender alguien del equipo.',
+                        'parameters' => ['type' => 'object', 'additionalProperties' => false, 'properties' => [
+                            'reason' => ['type' => 'string', 'enum' => ['customer_requested_human']],
+                            'summary' => ['type' => 'string', 'maxLength' => 300],
+                            'customer_locale' => ['type' => 'string', 'enum' => ['es', 'en']],
+                        ], 'required' => ['reason', 'summary', 'customer_locale']],
+                    ],
+                ]], 'tool_choice' => 'auto'] : []),
+            ]);
+            $choice = $response->choices[0] ?? null;
+            $toolCalls = $choice?->message?->toolCalls ?? [];
+            foreach ($toolCalls as $call) {
+                if (($call->function->name ?? null) === 'request_human_handoff') {
+                    $data = json_decode((string) $call->function->arguments, true);
+                    if (is_array($data)) {
+                        return AiReplyDecision::handoff($data, $choice?->message?->content);
+                    }
+                }
+            }
+
+            return AiReplyDecision::reply($choice?->message?->content);
+        } catch (\Throwable $e) {
+            Log::error('OpenAiProvider: error decidiendo handoff', ['error' => $e->getMessage()]);
+
+            return AiReplyDecision::reply(null);
+        }
+    }
+
     public function translate(string $content, string $systemPrompt, string $model): ?string
     {
         try {
@@ -262,6 +303,37 @@ class OpenAiProvider implements AiProvider
 
             return [];
         }
+    }
+
+    /**
+     * La extracción de documentos no está habilitada para OpenAI.
+     *
+     * Se implementó y se revirtió: el camino quedaba escrito pero no podía
+     * funcionar contra ningún modelo real, y fallar de forma opaca es peor que
+     * decir que no está soportado. Faltan tres cosas, ninguna difícil, pero que
+     * necesitan una key de OpenAI para verificarse:
+     *
+     * 1. Modelo por proveedor. Hoy services.ai.extraction.model es uno solo y
+     *    su default es de Claude, así que un tenant con OpenAI recibiría un
+     *    model ID de Anthropic.
+     * 2. max_completion_tokens en vez de max_tokens: las familias o-series y
+     *    gpt-5 rechazan el segundo. translate() en este mismo archivo ya usa
+     *    la forma nueva.
+     * 3. Schema propio. ExtractionSchemaBuilder emite maxLength, format y enum
+     *    con null, y el modo strict de OpenAI rechaza los tres; el de Anthropic
+     *    los acepta. Hay que generar un schema por proveedor o bajar strict.
+     */
+    public function extract(
+        string $text,
+        array $images,
+        array $schema,
+        string $systemPrompt,
+        string $model,
+    ): AiExtractionResult {
+        return AiExtractionResult::failure(
+            'unsupported',
+            'La extracción de datos desde documentos requiere Claude como proveedor de IA.',
+        );
     }
 
     public function verify(string $systemPrompt, string $model): AiVerificationResult

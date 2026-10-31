@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { BadgeCheck, ChevronRight, ExternalLink, RefreshCw, ShieldCheck } from "lucide-react"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -91,46 +91,39 @@ export function BusinessVerificationCard() {
   if (!isAdmin) return null
 
   return (
-    <Card className="rounded-2xl border-border">
-      <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5" />
-              {t("businessVerification.title")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {t("businessVerification.subtitle")}
-            </p>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void load()}
-            disabled={loadingChannels}
-          >
-            <RefreshCw className="w-4 h-4 mr-1" />
-            {t("businessVerification.refresh")}
-          </Button>
+    <SettingsBlock
+      title={t("businessVerification.title")}
+      description={t("businessVerification.subtitle")}
+      icon={ShieldCheck}
+      action={
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => void load()}
+          disabled={loadingChannels}
+        >
+          <RefreshCw className="mr-1 size-4" />
+          {t("businessVerification.refresh")}
+        </Button>
+      }
+    >
+      {loadingChannels ? (
+        <div className="space-y-3">
+          <Skeleton className="h-16 w-full rounded-lg" />
+          <Skeleton className="h-16 w-full rounded-lg" />
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {loadingChannels ? (
-          <div className="space-y-3">
-            <Skeleton className="h-16 w-full rounded-lg" />
-            <Skeleton className="h-16 w-full rounded-lg" />
-          </div>
-        ) : rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            {t("businessVerification.empty")}
-          </p>
-        ) : (
-          rows.map((row) => (
+      ) : rows.length === 0 ? (
+        <p className="py-6 text-sm text-muted-foreground">
+          {t("businessVerification.empty")}
+        </p>
+      ) : (
+        <div className="divide-y divide-border border-y border-border">
+          {rows.map((row) => (
             <VerificationRow key={row.channel.id} row={row} />
-          ))
-        )}
-      </CardContent>
-    </Card>
+          ))}
+        </div>
+      )}
+    </SettingsBlock>
   )
 }
 
@@ -148,7 +141,7 @@ function VerificationRow({ row }: { row: Row }) {
   const showHowTo = !loading && !error && !!data && data.status !== "verified"
 
   return (
-    <div className="space-y-3 rounded-lg border border-border p-4">
+    <div className="space-y-3 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 space-y-0.5">
           <p className="truncate text-sm font-medium text-foreground">

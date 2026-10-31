@@ -37,12 +37,13 @@ class ExecuteAutomationRunJob implements ShouldQueue
 
     public function failed(\Throwable $exception): void
     {
+        // Bulk update: HasTimezoneAwareDates no aplica, ->utc() explícito.
         AutomationRun::withoutGlobalScopes()->whereKey($this->runId)
             ->whereIn('status', [AutomationRunStatus::Queued, AutomationRunStatus::Running])
             ->update([
                 'status' => AutomationRunStatus::Failed,
                 'error' => $exception->getMessage(),
-                'finished_at' => now(),
+                'finished_at' => now()->utc(),
             ]);
     }
 }

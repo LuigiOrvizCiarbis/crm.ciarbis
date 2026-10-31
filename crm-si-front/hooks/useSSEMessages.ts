@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Message } from "@/data/types";
+import { Message, MessageReaction, ScheduledMessage } from "@/data/types";
 import { getPusher } from "@/lib/pusher";
 
 export interface MessageStatusUpdate {
@@ -7,8 +7,15 @@ export interface MessageStatusUpdate {
   conversation_id: number;
   delivered_at?: string | null;
   read_at?: string | null;
+  played_at?: string | null;
   failed_at?: string | null;
   error_message?: string | null;
+}
+
+export interface MessageReactionUpdate {
+  message_id: number;
+  conversation_id: number;
+  reactions: MessageReaction[];
 }
 
 interface UseReverbMessagesProps {
@@ -17,6 +24,8 @@ interface UseReverbMessagesProps {
   onEdited?: (message: Message) => void;
   onDeleted?: (data: { id: number; conversation_id: number }) => void;
   onStatus?: (status: MessageStatusUpdate) => void;
+  onReaction?: (data: MessageReactionUpdate) => void;
+  onScheduledMessage?: (data: ScheduledMessage) => void;
 }
 
 export function useSSEMessages({
@@ -25,11 +34,15 @@ export function useSSEMessages({
   onEdited,
   onDeleted,
   onStatus,
+  onReaction,
+  onScheduledMessage,
 }: UseReverbMessagesProps) {
   const onMessageRef = useRef(onMessage);
   const onEditedRef = useRef(onEdited);
   const onDeletedRef = useRef(onDeleted);
   const onStatusRef = useRef(onStatus);
+  const onReactionRef = useRef(onReaction);
+  const onScheduledMessageRef = useRef(onScheduledMessage);
 
   useEffect(() => {
     onMessageRef.current = onMessage;
@@ -46,6 +59,14 @@ export function useSSEMessages({
   useEffect(() => {
     onStatusRef.current = onStatus;
   }, [onStatus]);
+
+  useEffect(() => {
+    onReactionRef.current = onReaction;
+  }, [onReaction]);
+
+  useEffect(() => {
+    onScheduledMessageRef.current = onScheduledMessage;
+  }, [onScheduledMessage]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -67,6 +88,14 @@ export function useSSEMessages({
 
     channel.bind("message.status", (data: MessageStatusUpdate) => {
       onStatusRef.current?.(data);
+    });
+
+    channel.bind("message.reaction", (data: MessageReactionUpdate) => {
+      onReactionRef.current?.(data);
+    });
+
+    channel.bind("scheduled-message.updated", (data: ScheduledMessage) => {
+      onScheduledMessageRef.current?.(data);
     });
 
     return () => {

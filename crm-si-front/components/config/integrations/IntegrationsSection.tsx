@@ -1,8 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ArrowLeft, ChevronRight } from "lucide-react"
+import { ArrowLeft, Blocks, ChevronRight } from "lucide-react"
 
+import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useIsAdmin } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -93,16 +94,22 @@ export function IntegrationsSection() {
   }
 
   return (
-    <ul className="divide-y divide-border border-y border-border motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
-      {sortedIntegrations.map((def) => (
-        <DirectoryRow
-          key={def.id}
-          integration={def}
-          status={statuses[def.id]}
-          onOpen={() => openDetail(def.id)}
-        />
-      ))}
-    </ul>
+    <SettingsBlock
+      title={t("settings.integrationsHub.directoryTitle")}
+      description={t("settings.integrationsHub.directoryDescription")}
+      icon={Blocks}
+    >
+      <ul className="divide-y divide-border border-y border-border motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
+        {sortedIntegrations.map((def) => (
+          <DirectoryRow
+            key={def.id}
+            integration={def}
+            status={statuses[def.id]}
+            onOpen={() => openDetail(def.id)}
+          />
+        ))}
+      </ul>
+    </SettingsBlock>
   )
 }
 

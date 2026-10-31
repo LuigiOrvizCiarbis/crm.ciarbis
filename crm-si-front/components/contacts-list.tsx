@@ -1,27 +1,28 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useState, useEffect, useMemo, useRef, useCallback } from "react"
+import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { ContactAvatar } from "@/components/contact-avatar"
 import { Checkbox } from "@/components/ui/checkbox"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags } from "lucide-react"
-import { ImportContactsDialog } from "./import-contacts-dialog"
-import { BulkTagsDialog } from "./contacts/bulk-tags-dialog"
-import { getAuthToken } from "@/lib/api/auth-token"
-import { getPipelineStages } from "@/lib/api/pipeline"
-import { createOpportunity, getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
+import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw, Trash2, Pencil } from "lucide-react"
+import type { RangeFilterValue } from "./contacts/RangeFilterMenu"
+import { BulkFieldsDialog } from "./contacts/bulk-fields-dialog"
+import { getAuthToken, getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
+import { ContactPipelineDialog } from "@/components/contact-pipeline-dialog"
 import { updateContact, type ContactUpdate } from "@/lib/api/contacts"
-import { CustomFieldInput } from "@/components/CustomFieldInput"
+import { CustomChoiceBadge, CustomFieldInput, formatCustomChoice } from "@/components/CustomFieldInput"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 import type { Tag } from "@/lib/api/tags"
 import { useAutosave } from "@/lib/hooks/useAutosave"
@@ -52,6 +53,24 @@ import {
   useSortable,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
+import { formatCurrency } from "@/lib/currency"
+
+const UniversalImportDialog = dynamic(
+  () => import("./import/universal-import-dialog").then((module) => module.UniversalImportDialog),
+  { ssr: false },
+)
+const BulkTagsDialog = dynamic(
+  () => import("./contacts/bulk-tags-dialog").then((module) => module.BulkTagsDialog),
+  { ssr: false },
+)
+const ExtractDocumentDialog = dynamic(
+  () => import("./contacts/ExtractDocumentDialog").then((module) => module.ExtractDocumentDialog),
+  { ssr: false },
+)
+const DocumentViewerSheet = dynamic(
+  () => import("./contacts/DocumentViewerSheet").then((module) => module.DocumentViewerSheet),
+  { ssr: false },
+)
 
 interface Contact {
   id: number
@@ -78,26 +97,9 @@ const DEFAULT_FORM: { name: string; phone: string; email: string; source: string
   custom_data: {},
 }
 
-function getInitials(name: string): string {
-  return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
-}
-
 function capitalize(value: string): string {
   if (!value) return value
   return value.charAt(0).toUpperCase() + value.slice(1)
-}
-
-const AVATAR_GRADIENTS = [
-  "from-cyan-500 to-blue-600",
-  "from-violet-500 to-purple-600",
-  "from-emerald-500 to-green-600",
-  "from-orange-500 to-amber-600",
-  "from-pink-500 to-rose-600",
-  "from-indigo-500 to-blue-600",
-]
-
-function getAvatarGradient(id: number): string {
-  return AVATAR_GRADIENTS[id % AVATAR_GRADIENTS.length]
 }
 
 const sourceColors: Record<string, string> = {
@@ -115,7 +117,7 @@ const sourceLabels: Record<string, string> = {
 }
 
 type ColumnId = "select" | "contact" | "phone" | "email" | "source" | "tags" | "lastContact" | "actions" | `custom:${string}`
-type SortField = "name" | "phone" | "email" | "source" | "updated_at"
+type SortField = "name" | "phone" | "email" | "source" | "updated_at" | `custom:${string}`
 type SortDirection = "asc" | "desc"
 
 interface Column {
@@ -138,6 +140,13 @@ const DEFAULT_COLUMNS: Column[] = [
 ]
 
 const COLUMN_ORDER_KEY = "contacts-column-order"
+const COLUMN_WIDTHS_KEY = "contacts-column-widths"
+
+function workspaceStorageKey(base: string, workspaceId: number | null): string {
+  // Columnas custom y sus medidas pertenecen al workspace que definió ese
+  // esquema. No se reutiliza la clave histórica global entre workspaces.
+  return workspaceId ? `${base}:${workspaceId}` : base
+}
 const COLUMN_SORT_FIELDS: Partial<Record<ColumnId, SortField>> = {
   contact: "name",
   phone: "phone",
@@ -146,13 +155,34 @@ const COLUMN_SORT_FIELDS: Partial<Record<ColumnId, SortField>> = {
   lastContact: "updated_at",
 }
 
-function formatCustomValue(value: unknown, type: string | undefined): string {
+/**
+ * Campo de orden que corresponde a una columna, o `null` si no es ordenable.
+ * Las columnas custom ordenan por `custom:<key>`, que el backend resuelve
+ * contra la definición del campo para castear el JSON según su tipo.
+ */
+function sortFieldForColumn(columnId: ColumnId): SortField | null {
+  if (columnId.startsWith("custom:")) return columnId as SortField
+  return COLUMN_SORT_FIELDS[columnId] ?? null
+}
+
+function formatCustomValue(value: unknown, type: string | undefined, currency?: unknown): string {
   if (value === null || value === undefined || value === "") return "—"
+  if (type === "currency") return formatCurrency(value, currency)
+  if (type === "repeater" && Array.isArray(value)) return `${value.length} elementos`
   if (Array.isArray(value)) return value.length > 0 ? value.join(", ") : "—"
   if (typeof value === "boolean") return value ? "Sí" : "No"
   if (type === "date" && typeof value === "string") {
     try {
-      return format(new Date(value), "d MMM yyyy", { locale: es })
+      // Un campo `date` guarda una fecha pelada (`2026-09-14`), sin hora ni
+      // zona. `new Date()` la interpreta como medianoche UTC, así que al
+      // formatearla en hora local cualquier tenant al oeste de Greenwich veía
+      // el día anterior. Se construye la fecha en local para que el día que se
+      // muestra sea el que se guardó.
+      const parts = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+      const parsed = parts
+        ? new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]))
+        : new Date(value)
+      return format(parsed, "d MMM yyyy", { locale: es })
     } catch {
       return value
     }
@@ -163,10 +193,10 @@ function formatCustomValue(value: unknown, type: string | undefined): string {
   return String(value)
 }
 
-function loadColumnOrder(): Column[] {
+function loadColumnOrder(workspaceId: number | null): Column[] {
   if (typeof window === "undefined") return DEFAULT_COLUMNS
   try {
-    const saved = window.localStorage.getItem(COLUMN_ORDER_KEY)
+    const saved = window.localStorage.getItem(workspaceStorageKey(COLUMN_ORDER_KEY, workspaceId))
     if (!saved) return DEFAULT_COLUMNS
     const ids = JSON.parse(saved) as ColumnId[]
     const ordered: Column[] = ids
@@ -186,18 +216,131 @@ function loadColumnOrder(): Column[] {
   }
 }
 
+function loadColumnWidths(workspaceId: number | null): Record<string, string> {
+  if (typeof window === "undefined") return {}
+  try {
+    const saved = window.localStorage.getItem(workspaceStorageKey(COLUMN_WIDTHS_KEY, workspaceId))
+    return saved ? (JSON.parse(saved) as Record<string, string>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function widthInPixels(width: string): number {
+  const parsed = Number.parseFloat(width)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function widthWithMinimum(column: Column, width: number): string {
+  return `${Math.min(560, Math.max(widthInPixels(column.minWidth), Math.round(width)))}px`
+}
+
+function getLastContact(contact: Contact): string {
+  if (contact.conversations && contact.conversations.length > 0) {
+    return format(new Date(contact.conversations[0].last_message_at), "dd/MM/yyyy", { locale: es })
+  }
+  return format(new Date(contact.created_at), "dd/MM/yyyy", { locale: es })
+}
+
+function exportContactsCsv(contacts: Contact[]): void {
+  const headers = ["Nombre", "Teléfono", "Email", "Fuente", "Último contacto"]
+  const rows = contacts.map((contact) => [
+    contact.name,
+    contact.phone || "",
+    contact.email || "",
+    sourceLabels[contact.source] || contact.source,
+    getLastContact(contact),
+  ])
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((value) => `"${value}"`).join(","))
+    .join("\n")
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+  const link = document.createElement("a")
+  link.href = URL.createObjectURL(blob)
+  link.download = `contactos_${new Date().toISOString().split("T")[0]}.csv`
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
+function ColumnResizeHandle({
+  column,
+  onResize,
+  onAutoResize,
+}: {
+  column: Column
+  onResize: (columnId: ColumnId, delta: number) => void
+  onAutoResize: (columnId: ColumnId) => void
+}) {
+  const previousX = useRef<number | null>(null)
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    previousX.current = event.clientX
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (previousX.current === null) return
+    const delta = event.clientX - previousX.current
+    previousX.current = event.clientX
+    onResize(column.id, delta)
+  }
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
+    previousX.current = null
+    event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault()
+      event.stopPropagation()
+      const direction = event.key === "ArrowRight" ? 1 : -1
+      onResize(column.id, direction * (event.shiftKey ? 40 : 10))
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={`Ajustar ancho de ${column.labelKey || "columna"}`}
+      aria-valuemin={widthInPixels(column.minWidth)}
+      aria-valuenow={widthInPixels(column.width)}
+      aria-valuetext={`${widthInPixels(column.width)} píxeles`}
+      role="separator"
+      tabIndex={0}
+      className="absolute inset-y-0 right-0 z-10 w-3 cursor-col-resize touch-none rounded-sm outline-none transition-colors hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onDoubleClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onAutoResize(column.id)
+      }}
+      onKeyDown={handleKeyDown}
+      title="Arrastrar para ajustar. Doble clic para autoajustar."
+    />
+  )
+}
+
 function SortableHeader({
   column,
   label,
   sortField,
   sortDirection,
   onSort,
+  onResize,
+  onAutoResize,
 }: {
   column: Column
   label: string
   sortField: SortField
   sortDirection: SortDirection
   onSort: (columnId: ColumnId) => void
+  onResize: (columnId: ColumnId, delta: number) => void
+  onAutoResize: (columnId: ColumnId) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: column.id,
@@ -214,13 +357,13 @@ function SortableHeader({
 
   if (!column.draggable) {
     return (
-      <TableHead ref={setNodeRef} style={style} className={column.id === "actions" ? "text-right" : ""}>
+      <TableHead ref={setNodeRef} style={style} className={cn("relative", column.id === "actions" ? "text-right" : "")}>
         {label}
       </TableHead>
     )
   }
 
-  const columnSortField = COLUMN_SORT_FIELDS[column.id]
+  const columnSortField = sortFieldForColumn(column.id)
   const isSorted = columnSortField === sortField
   const SortIcon = isSorted ? (sortDirection === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
 
@@ -229,7 +372,7 @@ function SortableHeader({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "select-none cursor-grab active:cursor-grabbing",
+        "relative select-none cursor-grab active:cursor-grabbing",
         column.id === "actions" ? "text-right" : "",
       )}
       {...attributes}
@@ -257,6 +400,7 @@ function SortableHeader({
           <span>{label}</span>
         )}
       </div>
+      <ColumnResizeHandle column={column} onResize={onResize} onAutoResize={onAutoResize} />
     </TableHead>
   )
 }
@@ -266,6 +410,8 @@ interface ContactsListProps {
   onSearchTermChange?: (value: string) => void
   sourceFilter?: string
   tagFilterSlugs?: string[]
+  customRangeFilter?: Record<string, RangeFilterValue>
+  audience?: "all" | "clients"
 }
 
 export function ContactsList({
@@ -273,9 +419,12 @@ export function ContactsList({
   onSearchTermChange,
   sourceFilter = "all",
   tagFilterSlugs = [],
+  customRangeFilter = {},
+  audience = "all",
 }: ContactsListProps = {}) {
   const { t } = useTranslation()
   const router = useRouter()
+  const workspaceId = getWorkspaceId()
   const { addToast } = useToast()
   const [contacts, setContacts] = useState<Contact[]>([])
   const [page, setPage] = useState(1)
@@ -305,17 +454,39 @@ export function ContactsList({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
 
+  // Visor del documento adjunto de un campo tipo archivo. Se guarda el contacto
+  // y la clave para que reemplazar o quitar escriba en la celda correcta.
+  const [viewerTarget, setViewerTarget] = useState<{
+    contactId: number
+    key: string
+    label: string
+    assetId: number
+  } | null>(null)
+  const [viewerOpen, setViewerOpen] = useState(false)
+
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileContact, setProfileContact] = useState<Contact | null>(null)
 
+  // Extracción de datos desde un PDF. Vive acá y no en el panel de perfil
+  // porque ese es de sólo lectura y no recarga el contacto al confirmar.
+  const [extractionContact, setExtractionContact] = useState<Contact | null>(null)
+
   const [deleteContact, setDeleteContact] = useState<Contact | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [addingToPipelineId, setAddingToPipelineId] = useState<number | null>(null)
+  const [pipelineContact, setPipelineContact] = useState<Contact | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [bulkTagsOpen, setBulkTagsOpen] = useState(false)
+  const [bulkFieldsOpen, setBulkFieldsOpen] = useState(false)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const profileResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const requestControllerRef = useRef<AbortController | null>(null)
+  const contactsRef = useRef(contacts)
+
+  useEffect(() => {
+    contactsRef.current = contacts
+  }, [contacts])
 
   type EditableField = "name" | "phone" | "email" | "source"
   type EditableCellField = EditableField | `custom:${string}`
@@ -326,41 +497,69 @@ export function ContactsList({
       contactFields.map((f) => ({
         id: `custom:${f.key}` as ColumnId,
         labelKey: f.label,
-        width: "180px",
+        width: loadColumnWidths(workspaceId)[`custom:${f.key}`] ?? "180px",
         minWidth: "140px",
         draggable: true,
       })),
-    [contactFields],
+    [contactFields, workspaceId],
   )
 
   const [columns, setColumns] = useState<Column[]>(DEFAULT_COLUMNS)
+  const [columnsHydrated, setColumnsHydrated] = useState(false)
+  const tableRef = useRef<HTMLTableElement | null>(null)
 
   useEffect(() => {
-    setColumns(loadColumnOrder())
-  }, [])
+    const savedWidths = loadColumnWidths(workspaceId)
+    setColumns(loadColumnOrder(workspaceId).map((column) => ({
+      ...column,
+      width: savedWidths[column.id] ?? column.width,
+    })))
+    setColumnsHydrated(true)
+  }, [workspaceId])
 
   useEffect(() => {
-    if (customFieldColumns.length === 0) return
+    if (!contactFieldsLoaded) return
     setColumns((prev) => {
-      const knownIds = new Set(prev.map((c) => c.id))
+      const validCustomIds = new Set(customFieldColumns.map((column) => column.id))
+      const sanitized = prev.filter(
+        (column) => !column.id.startsWith("custom:") || validCustomIds.has(column.id),
+      )
+      const knownIds = new Set(sanitized.map((c) => c.id))
       const additions = customFieldColumns.filter((c) => !knownIds.has(c.id))
       if (additions.length === 0) {
         // Keep labels in sync (custom field renames).
-        return prev.map((c) => {
+        return sanitized.map((c) => {
           const next = customFieldColumns.find((cf) => cf.id === c.id)
           return next ? { ...c, labelKey: next.labelKey } : c
         })
       }
-      const actionsIndex = prev.findIndex((c) => c.id === "actions")
-      if (actionsIndex === -1) return [...prev, ...additions]
-      return [...prev.slice(0, actionsIndex), ...additions, ...prev.slice(actionsIndex)]
+      const actionsIndex = sanitized.findIndex((c) => c.id === "actions")
+      if (actionsIndex === -1) return [...sanitized, ...additions]
+      return [...sanitized.slice(0, actionsIndex), ...additions, ...sanitized.slice(actionsIndex)]
     })
-  }, [customFieldColumns])
+  }, [contactFieldsLoaded, customFieldColumns])
+
+  // Si el campo por el que se estaba ordenando se eliminó, el backend cae a su
+  // orden por defecto pero el front seguiría marcando una columna que ya no
+  // existe. Se vuelve al orden inicial para que lo mostrado y lo pedido coincidan.
+  useEffect(() => {
+    if (!contactFieldsLoaded || !sortField.startsWith("custom:")) return
+    if (customFieldColumns.some((column) => column.id === sortField)) return
+    setSortField("updated_at")
+    setSortDirection("desc")
+  }, [contactFieldsLoaded, customFieldColumns, sortField])
 
   useEffect(() => {
-    if (typeof window === "undefined") return
-    window.localStorage.setItem(COLUMN_ORDER_KEY, JSON.stringify(columns.map((c) => c.id)))
-  }, [columns])
+    if (typeof window === "undefined" || !columnsHydrated) return
+    window.localStorage.setItem(
+      workspaceStorageKey(COLUMN_ORDER_KEY, workspaceId),
+      JSON.stringify(columns.map((c) => c.id)),
+    )
+    window.localStorage.setItem(
+      workspaceStorageKey(COLUMN_WIDTHS_KEY, workspaceId),
+      JSON.stringify(Object.fromEntries(columns.map((column) => [column.id, column.width]))),
+    )
+  }, [columns, columnsHydrated, workspaceId])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -379,8 +578,39 @@ export function ContactsList({
     })
   }
 
+  const handleColumnResize = (columnId: ColumnId, delta: number): void => {
+    setColumns((current) => current.map((column) => {
+      if (column.id !== columnId) return column
+      return {
+        ...column,
+        width: widthWithMinimum(column, widthInPixels(column.width) + delta),
+      }
+    }))
+  }
+
+  const handleColumnAutoResize = (columnId: ColumnId): void => {
+    const column = columns.find((item) => item.id === columnId)
+    if (!column || !tableRef.current) return
+
+    const cells = Array.from(tableRef.current.querySelectorAll<HTMLElement>("[data-column-id]"))
+      .filter((cell) => cell.dataset.columnId === columnId)
+    const measuredWidth = cells.reduce((width, cell) => Math.max(width, cell.scrollWidth), 0)
+    const nextWidth = Math.min(560, Math.max(widthInPixels(column.minWidth), measuredWidth + 12))
+
+    setColumns((current) => current.map((item) => (
+      item.id === columnId ? { ...item, width: `${Math.round(nextWidth)}px` } : item
+    )))
+  }
+
+  const resetColumnWidths = (): void => {
+    setColumns((current) => current.map((column) => {
+      const defaultColumn = DEFAULT_COLUMNS.find((item) => item.id === column.id)
+      return defaultColumn ? { ...column, width: defaultColumn.width } : { ...column, width: "180px" }
+    }))
+  }
+
   const handleSort = (columnId: ColumnId): void => {
-    const nextSortField = COLUMN_SORT_FIELDS[columnId]
+    const nextSortField = sortFieldForColumn(columnId)
     if (!nextSortField) return
 
     if (nextSortField === sortField) {
@@ -450,15 +680,69 @@ export function ContactsList({
     })
   }
 
-  useEffect(() => {
-    setPage(1)
-  }, [searchTerm, sourceFilter, tagFilterSlugs, perPage, sortField, sortDirection])
+  const listCriteria = useMemo(() => {
+    const queryParams = new URLSearchParams()
+    if (searchTerm) queryParams.append("search", searchTerm)
+    if (sourceFilter !== "all") queryParams.append("source", sourceFilter)
+    if (tagFilterSlugs.length > 0) queryParams.append("tags", tagFilterSlugs.join(","))
+    for (const [key, range] of Object.entries(customRangeFilter)) {
+      if (range.from) queryParams.append(`custom_range[${key}][from]`, range.from)
+      if (range.to) queryParams.append(`custom_range[${key}][to]`, range.to)
+    }
+    if (audience === "clients") queryParams.append("billing", "clients")
+    queryParams.append("per_page", String(perPage))
+    queryParams.append("sort_by", sortField)
+    queryParams.append("sort_dir", sortDirection)
+    return queryParams.toString()
+  }, [searchTerm, sourceFilter, tagFilterSlugs, customRangeFilter, audience, perPage, sortField, sortDirection])
+
+  const contactsQuery = useMemo(() => `${listCriteria}&page=${page}`, [listCriteria, page])
+
+  const fetchContacts = useCallback(async (): Promise<void> => {
+    requestControllerRef.current?.abort()
+    const controller = new AbortController()
+    requestControllerRef.current = controller
+    setLoading(true)
+    setError(null)
+    try {
+      const token = getAuthToken()
+      const response = await fetch(`/api/contacts?${contactsQuery}`, {
+        headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+        signal: controller.signal,
+      })
+      if (!response.ok) throw new Error("Error al cargar contactos")
+      const result = await response.json()
+      if (controller.signal.aborted) return
+      setContacts(result.data || [])
+      setPaginationMeta({
+        total: result.meta?.total ?? 0,
+        current_page: result.meta?.current_page ?? page,
+        last_page: result.meta?.last_page ?? 1,
+        from: result.meta?.from ?? 0,
+        to: result.meta?.to ?? 0,
+      })
+    } catch (err) {
+      if (controller.signal.aborted) return
+      setError(err instanceof Error ? err.message : "Error desconocido")
+    } finally {
+      if (requestControllerRef.current === controller) {
+        requestControllerRef.current = null
+        setLoading(false)
+      }
+    }
+  }, [contactsQuery, page])
 
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => fetchContacts(), 300)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [searchTerm, sourceFilter, tagFilterSlugs, page, perPage, sortField, sortDirection])
+    setPage(1)
+  }, [listCriteria])
+
+  useEffect(() => {
+    const timeout = setTimeout(() => void fetchContacts(), 300)
+    return () => {
+      clearTimeout(timeout)
+      requestControllerRef.current?.abort()
+    }
+  }, [fetchContacts])
 
   useEffect(() => {
     return () => {
@@ -469,7 +753,7 @@ export function ContactsList({
   // Listen to compact header events
   useEffect(() => {
     const handleNewContact = () => setDialogOpen(true)
-    const handleExportCsv = () => exportCSV()
+    const handleExportCsv = () => exportContactsCsv(contactsRef.current)
     const handleImportCsv = () => setImportOpen(true)
     window.addEventListener("contacts-new-contact", handleNewContact)
     window.addEventListener("contacts-export-csv", handleExportCsv)
@@ -479,57 +763,7 @@ export function ContactsList({
       window.removeEventListener("contacts-export-csv", handleExportCsv)
       window.removeEventListener("contacts-import-csv", handleImportCsv)
     }
-  }, [contacts])
-
-  const fetchContacts = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const queryParams = new URLSearchParams()
-      if (searchTerm) queryParams.append("search", searchTerm)
-      if (sourceFilter !== "all") queryParams.append("source", sourceFilter)
-      if (tagFilterSlugs.length > 0) queryParams.append("tags", tagFilterSlugs.join(","))
-      queryParams.append("page", String(page))
-      queryParams.append("per_page", String(perPage))
-      queryParams.append("sort_by", sortField)
-      queryParams.append("sort_dir", sortDirection)
-      const token = getAuthToken()
-      const response = await fetch(`/api/contacts?${queryParams.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!response.ok) throw new Error("Error al cargar contactos")
-      const result = await response.json()
-      setContacts(result.data || [])
-      setPaginationMeta({
-        total: result.meta?.total ?? 0,
-        current_page: result.meta?.current_page ?? page,
-        last_page: result.meta?.last_page ?? 1,
-        from: result.meta?.from ?? 0,
-        to: result.meta?.to ?? 0,
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error desconocido")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const exportCSV = () => {
-    const headers = ["Nombre", "Teléfono", "Email", "Fuente", "Último contacto"]
-    const rows = contacts.map((c) => [
-      c.name,
-      c.phone || "",
-      c.email || "",
-      sourceLabels[c.source] || c.source,
-      getLastContact(c),
-    ])
-    const csvContent = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(",")).join("\n")
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = `contactos_${new Date().toISOString().split("T")[0]}.csv`
-    link.click()
-  }
+  }, [])
 
   const handleSaveContact = async () => {
     const errors: Record<string, string> = {}
@@ -556,6 +790,7 @@ export function ContactsList({
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          ...workspaceHeaders(),
         },
         body: JSON.stringify({
           name: formData.name.trim(),
@@ -618,6 +853,11 @@ export function ContactsList({
     }
   }
 
+  const openContactConversation = (contact: Contact) => {
+    const conversationId = contact.conversations?.[0]?.id
+    if (conversationId) router.push(`/chats?chat=${conversationId}`)
+  }
+
   const handleDeleteContact = async () => {
     if (!deleteContact) return
     setDeleting(true)
@@ -625,7 +865,7 @@ export function ContactsList({
       const token = getAuthToken()
       const response = await fetch(`/api/contacts/${deleteContact.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
       })
       if (response.ok) {
         setDeleteContact(null)
@@ -638,47 +878,42 @@ export function ContactsList({
     }
   }
 
-  const handleAddToPipeline = async (contact: Contact) => {
-    const latestConversation = contact.conversations?.[0]
-    setAddingToPipelineId(contact.id)
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setBulkDeleting(true)
     try {
-      const stages = await getPipelineStages()
-      const sortedStages = [...stages].sort((a, b) => a.sort_order - b.sort_order)
-      const targetStage = sortedStages.find((stage) => stage.is_default) ?? sortedStages[0]
-      if (!targetStage) throw new Error("No hay etapas configuradas en el pipeline")
+      const token = getAuthToken()
+      const results = await Promise.allSettled(
+        ids.map((id) =>
+          fetch(`/api/contacts/${id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+          }).then((response) => {
+            if (!response.ok) throw new Error(String(response.status))
+            return response
+          })
+        )
+      )
+      const deleted = results.filter((result) => result.status === "fulfilled").length
+      const failed = results.length - deleted
 
-      const existingOpenOpportunities = await getOpportunities({ contactId: contact.id, status: "open" })
-      const existingOpportunity = existingOpenOpportunities[0]
-
-      if (existingOpportunity) {
-        await updateOpportunityStage(existingOpportunity.id, targetStage.id)
+      if (failed === 0) {
+        addToast({ type: "success", title: t("contactsPage.bulk.delete.success", { count: deleted }) })
+      } else if (deleted === 0) {
+        addToast({ type: "error", title: t("contactsPage.bulk.delete.error") })
       } else {
-        await createOpportunity({
-          contact_id: contact.id,
-          conversation_id: latestConversation?.id ?? null,
-          pipeline_stage_id: targetStage.id,
-          source_type: latestConversation ? "conversation" : "manual",
-          title: `Oportunidad - ${contact.name}`,
-        })
+        addToast({ type: "info", title: t("contactsPage.bulk.delete.partial", { deleted, failed }) })
       }
 
-      addToast({
-        type: "success",
-        title: "Contacto agregado al pipeline",
-        description: existingOpportunity
-          ? `${contact.name} fue movido a ${targetStage.name}.`
-          : `${contact.name} fue agregado a ${targetStage.name}.`,
-      })
-    } catch (error) {
-      addToast({
-        type: "error",
-        title: "No se pudo agregar al pipeline",
-        description: error instanceof Error ? error.message : "Error desconocido",
-      })
+      setBulkDeleteOpen(false)
+      setSelectedIds(new Set())
+      fetchContacts()
     } finally {
-      setAddingToPipelineId(null)
+      setBulkDeleting(false)
     }
   }
+
 
   const updateContactTags = (contactId: number, tags: Tag[]): void => {
     setContacts((prev) => prev.map((contact) => (contact.id === contactId ? { ...contact, tags } : contact)))
@@ -687,13 +922,6 @@ export function ContactsList({
 
   const filteredContacts = contacts
   const isInitialLoading = loading && contacts.length === 0 && !error
-
-  const getLastContact = (contact: Contact): string => {
-    if (contact.conversations && contact.conversations.length > 0) {
-      return format(new Date(contact.conversations[0].last_message_at), "dd/MM/yyyy", { locale: es })
-    }
-    return format(new Date(contact.created_at), "dd/MM/yyyy", { locale: es })
-  }
 
   const renderCell = (contact: Contact, columnId: ColumnId): React.ReactNode => {
     switch (columnId) {
@@ -707,13 +935,20 @@ export function ContactsList({
       case "contact":
         return (
           <div className="flex items-center gap-3">
-            <Avatar className="w-9 h-9 flex-shrink-0">
-              <AvatarFallback
-                className={`text-xs font-bold bg-gradient-to-br ${getAvatarGradient(contact.id)} text-white`}
-              >
-                {getInitials(contact.name)}
-              </AvatarFallback>
-            </Avatar>
+            <button
+              type="button"
+              onClick={() => openContactConversation(contact)}
+              disabled={!contact.conversations?.[0]?.id}
+              className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default"
+              title={contact.conversations?.[0]?.id ? "Abrir conversación" : "Sin conversación"}
+            >
+              <ContactAvatar
+                contactId={contact.id}
+                name={contact.name}
+                className="w-9 h-9"
+                fallbackClassName="text-xs font-bold"
+              />
+            </button>
             <div className="min-w-0 flex-1">
               <EditableCell
                 type="text"
@@ -726,9 +961,14 @@ export function ContactsList({
                 className="px-1"
               />
               {contact.conversations && contact.conversations.length > 0 ? (
-                <p className="text-xs text-muted-foreground truncate max-w-[180px] px-1">
+                <button
+                  type="button"
+                  onClick={() => openContactConversation(contact)}
+                  className="block max-w-[180px] truncate rounded px-1 text-left text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  title="Abrir conversación"
+                >
                   {contact.conversations[0].last_message_content}
-                </p>
+                </button>
               ) : null}
             </div>
           </div>
@@ -856,12 +1096,12 @@ export function ContactsList({
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => openProfileSheet(contact)}>Ver perfil</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => openEditDialog(contact)}>Editar</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setExtractionContact(contact)}>
+                  Extraer datos de un PDF
+                </DropdownMenuItem>
                 <DropdownMenuItem>Crear tarea</DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={addingToPipelineId === contact.id}
-                  onSelect={() => handleAddToPipeline(contact)}
-                >
-                  {addingToPipelineId === contact.id ? "Agregando..." : "Agregar a pipeline"}
+                <DropdownMenuItem onSelect={() => setPipelineContact(contact)}>
+                  Agregar a pipeline
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
@@ -891,6 +1131,36 @@ export function ContactsList({
           const isEditingThis = editingCell?.contactId === contact.id && editingCell.field === columnId
 
           if (isEditingThis) {
+            if (field.type === "repeater") {
+              return (
+                <Popover open onOpenChange={(open) => { if (!open) setEditingCell(null) }}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="w-full truncate rounded px-1 py-0.5 text-left text-sm text-foreground transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      aria-label={`Editar ${field.label}`}
+                    >
+                      {formatCustomValue(raw, field.type, field.options?.currency)}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    sideOffset={6}
+                    collisionPadding={24}
+                    sticky="always"
+                    className="w-auto max-w-[calc(100vw-2rem)] overflow-hidden p-0"
+                  >
+                    <CustomFieldInput
+                      field={field}
+                      value={raw}
+                      compact
+                      onChange={(next) => handleCustomCellSave(contact, key, next)}
+                    />
+                  </PopoverContent>
+                </Popover>
+              )
+            }
+
             // Tipos que despliegan portales (Select/Radix) o múltiples controles no
             // deben cerrarse en blur, porque interactuar con el portal dispara blur.
             const usesPortal = field.type === "select" || field.type === "multi_select"
@@ -926,13 +1196,52 @@ export function ContactsList({
             )
           }
 
+          // Un campo tipo archivo se consulta mucho más de lo que se reemplaza,
+          // así que el click abre el documento en vez del uploader. Cambiar el
+          // archivo se hace desde el propio visor.
+          if (field.type === "file") {
+            const assetId = typeof raw === "number" ? raw : null
+
+            if (assetId === null) {
+              return (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none"
+                  onClick={() => setEditingCell({ contactId: contact.id, field: columnId })}
+                >
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  Subir archivo
+                </button>
+              )
+            }
+
+            return (
+              <button
+                type="button"
+                className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-sm text-foreground transition-colors hover:bg-muted/60 focus-visible:ring-ring/50 focus-visible:ring-2 focus-visible:outline-none"
+                aria-label={`Ver ${field.label} de ${contact.name}`}
+                onClick={() => {
+                  setViewerTarget({ contactId: contact.id, key, label: field.label, assetId })
+                  setViewerOpen(true)
+                }}
+              >
+                <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="truncate">Ver documento</span>
+              </button>
+            )
+          }
+
           return (
             <button
               type="button"
               className="w-full text-left rounded px-1 py-0.5 hover:bg-muted/60 transition-colors truncate text-sm text-foreground"
               onClick={() => setEditingCell({ contactId: contact.id, field: columnId })}
             >
-              {formatCustomValue(raw, field.type)}
+              {field.type === "select"
+                ? raw === null || raw === undefined || raw === ""
+                  ? "—"
+                  : <CustomChoiceBadge choice={String(raw)} color={field.options?.choice_colors?.[String(raw)]} />
+                : formatCustomValue(raw, field.type, field.options?.currency)}
             </button>
           )
         }
@@ -990,6 +1299,16 @@ export function ContactsList({
             </SelectContent>
           </Select>
           <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={resetColumnWidths}
+            title="Restablecer anchos de columnas"
+          >
+            <RotateCcw className="h-4 w-4" />
+            <span className="hidden lg:inline">Restablecer anchos</span>
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             disabled={loading || paginationMeta.current_page <= 1}
@@ -1018,9 +1337,22 @@ export function ContactsList({
             {selectedIds.size} contacto{selectedIds.size !== 1 ? "s" : ""} seleccionado{selectedIds.size !== 1 ? "s" : ""}
           </Badge>
           <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => setBulkFieldsOpen(true)}>
+              <Pencil className="w-3 h-3 mr-1" />
+              {t("contactsPage.bulk.editFields")}
+            </Button>
             <Button size="sm" onClick={() => setBulkTagsOpen(true)}>
               <Tags className="w-3 h-3 mr-1" />
               {t("contactsPage.bulk.editTags")}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={bulkDeleting}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <Trash2 className="w-3 h-3 mr-1" />
+              {t("contactsPage.bulk.delete.action")}
             </Button>
             <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>
               <X className="w-3 h-3 mr-1" />
@@ -1030,12 +1362,71 @@ export function ContactsList({
         </div>
       )}
 
-      <BulkTagsDialog
-        open={bulkTagsOpen}
-        onOpenChange={setBulkTagsOpen}
+      {extractionContact && (
+        <ExtractDocumentDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setExtractionContact(null)
+          }}
+          contactId={extractionContact.id}
+          currentCustomData={(extractionContact.custom_data as Record<string, unknown>) ?? {}}
+          onConfirmed={(customData) => {
+            // El backend devuelve el custom_data ya mergeado y validado: se usa
+            // ese en vez de recomponerlo acá.
+            setContacts((prev) =>
+              prev.map((c) => (c.id === extractionContact.id ? { ...c, custom_data: customData } : c)),
+            )
+            setExtractionContact((prev) => (prev ? { ...prev, custom_data: customData } : prev))
+          }}
+        />
+      )}
+
+      {viewerTarget ? (
+        <DocumentViewerSheet
+          open={viewerOpen}
+          onOpenChange={(open) => {
+            setViewerOpen(open)
+            // El target se limpia después de la animación de salida para que el
+            // panel no se vacíe mientras se desliza.
+            if (!open) setTimeout(() => setViewerTarget(null), 300)
+          }}
+          assetId={viewerTarget.assetId}
+          contactId={viewerTarget.contactId}
+          fieldLabel={viewerTarget.label}
+          onValueChange={(assetId) => {
+            const contact = contacts.find((c) => c.id === viewerTarget.contactId)
+            if (!contact) return
+            handleCustomCellSave(contact, viewerTarget.key, assetId)
+            if (assetId === null) {
+              setViewerOpen(false)
+              return
+            }
+            // Tras reemplazar, el visor apunta al archivo nuevo y lo recarga.
+            setViewerTarget({ ...viewerTarget, assetId })
+          }}
+        />
+      ) : null}
+
+      {bulkTagsOpen ? (
+        <BulkTagsDialog
+          open
+          onOpenChange={setBulkTagsOpen}
+          selectedIds={Array.from(selectedIds)}
+          onSuccess={() => {
+            setSelectedIds(new Set())
+            void fetchContacts()
+          }}
+        />
+      ) : null}
+
+      <BulkFieldsDialog
+        key={bulkFieldsOpen ? "open" : "closed"}
+        open={bulkFieldsOpen}
+        onOpenChange={setBulkFieldsOpen}
         selectedIds={Array.from(selectedIds)}
-        onSuccess={() => {
-          setSelectedIds(new Set())
+        fields={contactFields}
+        onSuccess={(failedIds) => {
+          setSelectedIds(new Set(failedIds))
           fetchContacts()
         }}
       />
@@ -1048,21 +1439,104 @@ export function ContactsList({
       ) : error ? (
         <div className="text-center py-12">
           <p className="text-destructive mb-4">{error}</p>
-          <Button onClick={fetchContacts} variant="outline">Reintentar</Button>
+          <Button onClick={() => void fetchContacts()} variant="outline">Reintentar</Button>
         </div>
       ) : (
         <>
-          <div className="border rounded-lg overflow-hidden">
+          <div className="space-y-3 md:hidden">
+            {filteredContacts.map((contact) => {
+              const conversation = contact.conversations?.[0]
+              const conversationId = conversation?.id
+              const telHref = contact.phone ? `tel:${contact.phone.replace(/[^\d+]/g, "")}` : undefined
+              const mailHref = contact.email ? `mailto:${contact.email}` : undefined
+
+              return (
+                <div key={contact.id} className="rounded-lg border bg-card p-4 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <button
+                      type="button"
+                      onClick={() => openContactConversation(contact)}
+                      disabled={!conversationId}
+                      className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-default"
+                      title={conversationId ? "Abrir conversación" : "Sin conversación"}
+                    >
+                      <ContactAvatar
+                        contactId={contact.id}
+                        name={contact.name}
+                        className="h-11 w-11"
+                        fallbackClassName="font-bold"
+                      />
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold text-foreground">{contact.name}</p>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {conversation?.last_message_content || "Sin conversación"}
+                      </p>
+                    </div>
+                    <Checkbox
+                      checked={selectedIds.has(contact.id)}
+                      onCheckedChange={() => toggleSelect(contact.id)}
+                      aria-label={`Seleccionar ${contact.name}`}
+                    />
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">Teléfono</p>
+                      <p className="truncate">{contact.phone || "—"}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">Email</p>
+                      <p className="truncate">{contact.email || "—"}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Badge className={sourceColors[contact.source] || "bg-gray-500/10 text-gray-600 border-gray-200"} variant="outline">
+                        {sourceLabels[contact.source] || contact.source}
+                      </Badge>
+                      <span className="truncate text-xs text-muted-foreground">{getLastContact(contact)}</span>
+                    </div>
+                    <Button
+                      variant={conversationId ? "default" : "outline"}
+                      size="sm"
+                      disabled={!conversationId}
+                      onClick={() => openContactConversation(contact)}
+                      className="min-h-10 shrink-0 gap-2"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      {conversationId ? "Abrir chat" : "Sin chat"}
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-end gap-1 border-t pt-3">
+                    <Button asChild={!!telHref} variant="ghost" size="sm" disabled={!telHref} className="h-10 w-10 p-0">
+                      {telHref ? <a href={telHref} aria-label={`Llamar a ${contact.name}`}><Phone className="h-4 w-4" /></a> : <Phone className="h-4 w-4" />}
+                    </Button>
+                    <Button asChild={!!mailHref} variant="ghost" size="sm" disabled={!mailHref} className="h-10 w-10 p-0">
+                      {mailHref ? <a href={mailHref} aria-label={`Enviar email a ${contact.name}`}><Mail className="h-4 w-4" /></a> : <Mail className="h-4 w-4" />}
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-10 px-3" onClick={() => openProfileSheet(contact)}>
+                      Ver perfil
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="hidden border rounded-lg overflow-hidden md:block">
             <div className="overflow-x-auto">
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
-                <Table className="min-w-[1100px]">
+                <Table ref={tableRef} className="min-w-[1100px] table-fixed">
                   <TableHeader className="sticky top-0 z-10 bg-background border-b">
                     <TableRow>
                       <SortableContext items={columns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
                         {columns.map((column) => {
                           if (column.id === "select") {
                             return (
-                              <TableHead key={column.id} style={{ width: column.width, minWidth: column.minWidth }} className="px-4">
+                              <TableHead key={column.id} data-column-id={column.id} style={{ width: column.width, minWidth: column.minWidth }} className="px-4">
                                 <Checkbox checked={allSelected} onCheckedChange={handleSelectAll} />
                               </TableHead>
                             )
@@ -1084,6 +1558,8 @@ export function ContactsList({
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={handleSort}
+                              onResize={handleColumnResize}
+                              onAutoResize={handleColumnAutoResize}
                             />
                           )
                         })}
@@ -1109,6 +1585,7 @@ export function ContactsList({
                           {columns.map((column) => (
                             <TableCell
                               key={column.id}
+                              data-column-id={column.id}
                               className={`py-3 ${column.id === "select" ? "px-4" : ""} ${column.id === "actions" ? "text-right" : ""}`}
                               style={{ width: column.width, minWidth: column.minWidth, maxWidth: column.width }}
                             >
@@ -1241,13 +1718,12 @@ export function ContactsList({
           {profileContact && (
             <div className="mt-6 space-y-6">
               <div className="flex items-center gap-4">
-                <Avatar className="w-16 h-16">
-                  <AvatarFallback
-                    className={`text-xl font-bold bg-gradient-to-br ${getAvatarGradient(profileContact.id)} text-white`}
-                  >
-                    {getInitials(profileContact.name)}
-                  </AvatarFallback>
-                </Avatar>
+                <ContactAvatar
+                  contactId={profileContact.id}
+                  name={profileContact.name}
+                  className="w-16 h-16"
+                  fallbackClassName="text-xl font-bold"
+                />
                 <div>
                   <h3 className="text-lg font-semibold">{profileContact.name}</h3>
                   <Badge className={sourceColors[profileContact.source] || "bg-gray-500/10 text-gray-600"} variant="outline">
@@ -1333,12 +1809,53 @@ export function ContactsList({
         </SheetContent>
       </Sheet>
 
-      {/* Dialog Importar CSV */}
-      <ImportContactsDialog
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        onImportComplete={() => fetchContacts()}
+      <ContactPipelineDialog
+        contact={pipelineContact}
+        open={Boolean(pipelineContact)}
+        onOpenChange={(open) => { if (!open) setPipelineContact(null) }}
+        onSaved={() => {
+          addToast({ type: "success", title: "Oportunidad actualizada", description: `${pipelineContact?.name} quedó en el pipeline seleccionado.` })
+          setPipelineContact(null)
+        }}
       />
+
+      {/* Dialog Importar CSV */}
+      {importOpen ? (
+        <UniversalImportDialog
+          open
+          onOpenChange={setImportOpen}
+          resource="contacts"
+          title="Importar clientes"
+          productFields={contactFields}
+          nativeTargets={[{ value: "ignore", label: "Ignorar" }, { value: "name", label: "Nombre" }, { value: "phone", label: "Teléfono" }, { value: "email", label: "Email" }]}
+          onImportComplete={() => void fetchContacts()}
+        />
+      ) : null}
+
+      {/* AlertDialog Eliminar en lote */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={(open) => { if (!bulkDeleting) setBulkDeleteOpen(open) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("contactsPage.bulk.delete.confirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("contactsPage.bulk.delete.confirmBody", { count: selectedIds.size })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting}>{t("contactsPage.bulk.dialog.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void handleBulkDelete()
+              }}
+              disabled={bulkDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : t("contactsPage.bulk.delete.action")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* AlertDialog Eliminar */}
       <AlertDialog open={!!deleteContact} onOpenChange={(open) => { if (!open) setDeleteContact(null) }}>
