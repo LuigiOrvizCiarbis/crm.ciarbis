@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Contact;
+use App\Models\Conversation;
 use App\Models\Message;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -85,7 +86,21 @@ class FacebookDataDeletionController extends Controller
     }
 
     /**
-     * Process the data deletion for a Facebook user and return a confirmation code.
+     * Procesa el borrado de datos de un usuario de Facebook y devuelve el código
+     * de confirmación.
+     *
+     * IMPORTANTE — el id que manda Meta acá es un ASID (app-scoped user id), NO
+     * el PSID (page-scoped) que guardamos en contacts.external_id. La doc del
+     * Messenger Platform lo dice explícitamente: "user ID's from Facebook Login
+     * integrations are app-scoped and will not work with the Messenger
+     * platform". No existe forma de traducir ASID → PSID por API.
+     *
+     * Consecuencia: el borrado por external_id casi nunca va a encontrar al
+     * contacto. Igual dejamos el intento (por si el id coincide en algún flujo
+     * de Facebook Login) y logueamos el caso sin match, que es lo auditable.
+     *
+     * Se corre sin usuario autenticado (endpoint público), así que los global
+     * scopes de tenant no aplican: hay que ser explícito en cada query.
      */
     private function processDataDeletion(string $facebookUserId): string
     {
@@ -96,15 +111,56 @@ class FacebookDataDeletionController extends Controller
             'confirmation_code' => $confirmationCode,
         ]);
 
-        // Delete messages from this Facebook user
-        Message::where('external_id', 'LIKE', "%{$facebookUserId}%")->delete();
+        // Match exacto y acotado a las fuentes de Meta. El external_id de un
+        // contacto de otra fuente (o de otro proveedor) no se toca.
+        $contacts = Contact::withoutGlobalScopes()
+            ->where('external_id', $facebookUserId)
+            ->whereIn('source', ['facebook', 'instagram'])
+            ->get();
 
-        // Delete contacts linked to this Facebook user
-        Contact::where('external_id', $facebookUserId)->delete();
+        if ($contacts->isEmpty()) {
+            // Caso esperado por el desfasaje ASID/PSID descripto arriba.
+            Log::warning('Facebook data deletion: sin contactos para el id recibido', [
+                'facebook_user_id' => $facebookUserId,
+                'confirmation_code' => $confirmationCode,
+            ]);
+
+            return $confirmationCode;
+        }
+
+        $conversationIds = Conversation::withoutGlobalScopes()
+            ->whereIn('contact_id', $contacts->pluck('id'))
+            ->pluck('id');
+
+        // Orden obligatorio: mensajes ANTES que conversaciones. La FK
+        // messages.conversation_id es onDelete('set null'), así que borrar la
+        // conversación primero dejaría los mensajes huérfanos en vez de
+        // eliminarlos — justo lo contrario de lo que pide un data deletion.
+        //
+        // forceDelete porque Message usa SoftDeletes: un delete() normal dejaría
+        // el contenido en la base con deleted_at.
+        //
+        // Antes era `Message::where('external_id', 'LIKE', "%{$id}%")`: el
+        // external_id de un mensaje es el mid de Meta, no el id del usuario, así
+        // que ese LIKE no borraba los mensajes correctos y además podía matchear
+        // por substring mids de otros contactos y de otros tenants.
+        $deletedMessages = Message::withoutGlobalScopes()
+            ->whereIn('conversation_id', $conversationIds)
+            ->forceDelete();
+
+        // Conversation y Contact no usan SoftDeletes: delete() ya es definitivo.
+        Conversation::withoutGlobalScopes()->whereIn('id', $conversationIds)->delete();
+
+        $deletedContacts = Contact::withoutGlobalScopes()
+            ->whereIn('id', $contacts->pluck('id'))
+            ->delete();
 
         Log::info('Facebook data deletion completed', [
             'facebook_user_id' => $facebookUserId,
             'confirmation_code' => $confirmationCode,
+            'contacts_deleted' => $deletedContacts,
+            'conversations_deleted' => $conversationIds->count(),
+            'messages_deleted' => $deletedMessages,
         ]);
 
         return $confirmationCode;

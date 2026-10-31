@@ -50,7 +50,14 @@ class MessengerMessageService
         'audio' => MessageType::Audio,
         'video' => MessageType::Video,
         'file' => MessageType::Document,
+        'sticker' => MessageType::Sticker,
         'share' => MessageType::Image,
+        // reel / ig_reel / post / ig_post llegan como contenido compartido: los
+        // tratamos como imagen, que es lo que trae la URL del payload.
+        'reel' => MessageType::Video,
+        'ig_reel' => MessageType::Video,
+        'post' => MessageType::Image,
+        'ig_post' => MessageType::Image,
     ];
 
     /**
@@ -249,7 +256,7 @@ class MessengerMessageService
         $attachments = $message['attachments'] ?? [];
 
         if (! empty($attachments) && is_array($attachments)) {
-            $attachment = $attachments[0];
+            $attachment = $this->pickAttachment($attachments);
             $attachmentType = $attachment['type'] ?? '';
             $url = $attachment['payload']['url'] ?? null;
 
@@ -290,6 +297,30 @@ class MessengerMessageService
             'media_mime_type' => null,
             'media_filename' => null,
         ];
+    }
+
+    /**
+     * Elige cuál de los attachments describe el mensaje.
+     *
+     * Meta puede mandar varios para el mismo contenido. El caso vigente son los
+     * stickers: hasta el 30-ago-2026 llegan duplicados como `sticker` Y `image`
+     * (período de transición), y después de esa fecha sólo como `sticker`.
+     * Tomar attachments[0] a ciegas deja el resultado a merced de un orden que
+     * Meta no garantiza, así que preferimos explícitamente el tipo más
+     * específico y caemos al primero si ninguno matchea.
+     *
+     * @param  list<array<string, mixed>>  $attachments
+     * @return array<string, mixed>
+     */
+    private function pickAttachment(array $attachments): array
+    {
+        foreach ($attachments as $attachment) {
+            if (($attachment['type'] ?? null) === 'sticker') {
+                return $attachment;
+            }
+        }
+
+        return $attachments[0];
     }
 
     /**
@@ -381,6 +412,7 @@ class MessengerMessageService
             'image' => '📷 '.($messageData['content'] ?: 'Imagen'),
             'video' => '🎥 '.($messageData['content'] ?: 'Video'),
             'audio' => '🎵 Audio',
+            'sticker' => '🈁 Sticker',
             'document' => '📎 '.($messageData['content'] ?: 'Archivo'),
             default => $messageData['content'] ?? '',
         };
