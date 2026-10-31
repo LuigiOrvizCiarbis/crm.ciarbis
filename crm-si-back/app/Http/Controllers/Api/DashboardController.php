@@ -18,8 +18,6 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 
 class DashboardController extends Controller
 {
-    private const KPI_STAGES_LIMIT = 6;
-
     private const DAILY_SERIES_DAYS = 30;
 
     public function metrics(DashboardMetricsRequest $request): JsonResponse
@@ -125,7 +123,6 @@ class DashboardController extends Controller
         $stages = PipelineStage::query()
             ->whereHas('pipeline', fn ($query) => $query->where('is_default', true))
             ->orderBy('sort_order')
-            ->limit(self::KPI_STAGES_LIMIT)
             ->get();
 
         return $stages->map(function (PipelineStage $stage) use ($canalId, $ownerId) {
@@ -238,7 +235,6 @@ class DashboardController extends Controller
         $stages = PipelineStage::query()
             ->whereHas('pipeline', fn ($query) => $query->where('is_default', true))
             ->orderBy('sort_order')
-            ->limit(self::KPI_STAGES_LIMIT)
             ->get(['id', 'name']);
 
         $start = CarbonImmutable::now()->subDays(self::DAILY_SERIES_DAYS - 1)->startOfDay();
