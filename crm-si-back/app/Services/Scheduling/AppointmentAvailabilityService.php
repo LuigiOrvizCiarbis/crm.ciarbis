@@ -29,7 +29,7 @@ class AppointmentAvailabilityService
      *
      * @throws AppointmentAvailabilityException
      */
-    public function availableSlots(AiSchedulingConfig $config, User $owner, CarbonImmutable $from, CarbonImmutable $to): array
+    public function availableSlots(AiSchedulingConfig $config, User $owner, CarbonImmutable $from, CarbonImmutable $to, ?CalendarRequestBudget $budget = null): array
     {
         $tz = $config->timezone;
         $duration = $config->meeting_duration_minutes;
@@ -47,7 +47,7 @@ class AppointmentAvailabilityService
             return [];
         }
 
-        $busy = $this->busyIntervals($owner, $start, $end, $tz);
+        $busy = $this->busyIntervals($owner, $start, $end, $tz, budget: $budget);
 
         return array_values(array_filter(
             $candidates,
@@ -61,12 +61,12 @@ class AppointmentAvailabilityService
      *
      * @throws AppointmentAvailabilityException
      */
-    public function isAvailable(AiSchedulingConfig $config, User $owner, CarbonImmutable $start): bool
+    public function isAvailable(AiSchedulingConfig $config, User $owner, CarbonImmutable $start, ?CalendarRequestBudget $budget = null): bool
     {
         $start = $start->setTimezone($config->timezone);
         $day = $start->startOfDay();
 
-        foreach ($this->availableSlots($config, $owner, $day, $day->addDay()) as $slot) {
+        foreach ($this->availableSlots($config, $owner, $day, $day->addDay(), $budget) as $slot) {
             if ($slot->equalTo($start)) {
                 return true;
             }
@@ -82,9 +82,9 @@ class AppointmentAvailabilityService
      *
      * @throws AppointmentAvailabilityException
      */
-    public function hasConflict(User $owner, CarbonImmutable $start, CarbonImmutable $end, ?int $ignoreTaskId = null): bool
+    public function hasConflict(User $owner, CarbonImmutable $start, CarbonImmutable $end, ?int $ignoreTaskId = null, ?CalendarRequestBudget $budget = null): bool
     {
-        $busy = $this->busyIntervals($owner, $start, $end, $start->getTimezone()->getName(), $ignoreTaskId);
+        $busy = $this->busyIntervals($owner, $start, $end, $start->getTimezone()->getName(), $ignoreTaskId, $budget);
 
         return $this->overlapsAny($start, $end, $busy);
     }
@@ -123,10 +123,10 @@ class AppointmentAvailabilityService
      *
      * @throws AppointmentAvailabilityException
      */
-    private function busyIntervals(User $owner, CarbonImmutable $start, CarbonImmutable $end, string $tz, ?int $ignoreTaskId = null): array
+    private function busyIntervals(User $owner, CarbonImmutable $start, CarbonImmutable $end, string $tz, ?int $ignoreTaskId = null, ?CalendarRequestBudget $budget = null): array
     {
         return [
-            ...$this->googleBusy($owner, $start, $end, $tz),
+            ...$this->googleBusy($owner, $start, $end, $tz, $budget),
             ...$this->crmBusy($owner, $start, $end, $ignoreTaskId),
         ];
     }
@@ -136,10 +136,10 @@ class AppointmentAvailabilityService
      *
      * @throws AppointmentAvailabilityException
      */
-    private function googleBusy(User $owner, CarbonImmutable $start, CarbonImmutable $end, string $tz): array
+    private function googleBusy(User $owner, CarbonImmutable $start, CarbonImmutable $end, string $tz, ?CalendarRequestBudget $budget = null): array
     {
-        $connection = $owner->googleCalendarConnection()->withoutGlobalScopes()->first();
-        $service = $connection ? GoogleCalendarClient::serviceFor($connection) : null;
+        $connection = $owner->googleCalendarConnection()->withoutGlobalScopes()->where('tenant_id', $owner->tenant_id)->first();
+        $service = $connection ? GoogleCalendarClient::serviceFor($connection, $budget) : null;
 
         if (! $service) {
             throw new AppointmentAvailabilityException('Google Calendar no conectado', AppointmentAvailabilityException::NOT_CONNECTED);
@@ -176,8 +176,9 @@ class AppointmentAvailabilityService
             } while ($pageToken);
         } catch (\Exception $e) {
             Log::warning('AppointmentAvailabilityService: no se pudo leer Google Calendar', [
+                'tenant_id' => $owner->tenant_id,
                 'user_id' => $owner->id,
-                'error' => $e->getMessage(),
+                'operation' => 'availability',
             ]);
 
             throw new AppointmentAvailabilityException('Error consultando Google Calendar', AppointmentAvailabilityException::GOOGLE_ERROR, $e);

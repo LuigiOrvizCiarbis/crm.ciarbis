@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { LeadScoreBadge } from "@/components/Badges"
-import { ArrowLeft, Info, History, Pencil, Check, X, User, Users, Plus, Bot, MoreVertical, ReceiptText } from "lucide-react"
+import { ArrowLeft, Info, History, Pencil, Check, X, User, Users, Plus, Bot, MoreVertical, ReceiptText, CalendarOff } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from "react"
 import { ContactHistoryDrawer } from "./ContactHistoryDrawer"
 import { ContactTimeline } from "./timeline/ContactTimeline"
 import { NewTaskModal } from "@/components/tasks/NewTaskModal"
+import { CalendarAvailabilityBlockDialog } from "@/components/calendar/CalendarAvailabilityBlockDialog"
 import { CreateInvoiceDialog } from "./CreateInvoiceDialog"
 import { useAuthStore } from "@/store/useAuthStore"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -42,6 +43,7 @@ export function ConversationHeader({
   const [timelineOpen, setTimelineOpen] = useState(false)
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false)
+  const [calendarBlockDialogOpen, setCalendarBlockDialogOpen] = useState(false)
   const isGroup = conversation.kind === "group"
   const contactId = conversation.contact_id ?? Number(conversation.contact?.id)
   const hasContactId = !isGroup && Boolean(contactId) && !Number.isNaN(contactId)
@@ -213,12 +215,12 @@ export function ConversationHeader({
               <Bot className="h-[18px] w-[18px]" />
             </Button>
           )}
-          <DropdownMenu>
+          <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-10 w-10 shrink-0 rounded-full p-0"
+                className="h-11 w-11 shrink-0 rounded-full p-0"
                 aria-label={t("chats.moreActions")}
               >
                 <MoreVertical className="h-[18px] w-[18px]" />
@@ -232,6 +234,10 @@ export function ConversationHeader({
               <DropdownMenuItem onSelect={() => setTaskModalOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 {t("chats.createTask")}
+              </DropdownMenuItem>
+              <DropdownMenuItem className="min-h-11" onSelect={() => setCalendarBlockDialogOpen(true)}>
+                <CalendarOff className="mr-2 h-4 w-4" aria-hidden="true" />
+                {t("calendarAvailability.entry")}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setTimelineOpen(true)} disabled={!hasContactId}>
                 <User className="mr-2 h-4 w-4" />
@@ -273,6 +279,18 @@ export function ConversationHeader({
           >
             <Plus className="w-4 h-4" />
             {t("chats.createTask")}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="min-h-11 min-w-11 shrink-0 gap-2"
+            onClick={() => setCalendarBlockDialogOpen(true)}
+            title={t("calendarAvailability.entry")}
+            aria-label={t("calendarAvailability.entry")}
+          >
+            <CalendarOff className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden 2xl:inline">{t("calendarAvailability.entry")}</span>
           </Button>
           {canCreateInvoice && <Button
             variant="ghost"
@@ -347,6 +365,10 @@ export function ConversationHeader({
           lockRelation: true,
           ...(currentUser ? { assigneeId: String(currentUser.id) } : {}),
         }}
+      />
+      <CalendarAvailabilityBlockDialog
+        open={calendarBlockDialogOpen}
+        onOpenChange={setCalendarBlockDialogOpen}
       />
       {invoiceDialogOpen && hasContactId && conversation.contact && <CreateInvoiceDialog
         key={contactId}

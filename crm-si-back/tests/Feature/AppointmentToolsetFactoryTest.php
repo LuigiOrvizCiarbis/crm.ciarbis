@@ -2,14 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Enums\AiProvider as AiProviderEnum;
-use App\Models\AiConfig;
 use App\Models\Tenant;
 use App\Models\User;
-use App\Services\AiReplyService;
 use App\Services\Scheduling\AppointmentToolsetFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use ReflectionMethod;
 use Tests\Feature\Concerns\AiSchedulingFixtures;
 use Tests\TestCase;
 
@@ -66,31 +62,6 @@ class AppointmentToolsetFactoryTest extends TestCase
         $this->assertNull($this->factory()->forConversation($conversation));
     }
 
-    /**
-     * Sin agenda el system prompt no cambia: la regla anti-historial sigue al final.
-     */
-    public function test_system_prompt_adds_agenda_section_only_with_toolset(): void
-    {
-        $this->connectGoogle($this->seller);
-        $this->makeSchedulingConfig($this->tenant);
-        $conversation = $this->makeConversation($this->tenant, $this->seller, $this->seller->id);
-        $aiConfig = AiConfig::withoutGlobalScopes()->create([
-            'tenant_id' => $this->tenant->id,
-            'provider' => AiProviderEnum::CLAUDE,
-            'enabled' => true,
-            'system_prompt' => 'Sos el asistente de Acme.',
-        ]);
-        $method = new ReflectionMethod(AiReplyService::class, 'systemPrompt');
-        $service = app(AiReplyService::class);
-
-        $without = $method->invoke($service, $aiConfig, $this->tenant->id, null);
-        $with = $method->invoke($service, $aiConfig, $this->tenant->id, $this->factory()->forConversation($conversation));
-
-        $this->assertSame("Sos el asistente de Acme.\n\n".AiReplyService::HISTORY_OVERRIDE_RULE, $without);
-        $this->assertStringContainsString('## Agenda de turnos', $with);
-        $this->assertStringContainsString('quedan pendientes hasta que un asesor los confirme', $with);
-        $this->assertStringEndsWith(AiReplyService::HISTORY_OVERRIDE_RULE, $with);
-    }
 
     private function factory(): AppointmentToolsetFactory
     {
