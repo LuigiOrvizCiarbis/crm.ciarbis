@@ -54,12 +54,14 @@ class AppointmentToolsetFactory
 
         foreach ($candidates as $userId) {
             $user = User::withoutGlobalScopes()
-                ->where('tenant_id', $conversation->tenant_id)
+                ->whereHas('activeMemberships', fn ($query) => $query->where('tenant_id', $conversation->tenant_id))
                 ->whereKey($userId)
-                ->whereHas('googleCalendarConnection', fn ($query) => $query->withoutGlobalScopes()->where('status', 'connected'))
+                ->whereHas('googleCalendarConnection', fn ($query) => $query->withoutGlobalScopes()
+                    ->where('tenant_id', $conversation->tenant_id)->where('status', 'connected'))
                 ->first();
 
             if ($user) {
+                $user->setAttribute('tenant_id', $conversation->tenant_id);
                 return $user;
             }
         }

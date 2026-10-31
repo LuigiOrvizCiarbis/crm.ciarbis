@@ -1,4 +1,4 @@
-import { getAuthToken } from "./auth-token"
+import { getAuthToken, workspaceHeaders } from "./auth-token"
 
 export type GoogleCalendarConnectionStatus = "connected" | "needs_reauth"
 
@@ -38,7 +38,7 @@ export async function getGoogleCalendarAuthorizationUrl(): Promise<{ data?: stri
 
   const res = await fetch("/api/google-calendar/authorization-url", {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...workspaceHeaders() },
   })
 
   const json = await res.json().catch(() => ({}))

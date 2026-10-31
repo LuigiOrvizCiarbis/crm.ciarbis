@@ -14,8 +14,6 @@ use App\Models\Task;
 use App\Models\User;
 use App\Services\SystemMessageSender;
 use Carbon\CarbonImmutable;
-use Illuminate\Contracts\Cache\LockTimeoutException;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -26,18 +24,10 @@ use Illuminate\Support\Facades\Log;
  */
 class AppointmentBookingService
 {
-    /**
-     * TTL del lock por vendedor: cubre la consulta a Google (refresh de token
-     * + events.list, cada uno con el timeout HTTP de Google Calendar) y la
-     * creación de la tarea. Si venciera antes, otra reserva podría entrar.
-     */
-    private const LOCK_SECONDS = 60;
-
-    private const LOCK_WAIT_SECONDS = 10;
-
     public function __construct(
         private AppointmentAvailabilityService $availability,
         private SystemMessageSender $sender,
+        private CalendarOwnerLock $ownerLock,
     ) {}
 
     /**
@@ -53,14 +43,14 @@ class AppointmentBookingService
         ?string $reason,
         bool $direct,
     ): Task {
-        $task = $this->withOwnerLock($owner->id, function () use ($conversation, $config, $owner, $start, $email, $reason, $direct) {
+        $task = $this->ownerLock->run($owner->id, function (CalendarRequestBudget $budget) use ($conversation, $config, $owner, $start, $email, $reason, $direct) {
             $existing = $this->activeBooking($conversation);
 
             if ($existing) {
                 throw new AppointmentBookingException(AppointmentBookingException::ACTIVE_BOOKING_EXISTS, $existing);
             }
 
-            if (! $this->availability->isAvailable($config, $owner, $start)) {
+            if (! $this->availability->isAvailable($config, $owner, $start, $budget)) {
                 throw new AppointmentBookingException(AppointmentBookingException::SLOT_UNAVAILABLE);
             }
 
@@ -83,6 +73,8 @@ class AppointmentBookingService
             if ($reason !== null && trim($reason) !== '') {
                 $description .= "\nMotivo: ".trim($reason);
             }
+
+            $budget->assertAvailable();
 
             return Task::create([
                 'tenant_id' => $conversation->tenant_id,
@@ -129,24 +121,28 @@ class AppointmentBookingService
         }
 
         $owner = $task->assigned_to
-            ? User::withoutGlobalScopes()->where('tenant_id', $task->tenant_id)->find($task->assigned_to)
+            ? User::withoutGlobalScopes()
+                ->whereHas('activeMemberships', fn ($query) => $query->where('tenant_id', $task->tenant_id))
+                ->find($task->assigned_to)
             : null;
 
         if (! $owner) {
             throw new AppointmentAvailabilityException('Turno sin responsable', AppointmentAvailabilityException::NOT_CONNECTED);
         }
+        $owner->setAttribute('tenant_id', $task->tenant_id);
 
         $tz = $task->meeting_timezone ?: config('app.timezone');
         $start = CarbonImmutable::instance($task->starts_at)->setTimezone($tz);
         $end = CarbonImmutable::instance($task->ends_at)->setTimezone($tz);
 
-        $this->withOwnerLock($owner->id, function () use ($task, $owner, $start, $end, $actor) {
+        $this->ownerLock->run($owner->id, function (CalendarRequestBudget $budget) use ($task, $owner, $start, $end, $actor) {
             // Entre la propuesta y la aprobación alguien pudo ocupar el
             // horario en Google; la propia propuesta no cuenta como choque.
-            if ($this->availability->hasConflict($owner, $start, $end, $task->id)) {
+            if ($this->availability->hasConflict($owner, $start, $end, $task->id, $budget)) {
                 throw new AppointmentBookingException(AppointmentBookingException::SLOT_CONFLICT);
             }
 
+            $budget->assertAvailable();
             $this->decide($task, $actor, [
                 'ai_booking_status' => AiBookingStatus::CONFIRMED->value,
             ]);
@@ -280,21 +276,4 @@ class AppointmentBookingService
         }
     }
 
-    /**
-     * @template T
-     *
-     * @param  callable(): T  $callback
-     * @return T
-     *
-     * @throws AppointmentAvailabilityException si otra reserva del vendedor no libera el lock a tiempo.
-     */
-    private function withOwnerLock(int $ownerId, callable $callback): mixed
-    {
-        try {
-            return Cache::lock("ai-booking:owner:{$ownerId}", self::LOCK_SECONDS)
-                ->block(self::LOCK_WAIT_SECONDS, $callback);
-        } catch (LockTimeoutException $e) {
-            throw new AppointmentAvailabilityException('Agenda ocupada', AppointmentAvailabilityException::BUSY, $e);
-        }
-    }
 }
