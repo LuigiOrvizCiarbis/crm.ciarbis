@@ -130,7 +130,7 @@ class TaskController extends Controller
 
         // Una edición humana del horario, responsable o estado reemplaza el
         // cambio de turno que el cliente pidió por la IA.
-        if ($task->ai_reschedule_starts_at && ($intervalChanged || $task->status === TaskStatus::CANCELED || $task->type !== TaskType::MEETING)) {
+        if ($task->ai_reschedule_starts_at && ($intervalChanged || $task->isDirty('status') || $task->type !== TaskType::MEETING)) {
             $task->ai_reschedule_starts_at = null;
             $task->ai_reschedule_ends_at = null;
             $task->ai_reschedule_requested_at = null;

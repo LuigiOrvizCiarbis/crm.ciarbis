@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api;
 
 use App\Enums\AiBookingStatus;
+use App\Enums\TaskStatus;
 use App\Jobs\SyncTaskCalendarEventJob;
 use App\Models\Conversation;
 use App\Models\Task;
@@ -111,6 +112,24 @@ class TaskMeetingRescheduleTest extends TestCase
         $this->putJson("/api/tasks/{$task->id}", $this->interval('2026-07-21 09:00'))->assertOk();
 
         $this->assertTrue($task->fresh()->starts_at->equalTo(CarbonImmutable::parse('2026-07-21 09:00', self::TZ)));
+    }
+
+    public function test_changing_meeting_status_withdraws_pending_reschedule_request(): void
+    {
+        $task = $this->makePendingBooking($this->conversation, $this->owner, '2026-07-21 11:00', AiBookingStatus::CONFIRMED);
+        Task::withoutGlobalScopes()->whereKey($task->id)->update([
+            'ai_reschedule_starts_at' => '2026-07-22 10:00:00',
+            'ai_reschedule_ends_at' => '2026-07-22 10:30:00',
+            'ai_reschedule_requested_at' => now(),
+        ]);
+
+        $this->putJson("/api/tasks/{$task->id}", ['status' => TaskStatus::DONE->value])->assertOk();
+
+        $task->refresh();
+        $this->assertSame(TaskStatus::DONE, $task->status);
+        $this->assertNull($task->ai_reschedule_starts_at);
+        $this->assertNull($task->ai_reschedule_ends_at);
+        $this->assertNull($task->ai_reschedule_requested_at);
     }
 
     public function test_held_owner_lock_refuses_the_move_without_reading_google(): void

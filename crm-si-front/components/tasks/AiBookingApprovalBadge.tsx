@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Check, Loader2, Sparkles, X } from "lucide-react"
 import { toast } from "sonner"
 import type { Task } from "@/lib/types/task"
+import { useTranslation } from "@/hooks/useTranslation"
 import { useTaskStore } from "@/store/useTaskStore"
 
 interface AiBookingApprovalBadgeProps {
@@ -15,6 +16,8 @@ interface AiBookingApprovalBadgeProps {
 type PendingAction = "approve" | "reject" | null
 
 export function AiBookingApprovalBadge({ task }: AiBookingApprovalBadgeProps) {
+  const { t, language } = useTranslation()
+  const tr = (key: string, params?: Record<string, string | number>) => t(`chats.aiBooking.${key}`, params)
   const approveAiBooking = useTaskStore((state) => state.approveAiBooking)
   const rejectAiBooking = useTaskStore((state) => state.rejectAiBooking)
   const approveAiReschedule = useTaskStore((state) => state.approveAiReschedule)
@@ -40,27 +43,29 @@ export function AiBookingApprovalBadge({ task }: AiBookingApprovalBadgeProps) {
       toast.success(
         isReschedule
           ? action === "approve"
-            ? "Cambio de turno confirmado"
-            : "Cambio de turno rechazado"
+            ? tr("rescheduleApproved")
+            : tr("rescheduleRejected")
           : action === "approve"
-            ? "Turno confirmado"
-            : "Turno rechazado",
+            ? tr("approved")
+            : tr("rejected"),
       )
-      if (!contactNotified) toast.warning("No se pudo avisar al cliente por el chat")
+      if (!contactNotified) toast.warning(tr("notNotified"))
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo resolver el turno")
+      toast.error(error instanceof Error ? error.message : tr("resolveError"))
     } finally {
       setPendingAction(null)
     }
   }
 
   const label = task.aiRescheduleStartsAt
-    ? `Cambio pedido: ${new Intl.DateTimeFormat("es-AR", {
-        timeZone: task.meetingTimezone ?? undefined,
-        dateStyle: "short",
-        timeStyle: "short",
-      }).format(new Date(task.aiRescheduleStartsAt))}`
-    : "Pendiente de aprobación"
+    ? tr("rescheduleRequested", {
+        when: new Intl.DateTimeFormat(language === "en" ? "en-US" : "es-AR", {
+          timeZone: task.meetingTimezone ?? undefined,
+          dateStyle: "short",
+          timeStyle: "short",
+        }).format(new Date(task.aiRescheduleStartsAt)),
+      })
+    : tr("pending")
 
   const busy = pendingAction !== null
 
@@ -82,7 +87,7 @@ export function AiBookingApprovalBadge({ task }: AiBookingApprovalBadgeProps) {
         onClick={(e) => handleDecision(e, "approve")}
       >
         {pendingAction === "approve" ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
-        Aceptar
+        {tr("accept")}
       </Button>
       <Button
         size="sm"
@@ -93,7 +98,7 @@ export function AiBookingApprovalBadge({ task }: AiBookingApprovalBadgeProps) {
         onClick={(e) => handleDecision(e, "reject")}
       >
         {pendingAction === "reject" ? <Loader2 className="size-3 animate-spin" /> : <X className="size-3" />}
-        Rechazar
+        {tr("reject")}
       </Button>
     </div>
   )

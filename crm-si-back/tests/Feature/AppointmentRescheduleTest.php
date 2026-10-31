@@ -136,7 +136,7 @@ class AppointmentRescheduleTest extends TestCase
 
         $this->assertStringContainsString('no hubo cambios', $result);
         $this->assertNull($task->fresh()->ai_reschedule_starts_at);
-        $this->assertNull($toolset->bookingFallbackMessage());
+        $this->assertStringContainsString('Tu turno sigue confirmado para el martes 21 de julio a las 11:00 hs.', $toolset->bookingFallbackMessage());
     }
 
     public function test_refusals_leave_the_turno_untouched(): void

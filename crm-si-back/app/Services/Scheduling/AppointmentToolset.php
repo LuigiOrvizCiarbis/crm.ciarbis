@@ -146,13 +146,21 @@ class AppointmentToolset implements AiToolset
     }
 
     /**
-     * Mensaje fijo sobre el turno creado o reprogramado en esta generación, o
-     * null si no hubo cambios.
+     * Mensaje fijo de respaldo para los cambios de agenda de esta generación,
+     * incluido un turno que ya estaba en el horario solicitado.
      */
     public function bookingFallbackMessage(): ?string
     {
-        if (! $this->lastBooking || $this->lastOutcome === RescheduleOutcome::UNCHANGED) {
+        if (! $this->lastBooking) {
             return null;
+        }
+
+        if ($this->lastOutcome === RescheduleOutcome::UNCHANGED) {
+            [$date, $time] = AppointmentBookingService::formatWhen($this->lastBooking);
+
+            return $this->lastBooking->ai_booking_status === AiBookingStatus::CONFIRMED
+                ? "Tu turno sigue confirmado para el {$date} a las {$time} hs."
+                : "Tu pedido de turno sigue pendiente de confirmación para el {$date} a las {$time} hs.";
         }
 
         [$date, $time] = AppointmentBookingService::formatWhen($this->lastBooking);
