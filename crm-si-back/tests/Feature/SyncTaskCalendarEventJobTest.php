@@ -50,6 +50,26 @@ class SyncTaskCalendarEventJobTest extends TestCase
         $this->assertSame(0, TaskCalendarSync::count());
     }
 
+    public function test_upsert_skips_ai_booking_pending_approval(): void
+    {
+        [$tenant, $user] = $this->makeConnectedUser();
+        $task = Task::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Turno propuesto por la IA',
+            'type' => 'reunion',
+            'assigned_to' => $user->id,
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDay()->addMinutes(30),
+            'meeting_timezone' => 'America/Argentina/Buenos_Aires',
+            'ai_booking_status' => 'pending',
+        ]);
+
+        // Sin mock HTTP: el turno no tiene evento hasta que el vendedor lo acepta.
+        (new SyncTaskCalendarEventJob($task->id, 'upsert'))->handle();
+
+        $this->assertSame(0, TaskCalendarSync::count());
+    }
+
     public function test_upsert_creates_event_with_meet_and_marks_synced(): void
     {
         [$tenant, $user, $connection] = $this->makeConnectedUser();

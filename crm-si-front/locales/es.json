@@ -627,6 +627,14 @@
         "apply": "Error enviando la difusión",
         "mixedChannels": "Seleccioná conversaciones del mismo número de WhatsApp para enviar una difusión"
       }
+    },
+    "aiBooking": {
+      "proposed": "Turno propuesto por la IA: {{when}} · {{assignee}}",
+      "accept": "Aceptar",
+      "reject": "Rechazar",
+      "approved": "Turno confirmado",
+      "rejected": "Turno rechazado",
+      "notNotified": "No se pudo avisar al cliente por el chat"
     }
   },
   "settings": {
@@ -924,7 +932,41 @@
       "testErrorInvalidKey": "La API key es inválida.",
       "testErrorNoCredit": "La cuenta del proveedor no tiene saldo suficiente.",
       "testErrorRateLimit": "El proveedor está limitando las solicitudes. Probá de nuevo en unos segundos.",
-      "testErrorUnknown": "No se pudo verificar la conexión."
+      "testErrorUnknown": "No se pudo verificar la conexión.",
+      "scheduling": {
+        "title": "Agenda de turnos",
+        "description": "Permití que el asistente ofrezca horarios libres del Google Calendar y agende reuniones con los clientes.",
+        "enabled": "Permitir que la IA agende turnos",
+        "enabledHint": "Usa el calendario del vendedor asignado a la conversación o, si no tiene Google conectado, el calendario por defecto.",
+        "mode": "Confirmación de turnos",
+        "modeAuto": "Agendar directo",
+        "modeApproval": "Requiere aprobación",
+        "modeCriteria": "Lo decide la IA según un criterio",
+        "criteria": "Criterio para confirmar directo",
+        "criteriaPlaceholder": "Ej.: agendá directo solo si el cliente ya dijo su presupuesto; si no, dejalo pendiente.",
+        "defaultUser": "Calendario por defecto",
+        "none": "Ninguno",
+        "noCalendarUsers": "Ningún usuario tiene Google Calendar conectado. Conectalo en Integraciones → Google Calendar.",
+        "duration": "Duración del turno (minutos)",
+        "interval": "Intervalo entre turnos (minutos)",
+        "minNotice": "Anticipación mínima (horas)",
+        "maxDaysAhead": "Días hacia adelante",
+        "timezone": "Zona horaria",
+        "workingHours": "Horario de atención",
+        "addRange": "Franja",
+        "removeRange": "Quitar franja",
+        "closed": "Cerrado",
+        "saved": "Agenda de turnos guardada",
+        "days": {
+          "mon": "Lunes",
+          "tue": "Martes",
+          "wed": "Miércoles",
+          "thu": "Jueves",
+          "fri": "Viernes",
+          "sat": "Sábado",
+          "sun": "Domingo"
+        }
+      }
     },
     "integrationsHub": {
       "back": "Integraciones",

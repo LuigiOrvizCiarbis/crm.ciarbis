@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\AiBookingStatus;
 use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Enums\TaskType;
@@ -21,7 +22,7 @@ class TaskController extends Controller
         'America/Buenos_Aires' => 'America/Argentina/Buenos_Aires',
     ];
 
-    private const EAGER_LOAD = [
+    public const EAGER_LOAD = [
         'assignedUser:id,name,email',
         'contact:id,name,phone,email,source',
         'conversation:id,contact_id,channel_id,last_message_content,last_message_at',
@@ -92,6 +93,7 @@ class TaskController extends Controller
         $wasMeeting = $task->type === TaskType::MEETING;
         $previousAssignee = $task->assigned_to;
         $previousStatus = $task->status;
+        $wasPendingAiBooking = $task->ai_booking_status === AiBookingStatus::PENDING;
 
         $task->fill($this->payload($validated, true));
 
@@ -101,6 +103,19 @@ class TaskController extends Controller
 
         if (array_key_exists('status', $validated) && $validated['status'] !== TaskStatus::DONE->value) {
             $task->completed_at = $validated['completed_at'] ?? null;
+        }
+
+        // Un turno de la IA pendiente que se cancela o deja de ser reunión
+        // desde la edición normal tiene que salir de la cola de aprobación:
+        // si no, el banner lo seguiría ofreciendo para aceptar.
+        if ($wasPendingAiBooking) {
+            if ($task->status === TaskStatus::CANCELED) {
+                $task->ai_booking_status = AiBookingStatus::REJECTED;
+                $task->ai_booking_decided_by = $request->user()->id;
+                $task->ai_booking_decided_at = now();
+            } elseif ($task->type !== TaskType::MEETING) {
+                $task->ai_booking_status = null;
+            }
         }
 
         $reassigned = $wasMeeting && array_key_exists('assigned_to', $validated) && $validated['assigned_to'] !== $previousAssignee;
@@ -246,7 +261,7 @@ class TaskController extends Controller
 
     private function applyFilters(Builder $query, Request $request): void
     {
-        foreach (['status', 'priority', 'type'] as $field) {
+        foreach (['status', 'priority', 'type', 'ai_booking_status'] as $field) {
             if ($request->filled($field)) {
                 $query->where($field, $request->string($field));
             }

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AiConfigController;
+use App\Http\Controllers\Api\AiSchedulingConfigController;
 use App\Http\Controllers\Api\AutomationController;
 use App\Http\Controllers\Api\AutomationRunController;
 use App\Http\Controllers\Api\BranchController;
@@ -28,6 +29,7 @@ use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProductFieldController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\TagController;
+use App\Http\Controllers\Api\TaskAiBookingController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\WebhookEndpointController;
@@ -414,6 +416,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('ai-config/models', [AiConfigController::class, 'models']);
     Route::post('ai-config/test', [AiConfigController::class, 'test']);
     Route::put('ai-config', [AiConfigController::class, 'update']);
+    // Agenda de turnos de la IA (horarios, modo de aprobación, calendario por defecto).
+    Route::get('ai-config/scheduling', [AiSchedulingConfigController::class, 'show']);
+    Route::put('ai-config/scheduling', [AiSchedulingConfigController::class, 'update']);
 
     // Config de WooCommerce por tenant (credenciales REST API + sync de productos).
     Route::get('woocommerce-config', [WooCommerceConfigController::class, 'show']);
@@ -483,6 +488,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::apiResource('tasks', TaskController::class);
     Route::post('tasks/{task}/google-calendar/retry', [TaskController::class, 'retryCalendarSync']);
+    Route::post('tasks/{task}/ai-booking/approve', [TaskAiBookingController::class, 'approve']);
+    Route::post('tasks/{task}/ai-booking/reject', [TaskAiBookingController::class, 'reject']);
     Route::apiResource('notes', NoteController::class)->only(['index', 'store', 'destroy']);
 
     Route::get('google-calendar/connection', [GoogleCalendarConnectionController::class, 'show']);

@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Enums\AiBookingStatus;
 use App\Models\Scopes\TenantScope;
 use App\Models\Task;
 use App\Models\TaskCalendarSync;
@@ -73,6 +74,12 @@ class SyncTaskCalendarEventJob implements ShouldQueue
         $task = Task::withoutGlobalScope(TenantScope::class)->find($this->taskId);
 
         if (! $task || $task->type?->value !== 'reunion') {
+            return;
+        }
+
+        // Un turno propuesto por la IA que el vendedor todavía no aceptó no
+        // tiene evento en Google: se crea recién al aprobarlo.
+        if ($this->action === 'upsert' && $task->ai_booking_status === AiBookingStatus::PENDING) {
             return;
         }
 

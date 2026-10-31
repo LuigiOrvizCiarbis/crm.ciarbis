@@ -62,6 +62,11 @@ return [
         // request cortaba antes de que el modelo respondiera y el autoreply
         // quedaba sin respuesta. 60s cubre visión con Opus/GPT-4o holgadamente.
         'generate_timeout' => env('AI_GENERATE_TIMEOUT', 60),
+        // Presupuesto total (segundos) de una generación con herramientas (agenda
+        // de turnos): varias rondas modelo → herramienta → modelo. Debe dejar
+        // margen bajo el timeout de 120s de GenerateAiReplyJob para enviar la
+        // respuesta (ver ToolLoopDeadline).
+        'tool_loop_budget_seconds' => env('AI_TOOL_LOOP_BUDGET_SECONDS', 80),
         // Traducciones de chat: usan la misma API key BYOK del tenant, pero un
         // modelo económico independiente del modelo elegido para el bot.
         'translation_models' => [
@@ -101,6 +106,10 @@ return [
         'client_id' => env('GOOGLE_CALENDAR_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CALENDAR_CLIENT_SECRET'),
         'redirect_uri' => env('GOOGLE_CALENDAR_REDIRECT_URI'),
+        // Timeout (segundos) de cada request HTTP a Google. Sin esto el SDK no
+        // corta nunca y la consulta de disponibilidad del bot podría colgar el
+        // job de IA más allá de su timeout.
+        'http_timeout' => env('GOOGLE_CALENDAR_HTTP_TIMEOUT', 20),
     ],
 
 ];

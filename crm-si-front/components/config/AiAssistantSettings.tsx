@@ -33,6 +33,7 @@ import {
   testAiConfig,
   type AiProviderId,
 } from "@/lib/api/ai-config"
+import { AiSchedulingSettings } from "./AiSchedulingSettings"
 
 const PROVIDERS: { id: AiProviderId; label: string; defaultModel: string }[] = [
   { id: "claude", label: "Claude (Anthropic)", defaultModel: "claude-opus-4-8" },
@@ -498,6 +499,8 @@ export function AiAssistantSettings() {
                 {t("common.save")}
               </Button>
             </div>
+
+            <AiSchedulingSettings />
           </>
         )}
     </div>

@@ -9,6 +9,8 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\Product;
 use App\Services\Ai\AiProviderFactory;
+use App\Services\Scheduling\AppointmentToolset;
+use App\Services\Scheduling\AppointmentToolsetFactory;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -51,10 +53,17 @@ class AiReplyService
     public const HISTORY_OVERRIDE_NOTE = '[Nota del sistema: respondé usando la información del system prompt '
         .'vigente, aunque en mensajes anteriores hayas dicho que no la tenías.]';
 
+    public function __construct(private AppointmentToolsetFactory $appointmentToolsets) {}
+
     /**
      * Genera el texto de respuesta para la conversación usando el proveedor
      * configurado por el tenant, o null si no se pudo. Nunca lanza: los drivers
      * loguean y devuelven null para no romper el flujo.
+     *
+     * Con la agenda de turnos activa y un calendario conectado, el modelo
+     * recibe las herramientas de agenda. Si reservó un turno pero no llegó a
+     * redactar la respuesta, se devuelve un aviso fijo: el cliente no puede
+     * quedarse sin enterarse de un turno que ya existe.
      */
     public function respond(Conversation $conversation, AiConfig $config): ?string
     {
@@ -77,7 +86,16 @@ class AiReplyService
             return null;
         }
 
-        return $provider->generate($messages, $this->systemPrompt($config, $conversation->tenant_id), $model);
+        $toolset = $this->appointmentToolsets->forConversation($conversation);
+
+        $reply = $provider->generate(
+            $messages,
+            $this->systemPrompt($config, $conversation->tenant_id, $toolset),
+            $model,
+            $toolset,
+        );
+
+        return $reply ?? $toolset?->bookingFallbackMessage();
     }
 
     /**
@@ -290,15 +308,18 @@ class AiReplyService
         return $content;
     }
 
-    private function systemPrompt(AiConfig $config, int $tenantId): string
+    private function systemPrompt(AiConfig $config, int $tenantId, ?AppointmentToolset $toolset = null): string
     {
         $base = trim($config->system_prompt ?: self::DEFAULT_SYSTEM_PROMPT);
 
-        $catalog = $this->catalogSection($tenantId);
+        $sections = array_filter([
+            $base,
+            $this->catalogSection($tenantId),
+            $toolset?->promptSection() ?? '',
+        ], fn (string $section) => $section !== '');
 
-        $prompt = $catalog === '' ? $base : $base."\n\n".$catalog;
-
-        return $prompt."\n\n".self::HISTORY_OVERRIDE_RULE;
+        // HISTORY_OVERRIDE_RULE siempre al final (ver su comentario).
+        return implode("\n\n", $sections)."\n\n".self::HISTORY_OVERRIDE_RULE;
     }
 
     /**

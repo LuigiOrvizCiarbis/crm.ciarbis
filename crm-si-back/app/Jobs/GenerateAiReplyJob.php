@@ -2,13 +2,10 @@
 
 namespace App\Jobs;
 
-use App\Enums\ChannelType;
 use App\Models\AiConfig;
 use App\Models\Conversation;
 use App\Services\AiReplyService;
-use App\Services\InstagramMessageService;
-use App\Services\MessengerMessageService;
-use App\Services\WhatsAppMessageService;
+use App\Services\SystemMessageSender;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -46,12 +43,8 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
         return (string) $this->conversationId;
     }
 
-    public function handle(
-        AiReplyService $aiReplyService,
-        WhatsAppMessageService $whatsAppMessageService,
-        InstagramMessageService $instagramMessageService,
-        MessengerMessageService $messengerMessageService,
-    ): void {
+    public function handle(AiReplyService $aiReplyService, SystemMessageSender $sender): void
+    {
         $conversation = Conversation::withoutGlobalScopes()->find($this->conversationId);
 
         if (! $conversation) {
@@ -95,20 +88,9 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // El transporte depende del canal de la conversación: mismas firmas de
-        // envío en los tres servicios.
-        //
-        // match exhaustivo con default que aborta, NO un else que asuma WhatsApp:
-        // un canal sin transporte de IA (Telegram, Web, Mail, Manual) enviaría el
-        // mensaje por el canal equivocado, o fallaría con un error opaco.
-        $service = match ($conversation->channel?->type) {
-            ChannelType::WHATSAPP => $whatsAppMessageService,
-            ChannelType::INSTAGRAM => $instagramMessageService,
-            ChannelType::FACEBOOK => $messengerMessageService,
-            default => null,
-        };
-
-        if (! $service) {
+        // El transporte depende del canal de la conversación (ver
+        // SystemMessageSender: un canal sin transporte aborta, no cae en WhatsApp).
+        if (! $sender->supports($conversation)) {
             Log::warning('GenerateAiReplyJob: canal sin transporte de IA', [
                 'conversation_id' => $conversation->id,
                 'channel_type' => $conversation->channel?->type?->value,
@@ -117,6 +99,6 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $service->sendSystemTextMessageFromCRM($conversation, $reply);
+        $sender->send($conversation, $reply);
     }
 }

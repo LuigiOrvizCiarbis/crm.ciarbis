@@ -4,8 +4,12 @@ namespace App\Services\Ai\Providers;
 
 use Anthropic\Client;
 use App\Services\Ai\AiProvider;
+use App\Services\Ai\AiTool;
+use App\Services\Ai\AiToolset;
 use App\Services\Ai\AiVerificationResult;
+use App\Services\Ai\ToolLoopDeadline;
 use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\ClientInterface;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -16,15 +20,34 @@ use Illuminate\Support\Facades\Log;
  */
 class AnthropicProvider implements AiProvider
 {
+    /**
+     * Override de tests: transporte HTTP con MockHandler para simular las
+     * respuestas de la API sin red. No usado en producción.
+     */
+    public static ?ClientInterface $testHttpClient = null;
+
     public function __construct(private string $apiKey) {}
 
-    public function generate(array $messages, string $systemPrompt, string $model): ?string
+    public function generate(array $messages, string $systemPrompt, string $model, ?AiToolset $toolset = null): ?string
     {
         try {
+            $system = [
+                [
+                    'type' => 'text',
+                    'text' => $systemPrompt,
+                    'cache_control' => ['type' => 'ephemeral'],
+                ],
+            ];
+            $messages = array_map([$this, 'formatMessage'], $messages);
+
+            if ($toolset) {
+                return $this->generateWithTools($model, $system, $messages, $toolset);
+            }
+
             $client = new Client(
                 apiKey: $this->apiKey,
                 requestOptions: [
-                    'transporter' => new GuzzleClient([
+                    'transporter' => self::$testHttpClient ?? new GuzzleClient([
                         'timeout' => (int) config('services.ai.generate_timeout', 60),
                     ]),
                 ],
@@ -33,14 +56,8 @@ class AnthropicProvider implements AiProvider
             $response = $client->messages->create(
                 model: $model,
                 maxTokens: 1024,
-                system: [
-                    [
-                        'type' => 'text',
-                        'text' => $systemPrompt,
-                        'cache_control' => ['type' => 'ephemeral'],
-                    ],
-                ],
-                messages: array_map([$this, 'formatMessage'], $messages),
+                system: $system,
+                messages: $messages,
             );
 
             foreach ($response->content as $block) {
@@ -60,6 +77,107 @@ class AnthropicProvider implements AiProvider
             ]);
 
             return null;
+        }
+    }
+
+    /**
+     * Loop modelo → tool_use → tool_result → modelo, acotado por
+     * MAX_TOOL_ROUNDS y ToolLoopDeadline. Lanza ante errores de la API: el
+     * try/catch de generate() los convierte en null.
+     *
+     * @param  array<int, array<string, mixed>>  $system
+     * @param  array<int, array<string, mixed>>  $messages  Ya en formato Anthropic.
+     */
+    private function generateWithTools(string $model, array $system, array $messages, AiToolset $toolset): ?string
+    {
+        $deadline = new ToolLoopDeadline;
+        $driverTimeout = (float) config('services.ai.generate_timeout', 60);
+        $tools = array_map(fn (AiTool $tool) => [
+            'name' => $tool->name,
+            'description' => $tool->description,
+            'input_schema' => $tool->parameters,
+        ], $toolset->definitions());
+
+        for ($round = 0; ; $round++) {
+            if (! $deadline->canRequest()) {
+                Log::warning('AnthropicProvider: loop de herramientas cortado por tiempo', ['round' => $round]);
+
+                return null;
+            }
+
+            // Cliente por ronda: el timeout de cada request es lo que queda del
+            // presupuesto, y sin reintentos del SDK (cada uno duplicaría la espera).
+            $client = new Client(
+                apiKey: $this->apiKey,
+                requestOptions: [
+                    'transporter' => self::$testHttpClient ?? new GuzzleClient([
+                        'timeout' => $deadline->requestTimeout($driverTimeout),
+                    ]),
+                    'maxRetries' => 0,
+                ],
+            );
+
+            $response = $client->messages->create(
+                model: $model,
+                maxTokens: 1024,
+                system: $system,
+                messages: $messages,
+                tools: $tools,
+            );
+
+            $toolUses = array_values(array_filter(
+                $response->content,
+                fn ($block) => $block->type === 'tool_use',
+            ));
+
+            if ($toolUses === []) {
+                foreach ($response->content as $block) {
+                    if ($block->type === 'text' && trim($block->text) !== '') {
+                        return trim($block->text);
+                    }
+                }
+
+                Log::warning('AnthropicProvider: respuesta sin bloque de texto', [
+                    'stop_reason' => $response->stopReason,
+                ]);
+
+                return null;
+            }
+
+            // Hay llamadas pendientes: si no se pueden ejecutar, no se devuelve
+            // el texto de esta respuesta (podría anunciar algo que no ocurrió).
+            if ($round >= self::MAX_TOOL_ROUNDS || ! $deadline->canRunTools()) {
+                Log::warning('AnthropicProvider: loop de herramientas cortado', ['round' => $round]);
+
+                return null;
+            }
+
+            $assistantBlocks = [];
+            foreach ($response->content as $block) {
+                if ($block->type === 'text') {
+                    $assistantBlocks[] = ['type' => 'text', 'text' => $block->text];
+                } elseif ($block->type === 'tool_use') {
+                    $assistantBlocks[] = [
+                        'type' => 'tool_use',
+                        'id' => $block->id,
+                        'name' => $block->name,
+                        // La API exige un objeto JSON: [] se serializaría como array.
+                        'input' => $block->input === [] ? new \stdClass : $block->input,
+                    ];
+                }
+            }
+
+            $results = [];
+            foreach ($toolUses as $block) {
+                $results[] = [
+                    'type' => 'tool_result',
+                    'tool_use_id' => $block->id,
+                    'content' => $toolset->call($block->name, (array) $block->input),
+                ];
+            }
+
+            $messages[] = ['role' => 'assistant', 'content' => $assistantBlocks];
+            $messages[] = ['role' => 'user', 'content' => $results];
         }
     }
 

@@ -140,7 +140,7 @@ export async function updateAiConfig(
   return { data: json.data, modelVisionWarning: json.model_vision_warning ?? null }
 }
 
-function extractError(json: any): string {
+export function extractError(json: any): string {
   if (json?.errors && typeof json.errors === "object") {
     const first = Object.values(json.errors)[0]
     if (Array.isArray(first) && first.length > 0) return String(first[0])

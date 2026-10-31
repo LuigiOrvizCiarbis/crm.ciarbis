@@ -67,6 +67,7 @@ import {
 
 import { sendMessage, editMessage, deleteMessage, translateMessage } from "@/lib/api/messages"
 import { ConversationHeader } from "@/components/chat/ConversationHeader"
+import { PendingAiBookingsBanner } from "@/components/chat/PendingAiBookingsBanner"
 import { MessageList } from "@/components/chat/MessageList"
 import { MessageInput } from "@/components/chat/MessageInput"
 import { ConversationList } from "@/components/chat/ConversationList"
@@ -290,6 +291,9 @@ export default function ChatsPage() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null)
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(chatIdNumber)
+  // Se incrementa con cada mensaje de sistema de la conversación abierta para
+  // que el banner de turnos de la IA vuelva a consultar los pendientes.
+  const [aiBookingsRefreshKey, setAiBookingsRefreshKey] = useState(0)
 
   const activeConversation = useMemo(() => conversations.find((c) => c.id === selectedConversationId), [conversations, selectedConversationId])
 
@@ -455,6 +459,10 @@ export default function ChatsPage() {
 
         return { ...prev, messages: [...messages, newMessage] };
       });
+
+      if (newMessage.sender_type === "system") {
+        setAiBookingsRefreshKey((k) => k + 1);
+      }
     }
 
     // 2. Actualizar la lista de conversaciones (Sidebar)
@@ -1885,6 +1893,11 @@ export default function ChatsPage() {
                 onToggleContactInfo={() => setIsContactInfoOpen(!isContactInfoOpen)}
                 onRenameContact={handleRenameContact}
                 onToggleAiAutoreply={handleToggleAiAutoreply}
+              />
+              <PendingAiBookingsBanner
+                key={selectedConversationId}
+                conversationId={selectedConversationId}
+                refreshKey={aiBookingsRefreshKey}
               />
               {/* Quick Bar */}
               <ChatQuickBar

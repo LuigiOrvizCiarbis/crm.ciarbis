@@ -627,6 +627,14 @@
         "apply": "Error sending broadcast",
         "mixedChannels": "Select conversations from the same WhatsApp number to send a broadcast"
       }
+    },
+    "aiBooking": {
+      "proposed": "AI-proposed appointment: {{when}} · {{assignee}}",
+      "accept": "Accept",
+      "reject": "Reject",
+      "approved": "Appointment confirmed",
+      "rejected": "Appointment rejected",
+      "notNotified": "The customer could not be notified via chat"
     }
   },
   "settings": {
@@ -924,7 +932,41 @@
       "testErrorInvalidKey": "The API key is invalid.",
       "testErrorNoCredit": "The provider account has insufficient balance.",
       "testErrorRateLimit": "The provider is rate limiting requests. Try again in a few seconds.",
-      "testErrorUnknown": "Couldn't verify the connection."
+      "testErrorUnknown": "Couldn't verify the connection.",
+      "scheduling": {
+        "title": "Appointment scheduling",
+        "description": "Let the assistant offer free slots from Google Calendar and book meetings with customers.",
+        "enabled": "Allow the AI to book appointments",
+        "enabledHint": "Uses the calendar of the agent assigned to the conversation or, if they have no Google connection, the default calendar.",
+        "mode": "Appointment confirmation",
+        "modeAuto": "Book directly",
+        "modeApproval": "Requires approval",
+        "modeCriteria": "AI decides based on a criterion",
+        "criteria": "Criterion for direct confirmation",
+        "criteriaPlaceholder": "E.g.: book directly only if the customer already shared their budget; otherwise leave it pending.",
+        "defaultUser": "Default calendar",
+        "none": "None",
+        "noCalendarUsers": "No user has Google Calendar connected. Connect it in Integrations → Google Calendar.",
+        "duration": "Appointment duration (minutes)",
+        "interval": "Slot interval (minutes)",
+        "minNotice": "Minimum notice (hours)",
+        "maxDaysAhead": "Days ahead",
+        "timezone": "Time zone",
+        "workingHours": "Business hours",
+        "addRange": "Time range",
+        "removeRange": "Remove time range",
+        "closed": "Closed",
+        "saved": "Appointment scheduling saved",
+        "days": {
+          "mon": "Monday",
+          "tue": "Tuesday",
+          "wed": "Wednesday",
+          "thu": "Thursday",
+          "fri": "Friday",
+          "sat": "Saturday",
+          "sun": "Sunday"
+        }
+      }
     },
     "integrationsHub": {
       "back": "Integrations",

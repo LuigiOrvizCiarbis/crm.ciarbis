@@ -27,6 +27,8 @@ export interface TaskRelation {
 
 export type TaskCalendarSyncStatus = "pending" | "synced" | "error" | "paused"
 
+export type AiBookingStatus = "pending" | "confirmed" | "rejected"
+
 export interface TaskCalendarSyncInfo {
   status: TaskCalendarSyncStatus
   htmlLink: string | null
@@ -60,5 +62,6 @@ export interface Task {
   endsAt?: string // ISO date
   meetingTimezone?: string // IANA tz
   meetingGuestEmail?: string
+  aiBookingStatus?: AiBookingStatus | null
   calendarSync?: TaskCalendarSyncInfo | null
 }
