@@ -60,6 +60,40 @@
       "oauth": "Could not start the Google Calendar connection. Please try again."
     }
   },
+  "calendarEvents": {
+    "legend": "Your Google Calendar events",
+    "loading": "Loading your Google events…",
+    "notConnected": "Connect your Google Calendar from “Block my calendar” to see and delete your events here.",
+    "loadError": "Could not load your Google events.",
+    "retry": "Retry",
+    "untitled": "(No title)",
+    "allDay": "All day",
+    "more": "+{{count}} from Google",
+    "availabilityBlock": "Calendar block",
+    "recurringNote": "This is a recurring event: only this date is deleted. To delete the series, use Google Calendar.",
+    "viewGoogle": "View in Google",
+    "delete": "Delete event",
+    "unblock": "Unblock",
+    "confirmDelete": "Delete this event from your Google Calendar?",
+    "confirmUnblock": "Unblock this time? The bot will be able to offer it again.",
+    "notifyGuests": "Notify guests by email",
+    "confirm": "Delete",
+    "cancel": "Cancel",
+    "deleting": "Deleting…",
+    "close": "Close",
+    "deleted": "Event deleted from Google Calendar",
+    "unblocked": "Calendar unblocked",
+    "notDeletable": "You can only delete events you organize from the CRM. Manage it in Google Calendar.",
+    "managedElsewhere": "This event is managed by the CRM in another workspace. Manage it there.",
+    "errors": {
+      "notConnected": "Connect or reconnect your Google Calendar to delete events.",
+      "busy": "Your calendar is being updated. Please try again.",
+      "notDeletable": "This event can't be deleted from the CRM. Manage it in Google Calendar.",
+      "session": "Your session has expired. Please sign in again.",
+      "workspace": "You don't have access to this workspace.",
+      "delete": "Could not delete the event. Please try again."
+    }
+  },
   "nav": {
     "panel": "Dashboard",
     "chats": "Chats",

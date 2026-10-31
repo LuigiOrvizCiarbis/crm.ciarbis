@@ -17,12 +17,7 @@ use App\Services\Scheduling\CalendarRequestBudget;
 use App\Services\WhatsAppMessageService;
 use App\Support\GoogleCalendarClient;
 use Carbon\CarbonImmutable;
-use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ConnectException;
-use GuzzleHttp\Handler\MockHandler;
-use GuzzleHttp\HandlerStack;
-use GuzzleHttp\Promise\Create as PromiseCreate;
-use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -33,19 +28,18 @@ use Laravel\Sanctum\Sanctum;
 use Psr\Http\Message\RequestInterface;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Concerns\AiSchedulingFixtures;
+use Tests\Feature\Concerns\FakesGoogleCalendar;
 use Tests\TestCase;
 
 class CalendarAvailabilityBlockTest extends TestCase
 {
-    use AiSchedulingFixtures, RefreshDatabase;
+    use AiSchedulingFixtures, FakesGoogleCalendar, RefreshDatabase;
 
     private Tenant $tenant;
+
     private User $owner;
+
     private GoogleCalendarConnection $connection;
-    private array $events = [];
-    private array $history = [];
-    private array $transport = [];
-    private string $calendarTimezone = self::TZ;
 
     protected function setUp(): void
     {
@@ -127,6 +121,7 @@ class CalendarAvailabilityBlockTest extends TestCase
             ->assertCreated()->assertJsonPath('data.start', '2026-11-01')->assertJsonPath('data.end', '2026-11-02');
         $reads = array_values(array_filter($this->history, function ($entry) {
             parse_str($entry['request']->getUri()->getQuery(), $query);
+
             return isset($query['timeMin']) && ! isset($query['privateExtendedProperty']);
         }));
         parse_str($reads[1]['request']->getUri()->getQuery(), $query);
@@ -222,6 +217,7 @@ class CalendarAvailabilityBlockTest extends TestCase
                 $this->events[$event['id']] = [...$event, 'status' => 'confirmed'];
                 throw new ConnectException('Response lost', $request);
             }
+
             return null;
         });
         $input = $this->rangeInput();
@@ -269,6 +265,7 @@ class CalendarAvailabilityBlockTest extends TestCase
             }
             $event = json_decode((string) $request->getBody(), true);
             $this->events[$event['id']] = [...$event, 'transparency' => $makeTransparent ? 'transparent' : 'opaque'];
+
             return $this->errorResponse(409);
         });
         $this->postJson('/api/google-calendar/blocks', $this->rangeInput())->assertOk();
@@ -293,6 +290,7 @@ class CalendarAvailabilityBlockTest extends TestCase
             if (isset($query['pageToken'])) {
                 return $this->jsonResponse(['items' => [$two]]);
             }
+
             return $this->jsonResponse(['items' => [
                 $one, $foreign, $otherWorkspace,
                 [...$one, 'id' => 'cancel123', 'status' => 'cancelled'],
@@ -362,8 +360,10 @@ class CalendarAvailabilityBlockTest extends TestCase
                 if ($fail) {
                     throw new ConnectException('Timeout', $request);
                 }
+
                 return $this->errorResponse(410);
             }
+
             return null;
         });
         $this->deleteJson('/api/google-calendar/blocks/block123')->assertStatus(503);
@@ -391,6 +391,7 @@ class CalendarAvailabilityBlockTest extends TestCase
     {
         $this->installGoogle(function (RequestInterface $request): ?Response {
             parse_str($request->getUri()->getQuery(), $query);
+
             return isset($query['timeMin']) ? $this->errorResponse(403, 'insufficientPermissions') : null;
         });
         $this->postJson('/api/google-calendar/blocks', $this->rangeInput())->assertUnprocessable()->assertJsonPath('code', 'calendar_not_connected');
@@ -433,7 +434,9 @@ class CalendarAvailabilityBlockTest extends TestCase
     {
         $clock = 0.0;
         $this->app->bind(CalendarRequestBudget::class, function () use (&$clock): CalendarRequestBudget {
-            return new CalendarRequestBudget(45, function () use (&$clock): float { return $clock; });
+            return new CalendarRequestBudget(45, function () use (&$clock): float {
+                return $clock;
+            });
         });
         $this->installGoogle(function (RequestInterface $request, array $options) use (&$clock): ?Response {
             $clock += 16;
@@ -441,6 +444,7 @@ class CalendarAvailabilityBlockTest extends TestCase
             if (isset($query['timeMin'])) {
                 return $this->jsonResponse(['items' => [], 'nextPageToken' => 'another-page']);
             }
+
             return null;
         });
         $this->postJson('/api/google-calendar/blocks', $this->rangeInput())->assertStatus(503);
@@ -459,11 +463,14 @@ class CalendarAvailabilityBlockTest extends TestCase
     {
         $clock = 0.0;
         $this->app->bind(CalendarRequestBudget::class, function () use (&$clock): CalendarRequestBudget {
-            return new CalendarRequestBudget(45, function () use (&$clock): float { return $clock; });
+            return new CalendarRequestBudget(45, function () use (&$clock): float {
+                return $clock;
+            });
         });
         $this->installGoogle(function (RequestInterface $request) use (&$clock): ?Response {
             $clock += 16;
             parse_str($request->getUri()->getQuery(), $query);
+
             return isset($query['privateExtendedProperty']) ? $this->jsonResponse(['items' => [], 'nextPageToken' => 'again']) : null;
         });
         $this->getJson('/api/google-calendar/blocks')->assertStatus(503);
@@ -574,58 +581,5 @@ class CalendarAvailabilityBlockTest extends TestCase
             'transparency' => 'opaque',
             'extendedProperties' => ['private' => ['crm_availability_block' => '1', 'crm_tenant_id' => (string) $this->tenant->id, 'crm_user_id' => (string) $this->owner->id]],
         ]);
-    }
-
-    /** Stateful Google transport: committed events are read by the real availability and booking services. */
-    private function installGoogle(?callable $intercept = null): void
-    {
-        $this->history = [];
-        $this->transport = [];
-        $handler = function (RequestInterface $request, array $options) use ($intercept): mixed {
-            $this->transport[] = ['request' => $request, 'options' => $options];
-            try {
-                if ($intercept && ($response = $intercept($request, $options))) {
-                    return $response;
-                }
-            } catch (ConnectException $e) {
-                return PromiseCreate::rejectionFor($e);
-            }
-            $path = $request->getUri()->getPath();
-            if (preg_match('~/events/([^/]+)$~', $path, $match)) {
-                $id = rawurldecode($match[1]);
-                if (! isset($this->events[$id])) {
-                    return $this->errorResponse(404);
-                }
-                if ($request->getMethod() === 'DELETE') {
-                    unset($this->events[$id]);
-                    return new Response(204);
-                }
-                return $this->jsonResponse($this->events[$id]);
-            }
-            if ($request->getMethod() === 'POST') {
-                $event = json_decode((string) $request->getBody(), true);
-                $this->events[$event['id']] = [...$event, 'status' => 'confirmed', 'htmlLink' => 'https://calendar.google.com/event?eid='.$event['id']];
-                return $this->jsonResponse($this->events[$event['id']]);
-            }
-            return $this->jsonResponse(['timeZone' => $this->calendarTimezone, 'items' => array_values($this->events)]);
-        };
-        $stack = HandlerStack::create(new MockHandler(array_fill(0, 150, $handler)));
-        $stack->push(Middleware::history($this->history));
-        GoogleCalendarClient::$testHttpClient = new Client(['handler' => $stack, 'http_errors' => false]);
-    }
-
-    private function jsonResponse(array $data): Response
-    {
-        return new Response(200, ['Content-Type' => 'application/json'], json_encode($data, JSON_THROW_ON_ERROR));
-    }
-
-    private function errorResponse(int $status, string $reason = 'notFound'): Response
-    {
-        return new Response($status, ['Content-Type' => 'application/json'], json_encode(['error' => ['code' => $status, 'message' => 'Google request failed', 'errors' => [['reason' => $reason]]]]));
-    }
-
-    private function writes(): array
-    {
-        return array_values(array_filter($this->history, fn ($entry) => in_array($entry['request']->getMethod(), ['POST', 'PUT', 'PATCH', 'DELETE'], true)));
     }
 }

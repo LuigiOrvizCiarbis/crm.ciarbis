@@ -4,14 +4,12 @@ namespace App\Services\Scheduling;
 
 use App\Models\GoogleCalendarConnection;
 use App\Models\User;
-use App\Support\GoogleCalendarClient;
 use Carbon\CarbonImmutable;
 use DateTimeImmutable;
 use DateTimeZone;
 use Google\Service\Calendar;
 use Google\Service\Calendar\Event;
 use Google\Service\Exception as GoogleException;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -21,11 +19,12 @@ class CalendarAvailabilityBlockService
     public function __construct(
         private readonly CalendarOwnerLock $lock,
         private readonly AppointmentAvailabilityService $availability,
+        private readonly UserGoogleCalendar $calendar,
     ) {}
 
     public function list(User $user, ?string $fromDate, ?string $throughDate): array
     {
-        return $this->withCalendar($user, app(CalendarRequestBudget::class), 'list', function (Calendar $calendar, GoogleCalendarConnection $connection) use ($user, $fromDate, $throughDate): array {
+        return $this->calendar->run($user, app(CalendarRequestBudget::class), 'list', function (Calendar $calendar, GoogleCalendarConnection $connection) use ($user, $fromDate, $throughDate): array {
             return $this->listEvents($calendar, $connection, $user, $fromDate, $throughDate);
         });
     }
@@ -37,9 +36,9 @@ class CalendarAvailabilityBlockService
         $eventId = 'crmblock'.hash('sha256', $user->tenant_id.':'.$user->id.':'.$input['request_id']);
 
         return $this->lock->run($user->id, function (CalendarRequestBudget $budget) use ($user, $input, $fingerprint, $eventId): array {
-            return $this->withCalendar($user, $budget, 'create', function (Calendar $calendar) use ($user, $input, $fingerprint, $eventId, $budget): array {
+            return $this->calendar->run($user, $budget, 'create', function (Calendar $calendar) use ($user, $input, $fingerprint, $eventId, $budget): array {
                 // Recover a committed write before applying today's insert-only rules.
-                $existing = $this->findEvent($calendar, $eventId);
+                $existing = $this->calendar->findEvent($calendar, $eventId);
                 if ($existing) {
                     return $this->recover($calendar, $existing, $user, $fingerprint);
                 }
@@ -73,7 +72,7 @@ class CalendarAvailabilityBlockService
                     if ((int) $e->getCode() !== 409) {
                         throw $e;
                     }
-                    $existing = $this->findEvent($calendar, $eventId);
+                    $existing = $this->calendar->findEvent($calendar, $eventId);
                     if (! $existing) {
                         throw new CalendarAvailabilityBlockException('block_request_conflict');
                     }
@@ -90,12 +89,12 @@ class CalendarAvailabilityBlockService
     {
         Validator::make(['event_id' => $eventId], ['event_id' => ['required', 'string', 'regex:/\A[0-9a-v]{5,1024}\z/']])->validate();
         $this->lock->run($user->id, function (CalendarRequestBudget $budget) use ($user, $eventId): void {
-            $this->withCalendar($user, $budget, 'delete', function (Calendar $calendar) use ($user, $eventId, $budget): void {
-                $event = $this->findEvent($calendar, $eventId);
+            $this->calendar->run($user, $budget, 'delete', function (Calendar $calendar) use ($user, $eventId, $budget): void {
+                $event = $this->calendar->findEvent($calendar, $eventId);
                 if (! $event) {
                     return;
                 }
-                if (! $this->belongsTo($event, $user)) {
+                if (! $this->isOwnBlock($event, $user)) {
                     throw new CalendarAvailabilityBlockException('not_found');
                 }
                 if (in_array($event->getStatus(), ['cancelled', 'canceled'], true)) {
@@ -141,42 +140,6 @@ class CalendarAvailabilityBlockService
         return $validated;
     }
 
-    private function withCalendar(User $user, CalendarRequestBudget $budget, string $operation, callable $callback): mixed
-    {
-        $connection = GoogleCalendarConnection::withoutGlobalScopes()
-            ->where('tenant_id', $user->tenant_id)->where('user_id', $user->id)->first();
-        if (! $connection || $connection->status !== 'connected') {
-            throw new AppointmentAvailabilityException('Google Calendar no conectado', AppointmentAvailabilityException::NOT_CONNECTED);
-        }
-        try {
-            $calendar = GoogleCalendarClient::serviceFor($connection, $budget);
-            if (! $calendar) {
-                throw new AppointmentAvailabilityException('Google Calendar no conectado', AppointmentAvailabilityException::NOT_CONNECTED);
-            }
-            return $callback($calendar, $connection);
-        } catch (CalendarAvailabilityBlockException|ValidationException $e) {
-            throw $e;
-        } catch (\Exception $e) {
-            Log::warning('Calendar availability block operation failed', [
-                'tenant_id' => $user->tenant_id,
-                'user_id' => $user->id,
-                'operation' => $operation,
-            ]);
-            $cause = $e;
-            while ($cause->getPrevious()) {
-                $cause = $cause->getPrevious();
-            }
-            if ($cause instanceof GoogleException && $this->insufficientScope($cause)) {
-                GoogleCalendarClient::markNeedsReauth($connection, 'insufficient_calendar_scope');
-                throw new AppointmentAvailabilityException('Google Calendar no conectado', AppointmentAvailabilityException::NOT_CONNECTED, $e);
-            }
-            if ($e instanceof AppointmentAvailabilityException) {
-                throw $e;
-            }
-            throw new AppointmentAvailabilityException('Error consultando Google Calendar', AppointmentAvailabilityException::GOOGLE_ERROR, $e);
-        }
-    }
-
     private function listEvents(Calendar $calendar, GoogleCalendarConnection $connection, User $user, ?string $fromDate, ?string $throughDate): array
     {
         $timezone = $this->calendarTimezone($calendar);
@@ -206,7 +169,7 @@ class CalendarAvailabilityBlockService
         do {
             $page = $calendar->events->listEvents('primary', $options);
             foreach ($page->getItems() as $event) {
-                if ($this->belongsTo($event, $user) && $this->isBlocking($event)) {
+                if ($this->isOwnBlock($event, $user) && $this->isBlocking($event)) {
                     $blocks[] = $this->dto($event, $timezone);
                 }
             }
@@ -235,21 +198,9 @@ class CalendarAvailabilityBlockService
         return $timezone;
     }
 
-    private function findEvent(Calendar $calendar, string $eventId): ?Event
-    {
-        try {
-            return $calendar->events->get('primary', $eventId);
-        } catch (GoogleException $e) {
-            if (in_array((int) $e->getCode(), [404, 410], true)) {
-                return null;
-            }
-            throw $e;
-        }
-    }
-
     private function recover(Calendar $calendar, Event $event, User $user, string $fingerprint): array
     {
-        if (! $this->belongsTo($event, $user) || ! $this->isBlocking($event)
+        if (! $this->isOwnBlock($event, $user) || ! $this->isBlocking($event)
             || ($event->getExtendedProperties()?->getPrivate()['crm_block_fingerprint'] ?? null) !== $fingerprint) {
             throw new CalendarAvailabilityBlockException('block_request_conflict');
         }
@@ -309,7 +260,7 @@ class CalendarAvailabilityBlockService
         return ['crm_availability_block' => '1', 'crm_tenant_id' => (string) $user->tenant_id, 'crm_user_id' => (string) $user->id];
     }
 
-    private function belongsTo(Event $event, User $user): bool
+    public function isOwnBlock(Event $event, User $user): bool
     {
         $properties = $event->getExtendedProperties()?->getPrivate() ?? [];
         foreach ($this->markers($user) as $key => $value) {
@@ -343,19 +294,5 @@ class CalendarAvailabilityBlockService
             'timezone' => $start->getTimeZone() ?: $timezone,
             'html_link' => $event->getHtmlLink(),
         ];
-    }
-
-    private function insufficientScope(GoogleException $e): bool
-    {
-        if ((int) $e->getCode() !== 403) {
-            return false;
-        }
-        foreach ($e->getErrors() ?? [] as $error) {
-            if (in_array($error['reason'] ?? '', ['insufficientPermissions', 'ACCESS_TOKEN_SCOPE_INSUFFICIENT'], true)) {
-                return true;
-            }
-        }
-
-        return str_contains(strtolower($e->getMessage()), 'insufficient authentication scopes');
     }
 }
