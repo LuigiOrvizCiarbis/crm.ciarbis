@@ -165,7 +165,7 @@ class AppointmentAvailabilityService
                 $events = $service->events->listEvents('primary', $params);
 
                 foreach ($events->getItems() as $event) {
-                    $interval = $this->eventInterval($event, $tz);
+                    $interval = $this->eventInterval($event, $events->getTimeZone() ?: $tz);
 
                     if ($interval) {
                         $busy[] = $interval;
@@ -211,7 +211,8 @@ class AppointmentAvailabilityService
             return null;
         }
 
-        // Evento de día completo: date de inicio inclusive, date de fin exclusive.
+        // Las fechas sin hora corresponden a días de la zona del calendario,
+        // no de la agenda del CRM. El inicio es inclusivo y el fin exclusivo.
         if ($eventStart->getDate()) {
             return [
                 CarbonImmutable::parse($eventStart->getDate(), $tz)->startOfDay(),

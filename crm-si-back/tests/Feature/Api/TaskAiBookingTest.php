@@ -9,12 +9,14 @@ use App\Models\Conversation;
 use App\Models\Task;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\Scheduling\AppointmentAvailabilityService;
 use App\Services\Scheduling\AppointmentBookingException;
 use App\Services\Scheduling\AppointmentBookingService;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Concerns\AiSchedulingFixtures;
 use Tests\TestCase;
 
@@ -142,6 +144,42 @@ class TaskAiBookingTest extends TestCase
 
         $this->assertSame(AiBookingStatus::REJECTED, $task->fresh()->ai_booking_status);
         Queue::assertNotPushed(SyncTaskCalendarEventJob::class);
+    }
+
+    #[DataProvider('concurrentAgendaEdits')]
+    public function test_approval_refuses_a_concurrently_edited_agenda(string $field): void
+    {
+        $task = $this->makePendingBooking($this->conversation, $this->owner);
+        $replacement = $this->makeUser($this->tenant);
+        $changes = match ($field) {
+            'assigned_to' => ['assigned_to' => $replacement->id],
+            'starts_at' => ['starts_at' => $task->starts_at->copy()->addHour()],
+            'ends_at' => ['ends_at' => $task->ends_at->copy()->addHour()],
+        };
+        $this->mock(WhatsAppMessageService::class, fn ($mock) => $mock->shouldNotReceive('sendSystemTextMessageFromCRM'));
+        $this->mock(AppointmentAvailabilityService::class, fn ($mock) => $mock
+            ->shouldReceive('hasConflict')->once()
+            ->andReturnUsing(function () use ($task, $changes) {
+                // La edición se confirma mientras Google valida los valores anteriores.
+                Task::withoutGlobalScopes()->whereKey($task->id)->update($changes);
+
+                return false;
+            }));
+
+        $this->postJson("/api/tasks/{$task->id}/ai-booking/approve")->assertStatus(409);
+
+        $this->assertSame(AiBookingStatus::PENDING, $task->fresh()->ai_booking_status);
+        $this->assertNull($task->fresh()->ai_booking_decided_at);
+        Queue::assertNotPushed(SyncTaskCalendarEventJob::class);
+    }
+
+    public static function concurrentAgendaEdits(): array
+    {
+        return [
+            'assignee changed' => ['assigned_to'],
+            'start changed' => ['starts_at'],
+            'end changed' => ['ends_at'],
+        ];
     }
 
     public function test_decided_booking_cannot_be_decided_again(): void

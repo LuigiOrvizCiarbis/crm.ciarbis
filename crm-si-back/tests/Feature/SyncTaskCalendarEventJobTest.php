@@ -16,6 +16,7 @@ use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class SyncTaskCalendarEventJobTest extends TestCase
@@ -68,6 +69,42 @@ class SyncTaskCalendarEventJobTest extends TestCase
         (new SyncTaskCalendarEventJob($task->id, 'upsert'))->handle();
 
         $this->assertSame(0, TaskCalendarSync::count());
+    }
+
+    #[DataProvider('inactiveBookingStates')]
+    public function test_queued_upsert_does_not_publish_inactive_meetings(string $status, ?string $bookingStatus): void
+    {
+        [$tenant, $user] = $this->makeConnectedUser();
+        $task = Task::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Turno pendiente',
+            'type' => 'reunion',
+            'status' => 'nuevo',
+            'assigned_to' => $user->id,
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDay()->addMinutes(30),
+            'meeting_timezone' => 'America/Argentina/Buenos_Aires',
+            'ai_booking_status' => 'pending',
+        ]);
+        $queued = new SyncTaskCalendarEventJob($task->id, 'upsert');
+        $task->update(['status' => $status, 'ai_booking_status' => $bookingStatus]);
+        $http = $this->mockGoogleResponses([
+            new Response(200, [], json_encode(['id' => 'should-not-exist'])),
+        ]);
+
+        $queued->handle();
+
+        $this->assertCount(1, $http, 'Una reunión inactiva no debe llamar a Google');
+        $this->assertSame(0, TaskCalendarSync::where('task_id', $task->id)->count());
+    }
+
+    public static function inactiveBookingStates(): array
+    {
+        return [
+            'rejected' => ['nuevo', 'rejected'],
+            'cancelled after approval' => ['cancelado', 'confirmed'],
+            'cancelled manual meeting' => ['cancelado', null],
+        ];
     }
 
     public function test_upsert_creates_event_with_meet_and_marks_synced(): void

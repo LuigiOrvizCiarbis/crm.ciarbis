@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { CalendarClock, Check, Loader2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/Toast"
@@ -21,28 +21,46 @@ export function PendingAiBookingsBanner({ conversationId, refreshKey }: PendingA
   const [tasks, setTasks] = useState<Task[]>([])
   const [deciding, setDeciding] = useState<Decision | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    getTasks({ conversationId, aiBookingStatus: "pending" })
-      .then((pending) => {
-        if (!cancelled) setTasks(pending)
-      })
-      .catch(() => {
-        if (!cancelled) setTasks([])
-      })
-    return () => {
-      cancelled = true
+  const loadGeneration = useRef(0)
+  const conversationGeneration = useRef(0)
+
+  const loadPending = useCallback(async () => {
+    const generation = ++loadGeneration.current
+    try {
+      const pending = await getTasks({ conversationId, aiBookingStatus: "pending" })
+      if (generation === loadGeneration.current) setTasks(pending)
+    } catch {
+      if (generation === loadGeneration.current) setTasks([])
     }
-  }, [conversationId, refreshKey])
+  }, [conversationId])
+
+  useEffect(() => {
+    setTasks([])
+    setDeciding(null)
+    return () => {
+      conversationGeneration.current += 1
+    }
+  }, [conversationId])
+
+  useEffect(() => {
+    void loadPending()
+    return () => {
+      loadGeneration.current += 1
+    }
+  }, [loadPending, refreshKey])
 
   if (tasks.length === 0) return null
 
   const handleDecision = async (task: Task, action: Decision["action"]) => {
+    const generation = conversationGeneration.current
     setDeciding({ taskId: task.id, action })
     try {
       const { contactNotified } =
         action === "approve" ? await approveAiBooking(task.id) : await rejectAiBooking(task.id)
+      if (generation !== conversationGeneration.current) return
+      loadGeneration.current += 1
       setTasks((prev) => prev.filter((item) => item.id !== task.id))
+      void loadPending()
       addToast({
         type: "success",
         title: t(action === "approve" ? "chats.aiBooking.approved" : "chats.aiBooking.rejected"),
@@ -51,13 +69,14 @@ export function PendingAiBookingsBanner({ conversationId, refreshKey }: PendingA
         addToast({ type: "info", title: t("chats.aiBooking.notNotified") })
       }
     } catch (error) {
+      if (generation !== conversationGeneration.current) return
       addToast({
         type: "error",
         title: t("common.error"),
         description: error instanceof Error ? error.message : undefined,
       })
     } finally {
-      setDeciding(null)
+      if (generation === conversationGeneration.current) setDeciding(null)
     }
   }
 

@@ -14,6 +14,7 @@ use App\Services\Ai\AiTool;
 use App\Services\Ai\AiToolset;
 use App\Services\Ai\Providers\AnthropicProvider;
 use App\Services\Ai\Providers\OpenAiProvider;
+use App\Services\Ai\ToolLoopDeadline;
 use App\Services\AiReplyService;
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Handler\MockHandler;
@@ -121,6 +122,49 @@ class AiToolLoopTest extends TestCase
         $this->assertSame([], $toolset->calls);
     }
 
+    public function test_anthropic_stops_before_second_tool_when_first_consumes_budget(): void
+    {
+        $clock = (object) ['now' => 1000.0];
+        $this->app->instance(ToolLoopDeadline::class, new ToolLoopDeadline(80, static fn (): float => $clock->now));
+        $this->mockAi(AnthropicProvider::class, [
+            $this->anthropicMessage([
+                ['type' => 'text', 'text' => '¡Listo, agendado!'],
+                ['type' => 'tool_use', 'id' => 'toolu_1', 'name' => 'consultar', 'input' => []],
+                ['type' => 'tool_use', 'id' => 'toolu_2', 'name' => 'agendar', 'input' => ['inicio' => '2026-07-20 11:00']],
+            ], 'tool_use'),
+        ]);
+        $toolset = $this->fakeToolset(static function () use ($clock): void {
+            $clock->now += 60;
+        });
+
+        $reply = (new AnthropicProvider('sk-test'))->generate([['role' => 'user', 'content' => 'El lunes 11']], 'system', 'claude-test', $toolset);
+
+        $this->assertNull($reply);
+        $this->assertSame([['consultar', []]], $toolset->calls);
+        $this->assertCount(1, $this->history);
+    }
+
+    public function test_openai_stops_before_second_tool_when_first_consumes_budget(): void
+    {
+        $clock = (object) ['now' => 1000.0];
+        $this->app->instance(ToolLoopDeadline::class, new ToolLoopDeadline(80, static fn (): float => $clock->now));
+        $this->mockAi(OpenAiProvider::class, [
+            $this->openAiCompletion('¡Listo, agendado!', [
+                ['id' => 'call_1', 'type' => 'function', 'function' => ['name' => 'consultar', 'arguments' => '{}']],
+                ['id' => 'call_2', 'type' => 'function', 'function' => ['name' => 'agendar', 'arguments' => '{"inicio":"2026-07-20 11:00"}']],
+            ]),
+        ]);
+        $toolset = $this->fakeToolset(static function () use ($clock): void {
+            $clock->now += 60;
+        });
+
+        $reply = (new OpenAiProvider('sk-test'))->generate([['role' => 'user', 'content' => 'El lunes 11']], 'system', 'gpt-test', $toolset);
+
+        $this->assertNull($reply);
+        $this->assertSame([['consultar', []]], $toolset->calls);
+        $this->assertCount(1, $this->history);
+    }
+
     /**
      * El modelo reservó el turno pero falló la respuesta final: el cliente
      * igual recibe un aviso fijo del turno, en vez de nada.
@@ -220,12 +264,14 @@ class AiToolLoopTest extends TestCase
         ]));
     }
 
-    private function fakeToolset(): AiToolset
+    private function fakeToolset(?\Closure $onCall = null): AiToolset
     {
-        return new class implements AiToolset
+        return new class($onCall) implements AiToolset
         {
             /** @var list<array{0: string, 1: array<string, mixed>}> */
             public array $calls = [];
+
+            public function __construct(private ?\Closure $onCall) {}
 
             public function definitions(): array
             {
@@ -238,6 +284,9 @@ class AiToolLoopTest extends TestCase
             public function call(string $name, array $input): string
             {
                 $this->calls[] = [$name, $input];
+                if ($this->onCall !== null) {
+                    ($this->onCall)();
+                }
 
                 return "resultado de {$name}";
             }

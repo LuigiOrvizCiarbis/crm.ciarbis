@@ -90,7 +90,7 @@ class AnthropicProvider implements AiProvider
      */
     private function generateWithTools(string $model, array $system, array $messages, AiToolset $toolset): ?string
     {
-        $deadline = new ToolLoopDeadline;
+        $deadline = app(ToolLoopDeadline::class);
         $driverTimeout = (float) config('services.ai.generate_timeout', 60);
         $tools = array_map(fn (AiTool $tool) => [
             'name' => $tool->name,
@@ -169,6 +169,12 @@ class AnthropicProvider implements AiProvider
 
             $results = [];
             foreach ($toolUses as $block) {
+                if (! $deadline->canRunTools()) {
+                    Log::warning('AnthropicProvider: loop de herramientas cortado por tiempo', ['round' => $round]);
+
+                    return null;
+                }
+
                 $results[] = [
                     'type' => 'tool_result',
                     'tool_use_id' => $block->id,

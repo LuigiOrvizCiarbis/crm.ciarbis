@@ -102,18 +102,28 @@ export function AiSchedulingSettings() {
 
   const handleSave = async () => {
     setSaving(true)
-    const { data, error } = await updateAiSchedulingConfig(form)
-    setSaving(false)
+    try {
+      const { data, error } = await updateAiSchedulingConfig(form)
+      if (error || !data) {
+        throw new Error(error || "No se pudo guardar la agenda. Volvé a intentar.")
+      }
 
-    if (error || !data) {
-      addToast({ type: "error", title: t("common.error"), description: error })
-      return
+      const { calendar_users, ...input } = data
+      setForm(input)
+      setCalendarUsers(calendar_users)
+      addToast({ type: "success", title: t("settings.aiAssistant.scheduling.saved") })
+    } catch (error) {
+      addToast({
+        type: "error",
+        title: t("common.error"),
+        description:
+          error instanceof Error && error.message
+            ? error.message
+            : "No se pudo guardar la agenda. Revisá tu conexión y volvé a intentar.",
+      })
+    } finally {
+      setSaving(false)
     }
-
-    const { calendar_users, ...input } = data
-    setForm(input)
-    setCalendarUsers(calendar_users)
-    addToast({ type: "success", title: t("settings.aiAssistant.scheduling.saved") })
   }
 
   return (

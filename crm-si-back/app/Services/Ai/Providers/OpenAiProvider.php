@@ -75,7 +75,7 @@ class OpenAiProvider implements AiProvider
      */
     private function generateWithTools(string $model, array $messages, AiToolset $toolset): ?string
     {
-        $deadline = new ToolLoopDeadline;
+        $deadline = app(ToolLoopDeadline::class);
         $driverTimeout = (float) config('services.ai.generate_timeout', 60);
         $tools = array_map(fn (AiTool $tool) => [
             'type' => 'function',
@@ -137,6 +137,12 @@ class OpenAiProvider implements AiProvider
             ];
 
             foreach ($toolCalls as $call) {
+                if (! $deadline->canRunTools()) {
+                    Log::warning('OpenAiProvider: loop de herramientas cortado por tiempo', ['round' => $round]);
+
+                    return null;
+                }
+
                 $input = json_decode($call->function->arguments, true);
 
                 $messages[] = [

@@ -221,17 +221,26 @@ class AppointmentBookingService
      */
     private function decide(Task $task, User $actor, array $changes): void
     {
-        $updated = Task::withoutGlobalScopes()
+        $query = Task::withoutGlobalScopes()
             ->whereKey($task->id)
             ->where('ai_booking_status', AiBookingStatus::PENDING->value)
             ->where('status', '!=', TaskStatus::CANCELED->value)
-            ->where('type', TaskType::MEETING->value)
-            ->update([
-                ...$changes,
-                'ai_booking_decided_by' => $actor->id,
-                'ai_booking_decided_at' => now(),
-                'updated_at' => now(),
-            ]);
+            ->where('type', TaskType::MEETING->value);
+
+        if ($changes['ai_booking_status'] === AiBookingStatus::CONFIRMED->value) {
+            // La aprobación vale solo para el calendario y el intervalo que
+            // se consultaron; una edición concurrente exige volver a validar.
+            $query->where('assigned_to', $task->assigned_to)
+                ->where('starts_at', $task->starts_at)
+                ->where('ends_at', $task->ends_at);
+        }
+
+        $updated = $query->update([
+            ...$changes,
+            'ai_booking_decided_by' => $actor->id,
+            'ai_booking_decided_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         if ($updated === 0) {
             throw new AppointmentBookingException(AppointmentBookingException::ALREADY_DECIDED);

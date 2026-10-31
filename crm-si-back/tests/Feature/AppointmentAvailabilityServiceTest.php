@@ -71,6 +71,25 @@ class AppointmentAvailabilityServiceTest extends TestCase
         $this->assertSame([], $this->mondaySlots());
     }
 
+    public function test_all_day_event_uses_calendar_timezone_for_slots_and_approval(): void
+    {
+        $this->config->update([
+            'working_hours' => ['mon' => [['start' => '10:00', 'end' => '14:00']]],
+        ]);
+        $response = new Response(200, ['Content-Type' => 'application/json'], json_encode([
+            'timeZone' => 'Asia/Tokyo',
+            'items' => [
+                ['status' => 'confirmed', 'start' => ['date' => '2026-07-21'], 'end' => ['date' => '2026-07-22']],
+            ],
+        ]));
+        $this->mockGoogle([$response, $response]);
+
+        // El día 21 en Tokio empieza el día 20 a las 12:00 en Buenos Aires.
+        $this->assertSame(['10:00', '10:30', '11:00', '11:30'], $this->mondaySlots());
+        $start = CarbonImmutable::parse('2026-07-20 12:00', self::TZ);
+        $this->assertTrue(app(AppointmentAvailabilityService::class)->hasConflict($this->owner, $start, $start->addMinutes(30)));
+    }
+
     public function test_crm_meeting_pending_approval_blocks_its_slot(): void
     {
         $this->mockGoogle([$this->googleEvents()]);

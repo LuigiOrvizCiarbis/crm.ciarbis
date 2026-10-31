@@ -23,15 +23,18 @@ final class ToolLoopDeadline
 
     private float $deadline;
 
-    public function __construct(?float $budgetSeconds = null)
+    private \Closure $clock;
+
+    public function __construct(?float $budgetSeconds = null, ?callable $clock = null)
     {
         $budget = $budgetSeconds ?? (float) config('services.ai.tool_loop_budget_seconds', 80);
-        $this->deadline = microtime(true) + $budget;
+        $this->clock = $clock === null ? static fn (): float => microtime(true) : \Closure::fromCallable($clock);
+        $this->deadline = ($this->clock)() + $budget;
     }
 
     public function remaining(): float
     {
-        return max(0.0, $this->deadline - microtime(true));
+        return max(0.0, $this->deadline - ($this->clock)());
     }
 
     public function canRequest(): bool
