@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\WhatsAppConfig;
 use App\Support\MetaOAuth;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -28,7 +29,7 @@ class WhatsAppGroupEligibilityService
      *     status: string,
      *     is_oba: bool|null,
      *     platform_type: string|null,
-     *     checked_at: \Illuminate\Support\Carbon|null,
+     *     checked_at: Carbon|null,
      *     reason_message: string
      * }
      */
@@ -74,7 +75,7 @@ class WhatsAppGroupEligibilityService
                 default => WhatsAppConfig::GROUPS_ELIGIBLE,
             };
 
-            $this->persist($config, $status, $isOba, $platformType, null);
+            $this->persist($config, $status, $isOba, $platformType, null, $isOnBizApp);
 
             return $this->present($config->refresh());
         } catch (\Throwable $e) {
@@ -92,9 +93,12 @@ class WhatsAppGroupEligibilityService
             && $config->groups_eligibility_checked_at->gt(now()->subHours(WhatsAppConfig::GROUPS_ELIGIBILITY_TTL_HOURS));
     }
 
-    private function persist(WhatsAppConfig $config, string $status, ?bool $isOba, ?string $platformType, ?string $error): void
+    private function persist(WhatsAppConfig $config, string $status, ?bool $isOba, ?string $platformType, ?string $error, ?bool $isOnBizApp = null): void
     {
+        // is_on_biz_app sólo se pisa con una respuesta real de Meta: un error
+        // de red no debe apagar las alertas de derivación del canal.
         $config->update([
+            ...($isOnBizApp !== null ? ['is_on_biz_app' => $isOnBizApp, 'is_on_biz_app_checked_at' => now()] : []),
             'groups_eligibility_status' => $status,
             'groups_is_oba' => $isOba,
             'groups_platform_type' => $platformType,

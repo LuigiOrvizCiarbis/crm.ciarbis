@@ -21,6 +21,7 @@ use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
 use App\Models\WhatsAppWebhookReceipt;
+use App\Services\HumanHandoffService;
 use App\Services\WhatsAppBusinessVerificationService;
 use App\Services\WhatsAppContactSyncService;
 use App\Services\WhatsAppGroupEligibilityService;
@@ -339,6 +340,11 @@ class WhatsAppController extends Controller
             // ante la duda intentamos el sync igual, porque marcar not_applicable
             // por un error de red dejaría al cliente sin contactos en silencio.
             $bizAppState = $this->businessAppState($config->phone_number_id, $businessToken);
+
+            // Las alertas de derivación sólo se mandan a números en coexistence.
+            if ($bizAppState !== null) {
+                $config->forceFill(['is_on_biz_app' => $bizAppState, 'is_on_biz_app_checked_at' => now()])->save();
+            }
 
             if ($bizAppState === false) {
                 $config->forceFill([
@@ -1210,11 +1216,25 @@ class WhatsAppController extends Controller
             return response()->json(['error' => 'Verification token mismatch'], 403);
         }
 
+        // Firma de Meta (HMAC del raw body con el app secret). Por ahora sólo
+        // se exige para el número central de alertas, que antes tenía su
+        // propio endpoint con firma; para los canales de tenants se registra
+        // el fallo sin rechazar, hasta confirmar en prod que valida y poder
+        // exigirla como Messenger e Instagram.
+        $signed = $this->hasValidSignature($request);
+        if (! $signed) {
+            Log::warning('WhatsApp webhook: firma X-Hub-Signature-256 ausente o inválida');
+        }
+        $alertsPhoneId = (string) config('services.si_crm_alerts.phone_number_id');
+
         try {
-            $pendingIds = DB::transaction(function () use ($request): array {
+            $pendingIds = DB::transaction(function () use ($request, $signed, $alertsPhoneId): array {
                 $pendingIds = [];
                 foreach ($request->input('entry', []) as $entry) {
                     foreach ($entry['changes'] ?? [] as $change) {
+                        if (! $signed && $alertsPhoneId !== '' && ($change['value']['metadata']['phone_number_id'] ?? null) === $alertsPhoneId) {
+                            continue;
+                        }
                         $queue = in_array($change['field'] ?? '', ['history', 'smb_app_state_sync'], true)
                             ? 'whatsapp-sync'
                             : 'whatsapp-webhooks';
@@ -1256,11 +1276,39 @@ class WhatsAppController extends Controller
         return response()->json(['status' => 'EVENT_RECEIVED'], 200);
     }
 
+    /**
+     * Verifica X-Hub-Signature-256 (HMAC-SHA256 del raw body con el app
+     * secret), igual que MessengerController e InstagramController.
+     */
+    private function hasValidSignature(Request $request): bool
+    {
+        $signature = $request->header('X-Hub-Signature-256');
+        $appSecret = config('services.facebook.app_secret');
+
+        if (! $signature || ! $appSecret) {
+            return false;
+        }
+
+        return hash_equals('sha256='.hash_hmac('sha256', $request->getContent(), $appSecret), $signature);
+    }
+
     /** Process one persisted change. Queue failures propagate to Laravel retries. */
     public function processQueuedWebhookChange(?string $wabaId, array $change): void
     {
         $field = $change['field'] ?? '';
         $value = $change['value'] ?? [];
+
+        // El número central de alertas vive en la misma app de Meta, así que
+        // sus eventos llegan por este webhook. No es un canal de ningún
+        // tenant: sólo interesan los estados de las alertas enviadas.
+        $alertsPhoneId = config('services.si_crm_alerts.phone_number_id');
+        if ($alertsPhoneId && ($value['metadata']['phone_number_id'] ?? null) === (string) $alertsPhoneId) {
+            foreach ($value['statuses'] ?? [] as $status) {
+                app(HumanHandoffService::class)->recordAlertStatus($status);
+            }
+
+            return;
+        }
 
         if ($field === 'messages' && isset($value['statuses'])) {
             $this->processStatusUpdates($value['statuses'], $value['metadata']['phone_number_id'] ?? null);

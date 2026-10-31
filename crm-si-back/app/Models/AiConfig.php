@@ -27,6 +27,7 @@ class AiConfig extends Model
         'api_key',
         'model',
         'enabled',
+        'human_handoff_enabled',
         'system_prompt',
     ];
 
@@ -39,6 +40,7 @@ class AiConfig extends Model
         return [
             'provider' => AiProvider::class,
             'enabled' => 'boolean',
+            'human_handoff_enabled' => 'boolean',
         ];
     }
 

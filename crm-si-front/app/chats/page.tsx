@@ -80,7 +80,7 @@ import { MailMessageInput } from "@/components/chat/MailMessageInput"
 import { ConversationList } from "@/components/chat/ConversationList"
 import { FilteredConversationsHeader } from "@/components/chat/FilteredConversationsHeader"
 import { ChannelsList } from "@/components/chat/ChannelsList"
-import { getChannels, updateChannelName, syncMailChannel, disconnectChannel } from "@/lib/api/channels"
+import { getChannels, updateChannelName, updateChannelHandoffSettings, syncMailChannel, disconnectChannel, type ChannelHandoffSettings } from "@/lib/api/channels"
 import { updateContact } from "@/lib/api/contacts"
 import { updateWhatsAppGroup } from "@/lib/api/whatsapp-groups"
 import { isExpectedBusinessErrorMessage } from "@/lib/observability/sentry"
@@ -1196,6 +1196,29 @@ export default function ChatsPage() {
     }
   }, [addToast, t])
 
+  // El diálogo se cierra sólo si esto no tira: ante un error queda abierto
+  // para que el usuario corrija o reintente.
+  const handleSaveHandoffSettings = useCallback(async (channelId: number, settings: ChannelHandoffSettings) => {
+    try {
+      const updated = await updateChannelHandoffSettings(channelId, settings)
+      setChannels((prev) => prev.map((c) => (c.id === channelId
+        ? {
+            ...c,
+            handoff_responsible_user_id: updated.handoff_responsible_user_id ?? null,
+            handoff_whatsapp_alert_enabled: updated.handoff_whatsapp_alert_enabled ?? c.handoff_whatsapp_alert_enabled,
+          }
+        : c)))
+      addToast({ type: "success", title: t("chats.handoffSettings.saved") })
+    } catch (err) {
+      addToast({
+        type: "error",
+        title: t("chats.handoffSettings.error"),
+        description: err instanceof Error ? err.message : undefined,
+      })
+      throw err
+    }
+  }, [addToast, t])
+
   // Sincronización manual de una casilla de email. El backend sólo encola el
   // job, así que confirmamos el pedido: los mensajes llegan por websocket.
   const handleSyncMailChannel = useCallback(async (channelId: number) => {
@@ -2029,6 +2052,7 @@ export default function ChatsPage() {
           onRenameChannel={canUpdateChannels ? handleRenameChannel : undefined}
           onSyncMailChannel={canUpdateChannels ? handleSyncMailChannel : undefined}
           onDisconnectChannel={canDisconnectChannels ? handleDisconnectChannel : undefined}
+          onSaveHandoffSettings={canUpdateChannels ? handleSaveHandoffSettings : undefined}
         />
       </div>
 

@@ -19,6 +19,8 @@ export interface Channel {
     display_phone_number?: string
     waba_id: string
     verify_token: string | null
+    /** El número está en la app WhatsApp Business (coexistence). null = sin chequear. */
+    is_on_biz_app?: boolean | null
     created_at: string
     updated_at: string
   }
@@ -69,7 +71,8 @@ export interface Channel {
   conversations_count?: number
   phone?: string
   handoff_responsible_user_id?: number | null
-
+  handoff_whatsapp_alert_enabled?: boolean
+  users?: Array<{ id: number; name: string; email: string }>
 }
 
 export interface WhatsAppGroupSummary {

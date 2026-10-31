@@ -60,7 +60,6 @@ use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstagramController;
 use App\Http\Controllers\MailController;
 use App\Http\Controllers\MessengerController;
-use App\Http\Controllers\WhatsAppAlertsController;
 use App\Http\Controllers\WhatsAppController;
 use App\Http\Resources\UserResource;
 use App\Models\Invitation;
@@ -455,9 +454,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('users/{user}/branch', [UserController::class, 'assignBranch']);
 
     Route::put('profile', [ProfileController::class, 'update']);
-    Route::post('profile/whatsapp-notifications/verification', [ProfileController::class, 'requestWhatsAppNotificationVerification']);
-    Route::post('profile/whatsapp-notifications/verification/confirm', [ProfileController::class, 'confirmWhatsAppNotificationVerification']);
-    Route::delete('profile/whatsapp-notifications', [ProfileController::class, 'revokeWhatsAppNotification']);
     Route::put('profile/password', [ProfileController::class, 'updatePassword']);
     Route::put('profile/preferences', [ProfileController::class, 'updatePreferences']);
     Route::put('profile/notification-preferences', [ProfileController::class, 'updateNotificationPreferences']);
@@ -727,7 +723,6 @@ Route::get('invitations/by-token/{token}', [InvitationController::class, 'showBy
 Route::get('plans', [PlanController::class, 'index']);
 
 Route::match(['get', 'post'], 'whatsapp-webhook', [WhatsAppController::class, 'webhook']);
-Route::match(['get', 'post'], 'whatsapp-alerts-webhook', [WhatsAppAlertsController::class, 'webhook']);
 
 Route::match(['get', 'post'], 'instagram-webhook', [InstagramController::class, 'webhook']);
 

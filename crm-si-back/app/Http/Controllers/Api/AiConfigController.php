@@ -50,6 +50,7 @@ class AiConfigController extends Controller
             'provider' => ['required', Rule::in(AiProvider::values())],
             'model' => ['nullable', 'string', 'max:255'],
             'enabled' => ['required', 'boolean'],
+            'human_handoff_enabled' => ['sometimes', 'boolean'],
             'system_prompt' => ['nullable', 'string', 'max:'.self::SYSTEM_PROMPT_MAX_LENGTH],
             'api_key' => ['nullable', 'string', 'max:500'],
         ]);
@@ -59,6 +60,9 @@ class AiConfigController extends Controller
         $config->provider = $validated['provider'];
         $config->model = $validated['model'] ?? null;
         $config->enabled = $validated['enabled'];
+        if (array_key_exists('human_handoff_enabled', $validated)) {
+            $config->human_handoff_enabled = $validated['human_handoff_enabled'];
+        }
         $config->system_prompt = $validated['system_prompt'] ?? null;
         $config->save();
 
@@ -189,6 +193,7 @@ class AiConfigController extends Controller
                 'provider' => null,
                 'model' => null,
                 'enabled' => false,
+                'human_handoff_enabled' => true,
                 'system_prompt' => null,
                 'has_api_key' => false,
             ];
@@ -198,6 +203,7 @@ class AiConfigController extends Controller
             'provider' => $config->provider->value,
             'model' => $config->model,
             'enabled' => $config->enabled,
+            'human_handoff_enabled' => $config->human_handoff_enabled ?? true,
             'system_prompt' => $config->system_prompt,
             'has_api_key' => ! empty($config->api_key),
         ];

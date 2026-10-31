@@ -37,6 +37,7 @@ class Channel extends Model
         'branch_id',
         'user_id',
         'handoff_responsible_user_id',
+        'handoff_whatsapp_alert_enabled',
         'whatsapp_config_id',
         'instagram_config_id',
         'messenger_config_id',
@@ -52,6 +53,7 @@ class Channel extends Model
     protected $casts = [
         'type' => ChannelType::class,
         'disconnected_at' => 'datetime',
+        'handoff_whatsapp_alert_enabled' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

@@ -10,8 +10,8 @@ use App\Services\AiReplyService;
 use App\Services\AiTypingIndicatorService;
 use App\Services\HumanHandoffService;
 use App\Services\InstagramMessageService;
-use App\Services\MessengerMessageService;
 use App\Services\MailMessageService;
+use App\Services\MessengerMessageService;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -128,6 +128,7 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
                 $messengerMessageService,
                 $mailMessageService,
             );
+
             return;
         }
 
@@ -201,9 +202,11 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
             $messengerMessageService,
             $mailMessageService,
         );
-        $ack = ($decision->handoff['customer_locale'] ?? 'es') === 'en'
+        // Preferimos el texto que el modelo escribió junto a la tool: mantiene
+        // el tono del asistente del tenant. El fijo queda como respaldo.
+        $ack = $decision->reply ?? (($decision->handoff['customer_locale'] ?? 'es') === 'en'
             ? 'Of course. I’m transferring you to a team member, who will reply here shortly.'
-            : 'Claro, te derivo con una persona del equipo. En breve te van a responder por acá.';
+            : 'Claro, te derivo con una persona del equipo. En breve te van a responder por acá.');
         $service?->sendSystemTextMessageFromCRM($conversation, $ack);
     }
 
