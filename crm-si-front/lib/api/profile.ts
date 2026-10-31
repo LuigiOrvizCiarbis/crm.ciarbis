@@ -23,20 +23,6 @@ export interface ProfileSession {
   is_current: boolean
 }
 
-export async function subscribeWhatsAppNotifications(phone: string, consent: boolean): Promise<{ data?: User; error?: string }> {
-  const token = getAuthToken(); if (!token) return { error: "No autenticado" }
-  const response = await fetch("/api/profile/whatsapp-notifications", { method: "POST", headers: authHeaders(token), body: JSON.stringify({ phone, consent }) })
-  const payload = await response.json().catch(() => ({}))
-  return response.ok ? { data: payload?.data } : { error: extractError(payload, "No se pudieron activar las alertas.") }
-}
-
-export async function revokeWhatsAppNotifications(): Promise<{ data?: User; error?: string }> {
-  const token = getAuthToken(); if (!token) return { error: "No autenticado" }
-  const response = await fetch("/api/profile/whatsapp-notifications", { method: "DELETE", headers: authHeaders(token, false) })
-  const payload = await response.json().catch(() => ({}))
-  return response.ok ? { data: payload?.data } : { error: extractError(payload, "No se pudieron desactivar las alertas.") }
-}
-
 function extractError(payload: any, fallback: string): string {
   const firstError = payload?.errors && typeof payload.errors === "object"
     ? Object.values(payload.errors).flat()[0]

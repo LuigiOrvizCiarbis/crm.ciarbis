@@ -10,8 +10,8 @@ class NavigationLabelController extends Controller
 {
     /** @var list<string> */
     private const KEYS = [
-        'dashboard', 'chats', 'contacts', 'catalog',
-        'pipeline', 'tasks', 'broadcasts', 'settings',
+        'dashboard', 'chats', 'instagram_comments', 'contacts', 'catalog',
+        'pipeline', 'tasks', 'broadcasts', 'invoices', 'settings',
     ];
 
     public function update(Request $request): JsonResponse

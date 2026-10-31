@@ -10,16 +10,18 @@ use App\Jobs\SendBroadcastMessageJob;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
-use App\Models\HumanHandoff;
 use App\Models\ManualAiDraft;
 use App\Models\Message;
 use App\Models\Opportunity;
 use App\Models\PipelineStage;
 use App\Models\WhatsAppTemplate;
-use App\Services\WhatsAppMessageService;
+use App\Services\AiTypingIndicatorService;
 use App\Services\HumanHandoffService;
+use App\Services\Notifications\DomainNotifier;
+use App\Services\WhatsAppMessageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -32,6 +34,8 @@ class ConversationController extends Controller
 
         $request->validate([
             'search' => 'sometimes|string|min:2|max:100',
+            'per_page' => 'sometimes|integer|min:1|max:100',
+            'cursor_mode' => 'sometimes|boolean',
         ]);
 
         $contactId = $request->query('contact_id');
@@ -45,8 +49,9 @@ class ConversationController extends Controller
             ->with([
                 'contact:id,name,phone',
                 'channel:id,name,type',
-                'messages:id',
                 'tags',
+                // Sólo las etapas: la bandeja filtra por etapa en cualquier pipeline.
+                'opportunities:id,conversation_id,pipeline_stage_id',
                 'whatsappGroup:id,conversation_id,subject,status,group_id,total_participant_count,invite_link',
                 'activeHumanHandoff',
             ])
@@ -158,9 +163,19 @@ class ConversationController extends Controller
             ]);
         }
 
-        $q->orderByDesc('last_message_at');
+        // CursorPaginator no puede construir un cursor fiable con columnas
+        // NULL. Una conversación nueva puede no tener mensajes todavía, por
+        // eso se ordena por su fecha de creación en ese caso. El id deja el
+        // orden determinista cuando dos filas comparten fecha.
+        $q->addSelect(DB::raw('COALESCE(conversations.last_message_at, conversations.created_at) as inbox_cursor_at'))
+            ->orderByDesc('inbox_cursor_at')
+            ->orderByDesc('id');
 
-        $conversations = $q->paginate((int) $request->query('per_page', 20));
+        $perPage = (int) $request->query('per_page', 20);
+        $usesCursor = $request->boolean('cursor_mode') || $request->filled('cursor');
+        $conversations = $usesCursor
+            ? $q->cursorPaginate($perPage)
+            : $q->paginate($perPage);
 
         $data = $conversations->items();
 
@@ -180,6 +195,7 @@ class ConversationController extends Controller
                 'unread' => ($conversation->unread_count ?? 0) > 0 || (bool) $conversation->manual_unread,
                 'lead_score' => $conversation->lead_score,
                 'pipeline_stage_id' => $conversation->pipeline_stage_id,
+                'opportunity_stage_ids' => $conversation->opportunities->pluck('pipeline_stage_id')->filter()->unique()->values(),
                 'assigned_to' => $conversation->assigned_to,
                 'archived_at' => $conversation->archived_at,
                 'archived' => $conversation->archived,
@@ -188,7 +204,9 @@ class ConversationController extends Controller
                 'contact_language' => $conversation->contact_language,
                 'created_at' => $conversation->created_at,
                 'updated_at' => $conversation->updated_at,
-                'messages' => $conversation->messages,
+                // El detalle carga sus mensajes desde show(); traerlos para
+                // cada tarjeta de la bandeja escala con todo el historial.
+                'messages' => [],
                 'tags' => $conversation->tags,
                 'matched_message_snippet' => $conversation->matched_message_snippet !== null
                     ? Str::limit($conversation->matched_message_snippet, 120)
@@ -198,11 +216,17 @@ class ConversationController extends Controller
 
         return response()->json([
             'data' => $transformed,
-            'meta' => [
-                'total' => $conversations->total(),
-                'current_page' => $conversations->currentPage(),
-                'last_page' => $conversations->lastPage(),
-            ],
+            'meta' => $usesCursor
+                ? [
+                    'next_cursor' => $conversations->nextCursor()?->encode(),
+                    'previous_cursor' => $conversations->previousCursor()?->encode(),
+                    'has_more' => $conversations->hasMorePages(),
+                ]
+                : [
+                    'total' => $conversations->total(),
+                    'current_page' => $conversations->currentPage(),
+                    'last_page' => $conversations->lastPage(),
+                ],
         ]);
     }
 
@@ -210,13 +234,6 @@ class ConversationController extends Controller
     {
 
         $conversation = Conversation::with([
-            'messages' => function ($q) {
-                // CAMBIO SUGERIDO: Aumentar de 4 a 20 para llenar la pantalla inicial
-                $q->with(['mailDetails', 'mailAttachments', 'linkPreview'])
-                    ->whereNull('mail_parent_message_id')
-                    ->orderBy('created_at', 'desc')
-                    ->limit(20);
-            },
             'contact:id,name,phone',
             'channel:id,name,type',
             'tags',
@@ -227,7 +244,16 @@ class ConversationController extends Controller
 
         $this->authorize('view', $conversation);
 
-        $conversation->setRelation('messages', $conversation->messages->sortBy('created_at')->values());
+        // Query directa y no eager load con limit: el eager load numera con row_number()
+        // todos los mensajes de la conversación; así corta en 20 con el índice (conversation_id, created_at).
+        $messages = $conversation->messages()
+            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview'])
+            ->whereNull('mail_parent_message_id')
+            ->orderBy('created_at', 'desc')
+            ->limit(20)
+            ->get();
+
+        $conversation->setRelation('messages', $messages->sortBy('created_at')->values());
         if ($conversation->isGroup()) {
             $this->attachSenderNames($conversation->messages);
         }
@@ -284,7 +310,7 @@ class ConversationController extends Controller
         // Obtenemos mensajes ordenados por fecha descendente (del más nuevo al más viejo)
         // Laravel Paginator se encarga de 'page=1', 'page=2', etc.
         $messages = $conversation->messages()
-            ->with(['mailDetails', 'mailAttachments', 'linkPreview'])
+            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview'])
             ->whereNull('mail_parent_message_id')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
@@ -308,33 +334,19 @@ class ConversationController extends Controller
         // Validar que la etapa destino pertenezca al mismo tenant (seguridad extra)
         $stage = PipelineStage::where('id', $request->pipeline_stage_id)->firstOrFail();
 
+        // La etapa del chat vive en el pipeline predeterminado.
+        if (! $stage->pipeline?->is_default) {
+            return response()->json(['message' => 'La etapa del chat tiene que ser del pipeline predeterminado.'], 422);
+        }
+
+        // Si el chat tiene una oportunidad en ese pipeline, la etapa la maneja ella.
+        if (Opportunity::where('conversation_id', $conversation->id)->inDefaultPipeline()->exists()) {
+            return response()->json(['message' => 'La etapa de este chat sigue a su oportunidad. Mové la oportunidad.'], 422);
+        }
+
         $conversation->update([
             'pipeline_stage_id' => $stage->id,
         ]);
-
-        // Sincronizar la Opportunity vinculada: actualizar si existe, crear si no.
-        // Una conversación de grupo no tiene contact_id (NOT NULL en
-        // opportunities), así que no se autocrea una oportunidad ahí; si el
-        // grupo nace desde una oportunidad existente, esa referencia vive en
-        // whatsapp_groups.opportunity_id, no acá.
-        $opportunity = Opportunity::where('conversation_id', $conversation->id)->first();
-
-        if ($opportunity) {
-            $opportunity->update([
-                'pipeline_stage_id' => $stage->id,
-                'last_activity_at' => now(),
-            ]);
-        } elseif (! $conversation->isGroup()) {
-            Opportunity::create([
-                'conversation_id' => $conversation->id,
-                'contact_id' => $conversation->contact_id,
-                'pipeline_stage_id' => $stage->id,
-                'title' => 'Oportunidad - '.($conversation->contact?->name ?? 'Sin nombre'),
-                'status' => 'open',
-                'source_type' => 'conversation',
-                'last_activity_at' => now(),
-            ]);
-        }
 
         return response()->json($conversation);
     }
@@ -359,7 +371,13 @@ class ConversationController extends Controller
             $syncData[$userId] = ['assigned_by' => $currentUserId];
         }
 
-        $conversation->users()->sync($syncData);
+        $changes = $conversation->users()->sync($syncData);
+        app(DomainNotifier::class)->conversationAssignmentChanged(
+            $conversation,
+            array_map('intval', $changes['attached']),
+            array_map('intval', $changes['detached']),
+            $request->user(),
+        );
 
         return response()->json([
             'message' => 'Usuarios asignados correctamente',
@@ -380,6 +398,9 @@ class ConversationController extends Controller
         ]);
         $currentUserId = auth()->id();
 
+        $wasAssigned = (int) $conversation->assigned_to === (int) $request->user_id
+            || $conversation->users()->where('users.id', $request->user_id)->exists();
+
         // Actualizar el responsable principal
         $conversation->update(['assigned_to' => $request->user_id]);
 
@@ -387,6 +408,10 @@ class ConversationController extends Controller
         $conversation->users()->syncWithoutDetaching([
             $request->user_id => ['assigned_by' => $currentUserId],
         ]);
+
+        if (! $wasAssigned) {
+            app(DomainNotifier::class)->conversationAssignmentChanged($conversation, [(int) $request->user_id], [], $request->user());
+        }
 
         return response()->json([
             'message' => 'Usuario asignado correctamente',
@@ -403,7 +428,9 @@ class ConversationController extends Controller
         $conversation = Conversation::where('id', $id)->firstOrFail();
         $this->authorize('assign', $conversation);
 
-        $conversation->users()->detach($userId);
+        if ($conversation->users()->detach($userId) > 0) {
+            app(DomainNotifier::class)->conversationAssignmentChanged($conversation, [], [(int) $userId], $request->user());
+        }
 
         return response()->json([
             'message' => 'Usuario removido correctamente',
@@ -505,8 +532,12 @@ class ConversationController extends Controller
     /**
      * Activa o desactiva la auto-respuesta de IA para la conversación.
      */
-    public function aiAutoreply(Request $request, HumanHandoffService $handoffService, $id): JsonResponse
-    {
+    public function aiAutoreply(
+        Request $request,
+        HumanHandoffService $handoffService,
+        AiTypingIndicatorService $typingIndicatorService,
+        $id,
+    ): JsonResponse {
         $conversation = Conversation::where('id', $id)->firstOrFail();
         $this->authorize('update', $conversation);
 
@@ -515,6 +546,10 @@ class ConversationController extends Controller
         ]);
 
         $conversation->update(['ai_autoreply_enabled' => $validated['enabled']]);
+
+        if (! $validated['enabled']) {
+            $typingIndicatorService->stop($conversation->id);
+        }
 
         if ($validated['enabled']) {
             $this->cancelManualAiDrafts($conversation);
@@ -532,9 +567,14 @@ class ConversationController extends Controller
     public function acknowledgeHumanHandoff(Request $request, HumanHandoffService $service, $id): JsonResponse
     {
         $conversation = Conversation::query()->with('activeHumanHandoff')->whereKey($id)->firstOrFail();
-        $this->authorize('view', $conversation);
+        // Tomarla es comprometerse a responder: pide el mismo permiso que
+        // escribir en la conversación, no sólo verla.
+        $this->authorize('sendMessage', $conversation);
         $handoff = $conversation->activeHumanHandoff;
-        if (! $handoff) return response()->json(['message' => 'No hay una derivación activa.'], 404);
+        if (! $handoff) {
+            return response()->json(['message' => 'No hay una derivación activa.'], 404);
+        }
+
         return response()->json(['data' => $service->acknowledge($handoff, $request->user())]);
     }
 
@@ -598,7 +638,7 @@ class ConversationController extends Controller
             'user_id' => [
                 'required',
                 'integer',
-                Rule::exists('users', 'id')->where(fn ($q) => $q->where('tenant_id', $tenantId)),
+                Rule::exists('users', 'id')->where(fn ($q) => $q->whereIn('id', DB::table('tenant_memberships')->select('user_id')->where('tenant_id', $tenantId)->whereNull('removed_at'))),
             ],
         ]);
 
@@ -652,8 +692,11 @@ class ConversationController extends Controller
     /**
      * Activa o desactiva la auto-respuesta de IA para múltiples conversaciones.
      */
-    public function bulkAiAutoreply(Request $request, HumanHandoffService $handoffService): JsonResponse
-    {
+    public function bulkAiAutoreply(
+        Request $request,
+        HumanHandoffService $handoffService,
+        AiTypingIndicatorService $typingIndicatorService,
+    ): JsonResponse {
         $user = $request->user();
 
         $validated = $request->validate([
@@ -671,6 +714,8 @@ class ConversationController extends Controller
             if ($validated['enabled']) {
                 $this->cancelManualAiDrafts($conversation);
                 $handoffService->cancelActive($conversation);
+            } else {
+                $typingIndicatorService->stop($conversation->id);
             }
         }
 

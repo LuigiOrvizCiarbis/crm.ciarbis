@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react"
 import { usePathname } from "next/navigation"
 import { AppSidebar } from "@/components/AppSidebar"
 import { TrialBanner } from "@/components/TrialBanner"
+import { useUserNotifications } from "@/hooks/useUserNotifications"
 import { isRouteMatch, routesWithoutAppShell } from "@/lib/routes"
 
 interface AppShellProps {
@@ -15,6 +16,8 @@ export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
   const shouldSkipShell = isRouteMatch(pathname, routesWithoutAppShell)
   const mainRef = useRef<HTMLElement | null>(null)
+
+  useUserNotifications()
 
   useEffect(() => {
     if (shouldSkipShell) return

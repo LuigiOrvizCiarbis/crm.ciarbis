@@ -202,4 +202,57 @@ class ConversationChannelFilterTest extends TestCase
             ->assertJsonPath('data.unread_count', 1)
             ->assertJsonMissingPath('data.0.id');
     }
+
+    public function test_cursor_pagination_returns_each_conversation_once_in_last_message_order(): void
+    {
+        $tenant = $this->createTenantWithRoles();
+        $admin = User::factory()->create([
+            'tenant_id' => $tenant->id,
+            'role' => UserRole::ADMIN,
+        ]);
+        $admin->assignRole('Admin');
+
+        $channel = Channel::create([
+            'tenant_id' => $tenant->id,
+            'user_id' => $admin->id,
+            'type' => ChannelType::WHATSAPP,
+            'name' => 'Inbox',
+            'status' => 'active',
+        ]);
+
+        $conversationIds = collect([3, 2, 1])->map(function (int $minutesAgo) use ($tenant, $channel): int {
+            $contact = Contact::create([
+                'tenant_id' => $tenant->id,
+                'name' => "Contact {$minutesAgo}",
+                'phone' => "+54911000000{$minutesAgo}",
+                'source' => 'whatsapp',
+            ]);
+
+            return Conversation::create([
+                'tenant_id' => $tenant->id,
+                'channel_id' => $channel->id,
+                'contact_id' => $contact->id,
+                'status' => 'open',
+                'last_message_at' => now()->subMinutes($minutesAgo),
+            ])->id;
+        });
+
+        Sanctum::actingAs($admin);
+
+        $firstPage = $this->getJson('/api/conversations?cursor_mode=1&per_page=2')
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+        $cursor = $firstPage->json('meta.next_cursor');
+
+        $this->assertNotEmpty($cursor);
+
+        $secondPage = $this->getJson('/api/conversations?cursor='.urlencode($cursor).'&per_page=2')
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+
+        $returnedIds = collect($firstPage->json('data'))->pluck('id')
+            ->merge(collect($secondPage->json('data'))->pluck('id'));
+
+        $this->assertSame($conversationIds->reverse()->values()->all(), $returnedIds->all());
+    }
 }

@@ -16,15 +16,19 @@ use App\Models\Tenant;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
+use App\Services\Ai\AiReplyDecision;
 use App\Services\AiReplyService;
+use App\Services\AiTypingIndicatorService;
+use App\Services\HumanHandoffService;
 use App\Services\InstagramMessageService;
-use App\Services\MessengerMessageService;
 use App\Services\MailMessageService;
+use App\Services\MessengerMessageService;
 use App\Services\WhatsAppMessageService;
 use App\Services\WhatsAppTemplateService;
 use App\Support\PermissionCatalog;
 use App\Support\RoleProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -54,6 +58,9 @@ class AiAutoreplyTest extends TestCase
     public function test_inbound_text_dispatches_ai_reply_job(): void
     {
         Queue::fake();
+        Http::fake([
+            'graph.facebook.com/*' => Http::response(['success' => true], 200),
+        ]);
 
         // Tenant con AiConfig habilitada + key propia (BYOK).
         $this->createChannelSetup(aiDefault: true);
@@ -66,6 +73,30 @@ class AiAutoreplyTest extends TestCase
         Queue::assertPushed(GenerateAiReplyJob::class, function (GenerateAiReplyJob $job) use ($conversation) {
             return $job->conversationId === $conversation->id;
         });
+        Http::assertSent(fn ($request) => ($request['status'] ?? null) === 'read'
+            && ($request['typing_indicator']['type'] ?? null) === 'text'
+            && str_starts_with((string) ($request['message_id'] ?? ''), 'wamid.TEST_'));
+    }
+
+    public function test_typing_indicator_stops_after_one_minute(): void
+    {
+        Queue::fake();
+        Http::fake([
+            'graph.facebook.com/*' => Http::response(['success' => true], 200),
+        ]);
+        $this->createChannelSetup(aiDefault: true);
+
+        $message = app(WhatsAppMessageService::class)
+            ->processIncomingMessage($this->inboundTextPayload('Hola'));
+
+        $this->assertNotNull($message);
+        $cacheKey = 'ai-typing-indicator:'.$message->conversation_id;
+        $this->assertTrue(Cache::has($cacheKey));
+
+        $this->travel(61)->seconds();
+        app(AiTypingIndicatorService::class)->refresh($message->conversation_id, $message->id);
+
+        $this->assertFalse(Cache::has($cacheKey));
     }
 
     public function test_inbound_image_dispatches_ai_reply_job(): void
@@ -74,11 +105,12 @@ class AiAutoreplyTest extends TestCase
         // se fakea para que el webhook de imagen persista y dispare el job.
         Storage::fake('public');
         Http::fake([
-            'graph.facebook.com/v21.0/MEDIA_TEST_1' => Http::response([
+            'graph.facebook.com/*/MEDIA_TEST_1' => Http::response([
                 'url' => 'https://lookaside.fbsbx.com/img.png',
                 'mime_type' => 'image/png',
             ], 200),
             'lookaside.fbsbx.com/*' => Http::response('fake-binary', 200),
+            'graph.facebook.com/*' => Http::response(['success' => true], 200),
         ]);
         Queue::fake();
 
@@ -208,11 +240,11 @@ class AiAutoreplyTest extends TestCase
         [, $conversation] = $this->createConversationSetup(aiEnabled: true);
 
         $this->mock(AiReplyService::class, function ($mock) use ($conversation) {
-            $mock->shouldReceive('respond')
+            $mock->shouldReceive('decide')
                 ->once()
                 ->withArgs(fn (Conversation $c, AiConfig $config) => $c->id === $conversation->id
                     && $config->tenant_id === $conversation->tenant_id)
-                ->andReturn('Hola, sí tenemos stock.');
+                ->andReturn(AiReplyDecision::reply('Hola, sí tenemos stock.'));
         });
 
         $this->mock(WhatsAppMessageService::class, function ($mock) use ($conversation) {
@@ -228,7 +260,55 @@ class AiAutoreplyTest extends TestCase
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
             app(MailMessageService::class),
+            app(HumanHandoffService::class),
+            app(AiTypingIndicatorService::class),
         );
+    }
+
+    public function test_handoff_acknowledges_with_model_text(): void
+    {
+        Queue::fake();
+        [, $conversation] = $this->createConversationSetup(aiEnabled: true);
+
+        $this->mock(AiReplyService::class, function ($mock) {
+            $mock->shouldReceive('decide')->once()->andReturn(AiReplyDecision::handoff(
+                ['reason' => 'customer_requested_human', 'summary' => 'Quiere hablar con ventas.', 'customer_locale' => 'es'],
+                'Dale, ya le aviso a alguien del equipo.',
+            ));
+        });
+
+        $this->mock(WhatsAppMessageService::class, function ($mock) use ($conversation) {
+            $mock->shouldReceive('sendSystemTextMessageFromCRM')
+                ->once()
+                ->withArgs(fn (Conversation $c, string $content) => $c->id === $conversation->id
+                    && $content === 'Dale, ya le aviso a alguien del equipo.');
+        });
+
+        $this->runJob($conversation);
+
+        $this->assertFalse($conversation->fresh()->ai_autoreply_enabled);
+        $this->assertSame('pending', $conversation->humanHandoffs()->sole()->status);
+    }
+
+    public function test_handoff_without_model_text_uses_fallback_acknowledgement(): void
+    {
+        Queue::fake();
+        [, $conversation] = $this->createConversationSetup(aiEnabled: true);
+
+        $this->mock(AiReplyService::class, function ($mock) {
+            $mock->shouldReceive('decide')->once()->andReturn(AiReplyDecision::handoff(
+                ['reason' => 'customer_requested_human', 'summary' => 'Wants a person.', 'customer_locale' => 'en'],
+                '   ',
+            ));
+        });
+
+        $this->mock(WhatsAppMessageService::class, function ($mock) {
+            $mock->shouldReceive('sendSystemTextMessageFromCRM')
+                ->once()
+                ->withArgs(fn (Conversation $c, string $content) => str_starts_with($content, 'Of course.'));
+        });
+
+        $this->runJob($conversation);
     }
 
     /**
@@ -241,7 +321,7 @@ class AiAutoreplyTest extends TestCase
         $conversation->channel->update(['type' => ChannelType::FACEBOOK]);
 
         $this->mock(AiReplyService::class, function ($mock) {
-            $mock->shouldReceive('respond')->once()->andReturn('Respuesta IA');
+            $mock->shouldReceive('decide')->once()->andReturn(AiReplyDecision::reply('Respuesta IA'));
         });
 
         $this->mock(MessengerMessageService::class, function ($mock) use ($conversation) {
@@ -265,6 +345,8 @@ class AiAutoreplyTest extends TestCase
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
             app(MailMessageService::class),
+            app(HumanHandoffService::class),
+            app(AiTypingIndicatorService::class),
         );
     }
 
@@ -277,7 +359,7 @@ class AiAutoreplyTest extends TestCase
         $conversation->channel->update(['type' => ChannelType::TELEGRAM]);
 
         $this->mock(AiReplyService::class, function ($mock) {
-            $mock->shouldReceive('respond')->once()->andReturn('Respuesta IA');
+            $mock->shouldReceive('decide')->once()->andReturn(AiReplyDecision::reply('Respuesta IA'));
         });
 
         foreach ([WhatsAppMessageService::class, InstagramMessageService::class, MessengerMessageService::class, MailMessageService::class] as $service) {
@@ -292,6 +374,8 @@ class AiAutoreplyTest extends TestCase
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
             app(MailMessageService::class),
+            app(HumanHandoffService::class),
+            app(AiTypingIndicatorService::class),
         );
     }
 
@@ -300,7 +384,7 @@ class AiAutoreplyTest extends TestCase
         [, $conversation] = $this->createConversationSetup(aiEnabled: false);
 
         $this->mock(AiReplyService::class, function ($mock) {
-            $mock->shouldNotReceive('respond');
+            $mock->shouldNotReceive('decide');
         });
 
         $this->mock(WhatsAppMessageService::class, function ($mock) {
@@ -313,6 +397,8 @@ class AiAutoreplyTest extends TestCase
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
             app(MailMessageService::class),
+            app(HumanHandoffService::class),
+            app(AiTypingIndicatorService::class),
         );
     }
 
@@ -326,7 +412,7 @@ class AiAutoreplyTest extends TestCase
             ->update(['enabled' => false]);
 
         $this->mock(AiReplyService::class, function ($mock) {
-            $mock->shouldNotReceive('respond');
+            $mock->shouldNotReceive('decide');
         });
 
         $this->mock(WhatsAppMessageService::class, function ($mock) {
@@ -339,6 +425,8 @@ class AiAutoreplyTest extends TestCase
             app(InstagramMessageService::class),
             app(MessengerMessageService::class),
             app(MailMessageService::class),
+            app(HumanHandoffService::class),
+            app(AiTypingIndicatorService::class),
         );
     }
 
@@ -428,6 +516,19 @@ class AiAutoreplyTest extends TestCase
         }
 
         return [$user, $channel, $config];
+    }
+
+    private function runJob(Conversation $conversation): void
+    {
+        (new GenerateAiReplyJob($conversation->id))->handle(
+            app(AiReplyService::class),
+            app(WhatsAppMessageService::class),
+            app(InstagramMessageService::class),
+            app(MessengerMessageService::class),
+            app(MailMessageService::class),
+            app(HumanHandoffService::class),
+            app(AiTypingIndicatorService::class),
+        );
     }
 
     /**

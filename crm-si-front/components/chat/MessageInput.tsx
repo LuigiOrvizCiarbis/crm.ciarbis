@@ -7,7 +7,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { EmojiPicker } from "./EmojiPicker"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTranslation } from "@/hooks/useTranslation"
-import { Paperclip, Smile, Send, X, Pencil, Check, Music2, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound } from "lucide-react"
+import { Paperclip, Smile, Send, X, Pencil, Check, Music2, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound, CalendarClock } from "lucide-react"
 import { KeyboardEvent, SyntheticEvent, useMemo, useRef, useState, useEffect } from "react"
 import dynamic from "next/dynamic"
 import Image from "next/image"
@@ -19,6 +19,7 @@ import { HotkeyAutocomplete } from "./HotkeyAutocomplete"
 import type { ManualAiDraft } from "@/lib/api/manual-ai-drafts"
 import { VoiceRecorder } from "./VoiceRecorder"
 import { ContactShareDialog } from "./ContactShareDialog"
+import { ScheduleMessagePicker } from "./ScheduleMessagePicker"
 
 const TemplatePicker = dynamic(
   () => import("./TemplatePicker").then(m => m.TemplatePicker),
@@ -49,6 +50,9 @@ interface MessageInputProps {
   supportsVoice?: boolean
   supportsContactSharing?: boolean
   onShareContacts?: (ids: number[]) => void | Promise<void>
+  /** Devuelve true si se programó, para limpiar el composer sólo en ese caso. */
+  onSchedule?: (content: string, scheduledFor: Date, media?: File) => Promise<boolean>
+  windowExpiresAt?: string | null
 }
 
 interface SlashState {
@@ -80,6 +84,8 @@ export function MessageInput({
   supportsVoice = false,
   supportsContactSharing = false,
   onShareContacts,
+  onSchedule,
+  windowExpiresAt,
 }: MessageInputProps) {
   const { t } = useTranslation()
   const resolvedPlaceholder = placeholder ?? t("chats.messagePlaceholder")
@@ -102,6 +108,8 @@ export function MessageInput({
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false)
   const [isVoiceComposerActive, setIsVoiceComposerActive] = useState(false)
   const [isContactShareOpen, setIsContactShareOpen] = useState(false)
+  const [isScheduleOpen, setIsScheduleOpen] = useState(false)
+  const [isScheduleSheetOpen, setIsScheduleSheetOpen] = useState(false)
 
   const isEditing = !!editingMessage
   const isAudio = !!selectedMedia?.type.startsWith("audio/")
@@ -240,14 +248,27 @@ export function MessageInput({
     detectSlashFromInput(value, cursorPos)
   }
 
-  const handleSend = () => {
-    if (!value.trim() && !selectedMedia) return
-    onSend(value.trim(), selectedMedia || undefined)
+  const resetComposerExtras = () => {
     setSelectedMedia(null)
     setIsEmojiPickerOpen(false)
     setOriginalDraft(null)
     setTranslatedLanguage(null)
     setTranslationError(null)
+  }
+
+  const handleSend = () => {
+    if (!value.trim() && !selectedMedia) return
+    onSend(value.trim(), selectedMedia || undefined)
+    resetComposerExtras()
+  }
+
+  const handleSchedule = async (scheduledFor: Date) => {
+    if (!onSchedule) return
+    const scheduled = await onSchedule(value.trim(), scheduledFor, selectedMedia || undefined)
+    if (!scheduled) return
+    setIsScheduleOpen(false)
+    setIsScheduleSheetOpen(false)
+    resetComposerExtras()
   }
 
   const handleTranslateDraft = async () => {
@@ -319,6 +340,7 @@ export function MessageInput({
 
   const canSend = isAudio ? selectedMedia : value.trim() || selectedMedia
   const emojiPickerDisabled = disabled || isAudio
+  const canSchedule = !!onSchedule && !isEditing && !disabled && !!canSend
 
   const handleEmojiSelect = (emoji: string) => {
     const input = inputRef.current
@@ -464,6 +486,17 @@ export function MessageInput({
         setIsTranslationSheetOpen(true)
       },
     },
+    ...(onSchedule ? [{
+      key: "schedule",
+      label: t("chats.scheduleAction"),
+      Icon: CalendarClock,
+      tone: "bg-muted text-foreground",
+      disabled: !canSchedule,
+      onClick: () => {
+        setIsActionsOpen(false)
+        setIsScheduleSheetOpen(true)
+      },
+    }] : []),
     ...(onRequestAiDraft ? [{
       key: "ai-draft",
       label: t("chats.aiDraftGenerate"),
@@ -619,6 +652,19 @@ export function MessageInput({
                   </div>
                 </SheetContent>
               </Sheet>
+
+              {onSchedule && (
+                <Sheet open={isScheduleSheetOpen} onOpenChange={setIsScheduleSheetOpen}>
+                  <SheetContent side="bottom" className="gap-0 rounded-t-2xl pb-[env(safe-area-inset-bottom)]">
+                    <SheetHeader className="pb-2">
+                      <SheetTitle className="text-base">{t("chats.scheduleMessage")}</SheetTitle>
+                    </SheetHeader>
+                    <div className="px-4 pb-6">
+                      <ScheduleMessagePicker windowExpiresAt={windowExpiresAt} onConfirm={handleSchedule} />
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              )}
 
               {/* Hoja del traductor en móvil. */}
               <Sheet open={isTranslationSheetOpen} onOpenChange={setIsTranslationSheetOpen}>
@@ -783,6 +829,26 @@ export function MessageInput({
               onActiveChange={setIsVoiceComposerActive}
               onSend={(file) => onSend("", file, true)}
             />
+          )}
+          {onSchedule && !isEditing && !isVoiceComposerActive && (
+            <Popover open={isScheduleOpen} onOpenChange={setIsScheduleOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="hidden shrink-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5"
+                  disabled={!canSchedule}
+                  aria-label={t("chats.scheduleMessage")}
+                  title={t("chats.scheduleMessage")}
+                >
+                  <CalendarClock className="w-4 h-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" side="top" className="w-80 p-3">
+                <p className="mb-2 text-sm font-medium">{t("chats.scheduleMessage")}</p>
+                <ScheduleMessagePicker windowExpiresAt={windowExpiresAt} onConfirm={handleSchedule} />
+              </PopoverContent>
+            </Popover>
           )}
           {!isVoiceComposerActive && <Button
             size="sm"

@@ -105,6 +105,71 @@ function parametersForTemplate(template: WhatsAppTemplate | undefined): ActionPa
   return params
 }
 const emptyGroup = (): ConditionGroup => ({ operator: "AND", conditions: [] })
+
+/**
+ * Operadores que el motor evalúa contra una lista de valores. `ConditionEvaluator`
+ * hace `(array) $expected`: si le llega el string "a, b" lo castea a UN elemento
+ * ("a, b" literal) que no matchea nada, y la regla queda `conditions_not_met`
+ * para siempre. El editor edita `value` como texto plano, así que la conversión
+ * a lista tiene que pasar justo antes de persistir.
+ */
+const LIST_OPERATORS = new Set(["in"])
+
+/** Texto del editor ("impago, en_prueba") al array que espera el motor. */
+const splitListValue = (value: string): string[] =>
+  value.split(",").map((item) => item.trim()).filter((item) => item !== "")
+
+/**
+ * Deja las condiciones en el formato del motor. Recorre los grupos anidados
+ * porque una condición con `in` puede estar a cualquier profundidad.
+ */
+const serializeConditions = (node: ConditionGroup): ConditionGroup => ({
+  ...node,
+  conditions: node.conditions.map((item) => {
+    if ("conditions" in item) return serializeConditions(item)
+    if (!LIST_OPERATORS.has(item.operator)) return item
+    return { ...item, value: splitListValue(item.value) } as unknown as LeafCondition
+  }),
+})
+
+/**
+ * `conditions` no siempre llega como grupo: las reglas que provisiona el
+ * backend (cobranzas, por ejemplo) guardan una condición suelta, que el motor
+ * evalúa igual porque distingue grupo de hoja por la clave `conditions`.
+ * Castear a ConditionGroup a ciegas rompía el editor con un `.map()` sobre
+ * undefined, así que acá se normaliza a grupo antes de abrirlo.
+ */
+const toConditionGroup = (raw: unknown): ConditionGroup => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return emptyGroup()
+
+  const node = raw as Record<string, unknown>
+
+  if (Array.isArray(node.conditions)) {
+    return {
+      // El backend compara con strtoupper() y acepta ambas grafías; el select
+      // del editor sólo entiende mayúsculas.
+      operator: String(node.operator ?? "AND").toUpperCase() === "OR" ? "OR" : "AND",
+      conditions: node.conditions as Array<LeafCondition | ConditionGroup>,
+    }
+  }
+
+  if (typeof node.field === "string") {
+    // El editor renderiza `value` en un <Input>: un array (operador `in`) se
+    // aplana a texto para no pasarle un valor no-string a un input controlado.
+    const value = node.value
+    return {
+      operator: "AND",
+      conditions: [{
+        field: node.field,
+        operator: String(node.operator ?? "equals"),
+        value: Array.isArray(value) ? value.join(", ") : String(value ?? ""),
+      }],
+    }
+  }
+
+  return emptyGroup()
+}
+
 const emptyAction = (): AutomationAction => ({ type: "whatsapp_template", config: { parameters: [] } })
 
 // El backend valida contra DateTimeZone::ALL, que rechaza los alias legacy de
@@ -155,6 +220,18 @@ export function AutomationsSettings() {
     ...contactFields.standard.map((field) => ({ value: field.key, label: field.label })),
     ...contactFields.data.map((field) => ({ value: `custom_data.${field.key}`, label: field.label })),
   ], [contactFields])
+
+  /**
+   * El trigger `date.reached` sólo puede agendar sobre una fecha, así que su
+   * selector se arma aparte: ofrecer Nombre o Moneda ahí es ruido que además
+   * produce reglas que nunca disparan. Los timestamps de sistema se suman a
+   * mano porque no son ContactField.
+   */
+  const dateFieldOptions = useMemo(() => [
+    ...contactFields.standard.filter((field) => field.type === "date").map((field) => ({ value: field.key, label: field.label })),
+    ...contactFields.data.filter((field) => field.type === "date").map((field) => ({ value: `custom_data.${field.key}`, label: field.label })),
+    { value: "created_at", label: t("settings.automations.creationDate") },
+  ], [contactFields, t])
   // Campos que pueden alimentar el header de un template: los de tipo archivo
   // (el PDF vive en la app, URL pública garantizada) y los de tipo URL (link
   // externo, se verifica al enviar). La ruta es la que resuelve el backend.
@@ -239,7 +316,7 @@ export function AutomationsSettings() {
       timezone: rule.timezone,
       actions: rule.actions.map((action) => ({ type: action.type, config: { ...action.config, parameters: action.config.parameters ?? [] } })),
     })
-    setConditionGroup((rule.conditions as ConditionGroup | null) ?? emptyGroup())
+    setConditionGroup(toConditionGroup(rule.conditions))
     rule.actions.forEach((action) => { if (action.config.channel_id) void loadTemplates(action.config.channel_id) })
     setBuilderOpen(true)
   }
@@ -248,7 +325,7 @@ export function AutomationsSettings() {
     if (!form.name.trim()) return
     setSaving(true)
     try {
-      const payload = { ...form, name: form.name.trim(), timezone: normalizeTimezone(form.timezone), conditions: conditionGroup.conditions.length ? conditionGroup : null }
+      const payload = { ...form, name: form.name.trim(), timezone: normalizeTimezone(form.timezone), conditions: conditionGroup.conditions.length ? serializeConditions(conditionGroup) : null }
       if (editing) await updateAutomation(editing.id, payload)
       else await createAutomation(payload)
       addToast({ type: "success", title: t(editing ? "settings.automations.updated" : "settings.automations.created") })
@@ -372,7 +449,7 @@ export function AutomationsSettings() {
             </div>
 
             <BuilderStep number="1" title={t("settings.automations.trigger")} icon={Play}>
-              <TriggerEditor form={form} onChange={setForm} fieldOptions={contactFieldOptions} t={t} />
+              <TriggerEditor form={form} onChange={setForm} fieldOptions={contactFieldOptions} dateFieldOptions={dateFieldOptions} t={t} />
             </BuilderStep>
 
             <BuilderStep number="2" title={t("settings.automations.conditions")} icon={Braces} optional={t("settings.automations.optional")}>
@@ -413,14 +490,23 @@ export function AutomationsSettings() {
   )
 }
 
-function TriggerEditor({ form, onChange, fieldOptions, t }: { form: AutomationPayload; onChange: (value: AutomationPayload) => void; fieldOptions: Array<{ value: string; label: string }>; t: (key: string) => string }) {
+function TriggerEditor({ form, onChange, fieldOptions, dateFieldOptions: rawDateFieldOptions, t }: { form: AutomationPayload; onChange: (value: AutomationPayload) => void; fieldOptions: Array<{ value: string; label: string }>; dateFieldOptions: Array<{ value: string; label: string }>; t: (key: string) => string }) {
   const config = form.trigger_config
   const setConfig = (patch: Record<string, unknown>) => onChange({ ...form, trigger_config: { ...config, ...patch } })
   const watchedField = String(config.field ?? "")
+  const dateField = String(config.field ?? "")
+  // `date.reached` guarda la ruta completa (`contact.custom_data.vencimiento`),
+  // a diferencia de `contact.field_changed`, que guarda la key pelada. El
+  // prefijo sale del subject para que las opciones matcheen lo guardado.
+  const datePrefix = `${String(config.subject ?? "contact")}.`
+  const dateFieldOptions = useMemo(
+    () => rawDateFieldOptions.map((option) => ({ value: `${datePrefix}${option.value}`, label: option.label })),
+    [rawDateFieldOptions, datePrefix],
+  )
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <Field label={t("settings.automations.event")}>
-        <Select value={form.trigger_type} onValueChange={(value) => onChange({ ...form, trigger_type: value, trigger_config: value === "date.reached" ? { subject: "contact", field: "created_at", offset_value: 0, offset_unit: "days", offset_direction: "after", local_time: "09:00" } : {} })}>
+        <Select value={form.trigger_type} onValueChange={(value) => onChange({ ...form, trigger_type: value, trigger_config: value === "date.reached" ? { subject: "contact", field: "contact.created_at", offset_value: 0, offset_unit: "days", offset_direction: "after", local_time: "09:00" } : {} })}>
           <SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{triggers.map(([id, key]) => <SelectItem key={id} value={id}>{t(`settings.automations.triggers.${key}`)}</SelectItem>)}</SelectContent>
         </Select>
       </Field>
@@ -442,7 +528,22 @@ function TriggerEditor({ form, onChange, fieldOptions, t }: { form: AutomationPa
       {form.trigger_type === "date.reached" ? (
         <>
           <Field label={t("settings.automations.subject")}><Select value={String(config.subject ?? "contact")} onValueChange={(value) => setConfig({ subject: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="contact">{t("settings.automations.contact")}</SelectItem><SelectItem value="conversation">{t("settings.automations.conversation")}</SelectItem></SelectContent></Select></Field>
-          <Field label={t("settings.automations.dateField")}><Input value={String(config.field ?? "")} onChange={(event) => setConfig({ field: event.target.value })} placeholder="custom_data.fecha_renovacion" /></Field>
+          <Field label={t("settings.automations.dateField")}>
+            {dateFieldOptions.length > 0 ? (
+              <Select value={dateField} onValueChange={(value) => setConfig({ field: value })}>
+                <SelectTrigger><SelectValue placeholder={t("settings.automations.selectField")} /></SelectTrigger>
+                <SelectContent>
+                  {dateFieldOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                  {/* Una regla provisionada puede apuntar a un campo que no está
+                      en la lista (borrado, o de otro subject): se ofrece crudo
+                      para no perderlo al guardar. */}
+                  {dateField && !dateFieldOptions.some((option) => option.value === dateField) ? <SelectItem value={dateField}>{dateField}</SelectItem> : null}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input value={dateField} onChange={(event) => setConfig({ field: event.target.value })} placeholder="contact.custom_data.fecha_renovacion" />
+            )}
+          </Field>
           <Field label={t("settings.automations.offset")}><div className="grid grid-cols-[80px_1fr_1fr] gap-2"><Input type="number" min={0} value={Number(config.offset_value ?? 0)} onChange={(event) => setConfig({ offset_value: Number(event.target.value) })} /><Select value={String(config.offset_unit ?? "days")} onValueChange={(value) => setConfig({ offset_unit: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="days">{t("settings.automations.days")}</SelectItem><SelectItem value="weeks">{t("settings.automations.weeks")}</SelectItem></SelectContent></Select><Select value={String(config.offset_direction ?? "after")} onValueChange={(value) => setConfig({ offset_direction: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="before">{t("settings.automations.before")}</SelectItem><SelectItem value="after">{t("settings.automations.after")}</SelectItem></SelectContent></Select></div></Field>
           <Field label={t("settings.automations.localTime")}><Input type="time" value={String(config.local_time ?? "09:00")} onChange={(event) => setConfig({ local_time: event.target.value })} /></Field>
           <div className="rounded-lg border border-border p-4 md:col-span-2">
@@ -476,7 +577,7 @@ function ConditionEditor({ group, onChange, fieldOptions, t, depth = 0 }: { grou
             </SelectContent>
           </Select>
           <Select value={condition.operator} onValueChange={(operator) => onChange({ ...group, conditions: group.conditions.map((item, itemIndex) => itemIndex === index ? { ...condition, operator } : item) })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{operators.map((operator) => <SelectItem key={operator} value={operator}>{t(`settings.automations.operators.${operator}`)}</SelectItem>)}</SelectContent></Select>
-          <Input disabled={["empty", "not_empty"].includes(condition.operator)} value={condition.value} onChange={(event) => onChange({ ...group, conditions: group.conditions.map((item, itemIndex) => itemIndex === index ? { ...condition, value: event.target.value } : item) })} placeholder={t("settings.automations.value")} />
+          <Input disabled={["empty", "not_empty"].includes(condition.operator)} value={condition.value} onChange={(event) => onChange({ ...group, conditions: group.conditions.map((item, itemIndex) => itemIndex === index ? { ...condition, value: event.target.value } : item) })} placeholder={LIST_OPERATORS.has(condition.operator) ? t("settings.automations.valueList") : t("settings.automations.value")} />
           <Button variant="ghost" size="icon" aria-label={t("settings.automations.removeCondition")} onClick={() => onChange({ ...group, conditions: group.conditions.filter((_, itemIndex) => itemIndex !== index) })}><X className="size-4" /></Button>
         </div>
       ))}

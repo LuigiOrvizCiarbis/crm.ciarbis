@@ -8,7 +8,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
-use App\Services\HumanHandoffService;
 use Illuminate\Validation\Rules\Password as PasswordRule;
 
 /**
@@ -37,28 +36,6 @@ class ProfileController extends Controller
         $user->forceFill($validated)->save();
 
         return response()->json(['data' => new UserResource($user)]);
-    }
-
-    public function subscribeWhatsAppNotifications(Request $request, HumanHandoffService $service): JsonResponse
-    {
-        $validated = $request->validate(['phone' => ['required', 'string', 'max:40'], 'consent' => ['accepted']]);
-        try {
-            $service->subscribeToWhatsAppNotifications($request->user(), $validated['phone']);
-        } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
-        return response()->json(['data' => new UserResource($request->user()->fresh())]);
-    }
-
-    public function revokeWhatsAppNotification(Request $request): JsonResponse
-    {
-        $request->user()->forceFill([
-            'whatsapp_notification_phone' => null,
-            'whatsapp_notification_phone_normalized' => null,
-            'whatsapp_notification_verified_at' => null,
-            'whatsapp_notification_opted_in_at' => null,
-        ])->save();
-        return response()->json(['data' => new UserResource($request->user()->fresh())]);
     }
 
     public function updatePassword(Request $request): JsonResponse
@@ -98,7 +75,38 @@ class ProfileController extends Controller
             'date_format' => ['required', 'string', 'max:20'],
         ]);
 
-        $user->forceFill(['preferences' => $validated])->save();
+        // Merge: no pisar claves guardadas por otros endpoints (ej. notifications).
+        $user->forceFill(['preferences' => array_merge($user->preferences ?? [], $validated)])->save();
+
+        return response()->json(['data' => ['preferences' => $user->preferencesWithDefaults()]]);
+    }
+
+    public function updateNotificationPreferences(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'types' => ['sometimes', 'array'],
+            'types.*' => ['boolean'],
+            'sound' => ['sometimes', 'boolean'],
+            'browser' => ['sometimes', 'boolean'],
+        ]);
+
+        $current = $user->notificationPreferences();
+        $types = $current['types'];
+        foreach ($validated['types'] ?? [] as $type => $enabled) {
+            if (array_key_exists($type, $types)) {
+                $types[$type] = (bool) $enabled;
+            }
+        }
+
+        $preferences = $user->preferences ?? [];
+        $preferences['notifications'] = [
+            'types' => $types,
+            'sound' => $validated['sound'] ?? $current['sound'],
+            'browser' => $validated['browser'] ?? $current['browser'],
+        ];
+        $user->forceFill(['preferences' => $preferences])->save();
 
         return response()->json(['data' => ['preferences' => $user->preferencesWithDefaults()]]);
     }

@@ -39,9 +39,8 @@ import {
   bulkAiAutoreplyConversations,
   bulkDeleteConversations,
   bulkMarkReadConversations,
-  getChannelConversations,
   getConversationMessages,
-  getConversations,
+  getConversationsCursorPage,
   getConversationWithMessages,
   markConversationAsRead,
   markConversationAsUnread,
@@ -72,23 +71,25 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
-import { sendMessage, sendContactsMessage, saveSharedContact, sendMailMessage, editMessage, deleteMessage, translateMessage, type SendMailMessageInput } from "@/lib/api/messages"
+import { sendMessage, sendContactsMessage, saveSharedContact, sendMailMessage, editMessage, deleteMessage, translateMessage, reactToMessage, type SendMailMessageInput } from "@/lib/api/messages"
 import { ConversationHeader } from "@/components/chat/ConversationHeader"
 import { MessageList } from "@/components/chat/MessageList"
+import { applyReactionToggle } from "@/components/chat/messageThreadUtils"
 import { MessageInput } from "@/components/chat/MessageInput"
 import { MailMessageInput } from "@/components/chat/MailMessageInput"
 import { ConversationList } from "@/components/chat/ConversationList"
 import { FilteredConversationsHeader } from "@/components/chat/FilteredConversationsHeader"
 import { ChannelsList } from "@/components/chat/ChannelsList"
-import { getChannels, updateChannelName, syncMailChannel, disconnectChannel } from "@/lib/api/channels"
+import { getChannels, updateChannelName, updateChannelHandoffSettings, syncMailChannel, disconnectChannel, type ChannelHandoffSettings } from "@/lib/api/channels"
 import { updateContact } from "@/lib/api/contacts"
 import { updateWhatsAppGroup } from "@/lib/api/whatsapp-groups"
 import { isExpectedBusinessErrorMessage } from "@/lib/observability/sentry"
 import { ChannelHeader } from "@/components/chat/AccountHeader"
 import { useConversationFilters } from "@/hooks/useConversationFilters"
 import { TagFilterMenu } from "@/components/tags/TagFilterMenu"
+import { StageFilterMenu, matchesStageFilter, stageKeysOf } from "@/components/chat/StageFilterMenu"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
-import { useSSEMessages, type MessageStatusUpdate } from "@/hooks/useSSEMessages"
+import { useSSEMessages, type MessageStatusUpdate, type MessageReactionUpdate } from "@/hooks/useSSEMessages"
 import { useTenantSSE } from "@/hooks/useTenantSSE"
 import { getPusher } from "@/lib/pusher"
 import { cancelManualAiDraft, getManualAiDraft, requestManualAiDraft, type ManualAiDraft } from "@/lib/api/manual-ai-drafts"
@@ -102,6 +103,11 @@ import { MessengerPageSelectDialog } from "@/components/chat/MessengerPageSelect
 import { MailConnectDialog } from "@/components/chat/MailConnectDialog"
 import { MailReviewInbox } from "@/components/chat/MailReviewInbox"
 import { getMailIntakeCount } from "@/lib/api/mail-intakes"
+import { setActiveConversationId } from "@/lib/activeConversation"
+import { useNotificationsStore } from "@/store/useNotificationsStore"
+import { useScheduledMessages } from "@/hooks/useScheduledMessages"
+import { createScheduledMessage, supportsScheduledMessages } from "@/lib/api/scheduled-messages"
+import { ScheduledMessagesBar } from "@/components/chat/ScheduledMessagesBar"
 import {
   Archive,
   ArchiveRestore,
@@ -285,6 +291,7 @@ export default function ChatsPage() {
   } = useMessengerLogin()
   const currentUserId = user?.id
   const isAdmin = (permissions ?? []).includes("conversations.view_any")
+  const canSendMessage = (permissions ?? []).includes("conversations.send_message")
   const canUpdateChannels = (permissions ?? []).includes("channels.update")
   const canDisconnectChannels = (permissions ?? []).includes("channels.disconnect")
   const canCreateGroups = (permissions ?? []).includes("whatsapp_groups.create")
@@ -303,6 +310,7 @@ export default function ChatsPage() {
   const [isMailConnectOpen, setMailConnectOpen] = useState(false)
   const [activeFilter, setActiveFilter] = useState<FilterType>("todos")
   const [tagFilterSlugs, setTagFilterSlugs] = useState<string[]>([])
+  const [stageFilter, setStageFilter] = useState<string[]>([])
   const [viewType, setViewType] = useState<ConversationView>("inbox")
   const [mailReviewCount, setMailReviewCount] = useState(0)
   const [searchQuery, setSearchQuery] = useState("")
@@ -417,7 +425,13 @@ export default function ChatsPage() {
 
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
-  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false)
+  const [hasMoreConversations, setHasMoreConversations] = useState(false)
+  const [isLoadingMoreConversations, setIsLoadingMoreConversations] = useState(false)
+  const conversationRequestVersion = useRef(0)
+  const conversationCursorRef = useRef<string | null>(null)
+  const hasMoreConversationsRef = useRef(false)
+  const isLoadingMoreConversationsRef = useRef(false)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [aiDraft, setAiDraft] = useState<ManualAiDraft | null>(null)
 
@@ -435,6 +449,49 @@ export default function ChatsPage() {
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
+
+  const loadConversationPage = useCallback(async (reset = false) => {
+    if (!reset && (!hasMoreConversationsRef.current || isLoadingMoreConversationsRef.current)) return
+
+    const requestVersion = reset ? ++conversationRequestVersion.current : conversationRequestVersion.current
+    if (reset) {
+      setIsLoading(true)
+      conversationCursorRef.current = null
+      setHasMoreConversations(false)
+      hasMoreConversationsRef.current = false
+    } else {
+      setIsLoadingMoreConversations(true)
+      isLoadingMoreConversationsRef.current = true
+    }
+
+    try {
+      const result = await getConversationsCursorPage({
+        cursor: reset ? null : conversationCursorRef.current,
+        channelId: selectedChannelId,
+      })
+      if (requestVersion !== conversationRequestVersion.current) return
+
+      setConversations((current) => {
+        if (reset) return result.data
+        const knownIds = new Set(current.map((conversation) => conversation.id))
+        return [...current, ...result.data.filter((conversation) => !knownIds.has(conversation.id))]
+      })
+      conversationCursorRef.current = result.nextCursor
+      setHasMoreConversations(result.hasMore)
+      hasMoreConversationsRef.current = result.hasMore
+    } catch {
+      if (requestVersion === conversationRequestVersion.current) {
+        addToast({ type: "error", title: t("chats.loadConversationsError") })
+        if (reset) setConversations([])
+      }
+    } finally {
+      if (requestVersion === conversationRequestVersion.current) {
+        setIsLoading(false)
+        setIsLoadingMoreConversations(false)
+        isLoadingMoreConversationsRef.current = false
+      }
+    }
+  }, [addToast, selectedChannelId, t])
 
   const isTemplateFallbackContent = useCallback((content?: string) => {
     if (!content) return false;
@@ -596,12 +653,32 @@ export default function ChatsPage() {
     });
   }, []);
 
+  // El evento trae el estado completo de reacciones del mensaje, no un delta:
+  // siempre pisa cualquier proyección optimista local, sin reconciliación
+  // heurística.
+  const handleRealTimeReaction = useCallback((data: MessageReactionUpdate) => {
+    setCurrentConversation((prev) => {
+      if (!prev) return prev;
+      const messages = prev.messages || [];
+      return {
+        ...prev,
+        messages: messages.map((m: Message) =>
+          String(m.id) === String(data.message_id) ? { ...m, reaction_summary: data.reactions } : m
+        ),
+      };
+    });
+  }, []);
+
+  const scheduledMessages = useScheduledMessages(selectedConversationId);
+
   useSSEMessages({
     conversationId: selectedConversationId,
     onMessage: handleRealTimeMessage,
     onEdited: handleRealTimeEdit,
     onDeleted: handleRealTimeDelete,
     onStatus: handleRealTimeStatus,
+    onReaction: handleRealTimeReaction,
+    onScheduledMessage: scheduledMessages.upsert,
   });
 
   const selectedChannelIdRef = useRef(selectedChannelId);
@@ -628,11 +705,13 @@ export default function ChatsPage() {
       // New conversation — refetch respecting the active channel filter
       const channelId = selectedChannelIdRef.current;
       const version = ++tenantRefreshVersionRef.current;
-      const fetcher = channelId ? getChannelConversations(channelId) : getConversations();
-      fetcher.then(data => {
+      getConversationsCursorPage({ channelId }).then(data => {
         if (version !== tenantRefreshVersionRef.current) return;
         if (selectedChannelIdRef.current !== channelId) return;
-        setConversations(data);
+        setConversations(data.data);
+        conversationCursorRef.current = data.nextCursor;
+        setHasMoreConversations(data.hasMore);
+        hasMoreConversationsRef.current = data.hasMore;
       }).catch(() => {});
       // Refresh channel list so conversations_count stays in sync after a new chat lands
       getChannels().then(setChannels).catch(() => {});
@@ -645,9 +724,9 @@ export default function ChatsPage() {
   });
 
   const handleLoadMoreMessages = async () => {
-    if (!selectedConversationId || isLoadingMore || !hasMore) return
+    if (!selectedConversationId || isLoadingMoreMessages || !hasMore) return
 
-    setIsLoadingMore(true)
+    setIsLoadingMoreMessages(true)
     try {
       const nextPage = page + 1
       // Llamamos a la API pidiendo la siguiente página
@@ -679,7 +758,7 @@ export default function ChatsPage() {
       console.error("Error cargando más mensajes:", error)
       addToast({ type: "error", title: t("chats.loadHistoryError") })
     } finally {
-      setIsLoadingMore(false)
+      setIsLoadingMoreMessages(false)
     }
   }
 
@@ -696,13 +775,30 @@ export default function ChatsPage() {
   })
 
   const tagFilteredConversations = useMemo(() => {
-    if (tagFilterSlugs.length === 0) return filteredConversations
+    if (tagFilterSlugs.length === 0 && stageFilter.length === 0) return filteredConversations
 
     const selected = new Set(tagFilterSlugs)
+    const stages = new Set(stageFilter)
     return filteredConversations.filter((conversation) => (
-      conversation.tags?.some((tag) => selected.has(tag.slug))
+      (selected.size === 0 || conversation.tags?.some((tag) => selected.has(tag.slug)))
+      && matchesStageFilter(conversation, stages)
     ))
-  }, [filteredConversations, tagFilterSlugs])
+  }, [filteredConversations, tagFilterSlugs, stageFilter])
+
+  // Chats por etapa con todos los filtros menos el de etapas: lo que mostraría elegirla.
+  const stageFilterCounts = useMemo(() => {
+    const selectedTags = new Set(tagFilterSlugs)
+    const counts = new Map<string, number>()
+    filteredConversations.forEach((conversation) => {
+      if (selectedTags.size > 0 && !conversation.tags?.some((tag) => selectedTags.has(tag.slug))) return
+      const inView = viewType === "archived"
+        ? conversation.archived
+        : viewType === "unread" ? conversation.unread && !conversation.archived : !conversation.archived
+      if (!inView) return
+      stageKeysOf(conversation).forEach((key) => counts.set(key, (counts.get(key) ?? 0) + 1))
+    })
+    return counts
+  }, [filteredConversations, tagFilterSlugs, viewType])
 
   const conversationViewCounts = useMemo(() => ({
     inbox: tagFilteredConversations.filter((conversation) => !conversation.archived).length,
@@ -778,6 +874,7 @@ export default function ChatsPage() {
 
     const visibleIds = new Set(visibleConversations.map((c) => c.id))
     const tagSet = new Set(tagFilterSlugs)
+    const stageSet = new Set(stageFilter)
     const targetType = activeFilter !== "todos" && activeFilter !== "no-leidos"
       ? filterTypeToChannelType(activeFilter)
       : null
@@ -790,22 +887,21 @@ export default function ChatsPage() {
       if (matchingChannelIds && !matchingChannelIds.has(conversation.channelId)) return false
       if (activeFilter === "no-leidos" && !((conversation.unread_count ?? 0) > 0 || conversation.unread)) return false
       if (tagSet.size > 0 && !conversation.tags?.some((tag) => tagSet.has(tag.slug))) return false
+      if (!matchesStageFilter(conversation, stageSet)) return false
       if (viewType === "archived") return Boolean(conversation.archived)
       if (conversation.archived) return false
       if (viewType === "unread" && !conversation.unread) return false
       return true
     })
-  }, [messageSearchResults, visibleConversations, searchQuery, activeFilter, channels, tagFilterSlugs, viewType])
+  }, [messageSearchResults, visibleConversations, searchQuery, activeFilter, channels, tagFilterSlugs, stageFilter, viewType])
 
-  // Parallel initial fetch: channels + conversations (independent — partial success OK)
+  // Channels and the first lightweight cursor page are independent.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setIsLoading(true)
       setIsChannelsLoading(true)
-      const [channelsResult, conversationsResult] = await Promise.allSettled([
+      const [channelsResult] = await Promise.allSettled([
         getChannels(),
-        getConversations(),
       ])
       if (cancelled) return
 
@@ -815,13 +911,6 @@ export default function ChatsPage() {
         addToast({ type: "error", title: t("chats.loadAccountsError"), description: t("chats.loadAccountsErrorDesc") })
       }
 
-      if (conversationsResult.status === "fulfilled") {
-        setConversations(conversationsResult.value)
-      } else {
-        addToast({ type: "error", title: t("chats.loadConversationsError") })
-      }
-
-      setIsLoading(false)
       setIsChannelsLoading(false)
     })()
     return () => { cancelled = true }
@@ -874,31 +963,10 @@ export default function ChatsPage() {
     }
   }, [chatIdFromUrl])
 
-  // Fetch conversations when channel selection changes (or clears to "all")
-  const isInitialMountRef = useRef(true);
+  // Reset the cursor whenever the active channel changes.
   useEffect(() => {
-    if (isInitialMountRef.current) {
-      isInitialMountRef.current = false;
-      return;
-    }
-
-    let cancelled = false;
-    (async () => {
-      try {
-        setIsLoading(true);
-        const data = selectedChannelId
-          ? await getChannelConversations(selectedChannelId)
-          : await getConversations();
-        if (!cancelled) setConversations(data);
-      } catch (e) {
-        addToast({ type: "error", title: t("chats.loadConversationsError") });
-        if (!cancelled) setConversations([]);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => { cancelled = true };
-  }, [selectedChannelId]);
+    void loadConversationPage(true)
+  }, [loadConversationPage, selectedChannelId]);
 
   // Single effect: fetch conversation with messages when selected
   useEffect(() => {
@@ -941,8 +1009,18 @@ export default function ChatsPage() {
       if (event.draft.conversation_id === selectedConversationId) setAiDraft(event.draft.status === "cancelled" ? null : event.draft);
     };
     channel.bind("manual-ai-draft.updated", onDraft);
-    return () => { channel.unbind("manual-ai-draft.updated", onDraft); pusher.unsubscribe(`private-App.Models.User.${userId}`); };
+    // Sólo unbind: el canal del usuario lo comparte el listener global de
+    // notificaciones (AppShell); desuscribirlo acá lo dejaría sordo.
+    return () => { channel.unbind("manual-ai-draft.updated", onDraft); };
   }, [user?.id, selectedConversationId]);
+
+  useEffect(() => {
+    setActiveConversationId(selectedConversationId);
+    if (selectedConversationId) {
+      useNotificationsStore.getState().markGroupRead(`conversation:${selectedConversationId}`).catch(() => {});
+    }
+    return () => setActiveConversationId(null);
+  }, [selectedConversationId]);
 
   useEffect(() => {
     if (!selectedConversationId || aiDraft?.status !== "pending") return;
@@ -1115,6 +1193,29 @@ export default function ChatsPage() {
       addToast({ type: "success", title: t("chats.renameChannelSuccess") })
     } catch {
       addToast({ type: "error", title: t("chats.renameChannelError") })
+    }
+  }, [addToast, t])
+
+  // El diálogo se cierra sólo si esto no tira: ante un error queda abierto
+  // para que el usuario corrija o reintente.
+  const handleSaveHandoffSettings = useCallback(async (channelId: number, settings: ChannelHandoffSettings) => {
+    try {
+      const updated = await updateChannelHandoffSettings(channelId, settings)
+      setChannels((prev) => prev.map((c) => (c.id === channelId
+        ? {
+            ...c,
+            handoff_responsible_user_id: updated.handoff_responsible_user_id ?? null,
+            handoff_whatsapp_alert_enabled: updated.handoff_whatsapp_alert_enabled ?? c.handoff_whatsapp_alert_enabled,
+          }
+        : c)))
+      addToast({ type: "success", title: t("chats.handoffSettings.saved") })
+    } catch (err) {
+      addToast({
+        type: "error",
+        title: t("chats.handoffSettings.error"),
+        description: err instanceof Error ? err.message : undefined,
+      })
+      throw err
     }
   }, [addToast, t])
 
@@ -1331,6 +1432,53 @@ export default function ChatsPage() {
     }
   }, [activeConversation, addToast, currentConversation, selectedConversationId, t])
 
+  const handleReactToMessage = useCallback(async (msg: Message, emoji: string) => {
+    const previous = msg.reaction_summary ?? [];
+    const optimistic = applyReactionToggle(previous, emoji, currentUserId);
+
+    const patch = (summary: Message["reaction_summary"]) =>
+      setCurrentConversation((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          messages: (prev.messages || []).map((m: Message) =>
+            m.id === msg.id ? { ...m, reaction_summary: summary } : m
+          ),
+        };
+      });
+
+    patch(optimistic);
+
+    try {
+      const confirmed = await reactToMessage(msg.id, emoji);
+      patch(confirmed);
+    } catch (error) {
+      // Rollback sobre el estado ACTUAL del mensaje, no sobre el snapshot de
+      // antes del click: si un evento SSE actualizó reaction_summary mientras
+      // el POST estaba en vuelo (reacción del contacto, otra pestaña), un
+      // rollback a `previous` lo pisaría y lo perdería silenciosamente.
+      setCurrentConversation((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          messages: (prev.messages || []).map((m: Message) => {
+            if (m.id !== msg.id) return m;
+            const current = m.reaction_summary ?? [];
+            // Si el estado actual sigue siendo la proyección optimista propia
+            // (nadie más lo tocó), se revierte al snapshot pre-click; si ya
+            // cambió por SSE, se deja como está.
+            return current === optimistic ? { ...m, reaction_summary: previous } : m;
+          }),
+        };
+      });
+      addToast({
+        type: "error",
+        title: t("chats.reactionError"),
+        description: error instanceof Error ? error.message : t("chats.unknownError"),
+      });
+    }
+  }, [currentUserId, addToast, t]);
+
   const handleDeleteMessage = async (msg: Message) => {
     try {
       await deleteMessage(msg.id);
@@ -1488,6 +1636,29 @@ export default function ChatsPage() {
     }
   };
 
+  const handleScheduleMessage = async (content: string, scheduledFor: Date, media?: File): Promise<boolean> => {
+    if (!selectedConversationId) return false;
+    try {
+      const scheduled = await createScheduledMessage(selectedConversationId, { content, scheduledFor, media });
+      scheduledMessages.upsert(scheduled);
+      setMessage("");
+      addToast({
+        type: "success",
+        title: t("chats.scheduledToast", {
+          when: scheduledFor.toLocaleString(language === "en" ? "en-US" : "es-AR", { dateStyle: "medium", timeStyle: "short" }),
+        }),
+      });
+      return true;
+    } catch (error) {
+      addToast({
+        type: "error",
+        title: t("chats.sendMessageError"),
+        description: error instanceof Error ? error.message : undefined,
+      });
+      return false;
+    }
+  };
+
   const handleShareContacts = async (contactIds: number[]) => {
     if (!selectedConversationId) return
     try {
@@ -1596,15 +1767,8 @@ export default function ChatsPage() {
 
 
   const refreshConversations = useCallback(async () => {
-    try {
-      const data = selectedChannelId
-        ? await getChannelConversations(selectedChannelId)
-        : await getConversations()
-      setConversations(data)
-    } catch {
-      addToast({ type: "error", title: t("chats.loadConversationsError") })
-    }
-  }, [selectedChannelId, addToast, t])
+    await loadConversationPage(true)
+  }, [loadConversationPage])
 
   const handleToggleSelectionMode = useCallback(() => {
     setSelectionMode((prev) => {
@@ -1861,12 +2025,19 @@ export default function ChatsPage() {
         availableChannelTypes={["whatsapp", "instagram", "facebook"]}
       />
 
-      <div className="border-b border-border bg-card/80 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/80 px-4 py-3">
         <TagFilterMenu
           selectedSlugs={tagFilterSlugs}
           onChange={setTagFilterSlugs}
           label="Tags"
           align="start"
+        />
+        <StageFilterMenu
+          selected={stageFilter}
+          onChange={setStageFilter}
+          counts={stageFilterCounts}
+          resultCount={visibleConversations.length}
+          onShowResults={() => setIsChannelsSheetOpen(false)}
         />
       </div>
 
@@ -1881,6 +2052,7 @@ export default function ChatsPage() {
           onRenameChannel={canUpdateChannels ? handleRenameChannel : undefined}
           onSyncMailChannel={canUpdateChannels ? handleSyncMailChannel : undefined}
           onDisconnectChannel={canDisconnectChannels ? handleDisconnectChannel : undefined}
+          onSaveHandoffSettings={canUpdateChannels ? handleSaveHandoffSettings : undefined}
         />
       </div>
 
@@ -1909,6 +2081,10 @@ export default function ChatsPage() {
     handleChannelSelect(channelId)
     setIsChannelsSheetOpen(false)
   }
+
+  const listedConversations = groupsOnly
+    ? visibleConversations.filter((c) => c.kind === "group")
+    : visibleConversations
 
   const handleMobileConnectChannel = (channelType?: ConnectableChannel) => {
     setIsChannelsSheetOpen(false)
@@ -1941,9 +2117,46 @@ export default function ChatsPage() {
           todo con un hilo abierto, así que ninguna constante sirve para los
           tres casos. El flex mide lo que sobra, siempre. */}
       <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
-        <div className="hidden w-[360px] flex-col border-r border-border bg-card md:flex lg:w-[380px]">
+        {/* Con un hilo abierto, la columna de canales cede su lugar a la
+            lista de conversaciones (salvo en pantallas muy anchas, donde
+            entran las tres): saltar de un chat a otro no debería obligar a
+            volver atrás. */}
+        <div
+          className={`hidden w-[360px] flex-col border-r border-border bg-card lg:w-[380px] ${
+            selectedConversationId ? "2xl:flex" : "md:flex"
+          }`}
+        >
           {renderChannelsSidebar(handleChannelSelect, handleConnectChannel)}
         </div>
+
+        {selectedConversationId && (
+          <aside
+            aria-label={t("chats.conversationRail.label")}
+            className="hidden w-[300px] shrink-0 flex-col border-r border-border bg-card md:flex lg:w-[340px]"
+          >
+            <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
+              <p className="truncate text-sm font-semibold tracking-[-0.01em]">
+                {activeChannel?.name ?? t(`chats.views.${viewType}`)}
+              </p>
+              <span className="shrink-0 rounded-full border border-border bg-background/80 px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
+                {listedConversations.length}
+              </span>
+            </div>
+            <ConversationList
+              compact
+              conversations={listedConversations}
+              channels={channels}
+              isLoading={isLoading && listedConversations.length === 0}
+              selectedConversationId={selectedConversationId}
+              onConversationClick={handleConversationClick}
+              messageResults={messageOnlyResults}
+              isSearchingMessages={isSearchingMessages}
+              hasMore={hasMoreConversations}
+              isLoadingMore={isLoadingMoreConversations}
+              onLoadMore={() => { void loadConversationPage() }}
+            />
+          </aside>
+        )}
 
         {/* Panel principal */}
         <div className="flex-1 bg-background flex flex-col overflow-hidden min-h-0">
@@ -2149,7 +2362,7 @@ export default function ChatsPage() {
               )}
 
               <ConversationList
-                conversations={groupsOnly ? visibleConversations.filter((c) => c.kind === "group") : visibleConversations}
+                conversations={listedConversations}
                 channels={channels}
                 isLoading={isLoading}
                 selectedConversationId={selectedConversationId}
@@ -2159,6 +2372,9 @@ export default function ChatsPage() {
                 onToggleSelect={handleToggleSelectConversation}
                 messageResults={messageOnlyResults}
                 isSearchingMessages={isSearchingMessages}
+                hasMore={hasMoreConversations}
+                isLoadingMore={isLoadingMoreConversations}
+                onLoadMore={() => { void loadConversationPage() }}
                 emptyState={{
                   title: searchQuery ? t("chats.noSearchResults") : t("chats.noConversations"),
                   description: searchQuery
@@ -2186,6 +2402,10 @@ export default function ChatsPage() {
               {/* Quick Bar */}
               <ChatQuickBar
                 chatId={selectedConversationId}
+                contact={(() => {
+                  const contactId = activeConversation.contact_id ?? Number(activeConversation.contact?.id)
+                  return contactId ? { id: contactId, name: activeConversation.contact?.name ?? "Contacto" } : null
+                })()}
                 value={{
                   stageId: currentConversation?.pipeline_stage_id,
                   priority: currentConversation?.priority,
@@ -2196,6 +2416,11 @@ export default function ChatsPage() {
                 onChangeStage={(stage) => {
                   chatHandlers.handleChangeStage(selectedConversationId)(stage)
                   setCurrentConversation(prev => prev ? { ...prev, pipeline_stage_id: stage } : prev)
+                  // La lista también: el filtro de etapas lee de acá.
+                  setConversations(prev => prev.map(c => c.id === selectedConversationId ? { ...c, pipeline_stage_id: stage } : c))
+                }}
+                onOpportunityStagesChange={(chatId, stageIds) => {
+                  setConversations(prev => prev.map(c => c.id === chatId ? { ...c, opportunity_stage_ids: stageIds } : c))
                 }}
                 onChangePriority={(priority) => {
                   chatHandlers.handleChangePriority(selectedConversationId)(priority)
@@ -2217,12 +2442,14 @@ export default function ChatsPage() {
                 messages={currentConversation?.messages || []}
                 onLoadMore={handleLoadMoreMessages}
                 hasMore={hasMore}
-                isLoadingMore={isLoadingMore}
+                isLoadingMore={isLoadingMoreMessages}
                 onEditMessage={handleEditMessage}
                 onDeleteMessage={handleDeleteMessage}
+                onReactMessage={handleReactToMessage}
                 onSaveContact={handleSaveSharedContact}
                 currentUserId={currentUserId}
                 isAdmin={isAdmin}
+                canSendMessage={canSendMessage}
                 translationLanguage={language}
                 onTranslateMessage={handleTranslateMessage}
                 channelType={activeConversation?.channel?.type}
@@ -2244,6 +2471,14 @@ export default function ChatsPage() {
                   onUseAiDraft={handleUseAiDraft}
                 />
               ) : (
+                <>
+                <ScheduledMessagesBar
+                  items={scheduledMessages.items}
+                  windowExpiresAt={scheduledMessages.windowExpiresAt}
+                  currentUserId={currentUserId}
+                  onChanged={scheduledMessages.upsert}
+                  onRemoved={scheduledMessages.remove}
+                />
                 <MessageInput
                   value={message}
                   onChange={setMessage}
@@ -2256,6 +2491,8 @@ export default function ChatsPage() {
                   supportsVoice={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   supportsContactSharing={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   onShareContacts={handleShareContacts}
+                  onSchedule={supportsScheduledMessages(activeConversation?.channel?.type) ? handleScheduleMessage : undefined}
+                  windowExpiresAt={scheduledMessages.windowExpiresAt}
                   editingMessage={editingMessage}
                   onCancelEdit={handleCancelEdit}
                   expansionContext={hotkeyExpansionContext}
@@ -2267,6 +2504,7 @@ export default function ChatsPage() {
                   onCancelAiDraft={handleCancelAiDraft}
                   onUseAiDraft={handleUseAiDraft}
                 />
+                </>
               )}
             </>
 

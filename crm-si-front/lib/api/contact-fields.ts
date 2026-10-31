@@ -1,4 +1,4 @@
-import { getAuthToken } from "./auth-token";
+import { getAuthToken, workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 
 export type ContactFieldType =
@@ -17,6 +17,8 @@ export type ContactFieldType =
 
 export interface ContactFieldOptions {
   choices?: string[];
+  /** Color opcional por valor de los campos select/multi_select. */
+  choice_colors?: Record<string, string>;
   /** Divisa de un campo tipo moneda (ARS | USD). El valor guardado es el importe pelado. */
   currency?: string;
   fields?: RepeaterSubfield[];
@@ -76,6 +78,7 @@ function headers(): HeadersInit {
     Authorization: token ? `Bearer ${token}` : "",
     Accept: "application/json",
     "Content-Type": "application/json",
+    ...workspaceHeaders(),
   };
 }
 

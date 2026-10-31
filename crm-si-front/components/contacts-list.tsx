@@ -1,7 +1,8 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useState, useEffect, useMemo, useRef, useCallback } from "react"
+import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -15,17 +16,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw } from "lucide-react"
+import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw, Trash2, Pencil } from "lucide-react"
 import type { RangeFilterValue } from "./contacts/RangeFilterMenu"
-import { ImportContactsDialog } from "./import-contacts-dialog"
-import { BulkTagsDialog } from "./contacts/bulk-tags-dialog"
-import { ExtractDocumentDialog } from "./contacts/ExtractDocumentDialog"
-import { DocumentViewerSheet } from "./contacts/DocumentViewerSheet"
-import { getAuthToken } from "@/lib/api/auth-token"
-import { getPipelineStages } from "@/lib/api/pipeline"
-import { createOpportunity, getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
+import { BulkFieldsDialog } from "./contacts/bulk-fields-dialog"
+import { getAuthToken, getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
+import { ContactPipelineDialog } from "@/components/contact-pipeline-dialog"
 import { updateContact, type ContactUpdate } from "@/lib/api/contacts"
-import { CustomFieldInput } from "@/components/CustomFieldInput"
+import { CustomChoiceBadge, CustomFieldInput, formatCustomChoice } from "@/components/CustomFieldInput"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 import type { Tag } from "@/lib/api/tags"
 import { useAutosave } from "@/lib/hooks/useAutosave"
@@ -57,6 +54,23 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { formatCurrency } from "@/lib/currency"
+
+const UniversalImportDialog = dynamic(
+  () => import("./import/universal-import-dialog").then((module) => module.UniversalImportDialog),
+  { ssr: false },
+)
+const BulkTagsDialog = dynamic(
+  () => import("./contacts/bulk-tags-dialog").then((module) => module.BulkTagsDialog),
+  { ssr: false },
+)
+const ExtractDocumentDialog = dynamic(
+  () => import("./contacts/ExtractDocumentDialog").then((module) => module.ExtractDocumentDialog),
+  { ssr: false },
+)
+const DocumentViewerSheet = dynamic(
+  () => import("./contacts/DocumentViewerSheet").then((module) => module.DocumentViewerSheet),
+  { ssr: false },
+)
 
 interface Contact {
   id: number
@@ -103,7 +117,7 @@ const sourceLabels: Record<string, string> = {
 }
 
 type ColumnId = "select" | "contact" | "phone" | "email" | "source" | "tags" | "lastContact" | "actions" | `custom:${string}`
-type SortField = "name" | "phone" | "email" | "source" | "updated_at"
+type SortField = "name" | "phone" | "email" | "source" | "updated_at" | `custom:${string}`
 type SortDirection = "asc" | "desc"
 
 interface Column {
@@ -127,12 +141,28 @@ const DEFAULT_COLUMNS: Column[] = [
 
 const COLUMN_ORDER_KEY = "contacts-column-order"
 const COLUMN_WIDTHS_KEY = "contacts-column-widths"
+
+function workspaceStorageKey(base: string, workspaceId: number | null): string {
+  // Columnas custom y sus medidas pertenecen al workspace que definió ese
+  // esquema. No se reutiliza la clave histórica global entre workspaces.
+  return workspaceId ? `${base}:${workspaceId}` : base
+}
 const COLUMN_SORT_FIELDS: Partial<Record<ColumnId, SortField>> = {
   contact: "name",
   phone: "phone",
   email: "email",
   source: "source",
   lastContact: "updated_at",
+}
+
+/**
+ * Campo de orden que corresponde a una columna, o `null` si no es ordenable.
+ * Las columnas custom ordenan por `custom:<key>`, que el backend resuelve
+ * contra la definición del campo para castear el JSON según su tipo.
+ */
+function sortFieldForColumn(columnId: ColumnId): SortField | null {
+  if (columnId.startsWith("custom:")) return columnId as SortField
+  return COLUMN_SORT_FIELDS[columnId] ?? null
 }
 
 function formatCustomValue(value: unknown, type: string | undefined, currency?: unknown): string {
@@ -143,7 +173,16 @@ function formatCustomValue(value: unknown, type: string | undefined, currency?: 
   if (typeof value === "boolean") return value ? "Sí" : "No"
   if (type === "date" && typeof value === "string") {
     try {
-      return format(new Date(value), "d MMM yyyy", { locale: es })
+      // Un campo `date` guarda una fecha pelada (`2026-09-14`), sin hora ni
+      // zona. `new Date()` la interpreta como medianoche UTC, así que al
+      // formatearla en hora local cualquier tenant al oeste de Greenwich veía
+      // el día anterior. Se construye la fecha en local para que el día que se
+      // muestra sea el que se guardó.
+      const parts = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+      const parsed = parts
+        ? new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]))
+        : new Date(value)
+      return format(parsed, "d MMM yyyy", { locale: es })
     } catch {
       return value
     }
@@ -154,10 +193,10 @@ function formatCustomValue(value: unknown, type: string | undefined, currency?: 
   return String(value)
 }
 
-function loadColumnOrder(): Column[] {
+function loadColumnOrder(workspaceId: number | null): Column[] {
   if (typeof window === "undefined") return DEFAULT_COLUMNS
   try {
-    const saved = window.localStorage.getItem(COLUMN_ORDER_KEY)
+    const saved = window.localStorage.getItem(workspaceStorageKey(COLUMN_ORDER_KEY, workspaceId))
     if (!saved) return DEFAULT_COLUMNS
     const ids = JSON.parse(saved) as ColumnId[]
     const ordered: Column[] = ids
@@ -177,10 +216,10 @@ function loadColumnOrder(): Column[] {
   }
 }
 
-function loadColumnWidths(): Record<string, string> {
+function loadColumnWidths(workspaceId: number | null): Record<string, string> {
   if (typeof window === "undefined") return {}
   try {
-    const saved = window.localStorage.getItem(COLUMN_WIDTHS_KEY)
+    const saved = window.localStorage.getItem(workspaceStorageKey(COLUMN_WIDTHS_KEY, workspaceId))
     return saved ? (JSON.parse(saved) as Record<string, string>) : {}
   } catch {
     return {}
@@ -194,6 +233,33 @@ function widthInPixels(width: string): number {
 
 function widthWithMinimum(column: Column, width: number): string {
   return `${Math.min(560, Math.max(widthInPixels(column.minWidth), Math.round(width)))}px`
+}
+
+function getLastContact(contact: Contact): string {
+  if (contact.conversations && contact.conversations.length > 0) {
+    return format(new Date(contact.conversations[0].last_message_at), "dd/MM/yyyy", { locale: es })
+  }
+  return format(new Date(contact.created_at), "dd/MM/yyyy", { locale: es })
+}
+
+function exportContactsCsv(contacts: Contact[]): void {
+  const headers = ["Nombre", "Teléfono", "Email", "Fuente", "Último contacto"]
+  const rows = contacts.map((contact) => [
+    contact.name,
+    contact.phone || "",
+    contact.email || "",
+    sourceLabels[contact.source] || contact.source,
+    getLastContact(contact),
+  ])
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((value) => `"${value}"`).join(","))
+    .join("\n")
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+  const link = document.createElement("a")
+  link.href = URL.createObjectURL(blob)
+  link.download = `contactos_${new Date().toISOString().split("T")[0]}.csv`
+  link.click()
+  URL.revokeObjectURL(link.href)
 }
 
 function ColumnResizeHandle({
@@ -297,7 +363,7 @@ function SortableHeader({
     )
   }
 
-  const columnSortField = COLUMN_SORT_FIELDS[column.id]
+  const columnSortField = sortFieldForColumn(column.id)
   const isSorted = columnSortField === sortField
   const SortIcon = isSorted ? (sortDirection === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
 
@@ -345,6 +411,7 @@ interface ContactsListProps {
   sourceFilter?: string
   tagFilterSlugs?: string[]
   customRangeFilter?: Record<string, RangeFilterValue>
+  audience?: "all" | "clients"
 }
 
 export function ContactsList({
@@ -353,9 +420,11 @@ export function ContactsList({
   sourceFilter = "all",
   tagFilterSlugs = [],
   customRangeFilter = {},
+  audience = "all",
 }: ContactsListProps = {}) {
   const { t } = useTranslation()
   const router = useRouter()
+  const workspaceId = getWorkspaceId()
   const { addToast } = useToast()
   const [contacts, setContacts] = useState<Contact[]>([])
   const [page, setPage] = useState(1)
@@ -404,12 +473,20 @@ export function ContactsList({
 
   const [deleteContact, setDeleteContact] = useState<Contact | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [addingToPipelineId, setAddingToPipelineId] = useState<number | null>(null)
+  const [pipelineContact, setPipelineContact] = useState<Contact | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [bulkTagsOpen, setBulkTagsOpen] = useState(false)
+  const [bulkFieldsOpen, setBulkFieldsOpen] = useState(false)
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const profileResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const requestControllerRef = useRef<AbortController | null>(null)
+  const contactsRef = useRef(contacts)
+
+  useEffect(() => {
+    contactsRef.current = contacts
+  }, [contacts])
 
   type EditableField = "name" | "phone" | "email" | "source"
   type EditableCellField = EditableField | `custom:${string}`
@@ -420,11 +497,11 @@ export function ContactsList({
       contactFields.map((f) => ({
         id: `custom:${f.key}` as ColumnId,
         labelKey: f.label,
-        width: loadColumnWidths()[`custom:${f.key}`] ?? "180px",
+        width: loadColumnWidths(workspaceId)[`custom:${f.key}`] ?? "180px",
         minWidth: "140px",
         draggable: true,
       })),
-    [contactFields],
+    [contactFields, workspaceId],
   )
 
   const [columns, setColumns] = useState<Column[]>(DEFAULT_COLUMNS)
@@ -432,40 +509,57 @@ export function ContactsList({
   const tableRef = useRef<HTMLTableElement | null>(null)
 
   useEffect(() => {
-    const savedWidths = loadColumnWidths()
-    setColumns(loadColumnOrder().map((column) => ({
+    const savedWidths = loadColumnWidths(workspaceId)
+    setColumns(loadColumnOrder(workspaceId).map((column) => ({
       ...column,
       width: savedWidths[column.id] ?? column.width,
     })))
     setColumnsHydrated(true)
-  }, [])
+  }, [workspaceId])
 
   useEffect(() => {
-    if (customFieldColumns.length === 0) return
+    if (!contactFieldsLoaded) return
     setColumns((prev) => {
-      const knownIds = new Set(prev.map((c) => c.id))
+      const validCustomIds = new Set(customFieldColumns.map((column) => column.id))
+      const sanitized = prev.filter(
+        (column) => !column.id.startsWith("custom:") || validCustomIds.has(column.id),
+      )
+      const knownIds = new Set(sanitized.map((c) => c.id))
       const additions = customFieldColumns.filter((c) => !knownIds.has(c.id))
       if (additions.length === 0) {
         // Keep labels in sync (custom field renames).
-        return prev.map((c) => {
+        return sanitized.map((c) => {
           const next = customFieldColumns.find((cf) => cf.id === c.id)
           return next ? { ...c, labelKey: next.labelKey } : c
         })
       }
-      const actionsIndex = prev.findIndex((c) => c.id === "actions")
-      if (actionsIndex === -1) return [...prev, ...additions]
-      return [...prev.slice(0, actionsIndex), ...additions, ...prev.slice(actionsIndex)]
+      const actionsIndex = sanitized.findIndex((c) => c.id === "actions")
+      if (actionsIndex === -1) return [...sanitized, ...additions]
+      return [...sanitized.slice(0, actionsIndex), ...additions, ...sanitized.slice(actionsIndex)]
     })
-  }, [customFieldColumns])
+  }, [contactFieldsLoaded, customFieldColumns])
+
+  // Si el campo por el que se estaba ordenando se eliminó, el backend cae a su
+  // orden por defecto pero el front seguiría marcando una columna que ya no
+  // existe. Se vuelve al orden inicial para que lo mostrado y lo pedido coincidan.
+  useEffect(() => {
+    if (!contactFieldsLoaded || !sortField.startsWith("custom:")) return
+    if (customFieldColumns.some((column) => column.id === sortField)) return
+    setSortField("updated_at")
+    setSortDirection("desc")
+  }, [contactFieldsLoaded, customFieldColumns, sortField])
 
   useEffect(() => {
     if (typeof window === "undefined" || !columnsHydrated) return
-    window.localStorage.setItem(COLUMN_ORDER_KEY, JSON.stringify(columns.map((c) => c.id)))
     window.localStorage.setItem(
-      COLUMN_WIDTHS_KEY,
+      workspaceStorageKey(COLUMN_ORDER_KEY, workspaceId),
+      JSON.stringify(columns.map((c) => c.id)),
+    )
+    window.localStorage.setItem(
+      workspaceStorageKey(COLUMN_WIDTHS_KEY, workspaceId),
       JSON.stringify(Object.fromEntries(columns.map((column) => [column.id, column.width]))),
     )
-  }, [columns, columnsHydrated])
+  }, [columns, columnsHydrated, workspaceId])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -516,7 +610,7 @@ export function ContactsList({
   }
 
   const handleSort = (columnId: ColumnId): void => {
-    const nextSortField = COLUMN_SORT_FIELDS[columnId]
+    const nextSortField = sortFieldForColumn(columnId)
     if (!nextSortField) return
 
     if (nextSortField === sortField) {
@@ -586,15 +680,69 @@ export function ContactsList({
     })
   }
 
-  useEffect(() => {
-    setPage(1)
-  }, [searchTerm, sourceFilter, tagFilterSlugs, customRangeFilter, perPage, sortField, sortDirection])
+  const listCriteria = useMemo(() => {
+    const queryParams = new URLSearchParams()
+    if (searchTerm) queryParams.append("search", searchTerm)
+    if (sourceFilter !== "all") queryParams.append("source", sourceFilter)
+    if (tagFilterSlugs.length > 0) queryParams.append("tags", tagFilterSlugs.join(","))
+    for (const [key, range] of Object.entries(customRangeFilter)) {
+      if (range.from) queryParams.append(`custom_range[${key}][from]`, range.from)
+      if (range.to) queryParams.append(`custom_range[${key}][to]`, range.to)
+    }
+    if (audience === "clients") queryParams.append("billing", "clients")
+    queryParams.append("per_page", String(perPage))
+    queryParams.append("sort_by", sortField)
+    queryParams.append("sort_dir", sortDirection)
+    return queryParams.toString()
+  }, [searchTerm, sourceFilter, tagFilterSlugs, customRangeFilter, audience, perPage, sortField, sortDirection])
+
+  const contactsQuery = useMemo(() => `${listCriteria}&page=${page}`, [listCriteria, page])
+
+  const fetchContacts = useCallback(async (): Promise<void> => {
+    requestControllerRef.current?.abort()
+    const controller = new AbortController()
+    requestControllerRef.current = controller
+    setLoading(true)
+    setError(null)
+    try {
+      const token = getAuthToken()
+      const response = await fetch(`/api/contacts?${contactsQuery}`, {
+        headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+        signal: controller.signal,
+      })
+      if (!response.ok) throw new Error("Error al cargar contactos")
+      const result = await response.json()
+      if (controller.signal.aborted) return
+      setContacts(result.data || [])
+      setPaginationMeta({
+        total: result.meta?.total ?? 0,
+        current_page: result.meta?.current_page ?? page,
+        last_page: result.meta?.last_page ?? 1,
+        from: result.meta?.from ?? 0,
+        to: result.meta?.to ?? 0,
+      })
+    } catch (err) {
+      if (controller.signal.aborted) return
+      setError(err instanceof Error ? err.message : "Error desconocido")
+    } finally {
+      if (requestControllerRef.current === controller) {
+        requestControllerRef.current = null
+        setLoading(false)
+      }
+    }
+  }, [contactsQuery, page])
 
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => fetchContacts(), 300)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [searchTerm, sourceFilter, tagFilterSlugs, customRangeFilter, page, perPage, sortField, sortDirection])
+    setPage(1)
+  }, [listCriteria])
+
+  useEffect(() => {
+    const timeout = setTimeout(() => void fetchContacts(), 300)
+    return () => {
+      clearTimeout(timeout)
+      requestControllerRef.current?.abort()
+    }
+  }, [fetchContacts])
 
   useEffect(() => {
     return () => {
@@ -605,7 +753,7 @@ export function ContactsList({
   // Listen to compact header events
   useEffect(() => {
     const handleNewContact = () => setDialogOpen(true)
-    const handleExportCsv = () => exportCSV()
+    const handleExportCsv = () => exportContactsCsv(contactsRef.current)
     const handleImportCsv = () => setImportOpen(true)
     window.addEventListener("contacts-new-contact", handleNewContact)
     window.addEventListener("contacts-export-csv", handleExportCsv)
@@ -615,61 +763,7 @@ export function ContactsList({
       window.removeEventListener("contacts-export-csv", handleExportCsv)
       window.removeEventListener("contacts-import-csv", handleImportCsv)
     }
-  }, [contacts])
-
-  const fetchContacts = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const queryParams = new URLSearchParams()
-      if (searchTerm) queryParams.append("search", searchTerm)
-      if (sourceFilter !== "all") queryParams.append("source", sourceFilter)
-      if (tagFilterSlugs.length > 0) queryParams.append("tags", tagFilterSlugs.join(","))
-      for (const [key, range] of Object.entries(customRangeFilter)) {
-        if (range.from) queryParams.append(`custom_range[${key}][from]`, range.from)
-        if (range.to) queryParams.append(`custom_range[${key}][to]`, range.to)
-      }
-      queryParams.append("page", String(page))
-      queryParams.append("per_page", String(perPage))
-      queryParams.append("sort_by", sortField)
-      queryParams.append("sort_dir", sortDirection)
-      const token = getAuthToken()
-      const response = await fetch(`/api/contacts?${queryParams.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!response.ok) throw new Error("Error al cargar contactos")
-      const result = await response.json()
-      setContacts(result.data || [])
-      setPaginationMeta({
-        total: result.meta?.total ?? 0,
-        current_page: result.meta?.current_page ?? page,
-        last_page: result.meta?.last_page ?? 1,
-        from: result.meta?.from ?? 0,
-        to: result.meta?.to ?? 0,
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error desconocido")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const exportCSV = () => {
-    const headers = ["Nombre", "Teléfono", "Email", "Fuente", "Último contacto"]
-    const rows = contacts.map((c) => [
-      c.name,
-      c.phone || "",
-      c.email || "",
-      sourceLabels[c.source] || c.source,
-      getLastContact(c),
-    ])
-    const csvContent = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(",")).join("\n")
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = `contactos_${new Date().toISOString().split("T")[0]}.csv`
-    link.click()
-  }
+  }, [])
 
   const handleSaveContact = async () => {
     const errors: Record<string, string> = {}
@@ -696,6 +790,7 @@ export function ContactsList({
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          ...workspaceHeaders(),
         },
         body: JSON.stringify({
           name: formData.name.trim(),
@@ -770,7 +865,7 @@ export function ContactsList({
       const token = getAuthToken()
       const response = await fetch(`/api/contacts/${deleteContact.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
       })
       if (response.ok) {
         setDeleteContact(null)
@@ -783,47 +878,42 @@ export function ContactsList({
     }
   }
 
-  const handleAddToPipeline = async (contact: Contact) => {
-    const latestConversation = contact.conversations?.[0]
-    setAddingToPipelineId(contact.id)
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setBulkDeleting(true)
     try {
-      const stages = await getPipelineStages()
-      const sortedStages = [...stages].sort((a, b) => a.sort_order - b.sort_order)
-      const targetStage = sortedStages.find((stage) => stage.is_default) ?? sortedStages[0]
-      if (!targetStage) throw new Error("No hay etapas configuradas en el pipeline")
+      const token = getAuthToken()
+      const results = await Promise.allSettled(
+        ids.map((id) =>
+          fetch(`/api/contacts/${id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+          }).then((response) => {
+            if (!response.ok) throw new Error(String(response.status))
+            return response
+          })
+        )
+      )
+      const deleted = results.filter((result) => result.status === "fulfilled").length
+      const failed = results.length - deleted
 
-      const existingOpenOpportunities = await getOpportunities({ contactId: contact.id, status: "open" })
-      const existingOpportunity = existingOpenOpportunities[0]
-
-      if (existingOpportunity) {
-        await updateOpportunityStage(existingOpportunity.id, targetStage.id)
+      if (failed === 0) {
+        addToast({ type: "success", title: t("contactsPage.bulk.delete.success", { count: deleted }) })
+      } else if (deleted === 0) {
+        addToast({ type: "error", title: t("contactsPage.bulk.delete.error") })
       } else {
-        await createOpportunity({
-          contact_id: contact.id,
-          conversation_id: latestConversation?.id ?? null,
-          pipeline_stage_id: targetStage.id,
-          source_type: latestConversation ? "conversation" : "manual",
-          title: `Oportunidad - ${contact.name}`,
-        })
+        addToast({ type: "info", title: t("contactsPage.bulk.delete.partial", { deleted, failed }) })
       }
 
-      addToast({
-        type: "success",
-        title: "Contacto agregado al pipeline",
-        description: existingOpportunity
-          ? `${contact.name} fue movido a ${targetStage.name}.`
-          : `${contact.name} fue agregado a ${targetStage.name}.`,
-      })
-    } catch (error) {
-      addToast({
-        type: "error",
-        title: "No se pudo agregar al pipeline",
-        description: error instanceof Error ? error.message : "Error desconocido",
-      })
+      setBulkDeleteOpen(false)
+      setSelectedIds(new Set())
+      fetchContacts()
     } finally {
-      setAddingToPipelineId(null)
+      setBulkDeleting(false)
     }
   }
+
 
   const updateContactTags = (contactId: number, tags: Tag[]): void => {
     setContacts((prev) => prev.map((contact) => (contact.id === contactId ? { ...contact, tags } : contact)))
@@ -832,13 +922,6 @@ export function ContactsList({
 
   const filteredContacts = contacts
   const isInitialLoading = loading && contacts.length === 0 && !error
-
-  const getLastContact = (contact: Contact): string => {
-    if (contact.conversations && contact.conversations.length > 0) {
-      return format(new Date(contact.conversations[0].last_message_at), "dd/MM/yyyy", { locale: es })
-    }
-    return format(new Date(contact.created_at), "dd/MM/yyyy", { locale: es })
-  }
 
   const renderCell = (contact: Contact, columnId: ColumnId): React.ReactNode => {
     switch (columnId) {
@@ -1017,11 +1100,8 @@ export function ContactsList({
                   Extraer datos de un PDF
                 </DropdownMenuItem>
                 <DropdownMenuItem>Crear tarea</DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={addingToPipelineId === contact.id}
-                  onSelect={() => handleAddToPipeline(contact)}
-                >
-                  {addingToPipelineId === contact.id ? "Agregando..." : "Agregar a pipeline"}
+                <DropdownMenuItem onSelect={() => setPipelineContact(contact)}>
+                  Agregar a pipeline
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
@@ -1157,7 +1237,11 @@ export function ContactsList({
               className="w-full text-left rounded px-1 py-0.5 hover:bg-muted/60 transition-colors truncate text-sm text-foreground"
               onClick={() => setEditingCell({ contactId: contact.id, field: columnId })}
             >
-              {formatCustomValue(raw, field.type, field.options?.currency)}
+              {field.type === "select"
+                ? raw === null || raw === undefined || raw === ""
+                  ? "—"
+                  : <CustomChoiceBadge choice={String(raw)} color={field.options?.choice_colors?.[String(raw)]} />
+                : formatCustomValue(raw, field.type, field.options?.currency)}
             </button>
           )
         }
@@ -1253,9 +1337,22 @@ export function ContactsList({
             {selectedIds.size} contacto{selectedIds.size !== 1 ? "s" : ""} seleccionado{selectedIds.size !== 1 ? "s" : ""}
           </Badge>
           <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => setBulkFieldsOpen(true)}>
+              <Pencil className="w-3 h-3 mr-1" />
+              {t("contactsPage.bulk.editFields")}
+            </Button>
             <Button size="sm" onClick={() => setBulkTagsOpen(true)}>
               <Tags className="w-3 h-3 mr-1" />
               {t("contactsPage.bulk.editTags")}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={bulkDeleting}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <Trash2 className="w-3 h-3 mr-1" />
+              {t("contactsPage.bulk.delete.action")}
             </Button>
             <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>
               <X className="w-3 h-3 mr-1" />
@@ -1284,37 +1381,52 @@ export function ContactsList({
         />
       )}
 
-      <DocumentViewerSheet
-        open={viewerOpen}
-        onOpenChange={(open) => {
-          setViewerOpen(open)
-          // El target se limpia después de la animación de salida para que el
-          // panel no se vacíe mientras se desliza.
-          if (!open) setTimeout(() => setViewerTarget(null), 300)
-        }}
-        assetId={viewerTarget?.assetId ?? null}
-        contactId={viewerTarget?.contactId ?? null}
-        fieldLabel={viewerTarget?.label}
-        onValueChange={(assetId) => {
-          if (!viewerTarget) return
-          const contact = contacts.find((c) => c.id === viewerTarget.contactId)
-          if (!contact) return
-          handleCustomCellSave(contact, viewerTarget.key, assetId)
-          if (assetId === null) {
-            setViewerOpen(false)
-            return
-          }
-          // Tras reemplazar, el visor apunta al archivo nuevo y lo recarga.
-          setViewerTarget({ ...viewerTarget, assetId })
-        }}
-      />
+      {viewerTarget ? (
+        <DocumentViewerSheet
+          open={viewerOpen}
+          onOpenChange={(open) => {
+            setViewerOpen(open)
+            // El target se limpia después de la animación de salida para que el
+            // panel no se vacíe mientras se desliza.
+            if (!open) setTimeout(() => setViewerTarget(null), 300)
+          }}
+          assetId={viewerTarget.assetId}
+          contactId={viewerTarget.contactId}
+          fieldLabel={viewerTarget.label}
+          onValueChange={(assetId) => {
+            const contact = contacts.find((c) => c.id === viewerTarget.contactId)
+            if (!contact) return
+            handleCustomCellSave(contact, viewerTarget.key, assetId)
+            if (assetId === null) {
+              setViewerOpen(false)
+              return
+            }
+            // Tras reemplazar, el visor apunta al archivo nuevo y lo recarga.
+            setViewerTarget({ ...viewerTarget, assetId })
+          }}
+        />
+      ) : null}
 
-      <BulkTagsDialog
-        open={bulkTagsOpen}
-        onOpenChange={setBulkTagsOpen}
+      {bulkTagsOpen ? (
+        <BulkTagsDialog
+          open
+          onOpenChange={setBulkTagsOpen}
+          selectedIds={Array.from(selectedIds)}
+          onSuccess={() => {
+            setSelectedIds(new Set())
+            void fetchContacts()
+          }}
+        />
+      ) : null}
+
+      <BulkFieldsDialog
+        key={bulkFieldsOpen ? "open" : "closed"}
+        open={bulkFieldsOpen}
+        onOpenChange={setBulkFieldsOpen}
         selectedIds={Array.from(selectedIds)}
-        onSuccess={() => {
-          setSelectedIds(new Set())
+        fields={contactFields}
+        onSuccess={(failedIds) => {
+          setSelectedIds(new Set(failedIds))
           fetchContacts()
         }}
       />
@@ -1327,7 +1439,7 @@ export function ContactsList({
       ) : error ? (
         <div className="text-center py-12">
           <p className="text-destructive mb-4">{error}</p>
-          <Button onClick={fetchContacts} variant="outline">Reintentar</Button>
+          <Button onClick={() => void fetchContacts()} variant="outline">Reintentar</Button>
         </div>
       ) : (
         <>
@@ -1697,12 +1809,53 @@ export function ContactsList({
         </SheetContent>
       </Sheet>
 
-      {/* Dialog Importar CSV */}
-      <ImportContactsDialog
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        onImportComplete={() => fetchContacts()}
+      <ContactPipelineDialog
+        contact={pipelineContact}
+        open={Boolean(pipelineContact)}
+        onOpenChange={(open) => { if (!open) setPipelineContact(null) }}
+        onSaved={() => {
+          addToast({ type: "success", title: "Oportunidad actualizada", description: `${pipelineContact?.name} quedó en el pipeline seleccionado.` })
+          setPipelineContact(null)
+        }}
       />
+
+      {/* Dialog Importar CSV */}
+      {importOpen ? (
+        <UniversalImportDialog
+          open
+          onOpenChange={setImportOpen}
+          resource="contacts"
+          title="Importar clientes"
+          productFields={contactFields}
+          nativeTargets={[{ value: "ignore", label: "Ignorar" }, { value: "name", label: "Nombre" }, { value: "phone", label: "Teléfono" }, { value: "email", label: "Email" }]}
+          onImportComplete={() => void fetchContacts()}
+        />
+      ) : null}
+
+      {/* AlertDialog Eliminar en lote */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={(open) => { if (!bulkDeleting) setBulkDeleteOpen(open) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("contactsPage.bulk.delete.confirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("contactsPage.bulk.delete.confirmBody", { count: selectedIds.size })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting}>{t("contactsPage.bulk.dialog.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void handleBulkDelete()
+              }}
+              disabled={bulkDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : t("contactsPage.bulk.delete.action")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* AlertDialog Eliminar */}
       <AlertDialog open={!!deleteContact} onOpenChange={(open) => { if (!open) setDeleteContact(null) }}>

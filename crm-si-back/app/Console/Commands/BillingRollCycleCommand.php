@@ -141,7 +141,7 @@ class BillingRollCycleCommand extends Command
         $customData = $contact->custom_data ?? [];
         $status = $customData[$config->status_field_key] ?? null;
 
-        if (! in_array($status, ['al_dia', 'impago', 'en_prueba'], true)) {
+        if (! in_array($status, BillingConfig::STATUSES, true)) {
             // Estado ausente o corrupto: no hay forma segura de decidir el
             // siguiente paso. Se deja intacto en vez de adivinar un ciclo.
             return false;

@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\ChannelController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\ContactFieldController;
 use App\Http\Controllers\Api\ContactHistoryController;
+use App\Http\Controllers\Api\ContactImportController;
 use App\Http\Controllers\Api\ContactTimelineController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\ConversationTranslationController;
@@ -19,6 +20,8 @@ use App\Http\Controllers\Api\GoogleCalendarConnectionController;
 use App\Http\Controllers\Api\IncomingWebhookController;
 use App\Http\Controllers\Api\InstagramCommentController;
 use App\Http\Controllers\Api\InvitationController;
+use App\Http\Controllers\Api\InvoiceController;
+use App\Http\Controllers\Api\InvoiceRecurrenceController;
 use App\Http\Controllers\Api\LinkPreviewController;
 use App\Http\Controllers\Api\MailIntakeController;
 use App\Http\Controllers\Api\ManualAiDraftController;
@@ -27,17 +30,22 @@ use App\Http\Controllers\Api\MediaAssetDownloadController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\MessageHotkeyController;
 use App\Http\Controllers\Api\MessageMediaController;
+use App\Http\Controllers\Api\MessageReactionController;
 use App\Http\Controllers\Api\MessageTranslationController;
 use App\Http\Controllers\Api\NavigationLabelController;
 use App\Http\Controllers\Api\NoteController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\OpportunityController;
 use App\Http\Controllers\Api\PermissionController;
+use App\Http\Controllers\Api\PipelineController;
 use App\Http\Controllers\Api\PipelineStageController;
 use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProductFieldController;
+use App\Http\Controllers\Api\ProductImportController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\RoleController;
+use App\Http\Controllers\Api\ScheduledMessageController;
 use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\UserController;
@@ -46,17 +54,18 @@ use App\Http\Controllers\Api\WhatsAppGroupController;
 use App\Http\Controllers\Api\WhatsAppGroupInvitationController;
 use App\Http\Controllers\Api\WhatsAppTemplateController;
 use App\Http\Controllers\Api\WooCommerceConfigController;
+use App\Http\Controllers\Api\WorkspaceController;
 use App\Http\Controllers\FacebookDataDeletionController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstagramController;
 use App\Http\Controllers\MailController;
 use App\Http\Controllers\MessengerController;
 use App\Http\Controllers\WhatsAppController;
-use App\Http\Controllers\WhatsAppAlertsController;
 use App\Http\Resources\UserResource;
 use App\Models\Invitation;
 use App\Models\Scopes\TenantScope;
 use App\Models\Tenant;
+use App\Models\TenantMembership;
 use App\Models\User;
 use App\Support\ProductFieldProvisioner;
 use App\Support\RolePayload;
@@ -167,6 +176,12 @@ Route::post('register', function (Request $request): JsonResponse {
             'email' => $request->email,
             'password' => Hash::make($request->password),
             'tenant_id' => $tenant->id,
+        ]);
+
+        TenantMembership::create([
+            'tenant_id' => $tenant->id,
+            'user_id' => $user->id,
+            'joined_at' => now(),
         ]);
 
         if ($isNewTenant) {
@@ -363,6 +378,15 @@ Route::post('reset-password', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function () {
 
+    Route::get('workspaces', [WorkspaceController::class, 'index']);
+    Route::post('workspaces', [WorkspaceController::class, 'store']);
+    Route::patch('workspaces/{workspace}', [WorkspaceController::class, 'update']);
+    Route::delete('workspaces/{workspace}', [WorkspaceController::class, 'destroy']);
+    Route::post('workspaces/{workspace}/restore', [WorkspaceController::class, 'restore']);
+    Route::post('workspaces/{workspace}/leave', [WorkspaceController::class, 'leave']);
+    Route::get('workspaces/{workspace}/audit', [WorkspaceController::class, 'audit']);
+    Route::delete('workspaces/{workspace}/members/{user}', [WorkspaceController::class, 'removeMember']);
+
     Route::get('broadcasts', [BroadcastCampaignController::class, 'index']);
     Route::get('broadcasts/{id}/results', [BroadcastCampaignController::class, 'results']);
     Route::get('broadcasts/{id}/recipients', [BroadcastCampaignController::class, 'recipients']);
@@ -373,11 +397,26 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('user', function (Request $request): JsonResponse {
         $user = $request->user()->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name']);
         $role = $user->roles()->where('roles.tenant_id', $user->tenant_id)->first();
+        $workspaceRoles = DB::table('model_has_roles')->join('roles', 'roles.id', '=', 'model_has_roles.role_id')
+            ->where('model_has_roles.model_id', $user->id)->where('model_has_roles.model_type', User::class)
+            ->pluck('roles.name', 'model_has_roles.tenant_id');
+        $workspaces = $user->activeMemberships()->with('tenant.plan')->get()->map(fn ($membership) => [
+            'id' => $membership->tenant_id,
+            'name' => $membership->tenant->name,
+            'role' => $workspaceRoles->get($membership->tenant_id),
+            'branch_id' => $membership->branch_id,
+            'trial_ends_at' => $membership->tenant->trial_ends_at,
+            'plan' => $membership->tenant->plan ? [
+                'key' => $membership->tenant->plan->key,
+                'name' => $membership->tenant->plan->name,
+            ] : null,
+        ])->values();
 
         return response()->json([
             'user' => new UserResource($user),
             'role' => RolePayload::transform($role, $user->tenant),
             'permissions' => $user->getAllPermissions()->pluck('name')->values(),
+            'workspaces' => $workspaces,
         ]);
     });
 
@@ -394,6 +433,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::apiResource('tags', TagController::class);
     Route::post('products/import', [ProductController::class, 'import']);
+    Route::post('products/import/preview', [ProductImportController::class, 'preview']);
+    Route::post('products/import/queue', [ProductImportController::class, 'queue']);
+    Route::get('products/import/{productImport}', [ProductImportController::class, 'show']);
+    Route::post('products/import/{productImport}/cancel', [ProductImportController::class, 'cancel']);
+    Route::get('products/import/{productImport}/errors', [ProductImportController::class, 'errors']);
     Route::get('product-fields', [ProductFieldController::class, 'index']);
     Route::post('product-fields/reorder', [ProductFieldController::class, 'reorder']);
     Route::post('product-fields', [ProductFieldController::class, 'store']);
@@ -410,10 +454,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('users/{user}/branch', [UserController::class, 'assignBranch']);
 
     Route::put('profile', [ProfileController::class, 'update']);
-    Route::post('profile/whatsapp-notifications', [ProfileController::class, 'subscribeWhatsAppNotifications']);
-    Route::delete('profile/whatsapp-notifications', [ProfileController::class, 'revokeWhatsAppNotification']);
     Route::put('profile/password', [ProfileController::class, 'updatePassword']);
     Route::put('profile/preferences', [ProfileController::class, 'updatePreferences']);
+    Route::put('profile/notification-preferences', [ProfileController::class, 'updateNotificationPreferences']);
+
+    Route::get('notifications', [NotificationController::class, 'index']);
+    Route::get('notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
+    Route::post('notifications/read-group', [NotificationController::class, 'markGroupRead']);
+    Route::post('notifications/{id}/read', [NotificationController::class, 'markRead'])->whereNumber('id');
     Route::post('profile/avatar', [ProfileController::class, 'uploadAvatar']);
     Route::delete('profile/avatar', [ProfileController::class, 'deleteAvatar']);
     Route::get('profile/sessions', [ProfileController::class, 'sessions']);
@@ -456,7 +505,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('contacts/summary', [ContactController::class, 'summary']);
     Route::post('contacts', [ContactController::class, 'store']);
     Route::post('contacts/import', [ContactController::class, 'import']);
+    Route::post('contacts/import/preview', [ContactImportController::class, 'preview']);
+    Route::post('contacts/import/queue', [ContactImportController::class, 'queue']);
+    Route::get('contacts/import/{productImport}', [ContactImportController::class, 'show']);
+    Route::post('contacts/import/{productImport}/cancel', [ContactImportController::class, 'cancel']);
+    Route::get('contacts/import/{productImport}/errors', [ContactImportController::class, 'errors']);
     Route::post('contacts/bulk-tags', [ContactController::class, 'bulkTags']);
+    Route::post('contacts/bulk-fields', [ContactController::class, 'bulkFields']);
     Route::get('contacts/{contact}', [ContactController::class, 'show']);
     Route::put('contacts/{contact}', [ContactController::class, 'update']);
     Route::delete('contacts/{contact}', [ContactController::class, 'destroy']);
@@ -494,7 +549,30 @@ Route::middleware('auth:sanctum')->group(function () {
     // Config del módulo de cobranzas por tenant (qué campo custom es el
     // vencimiento/estado/contador de mora, ver Fase 3 del plan SI-27).
     Route::get('billing-config', [BillingConfigController::class, 'show']);
+    // Antes de la ruta con parámetro no hay conflicto acá, pero se mantiene el
+    // orden específico-antes-que-genérico por consistencia con el resto.
+    Route::get('billing-config/template-drafts', [BillingConfigController::class, 'templateDrafts']);
     Route::put('billing-config', [BillingConfigController::class, 'update']);
+
+    Route::get('invoices', [InvoiceController::class, 'index']);
+    Route::post('invoices', [InvoiceController::class, 'store']);
+    Route::get('invoices/settings', [InvoiceController::class, 'settings']);
+    Route::put('invoices/settings', [InvoiceController::class, 'updateSettings']);
+    Route::post('invoices/templates/provision', [InvoiceController::class, 'provisionTemplates']);
+    Route::get('invoices/{invoice}', [InvoiceController::class, 'show']);
+    Route::put('invoices/{invoice}', [InvoiceController::class, 'update']);
+    Route::post('invoices/{invoice}/issue', [InvoiceController::class, 'issue']);
+    Route::post('invoices/{invoice}/resend', [InvoiceController::class, 'resend']);
+    Route::get('invoices/{invoice}/pdf', [InvoiceController::class, 'pdf']);
+    Route::post('invoices/{invoice}/payments', [InvoiceController::class, 'pay']);
+    Route::put('invoices/{invoice}/collection-status', [InvoiceController::class, 'setCollectionStatus']);
+    Route::post('invoices/{invoice}/payments/{payment}/reverse', [InvoiceController::class, 'reversePayment']);
+    Route::post('invoices/{invoice}/void', [InvoiceController::class, 'void']);
+    Route::get('invoice-recurrences', [InvoiceRecurrenceController::class, 'index']);
+    Route::post('invoice-recurrences', [InvoiceRecurrenceController::class, 'store']);
+    Route::put('invoice-recurrences/{recurrence}', [InvoiceRecurrenceController::class, 'update']);
+    Route::post('invoice-recurrences/{recurrence}/activate', [InvoiceRecurrenceController::class, 'activate']);
+    Route::post('invoice-recurrences/{recurrence}/{action}', [InvoiceRecurrenceController::class, 'action']);
 
     // Config de webhooks entrantes por tenant (el endpoint público de recepción
     // está fuera de este grupo, al final del archivo).
@@ -536,17 +614,20 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('messages/{message}', [MessageController::class, 'update']);
     Route::delete('messages/{message}', [MessageController::class, 'destroy']);
     Route::post('messages/{message}/translation', [MessageTranslationController::class, 'store']);
+    Route::post('messages/{message}/reaction', [MessageReactionController::class, 'store']);
     Route::get('messages/{message}/media', [MessageMediaController::class, 'show']);
     Route::post('messages/{message}/link-preview', [LinkPreviewController::class, 'store'])->middleware('throttle:link-preview');
 
-    Route::get('instagram-comments', [InstagramCommentController::class, 'index']);
-    Route::get('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'show']);
-    Route::patch('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'assign']);
-    Route::post('instagram-comments/{instagramComment}/reply', [InstagramCommentController::class, 'publicReply']);
-    Route::post('instagram-comments/{instagramComment}/private-reply', [InstagramCommentController::class, 'privateReply']);
-    Route::post('instagram-comments/{instagramComment}/hide', [InstagramCommentController::class, 'hide']);
-    Route::post('instagram-comments/{instagramComment}/unhide', [InstagramCommentController::class, 'unhide']);
-    Route::delete('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'destroy']);
+    Route::middleware('section:instagram_comments')->group(function (): void {
+        Route::get('instagram-comments', [InstagramCommentController::class, 'index']);
+        Route::get('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'show']);
+        Route::patch('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'assign']);
+        Route::post('instagram-comments/{instagramComment}/reply', [InstagramCommentController::class, 'publicReply']);
+        Route::post('instagram-comments/{instagramComment}/private-reply', [InstagramCommentController::class, 'privateReply']);
+        Route::post('instagram-comments/{instagramComment}/hide', [InstagramCommentController::class, 'hide']);
+        Route::post('instagram-comments/{instagramComment}/unhide', [InstagramCommentController::class, 'unhide']);
+        Route::delete('instagram-comments/{instagramComment}', [InstagramCommentController::class, 'destroy']);
+    });
 
     Route::apiResource('message-hotkeys', MessageHotkeyController::class)->except(['show']);
 
@@ -590,6 +671,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/conversations/{id}/messages', [ConversationController::class, 'fetchMessages']);
 
+    Route::apiResource('pipelines', PipelineController::class)->except(['show']);
     Route::post('pipeline-stages/reorder', [PipelineStageController::class, 'reorder']);
     Route::apiResource('pipeline-stages', PipelineStageController::class);
     Route::get('opportunities/summary', [OpportunityController::class, 'summary']);
@@ -623,6 +705,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('channels/{channel}/templates/media', [WhatsAppTemplateController::class, 'uploadTemplateMedia']);
     Route::post('channels/{channel}/media', [WhatsAppTemplateController::class, 'uploadMedia']);
     Route::post('conversations/{conversation}/send-template', [WhatsAppTemplateController::class, 'send']);
+    Route::get('conversations/{conversation}/scheduled-messages', [ScheduledMessageController::class, 'index']);
+    Route::post('conversations/{conversation}/scheduled-messages', [ScheduledMessageController::class, 'store']);
+    Route::put('scheduled-messages/{scheduledMessage}', [ScheduledMessageController::class, 'update']);
+    Route::delete('scheduled-messages/{scheduledMessage}', [ScheduledMessageController::class, 'destroy']);
 
     Route::get('invitations', [InvitationController::class, 'index']);
     Route::post('invitations', [InvitationController::class, 'store']);
@@ -637,7 +723,6 @@ Route::get('invitations/by-token/{token}', [InvitationController::class, 'showBy
 Route::get('plans', [PlanController::class, 'index']);
 
 Route::match(['get', 'post'], 'whatsapp-webhook', [WhatsAppController::class, 'webhook']);
-Route::match(['get', 'post'], 'whatsapp-alerts-webhook', [WhatsAppAlertsController::class, 'webhook']);
 
 Route::match(['get', 'post'], 'instagram-webhook', [InstagramController::class, 'webhook']);
 

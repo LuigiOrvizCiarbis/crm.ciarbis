@@ -3,72 +3,47 @@
 import { useState } from "react"
 import { Bell } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { NotificationsPanel } from "@/components/notifications/NotificationsPanel"
 import { useTranslation } from "@/hooks/useTranslation"
+import { cn } from "@/lib/utils"
+import { useNotificationsStore } from "@/store/useNotificationsStore"
 
-const TYPE_ICONS: Record<string, string> = {
-  lead: "🎯",
-  message: "💬",
-  task: "✅",
-  assignment: "👤",
+interface NotificationsBellProps {
+  side?: "top" | "right" | "bottom" | "left"
+  align?: "start" | "center" | "end"
+  className?: string
 }
 
-export function NotificationsBell() {
+export function formatNotificationCount(count: number) {
+  return count > 99 ? "99+" : String(count)
+}
+
+export function NotificationsBell({ side = "right", align = "start", className }: NotificationsBellProps) {
   const [open, setOpen] = useState(false)
   const { t } = useTranslation()
-
-  const notifications = [
-    { id: 1, type: "lead", message: t("dashboard.notifications.demoLead"), time: t("dashboard.notifications.demoLeadTime") },
-    { id: 2, type: "message", message: t("dashboard.notifications.demoMessage"), time: t("dashboard.notifications.demoMessageTime") },
-    { id: 3, type: "task", message: t("dashboard.notifications.demoTask"), time: t("dashboard.notifications.demoTaskTime") },
-    { id: 4, type: "assignment", message: t("dashboard.notifications.demoAssignment"), time: t("dashboard.notifications.demoAssignmentTime") },
-  ]
-
-  const unreadCount = notifications.length
+  const unreadCount = useNotificationsStore((state) => state.unreadCount)
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-          {unreadCount > 0 && (
-            <Badge
-              variant="destructive"
-              className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
-            >
-              {unreadCount}
-            </Badge>
-          )}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn("relative p-2 hover:bg-sidebar-accent", className)}
+          aria-label={unreadCount > 0 ? t("notifications.bellLabelUnread", { count: unreadCount }) : t("notifications.title")}
+        >
+          <Bell className="h-4 w-4" />
+          {unreadCount > 0 ? (
+            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-white tabular-nums">
+              {formatNotificationCount(unreadCount)}
+            </span>
+          ) : null}
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel>{t("dashboard.notifications.title")}</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <ScrollArea className="h-[300px]">
-          {notifications.map((notification) => (
-            <DropdownMenuItem key={notification.id} className="flex gap-3 p-3 cursor-pointer">
-              <span className="text-lg">{TYPE_ICONS[notification.type]}</span>
-              <div className="flex-1 space-y-1">
-                <p className="text-sm">{notification.message}</p>
-                <p className="text-xs text-muted-foreground">{notification.time}</p>
-              </div>
-            </DropdownMenuItem>
-          ))}
-        </ScrollArea>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem className="justify-center cursor-pointer">
-          {t("dashboard.notifications.viewAll")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </PopoverTrigger>
+      <PopoverContent side={side} align={align} sideOffset={8} className="w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden p-0">
+        <NotificationsPanel onNavigate={() => setOpen(false)} />
+      </PopoverContent>
+    </Popover>
   )
 }

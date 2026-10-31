@@ -1,4 +1,4 @@
-import { getAuthToken } from "./auth-token";
+import { getAuthToken, workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 import type { Tag } from "./tags";
 
@@ -9,6 +9,13 @@ export interface ContactsSummary {
   qualified: number
   won: number
   conversion_rate: number
+  // Cobranzas: el backend emite estas tres claves SOLO si el tenant tiene el
+  // módulo habilitado (billing_configs.enabled). Su ausencia es la señal de
+  // "módulo apagado" — por eso son opcionales y no números en 0, que se
+  // confundirían con "todo al día".
+  billing_al_dia?: number
+  billing_por_vencer?: number
+  billing_vencido?: number
 }
 
 export interface ContactUpdate {
@@ -71,6 +78,7 @@ export async function getContacts(params: GetContactsParams = {}): Promise<Conta
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
+      ...workspaceHeaders(),
     },
     cache: "no-store",
   });
@@ -91,6 +99,7 @@ export async function getContact(contactId: number): Promise<Contact> {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
+      ...workspaceHeaders(),
     },
     cache: "no-store",
   });
@@ -111,6 +120,7 @@ export async function getContactsSummary(): Promise<ContactsSummary> {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
+      ...workspaceHeaders(),
     },
     cache: "no-store",
   });
@@ -133,6 +143,7 @@ export async function updateContact(contactId: number, updates: ContactUpdate): 
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
+      ...workspaceHeaders(),
     },
     body: JSON.stringify(updates),
   });
@@ -159,6 +170,40 @@ export interface BulkTagsResponse {
   action: BulkTagAction;
 }
 
+export interface BulkFieldsRequest {
+  ids: number[];
+  updates: ContactUpdate;
+}
+
+export interface BulkFieldsResponse {
+  updated: number;
+  failed: number;
+  failures: Array<{ id: number; reason: string }>;
+}
+
+export async function bulkUpdateContactFields(req: BulkFieldsRequest): Promise<BulkFieldsResponse> {
+  const token = getAuthToken();
+  if (!token) throw new Error("No authentication token found");
+
+  const response = await fetch("/api/contacts/bulk-fields", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...workspaceHeaders(),
+    },
+    body: JSON.stringify(req),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throwApiError(response.status, payload, "Error al actualizar contactos en lote");
+  }
+
+  return payload as BulkFieldsResponse;
+}
+
 export async function bulkUpdateContactTags(req: BulkTagsRequest): Promise<BulkTagsResponse> {
   const token = getAuthToken();
   if (!token) throw new Error("No authentication token found");
@@ -169,6 +214,7 @@ export async function bulkUpdateContactTags(req: BulkTagsRequest): Promise<BulkT
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
+      ...workspaceHeaders(),
     },
     body: JSON.stringify(req),
   });

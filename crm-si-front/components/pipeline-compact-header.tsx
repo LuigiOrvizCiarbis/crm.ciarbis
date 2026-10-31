@@ -28,9 +28,11 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
+  SelectSeparator,
   SelectValue,
 } from "@/components/ui/select"
 import { useTranslation } from "@/hooks/useTranslation"
+import type { Pipeline } from "@/lib/api/pipeline"
 
 interface PipelineCompactHeaderProps {
   onNewOpportunity?: () => void
@@ -38,7 +40,16 @@ interface PipelineCompactHeaderProps {
   onFilterChannel?: (channel: string) => void
   onFilterSalesperson?: (salesperson: string) => void
   onStagesChanged?: () => void
+  pipelines: Pipeline[]
+  selectedPipelineId: number
+  onPipelineChange: (pipelineId: number) => void
+  onNewPipeline?: () => void
+  /** Gestor de etapas controlado desde afuera (p. ej. al crear un pipeline vacío). */
+  stagesDialogOpen?: boolean
+  onStagesDialogOpenChange?: (open: boolean) => void
 }
+
+const NEW_PIPELINE_VALUE = "__new__"
 
 export function PipelineCompactHeader({
   onNewOpportunity,
@@ -46,6 +57,12 @@ export function PipelineCompactHeader({
   onFilterChannel,
   onFilterSalesperson,
   onStagesChanged,
+  pipelines,
+  selectedPipelineId,
+  onPipelineChange,
+  onNewPipeline,
+  stagesDialogOpen,
+  onStagesDialogOpenChange,
 }: PipelineCompactHeaderProps) {
   const { t } = useTranslation()
   const canManageStages = usePermission("pipeline_stages.manage")
@@ -73,6 +90,32 @@ export function PipelineCompactHeader({
     <header className="sticky top-0 z-40 h-[75px] flex items-center gap-4 px-4 md:px-6 lg:px-8 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
       <div className="flex items-center gap-2 min-w-fit">
         <h1 className="text-xl font-semibold tracking-tight">{t("pipeline.title")}</h1>
+        <Select
+          value={String(selectedPipelineId)}
+          onValueChange={(value) => {
+            // "Nuevo pipeline" es una acción, no una opción: no cambia la selección.
+            if (value === NEW_PIPELINE_VALUE) onNewPipeline?.()
+            else onPipelineChange(Number(value))
+          }}
+        >
+          <SelectTrigger className="h-9 w-[170px]" aria-label="Pipeline">
+            <SelectValue placeholder="Elegir pipeline" />
+          </SelectTrigger>
+          <SelectContent>
+            {pipelines.map((pipeline) => <SelectItem key={pipeline.id} value={String(pipeline.id)}>{pipeline.name}</SelectItem>)}
+            {canManageStages && onNewPipeline && (
+              <>
+                <SelectSeparator />
+                <SelectItem value={NEW_PIPELINE_VALUE} className="text-muted-foreground focus:text-foreground">
+                  <span className="flex items-center gap-2">
+                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t("pipeline.create.newPipeline")}
+                  </span>
+                </SelectItem>
+              </>
+            )}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex-1 max-w-md">
@@ -175,7 +218,7 @@ export function PipelineCompactHeader({
 
       <div className="flex items-center gap-2 ml-auto">
         {canManageStages && (
-          <Dialog>
+          <Dialog open={stagesDialogOpen} onOpenChange={onStagesDialogOpenChange}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm" className="h-9 bg-transparent">
                 <Settings2 className="h-4 w-4 mr-2" />
@@ -187,7 +230,7 @@ export function PipelineCompactHeader({
                 <DialogTitle>{t("pipeline.stages.manage")}</DialogTitle>
                 <DialogDescription>{t("pipeline.stages.manageDesc")}</DialogDescription>
               </DialogHeader>
-              <PipelineStagesManager onStagesChanged={onStagesChanged} />
+              <PipelineStagesManager pipelineId={selectedPipelineId} onStagesChanged={onStagesChanged} />
             </DialogContent>
           </Dialog>
         )}

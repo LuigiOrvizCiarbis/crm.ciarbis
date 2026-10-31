@@ -2,11 +2,13 @@
   "nav": {
     "panel": "Dashboard",
     "chats": "Chats",
+    "instagramComments": "Instagram comments",
     "contacts": "Contacts",
     "catalog": "Catalog",
     "pipeline": "Sales pipeline",
     "tasks": "Tasks",
     "broadcasts": "Broadcasts",
+    "invoices": "Invoices",
     "automation": "Automation & AI",
     "admin": "Administration",
     "settings": "Settings",
@@ -65,6 +67,7 @@
     "bulkDeactivated": "Products deactivated",
     "bulkDeleted": "Products deleted",
     "bulkDeleteConfirmBody": "{{count}} product(s) will be removed from the catalog. This action cannot be undone.",
+    "perPage": "Per page",
     "paginationInfo": "{{from}}-{{to}} of {{total}}",
     "previous": "Previous",
     "next": "Next"
@@ -120,19 +123,6 @@
     "errors": {
       "loadFailed": "Failed to load metrics",
       "retry": "Retry"
-    },
-    "notifications": {
-      "title": "Notifications",
-      "viewAll": "View all",
-      "empty": "No new notifications",
-      "demoLead": "New lead: Ana Martínez from WhatsApp",
-      "demoLeadTime": "5 min ago",
-      "demoMessage": "New message from Carlos López",
-      "demoMessageTime": "12 min ago",
-      "demoTask": "Overdue task: Follow-up with Juan Pérez",
-      "demoTaskTime": "1 hour ago",
-      "demoAssignment": "Lead assigned: María García assigned you a lead",
-      "demoAssignmentTime": "2 hours ago"
     }
   },
   "tenant": {
@@ -155,6 +145,11 @@
         "menuTitle": "Filter by range",
         "from": "From",
         "to": "To"
+      },
+      "audience": {
+        "label": "Audience",
+        "all": "All",
+        "clients": "Clients"
       }
     },
     "actions": {
@@ -167,7 +162,10 @@
       "activeLeads": "Active Leads",
       "qualified": "Qualified",
       "conversionRate": "Conversion Rate",
-      "vsPrevious": "vs {value} last month"
+      "vsPrevious": "vs {value} last month",
+      "billingAlDia": "Up to date",
+      "billingPorVencer": "Due soon",
+      "billingVencido": "Overdue"
     },
     "table": {
       "contact": "Contact",
@@ -178,6 +176,7 @@
       "actions": "Actions"
     },
     "bulk": {
+      "editFields": "Edit fields",
       "editTags": "Edit tags",
       "dialog": {
         "title": "Bulk edit tags",
@@ -203,6 +202,28 @@
       "errors": {
         "loadTags": "Could not load tags",
         "apply": "Could not apply the change"
+      },
+      "fields": {
+        "title": "Bulk edit fields",
+        "subtitle": "{{count}} selected contacts",
+        "hint": "Select the fields to replace. Unselected fields will not be changed.",
+        "clear": "Clear",
+        "apply": "Apply changes",
+        "result": {
+          "success": "{{updated}} contacts updated",
+          "partial": "{{updated}} updated, {{failed}} unchanged"
+        },
+        "errors": {
+          "apply": "Could not update contacts"
+        }
+      },
+      "delete": {
+        "action": "Delete",
+        "confirmTitle": "Delete contacts",
+        "confirmBody": "{{count}} contact(s) will be deleted. This action cannot be undone.",
+        "success": "{{count}} contact(s) deleted",
+        "partial": "{{deleted}} deleted, {{failed}} not permitted",
+        "error": "Could not delete the contacts"
       }
     },
     "customFields": {
@@ -241,6 +262,27 @@
     }
   },
   "pipeline": {
+    "create": {
+      "title": "New pipeline",
+      "description": "A sales process with its own stages.",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. Renewals",
+      "stagesLabel": "Initial stages",
+      "copyTitle": "Copy stages",
+      "copyHint": "Same columns as another pipeline.",
+      "copyFrom": "Copy from",
+      "templateTitle": "Simple template",
+      "templateHint": "New, In progress, Won and Lost.",
+      "emptyTitle": "Empty",
+      "emptyHint": "You'll set them up later.",
+      "preview": "Preview",
+      "emptyPreview": "No stages: the stage manager opens after creating it.",
+      "submit": "Create pipeline",
+      "error": "Could not create the pipeline",
+      "created": "Pipeline created",
+      "createdDesc": "You're now viewing {{name}}.",
+      "newPipeline": "New pipeline"
+    },
     "title": "Opportunity Pipeline",
     "searchPlaceholder": "Search leads...",
     "newOpportunity": "New opportunity",
@@ -337,6 +379,37 @@
     "loginLink": "Log in"
   },
   "chats": {
+    "scheduleAction": "Schedule",
+    "scheduleMessage": "Schedule message",
+    "schedulePresetInOneHour": "In 1 hour",
+    "schedulePresetTomorrowMorning": "Tomorrow 9:00",
+    "schedulePresetNextMonday": "Monday 9:00",
+    "scheduleTime": "Time",
+    "scheduleConfirm": "Schedule for {{when}}",
+    "scheduleSave": "Save for {{when}}",
+    "scheduleInPast": "Pick a future date and time.",
+    "scheduleTooFar": "You can only schedule up to 60 days ahead.",
+    "scheduleWindowWarning": "The 24h window closes {{when}}. If the contact doesn't write before then, the message will fail.",
+    "scheduledToast": "Message scheduled for {{when}}",
+    "scheduledUpdatedToast": "Message rescheduled for {{when}}",
+    "scheduledCancelledToast": "Scheduled message cancelled",
+    "scheduledCountOne": "1 scheduled message",
+    "scheduledCountOther": "{{count}} scheduled messages",
+    "scheduledFailedCount": "{{count}} failed",
+    "scheduledListTitle": "Scheduled messages",
+    "scheduledBy": "by {{name}}",
+    "scheduledImage": "Image",
+    "scheduledAudio": "Audio",
+    "scheduledSending": "Sending…",
+    "scheduledFailed": "Not sent",
+    "scheduledEdit": "Edit",
+    "scheduledReschedule": "Reschedule",
+    "scheduledCancel": "Cancel send",
+    "scheduledCancelTitle": "Cancel the scheduled message?",
+    "scheduledCancelDescription": "It won't be sent and this can't be undone.",
+    "scheduledKeep": "Keep",
+    "scheduledEditContent": "Message text",
+    "scheduledSaveText": "Save text",
     "title": "Chats",
     "searchInChat": "Search in conversation",
     "aiAutoreply": "AI reply",
@@ -489,6 +562,38 @@
     "contactInfo": "Contact information",
     "viewFullHistory": "View full history",
     "createTask": "Create task",
+    "createInvoice": "Create charge",
+    "invoiceDialog": {
+      "description": "For {{name}}. Choose whether to send it now or save it as a draft.",
+      "contact": "Contact",
+      "noPhone": "No WhatsApp phone number",
+      "concept": "Description",
+      "conceptPlaceholder": "e.g. October service",
+      "amount": "Amount in pesos",
+      "amountPlaceholder": "e.g. 10000.00",
+      "amountHint": "Use a dot or comma for cents, without thousands separators.",
+      "createMode": "How would you like to create it?",
+      "sendNow": "Send now",
+      "sendNowHint": "Generates the PDF and sends the charge by WhatsApp.",
+      "saveDraft": "Save draft",
+      "saveDraftHint": "You can review and send it later from Charges.",
+      "total": "Charge total",
+      "loadingSettings": "Loading charge settings…",
+      "addPhone": "Add a phone number to the contact before sending.",
+      "settingsRequired": "Set up an active channel and an approved Utility template with a PDF header in Charges before sending.",
+      "dueHint": "Due {{days}} days after issue. It will be sent through the WhatsApp channel configured in Charges.",
+      "conceptRequired": "Enter a description for the charge.",
+      "conceptTooLong": "The description cannot exceed 500 characters.",
+      "amountInvalid": "Enter a valid amount without thousands separators and with up to two decimal places.",
+      "phoneRequired": "This contact has no phone number. Add one before issuing and sending.",
+      "settingsLoadFailed": "Could not load charge settings.",
+      "createFailed": "Could not create the charge. Check the details and try again.",
+      "created": "{{number}} created",
+      "sendQueued": "WhatsApp delivery is in progress. You can track its status in Charges.",
+      "draftSaved": "Saved as a draft in Charges.",
+      "creating": "Creating…",
+      "issueAndSend": "Issue and send"
+    },
     "scheduleMeeting": "Schedule meeting",
     "editContactName": "Edit contact name",
     "save": "Save",
@@ -551,6 +656,12 @@
     "emojiCategoryHearts": "Hearts",
     "emojiCategoryCelebration": "Celebration",
     "emojiCategoryObjects": "Objects",
+    "reactToMessage": "React",
+    "reactionsTitle": "React to message",
+    "moreEmojis": "More emojis",
+    "reactionError": "Could not send reaction",
+    "reactionAria": "Reaction {{emoji}}, {{count}}",
+    "reactionRemoveAria": "Remove your {{emoji}} reaction",
     "translateMessage": "Translate",
     "showTranslation": "Show translation",
     "hideTranslation": "Hide translation",
@@ -627,6 +738,30 @@
     "loading": "Loading...",
     "select": "Select",
     "stageLabel": "Stage",
+    "stageFilter": {
+      "label": "Stages",
+      "title": "Filter by stage",
+      "loading": "Loading stages",
+      "none": "No stage",
+      "clear": "Clear",
+      "done": "Done",
+      "showResults": "Show {{count}} chats",
+      "wholePipeline": "Whole pipeline",
+      "active": "Filtered stages",
+      "remove": "Remove {{stage}}"
+    },
+    "chatStageLabel": "Chat stage",
+    "opportunities": "Opportunities",
+    "opportunitiesOfChat": "Opportunities in this chat",
+    "newOpportunity": "New opportunity",
+    "noOpportunities": "This chat has no opportunities yet.",
+    "opportunityStageLabel": "Opportunity stage",
+    "moveOpportunityTo": "Move to {{stage}}",
+    "lastStage": "Already at the last stage",
+    "firstStage": "Already at the first stage",
+    "opportunityCreated": "Opportunity created",
+    "opportunityLinkedToChat": "Linked to this chat.",
+    "opportunityUpdated": "Opportunity updated",
     "priorityLabel": "Priority",
     "priorityLow": "Low",
     "priorityMedium": "Medium",
@@ -745,6 +880,29 @@
       "unread": "Unread",
       "review": "To review",
       "archived": "Archived"
+    },
+    "conversationRail": {
+      "label": "Conversation list"
+    },
+    "handoffSettings": {
+      "open": "Human handoff",
+      "title": "Human handoff",
+      "description": "What happens in {{name}} when a customer asks to talk to a person.",
+      "responsible": "Responsible",
+      "noResponsible": "No one (the channel owner)",
+      "responsibleHint": "Gets the handoff only when nobody is assigned to the conversation.",
+      "whatsappAlert": "Alert the channel number on WhatsApp",
+      "whatsappAlertHint": "SI CRM sends an alert to this number, in the WhatsApp Business app.",
+      "whatsappAlertUnavailable": "Only available when the number uses the WhatsApp Business app. You will still get the alert in the CRM.",
+      "saved": "Handoff settings saved",
+      "error": "Could not save handoff settings"
+    },
+    "handoff": {
+      "title": "Human handoff",
+      "defaultSummary": "The customer asked to talk to a person.",
+      "take": "Take",
+      "taken": "Taken",
+      "takeError": "Could not take the handoff"
     }
   },
   "settings": {
@@ -767,6 +925,37 @@
       "restricted": {
         "title": "No settings available",
         "description": "Your account does not have permission to view or modify this section."
+      }
+    },
+    "workspace": {
+      "title": "Workspace",
+      "description": "The name identifies this space in the switcher and in invitations. Only an Owner can change it.",
+      "nameLabel": "Workspace name",
+      "nameHint": "Between 2 and 100 characters.",
+      "tooShort": "Enter at least 2 characters.",
+      "renamed": "Workspace name updated",
+      "ownerOnly": "Only an Owner can manage this workspace.",
+      "danger": {
+        "title": "Danger zone",
+        "description": "Actions that affect access for the whole team. Review before confirming.",
+        "leaveTitle": "Leave workspace",
+        "leaveDescription": "You lose access to this space. If you are the only Owner, assign another one first.",
+        "leaveAction": "Leave",
+        "leaveConfirm": "Are you sure you want to leave “{{name}}”? You will lose access.",
+        "left": "You left the workspace",
+        "deactivateTitle": "Deactivate workspace",
+        "deactivateDescription": "The space becomes inaccessible and is permanently deleted after 30 days. You can restore it within that window.",
+        "deactivateAction": "Deactivate",
+        "deactivateDialogTitle": "Deactivate “{{name}}”",
+        "deactivateDialogDescription": "Deletion is scheduled in 30 days. You can restore it during that window. To confirm, type the exact name and your password.",
+        "nameConfirmationLabel": "Type “{{name}}” to confirm",
+        "passwordLabel": "Your password",
+        "nameMismatch": "The name does not match.",
+        "deactivated": "Workspace deactivated",
+        "restoreTitle": "Restore workspace",
+        "restoreDescription": "This space is scheduled for deletion. Restore it to use it again.",
+        "restoreAction": "Restore",
+        "restored": "Workspace restored"
       }
     },
     "navigationLabels": {
@@ -847,6 +1036,7 @@
       "actionIncomplete": "Each action needs a channel and a template.",
       "group": "Group",
       "value": "Value",
+      "valueList": "Value 1, value 2",
       "addCondition": "Add condition",
       "addGroup": "Add group",
       "addAction": "Add action",
@@ -905,13 +1095,6 @@
       }
     },
     "save": "Save changes",
-    "notifications": "Notifications",
-    "newMessage": "New message",
-    "taskOverdue": "Overdue task",
-    "taskUpcoming": "Upcoming task",
-    "saleClosed": "Sale closed",
-    "dailyReminders": "Daily reminders",
-    "weeklyReport": "Weekly report",
     "roles": "Roles",
     "adminRole": "Admin",
     "adminRoleDesc": "Full access + team management",
@@ -1020,6 +1203,8 @@
       "description": "Configure the provider, model, and instructions that guide each automatic reply.",
       "enabled": "Auto-reply enabled",
       "enabledHint": "Automatically reply to incoming messages using your AI provider.",
+      "humanHandoff": "Hand off to a person",
+      "humanHandoffHint": "When a customer asks to talk to someone, the AI stops replying and alerts the team.",
       "statusEnabled": "Active",
       "statusPaused": "Paused",
       "provider": "Provider",
@@ -1291,24 +1476,43 @@
     },
     "groups": {
       "conversations": "Conversations",
+      "sections": "Section access",
       "messages": "Messages",
       "contacts": "Contacts",
       "contact_fields": "Contact fields",
+      "document_extraction": "Document extraction",
       "opportunities": "Opportunities",
       "pipeline_stages": "Pipeline stages",
+      "products": "Products",
+      "product_fields": "Product fields",
       "tasks": "Tasks",
       "tags": "Tags",
       "channels": "Channels",
       "ai_config": "AI configuration",
+      "woocommerce": "WooCommerce",
+      "webhooks": "Webhooks",
+      "automations": "Automations",
+      "billing": "Billing",
       "templates": "WhatsApp templates",
+      "whatsapp_groups": "WhatsApp groups",
       "analytics": "Analytics",
       "users": "Users",
       "invitations": "Invitations",
       "roles": "Roles",
       "permissions": "Permissions",
-      "branches": "Branches"
+      "branches": "Branches",
+      "navigation_labels": "Navigation labels"
     },
     "perms": {
+      "sections.dashboard": "Access Dashboard",
+      "sections.chats": "Access Chats",
+      "sections.instagram_comments": "Access Instagram comments",
+      "sections.contacts": "Access Contacts",
+      "sections.catalog": "Access Catalog",
+      "sections.pipeline": "Access Opportunities",
+      "sections.tasks": "Access Tasks",
+      "sections.broadcasts": "Access Broadcasts",
+      "sections.settings": "Access Settings",
       "conversations.view_any": "View all conversations",
       "conversations.view_assigned": "View assigned conversations",
       "conversations.view": "Open a conversation",
@@ -1333,6 +1537,7 @@
       "contacts.view_history": "View contact history",
       "contact_fields.view": "View contact fields",
       "contact_fields.manage": "Manage contact fields",
+      "document_extraction.use": "Extract data from documents",
       "opportunities.view_any": "View all opportunities",
       "opportunities.view_assigned": "View assigned opportunities",
       "opportunities.view": "Open an opportunity",
@@ -1344,6 +1549,10 @@
       "opportunities.view_summary": "View pipeline summary",
       "pipeline_stages.view": "View pipeline stages",
       "pipeline_stages.manage": "Manage pipeline stages",
+      "products.view": "View products",
+      "products.manage": "Manage products",
+      "product_fields.view": "View product fields",
+      "product_fields.manage": "Manage product fields",
       "tasks.view_any": "View all tasks",
       "tasks.view_assigned": "View assigned tasks",
       "tasks.view": "Open a task",
@@ -1362,15 +1571,31 @@
       "channels.create": "Create channels",
       "channels.update": "Edit channels",
       "channels.delete": "Delete channels",
+      "channels.disconnect": "Disconnect channels",
       "channels.manage_users": "Manage channel users",
       "channels.connect_whatsapp": "Connect WhatsApp",
+      "channels.connect_mail": "Connect mail channels",
       "ai_config.view": "View AI configuration",
       "ai_config.manage": "Manage AI configuration",
+      "woocommerce.view": "View WooCommerce integration",
+      "woocommerce.manage": "Manage WooCommerce integration",
+      "webhooks.view": "View webhooks",
+      "webhooks.manage": "Manage webhooks",
+      "automations.view": "View automations",
+      "automations.manage": "Manage automations",
+      "billing.view": "View billing",
+      "billing.manage": "Manage billing",
       "templates.view": "View templates",
       "templates.sync": "Sync templates with Meta",
       "templates.create": "Create WhatsApp templates",
       "templates.delete": "Delete WhatsApp templates",
       "templates.send": "Send templates",
+      "whatsapp_groups.view": "View WhatsApp groups",
+      "whatsapp_groups.create": "Create WhatsApp groups",
+      "whatsapp_groups.update": "Edit WhatsApp groups",
+      "whatsapp_groups.delete": "Delete WhatsApp groups",
+      "whatsapp_groups.invite": "Invite to WhatsApp groups",
+      "whatsapp_groups.manage_participants": "Manage group participants",
       "analytics.view": "View own analytics",
       "analytics.view_team": "View team analytics",
       "users.view": "View users",
@@ -1386,7 +1611,8 @@
       "branches.view_any": "View branches list",
       "branches.view": "View branches",
       "branches.manage": "Manage branches",
-      "branches.view_all": "View data across all branches"
+      "branches.view_all": "View data across all branches",
+      "navigation_labels.manage": "Customize navigation labels"
     }
   },
   "sucursales": {
@@ -1489,6 +1715,8 @@
     "fieldType": "Type",
     "options": "Options (one per line)",
     "optionsPlaceholder": "S\nM\nL",
+    "optionColor": "Color for option {option}",
+    "optionsColorHint": "Choose a color to identify each option in the selector.",
     "required": "Required",
     "unique": "Unique value",
     "typeImmutable": "The type cannot be changed after the field is created.",
@@ -1715,6 +1943,81 @@
       "saved": "WhatsApp alerts enabled",
       "disable": "Turn off alerts",
       "disabled": "WhatsApp alerts disabled"
+    }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "unread": "{{count}} unread",
+    "unreadLabel": "Unread",
+    "bellLabelUnread": "Notifications ({{count}} unread)",
+    "markAllRead": "Mark all read",
+    "loadMore": "Load more",
+    "emptyTitle": "You're all caught up",
+    "emptyDescription": "We'll let you know here when a message comes in, something is assigned to you or a channel needs attention.",
+    "unknownContact": "a contact",
+    "types": {
+      "message_received": {
+        "label": "Incoming messages",
+        "title": "New message from {{name}}",
+        "titleMany": "{{count}} new messages from {{name}}",
+        "attachment": "Sent an attachment"
+      },
+      "conversation_assigned": {
+        "label": "A conversation is assigned to you",
+        "title": "A conversation was assigned to you",
+        "body": "Conversation with {{name}}",
+        "bodyBy": "{{actor}} assigned you the conversation with {{name}}"
+      },
+      "conversation_unassigned": {
+        "label": "You're removed from a conversation",
+        "title": "You're no longer assigned to a conversation",
+        "body": "Conversation with {{name}}"
+      },
+      "handoff_requested": {
+        "label": "AI hands off to a human",
+        "title": "The AI handed off a conversation",
+        "body": "{{name}} asked to talk to a person"
+      },
+      "task_assigned": {
+        "label": "A task is assigned to you",
+        "title": "New task assigned",
+        "bodyBy": "{{actor}} assigned you “{{task}}”"
+      },
+      "import_completed": {
+        "label": "Import finished",
+        "title": "Import completed"
+      },
+      "import_failed": {
+        "label": "Import failed",
+        "title": "The import failed"
+      },
+      "channel_token_invalid": {
+        "label": "Channel disconnected",
+        "title": "Reconnect the {{channel}} channel",
+        "body": "The connection expired and messages can't be sent from that channel."
+      },
+      "scheduled_message_failed": {
+        "label": "Scheduled message not sent",
+        "title": "Scheduled message to {{name}} wasn't sent",
+        "body": "Check it in the chat to reschedule it."
+      },
+      "trial_expiring": {
+        "label": "Trial ending",
+        "title": "Your trial ends in {{days}} days",
+        "titleOne": "Your trial ends tomorrow",
+        "body": "Pick a plan to keep using the CRM without interruptions."
+      }
+    },
+    "preferences": {
+      "title": "Notifications",
+      "description": "Choose which alerts you get inside the CRM and how they reach you. They only apply to your user.",
+      "browser": "Browser notifications",
+      "browserHint": "System alerts when the CRM is in another tab or minimized.",
+      "browserDenied": "Your browser blocked notifications. Enable them from the lock icon in the address bar and try again.",
+      "browserUnsupported": "This browser doesn't support notifications.",
+      "sound": "Sound",
+      "soundHint": "A short chime when a notification arrives.",
+      "typesTitle": "What we notify you about"
     }
   }
 }

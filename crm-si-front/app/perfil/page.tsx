@@ -7,10 +7,10 @@ import { SidebarLayout } from "@/components/SidebarLayout"
 import { SettingsSectionHeading, SettingsTabs, useSettingsNav, type SettingsSection } from "@/components/config/SettingsNav"
 import { ProfileAvatarBlock } from "@/components/profile/ProfileAvatarBlock"
 import { ProfileDetailsBlock } from "@/components/profile/ProfileDetailsBlock"
+import { ProfileNotificationsBlock } from "@/components/profile/ProfileNotificationsBlock"
 import { ProfilePasswordBlock } from "@/components/profile/ProfilePasswordBlock"
 import { ProfilePreferencesBlock } from "@/components/profile/ProfilePreferencesBlock"
 import { ProfileSessionsBlock } from "@/components/profile/ProfileSessionsBlock"
-import { ProfileWhatsAppNotificationsBlock } from "@/components/profile/ProfileWhatsAppNotificationsBlock"
 import { useTranslation } from "@/hooks/useTranslation"
 
 type ProfileSectionId = "account" | "security" | "preferences"
@@ -82,7 +82,7 @@ export default function ProfilePage() {
 
             <SettingsSectionHeading section={sections[2]}>
               <ProfilePreferencesBlock />
-              <ProfileWhatsAppNotificationsBlock />
+              <ProfileNotificationsBlock />
             </SettingsSectionHeading>
           </main>
         </div>

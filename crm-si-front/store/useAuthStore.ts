@@ -2,7 +2,10 @@ import { create } from "zustand"
 import { persist, createJSONStorage } from "zustand/middleware"
 import * as Sentry from "@sentry/nextjs"
 import { disconnectPusher } from "@/lib/pusher"
+import { clearWorkspaceId } from "@/lib/api/auth-token"
 import type { NavigationLabels } from "@/data/navigation"
+import type { WorkspaceSummary } from "@/lib/api/workspaces"
+import type { NotificationPreferences } from "@/lib/api/notifications"
 
 /**
  * Identifica al usuario en Sentry para que cada error reportado indique
@@ -44,6 +47,7 @@ export interface UserPreferences {
   locale: string
   timezone: string
   date_format: string
+  notifications?: NotificationPreferences
 }
 
 export interface User {
@@ -55,12 +59,12 @@ export interface User {
   tenant?: UserTenant | null
   branch_id?: number | null
   phone?: string | null
-  whatsapp_notification?: { phone?: string | null; opted_in_at?: string | null }
   job_title?: string | null
   avatar_url?: string | null
   preferences?: UserPreferences | null
   created_at?: string
   updated_at?: string
+  workspaces?: WorkspaceSummary[]
 }
 
 interface AuthState {
@@ -73,6 +77,8 @@ interface AuthState {
   isLoading: boolean
   rememberMe: boolean
   _hasHydrated: boolean
+  workspaces: WorkspaceSummary[]
+  activeWorkspaceId: number | null
 
   // Actions
   setAuth: (
@@ -90,6 +96,8 @@ interface AuthState {
   setLoading: (loading: boolean) => void
   checkAuth: () => boolean
   setHasHydrated: (state: boolean) => void
+  setWorkspaces: (workspaces: WorkspaceSummary[]) => void
+  setActiveWorkspace: (id: number) => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -104,6 +112,8 @@ export const useAuthStore = create<AuthState>()(
       isLoading: false,
       rememberMe: false,
       _hasHydrated: false,
+      workspaces: [],
+      activeWorkspaceId: null,
 
       setAuth: (user, token, rememberMe = false, emailVerified = false, role = null, permissions = []) => {
         setSentryUser(user)
@@ -115,6 +125,8 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: true,
           emailVerified: emailVerified || !!user.email_verified_at,
           rememberMe,
+          activeWorkspaceId: user.tenant_id ?? null,
+          workspaces: user.workspaces ?? get().workspaces,
         })
       },
 
@@ -129,8 +141,10 @@ export const useAuthStore = create<AuthState>()(
       updateUser: (userData) => {
         const current = get().user
         if (current) {
+          const nextUser = { ...current, ...userData }
+          setSentryUser(nextUser)
           set({ 
-            user: { ...current, ...userData },
+            user: nextUser,
             emailVerified: userData.email_verified_at ? true : get().emailVerified,
           })
         }
@@ -138,6 +152,7 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         disconnectPusher()
+        clearWorkspaceId()
         setSentryUser(null)
         set({
           user: null,
@@ -147,6 +162,8 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: false,
           emailVerified: false,
           rememberMe: false,
+          workspaces: [],
+          activeWorkspaceId: null,
         })
       },
 
@@ -160,6 +177,9 @@ export const useAuthStore = create<AuthState>()(
       setHasHydrated: (state) => {
         set({ _hasHydrated: state })
       },
+
+      setWorkspaces: (workspaces) => set({ workspaces }),
+      setActiveWorkspace: (id) => set({ activeWorkspaceId: id }),
     }),
     {
       name: "auth-storage",

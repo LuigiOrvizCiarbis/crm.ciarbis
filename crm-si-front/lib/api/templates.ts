@@ -1,5 +1,5 @@
 import { WhatsAppTemplate } from "@/data/types";
-import { getAuthToken } from "./auth-token";
+import { getAuthToken, workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 
 export async function getTemplates(channelId: number): Promise<WhatsAppTemplate[]> {
@@ -11,6 +11,7 @@ export async function getTemplates(channelId: number): Promise<WhatsAppTemplate[
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      ...workspaceHeaders(),
     },
   });
 
@@ -24,7 +25,7 @@ export async function getManagedTemplates(channelId: number): Promise<WhatsAppTe
   const token = getAuthToken();
   if (!token) throw new Error("No authentication token found");
   const res = await fetch(`/api/channels/${channelId}/templates?status=all`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throwApiError(res.status, data, "Error al cargar plantillas");
@@ -44,7 +45,7 @@ export async function createTemplate(channelId: number, payload: CreateTemplateP
   if (!token) throw new Error("No authentication token found");
   const res = await fetch(`/api/channels/${channelId}/templates`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...workspaceHeaders() },
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
@@ -59,7 +60,7 @@ export async function uploadTemplateHeader(channelId: number, file: File): Promi
   body.append("file", file);
   const res = await fetch(`/api/channels/${channelId}/templates/media`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
     body,
   });
   const data = await res.json().catch(() => ({}));
@@ -76,6 +77,7 @@ export async function syncTemplates(channelId: number): Promise<{ message: strin
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      ...workspaceHeaders(),
     },
   });
 
@@ -94,6 +96,7 @@ export async function deleteTemplate(channelId: number, templateId: number): Pro
     headers: {
       Accept: "application/json",
       Authorization: `Bearer ${token}`,
+      ...workspaceHeaders(),
     },
   });
 
@@ -121,6 +124,7 @@ export async function uploadTemplateMedia(
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
+      ...workspaceHeaders(),
     },
     body: formData,
   });
@@ -145,6 +149,7 @@ export async function sendTemplate(
       "Content-Type": "application/json",
       Accept: "application/json",
       Authorization: `Bearer ${token}`,
+      ...workspaceHeaders(),
     },
     body: JSON.stringify({
       template_id: templateId,

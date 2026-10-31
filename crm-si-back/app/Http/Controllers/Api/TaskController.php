@@ -6,6 +6,7 @@ use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Enums\TaskType;
 use App\Http\Controllers\Controller;
+use App\Services\Notifications\DomainNotifier;
 use App\Jobs\SyncTaskCalendarEventJob;
 use App\Models\Task;
 use App\Models\TaskCalendarSync;
@@ -62,6 +63,7 @@ class TaskController extends Controller
         $validated = $request->validate($this->rules($request));
 
         $task = Task::create($this->payload($validated));
+        app(DomainNotifier::class)->taskAssigned($task, $request->user());
 
         if ($task->type === TaskType::MEETING && $task->status !== TaskStatus::CANCELED) {
             DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatch($task->id, 'upsert'));
@@ -109,6 +111,10 @@ class TaskController extends Controller
 
         $task->save();
 
+        if ($task->assigned_to !== null && (int) $task->assigned_to !== (int) $previousAssignee) {
+            app(DomainNotifier::class)->taskAssigned($task, $request->user());
+        }
+
         $this->syncCalendarAfterUpdate($task, $wasMeeting, $previousStatus, $reassigned, $snapshot);
 
         $task->load(self::EAGER_LOAD);
@@ -152,10 +158,17 @@ class TaskController extends Controller
 
         // Reflejamos el reintento en la API antes de que el worker procese el
         // job, así la UI deja de mostrar el error y puede refrescar el estado.
-        TaskCalendarSync::where('task_id', $task->id)->update([
+        // firstOrNew: si el job original nunca llegó a crear la fila (falló
+        // antes de eso), el update() sobre un where sin matches sería un no-op.
+        $sync = TaskCalendarSync::firstOrNew(['task_id' => $task->id], [
+            'tenant_id' => $task->tenant_id,
+            'owner_user_id' => $task->assigned_to,
+            'external_event_id' => '',
+        ]);
+        $sync->fill([
             'status' => 'pending',
             'last_error' => 'retrying',
-        ]);
+        ])->save();
 
         DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatch($task->id, 'upsert'));
 
@@ -308,7 +321,7 @@ class TaskController extends Controller
             'type' => [$task ? 'sometimes' : 'nullable', Rule::enum(TaskType::class)],
             'deadline' => ['nullable', 'date'],
             'description' => ['nullable', 'string'],
-            'assigned_to' => [...$meetingRule('assigned_to'), 'integer', Rule::exists('users', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
+            'assigned_to' => [...$meetingRule('assigned_to'), 'integer', Rule::exists('users', 'id')->where(fn ($query) => $query->whereIn('id', DB::table('tenant_memberships')->select('user_id')->where('tenant_id', $tenantId)->whereNull('removed_at')))],
             'contact_id' => ['nullable', 'integer', Rule::exists('contacts', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
             'conversation_id' => ['nullable', 'integer', Rule::exists('conversations', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
             'opportunity_id' => ['nullable', 'integer', Rule::exists('opportunities', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],

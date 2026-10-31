@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\NotificationType;
 use App\Models\Concerns\BelongsToTenant;
 use App\Notifications\CustomResetPassword;
 use App\Notifications\CustomVerifyEmail;
@@ -53,10 +54,6 @@ class User extends Authenticatable implements MustVerifyEmail
         'email_verified_at',
         'avatar_path',
         'phone',
-        'whatsapp_notification_phone',
-        'whatsapp_notification_phone_normalized',
-        'whatsapp_notification_verified_at',
-        'whatsapp_notification_opted_in_at',
         'job_title',
         'preferences',
     ];
@@ -72,8 +69,6 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return [
             'email_verified_at' => 'datetime',
-            'whatsapp_notification_verified_at' => 'datetime',
-            'whatsapp_notification_opted_in_at' => 'datetime',
             'password' => 'hashed',
             'preferences' => 'array',
         ];
@@ -101,7 +96,37 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     public function preferencesWithDefaults(): array
     {
-        return array_merge(self::DEFAULT_PREFERENCES, $this->preferences ?? []);
+        return array_merge(self::DEFAULT_PREFERENCES, $this->preferences ?? [], [
+            'notifications' => $this->notificationPreferences(),
+        ]);
+    }
+
+    /**
+     * Preferencias de notificaciones in-app con defaults: todos los tipos
+     * activos, sonido sí, notificación del navegador no (requiere permiso).
+     *
+     * @return array{types: array<string, bool>, sound: bool, browser: bool}
+     */
+    public function notificationPreferences(): array
+    {
+        $stored = $this->preferences['notifications'] ?? [];
+        $types = array_fill_keys(NotificationType::values(), true);
+        foreach ((array) ($stored['types'] ?? []) as $type => $enabled) {
+            if (array_key_exists($type, $types)) {
+                $types[$type] = (bool) $enabled;
+            }
+        }
+
+        return [
+            'types' => $types,
+            'sound' => (bool) ($stored['sound'] ?? true),
+            'browser' => (bool) ($stored['browser'] ?? false),
+        ];
+    }
+
+    public function wantsNotification(NotificationType $type): bool
+    {
+        return $this->notificationPreferences()['types'][$type->value];
     }
 
     public function sendEmailVerificationNotification(): void
@@ -168,6 +193,24 @@ class User extends Authenticatable implements MustVerifyEmail
     public function tenant(): BelongsTo
     {
         return $this->belongsTo(Tenant::class);
+    }
+
+    public function memberships(): HasMany
+    {
+        return $this->hasMany(TenantMembership::class);
+    }
+
+    public function activeMemberships(): HasMany
+    {
+        return $this->memberships()->whereNull('removed_at');
+    }
+
+    public function tenants(): BelongsToMany
+    {
+        return $this->belongsToMany(Tenant::class, 'tenant_memberships')
+            ->wherePivotNull('removed_at')
+            ->withPivot(['id', 'branch_id', 'joined_at', 'removed_at'])
+            ->withTimestamps();
     }
 
     public function branch(): BelongsTo

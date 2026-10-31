@@ -4,7 +4,9 @@ namespace Tests\Feature\Api;
 
 use App\Models\Tenant;
 use App\Models\User;
+use App\Support\PermissionCatalog;
 use App\Support\RoleProvisioner;
+use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Role;
@@ -26,6 +28,46 @@ class RoleOwnershipTest extends TestCase
 
         $this->assertNotNull($ownerRole);
         $this->assertSame($ownerRole->id, $tenant->fresh()->owner_role_id);
+    }
+
+    public function test_default_roles_receive_every_section_access_permission(): void
+    {
+        [$tenant] = $this->makeOwnerTenant();
+
+        $roles = Role::query()->where('tenant_id', $tenant->id)->with('permissions')->get();
+
+        foreach ($roles as $role) {
+            $this->assertEqualsCanonicalizing(
+                PermissionCatalog::sectionPermissions(),
+                $role->permissions
+                    ->pluck('name')
+                    ->filter(fn (string $name): bool => str_starts_with($name, 'sections.'))
+                    ->values()
+                    ->all(),
+            );
+        }
+    }
+
+    public function test_permission_seeder_adds_section_access_without_replacing_custom_role_permissions(): void
+    {
+        [$tenant] = $this->makeOwnerTenant();
+        app(PermissionRegistrar::class)->setPermissionsTeamId($tenant->id);
+
+        $role = Role::create([
+            'name' => 'Custom',
+            'guard_name' => 'web',
+            'tenant_id' => $tenant->id,
+        ]);
+        $role->givePermissionTo('contacts.view');
+
+        $this->seed(PermissionSeeder::class);
+
+        $permissions = $role->fresh()->permissions->pluck('name')->all();
+        $this->assertContains('contacts.view', $permissions);
+        $this->assertEqualsCanonicalizing(
+            PermissionCatalog::sectionPermissions(),
+            array_values(array_filter($permissions, fn (string $permission): bool => str_starts_with($permission, 'sections.'))),
+        );
     }
 
     public function test_renamed_owner_role_still_bypasses_gates(): void
@@ -69,6 +111,37 @@ class RoleOwnershipTest extends TestCase
             ->assertForbidden();
 
         $this->assertNotNull(Role::find($ownerRoleId));
+    }
+
+    public function test_owner_role_permissions_cannot_be_stripped_via_api(): void
+    {
+        [$tenant, $owner] = $this->makeOwnerTenant();
+        $ownerRoleId = $tenant->fresh()->owner_role_id;
+        $before = Role::find($ownerRoleId)->permissions->pluck('name')->sort()->values()->all();
+
+        Sanctum::actingAs($owner);
+
+        // Keeping the Owner role at the full catalog is what lets the role
+        // provisioner tell a brand new permission apart from one a tenant
+        // deliberately removed from Admin or Member.
+        $this->postJson("/api/roles/{$ownerRoleId}/permissions", ['permissions' => ['contacts.view']])
+            ->assertForbidden();
+
+        $this->assertSame($before, Role::find($ownerRoleId)->fresh()->permissions->pluck('name')->sort()->values()->all());
+    }
+
+    public function test_owner_role_permissions_cannot_be_stripped_via_update(): void
+    {
+        [$tenant, $owner] = $this->makeOwnerTenant();
+        $ownerRoleId = $tenant->fresh()->owner_role_id;
+        $before = Role::find($ownerRoleId)->permissions->pluck('name')->sort()->values()->all();
+
+        Sanctum::actingAs($owner);
+
+        $this->patchJson("/api/roles/{$ownerRoleId}", ['permissions' => ['contacts.view']])
+            ->assertForbidden();
+
+        $this->assertSame($before, Role::find($ownerRoleId)->fresh()->permissions->pluck('name')->sort()->values()->all());
     }
 
     public function test_cannot_create_role_with_reserved_system_name(): void

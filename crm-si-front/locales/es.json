@@ -2,11 +2,13 @@
   "nav": {
     "panel": "Panel",
     "chats": "Chats",
+    "instagramComments": "Comentarios IG",
     "contacts": "Contactos",
     "catalog": "Catálogo",
     "pipeline": "Pipeline de ventas",
     "tasks": "Tareas",
     "broadcasts": "Difusiones",
+    "invoices": "Invoices",
     "automation": "Automatización & IA",
     "admin": "Administración",
     "settings": "Configuración",
@@ -65,6 +67,7 @@
     "bulkDeactivated": "Productos desactivados",
     "bulkDeleted": "Productos eliminados",
     "bulkDeleteConfirmBody": "Se eliminarán {{count}} producto(s) del catálogo. Esta acción no se puede deshacer.",
+    "perPage": "Por página",
     "paginationInfo": "{{from}}-{{to}} de {{total}}",
     "previous": "Anterior",
     "next": "Siguiente"
@@ -120,19 +123,6 @@
     "errors": {
       "loadFailed": "No se pudieron cargar las métricas",
       "retry": "Reintentar"
-    },
-    "notifications": {
-      "title": "Notificaciones",
-      "viewAll": "Ver todas",
-      "empty": "No hay notificaciones nuevas",
-      "demoLead": "Nuevo lead: Ana Martínez desde WhatsApp",
-      "demoLeadTime": "Hace 5 min",
-      "demoMessage": "Nuevo mensaje de Carlos López",
-      "demoMessageTime": "Hace 12 min",
-      "demoTask": "Tarea vencida: Seguimiento con Juan Pérez",
-      "demoTaskTime": "Hace 1 hora",
-      "demoAssignment": "Lead asignado: María García te asignó un lead",
-      "demoAssignmentTime": "Hace 2 horas"
     }
   },
   "tenant": {
@@ -155,6 +145,11 @@
         "menuTitle": "Filtrar por rango",
         "from": "Desde",
         "to": "Hasta"
+      },
+      "audience": {
+        "label": "Audiencia",
+        "all": "Todos",
+        "clients": "Clientes"
       }
     },
     "actions": {
@@ -167,7 +162,10 @@
       "activeLeads": "Leads Activos",
       "qualified": "Calificados",
       "conversionRate": "Tasa Conversión",
-      "vsPrevious": "vs {value} mes pasado"
+      "vsPrevious": "vs {value} mes pasado",
+      "billingAlDia": "Al día",
+      "billingPorVencer": "Por vencer",
+      "billingVencido": "Vencidos"
     },
     "table": {
       "contact": "Contacto",
@@ -178,6 +176,7 @@
       "actions": "Acciones"
     },
     "bulk": {
+      "editFields": "Editar campos",
       "editTags": "Editar etiquetas",
       "dialog": {
         "title": "Editar etiquetas en lote",
@@ -203,6 +202,28 @@
       "errors": {
         "loadTags": "No se pudieron cargar las etiquetas",
         "apply": "No se pudo aplicar el cambio"
+      },
+      "fields": {
+        "title": "Editar campos en lote",
+        "subtitle": "{{count}} contactos seleccionados",
+        "hint": "Marcá los campos que querés reemplazar. Los campos no marcados no se modificarán.",
+        "clear": "Vaciar",
+        "apply": "Aplicar cambios",
+        "result": {
+          "success": "{{updated}} contactos actualizados",
+          "partial": "{{updated}} actualizados, {{failed}} sin cambios"
+        },
+        "errors": {
+          "apply": "No se pudieron actualizar los contactos"
+        }
+      },
+      "delete": {
+        "action": "Eliminar",
+        "confirmTitle": "Eliminar contactos",
+        "confirmBody": "Se eliminarán {{count}} contacto(s). Esta acción no se puede deshacer.",
+        "success": "{{count}} contacto(s) eliminado(s)",
+        "partial": "{{deleted}} eliminado(s), {{failed}} sin permiso",
+        "error": "No se pudieron eliminar los contactos"
       }
     },
     "customFields": {
@@ -241,6 +262,27 @@
     }
   },
   "pipeline": {
+    "create": {
+      "title": "Nuevo pipeline",
+      "description": "Un proceso comercial con sus propias etapas.",
+      "nameLabel": "Nombre",
+      "namePlaceholder": "Ej. Renovaciones",
+      "stagesLabel": "Etapas iniciales",
+      "copyTitle": "Copiar etapas",
+      "copyHint": "Mismas columnas que otro pipeline.",
+      "copyFrom": "Copiar de",
+      "templateTitle": "Plantilla simple",
+      "templateHint": "Nuevo, En curso, Ganado y Perdido.",
+      "emptyTitle": "Vacío",
+      "emptyHint": "Las armás después.",
+      "preview": "Así va a quedar",
+      "emptyPreview": "Sin etapas: al crearlo se abre el gestor para armarlas.",
+      "submit": "Crear pipeline",
+      "error": "No se pudo crear el pipeline",
+      "created": "Pipeline creado",
+      "createdDesc": "Ya estás viendo {{name}}.",
+      "newPipeline": "Nuevo pipeline"
+    },
     "title": "Pipeline de Oportunidades",
     "searchPlaceholder": "Buscar leads...",
     "newOpportunity": "Nueva oportunidad",
@@ -337,6 +379,37 @@
     "loginLink": "Inicia sesión"
   },
   "chats": {
+    "scheduleAction": "Programar",
+    "scheduleMessage": "Programar mensaje",
+    "schedulePresetInOneHour": "En 1 hora",
+    "schedulePresetTomorrowMorning": "Mañana 9:00",
+    "schedulePresetNextMonday": "Lunes 9:00",
+    "scheduleTime": "Hora",
+    "scheduleConfirm": "Programar para {{when}}",
+    "scheduleSave": "Guardar para {{when}}",
+    "scheduleInPast": "Elegí una fecha y hora futura.",
+    "scheduleTooFar": "Sólo se puede programar hasta 60 días adelante.",
+    "scheduleWindowWarning": "La ventana de 24 h vence {{when}}. Si el contacto no escribe antes, el mensaje va a fallar.",
+    "scheduledToast": "Mensaje programado para {{when}}",
+    "scheduledUpdatedToast": "Mensaje reprogramado para {{when}}",
+    "scheduledCancelledToast": "Mensaje programado cancelado",
+    "scheduledCountOne": "1 mensaje programado",
+    "scheduledCountOther": "{{count}} mensajes programados",
+    "scheduledFailedCount": "{{count}} con error",
+    "scheduledListTitle": "Mensajes programados",
+    "scheduledBy": "por {{name}}",
+    "scheduledImage": "Imagen",
+    "scheduledAudio": "Audio",
+    "scheduledSending": "Enviando…",
+    "scheduledFailed": "No se envió",
+    "scheduledEdit": "Editar",
+    "scheduledReschedule": "Reprogramar",
+    "scheduledCancel": "Cancelar envío",
+    "scheduledCancelTitle": "¿Cancelar el mensaje programado?",
+    "scheduledCancelDescription": "No se va a enviar y no se puede deshacer.",
+    "scheduledKeep": "Mantener",
+    "scheduledEditContent": "Texto del mensaje",
+    "scheduledSaveText": "Guardar texto",
     "title": "Chats",
     "searchInChat": "Buscar en la conversación",
     "aiAutoreply": "Respuesta IA",
@@ -489,6 +562,38 @@
     "contactInfo": "Información del contacto",
     "viewFullHistory": "Ver historial completo",
     "createTask": "Crear tarea",
+    "createInvoice": "Crear cobro",
+    "invoiceDialog": {
+      "description": "Para {{name}}. Elegí si querés enviarlo ahora o dejarlo como borrador.",
+      "contact": "Contacto",
+      "noPhone": "Sin teléfono de WhatsApp",
+      "concept": "Concepto",
+      "conceptPlaceholder": "Ej. Servicio de octubre",
+      "amount": "Importe en pesos",
+      "amountPlaceholder": "Ej. 10000,00",
+      "amountHint": "Usá coma o punto para los centavos, sin separadores de miles.",
+      "createMode": "¿Cómo querés crearlo?",
+      "sendNow": "Enviar ahora",
+      "sendNowHint": "Genera el PDF y envía el cobro por WhatsApp.",
+      "saveDraft": "Guardar borrador",
+      "saveDraftHint": "Podés revisarlo y enviarlo después desde Cobros.",
+      "total": "Total del cobro",
+      "loadingSettings": "Consultando configuración de cobros…",
+      "addPhone": "Completá el teléfono del contacto antes de enviar.",
+      "settingsRequired": "Configurá un canal activo y una plantilla Utility aprobada con PDF en Cobros antes de enviar.",
+      "dueHint": "Vence {{days}} días después de emitirlo. El envío se hará por el canal de WhatsApp configurado en Cobros.",
+      "conceptRequired": "Escribí el concepto del cobro.",
+      "conceptTooLong": "El concepto no puede superar los 500 caracteres.",
+      "amountInvalid": "Ingresá un importe válido, sin separadores de miles y con hasta dos decimales.",
+      "phoneRequired": "Este contacto no tiene teléfono. Agregalo antes de emitir y enviar.",
+      "settingsLoadFailed": "No se pudo consultar la configuración de cobros.",
+      "createFailed": "No se pudo crear el cobro. Revisá los datos e intentá de nuevo.",
+      "created": "{{number}} creado",
+      "sendQueued": "El envío por WhatsApp está en proceso. Podés seguir su estado en Cobros.",
+      "draftSaved": "Quedó guardado como borrador en Cobros.",
+      "creating": "Creando…",
+      "issueAndSend": "Emitir y enviar"
+    },
     "scheduleMeeting": "Agendar reunión",
     "editContactName": "Editar nombre del contacto",
     "save": "Guardar",
@@ -551,6 +656,12 @@
     "emojiCategoryHearts": "Corazones",
     "emojiCategoryCelebration": "Celebración",
     "emojiCategoryObjects": "Objetos",
+    "reactToMessage": "Reaccionar",
+    "reactionsTitle": "Reaccionar al mensaje",
+    "moreEmojis": "Más emojis",
+    "reactionError": "No se pudo enviar la reacción",
+    "reactionAria": "Reacción {{emoji}}, {{count}}",
+    "reactionRemoveAria": "Quitar tu reacción {{emoji}}",
     "translateMessage": "Traducir",
     "showTranslation": "Mostrar traducción",
     "hideTranslation": "Ocultar traducción",
@@ -627,6 +738,30 @@
     "loading": "Cargando...",
     "select": "Seleccionar",
     "stageLabel": "Etapa",
+    "stageFilter": {
+      "label": "Etapas",
+      "title": "Filtrar por etapa",
+      "loading": "Cargando etapas",
+      "none": "Sin etapa",
+      "clear": "Limpiar",
+      "done": "Listo",
+      "showResults": "Ver {{count}} chats",
+      "wholePipeline": "Todo el pipeline",
+      "active": "Etapas filtradas",
+      "remove": "Quitar {{stage}}"
+    },
+    "chatStageLabel": "Etapa del chat",
+    "opportunities": "Oportunidades",
+    "opportunitiesOfChat": "Oportunidades de este chat",
+    "newOpportunity": "Nueva oportunidad",
+    "noOpportunities": "Este chat todavía no tiene oportunidades.",
+    "opportunityStageLabel": "Etapa de la oportunidad",
+    "moveOpportunityTo": "Mover a {{stage}}",
+    "lastStage": "Ya está en la última etapa",
+    "firstStage": "Ya está en la primera etapa",
+    "opportunityCreated": "Oportunidad creada",
+    "opportunityLinkedToChat": "Quedó vinculada a este chat.",
+    "opportunityUpdated": "Oportunidad actualizada",
     "priorityLabel": "Prioridad",
     "priorityLow": "Baja",
     "priorityMedium": "Media",
@@ -745,6 +880,29 @@
       "unread": "No leídos",
       "review": "Por revisar",
       "archived": "Archivados"
+    },
+    "conversationRail": {
+      "label": "Lista de conversaciones"
+    },
+    "handoffSettings": {
+      "open": "Derivaciones a humano",
+      "title": "Derivaciones a humano",
+      "description": "Qué pasa en {{name}} cuando un cliente pide hablar con una persona.",
+      "responsible": "Responsable",
+      "noResponsible": "Sin responsable (el dueño del canal)",
+      "responsibleHint": "Recibe la derivación sólo si la conversación no tiene a nadie asignado.",
+      "whatsappAlert": "Avisar por WhatsApp al número del canal",
+      "whatsappAlertHint": "SI CRM le manda una alerta a este número, en la app WhatsApp Business.",
+      "whatsappAlertUnavailable": "Disponible sólo si el número usa la app WhatsApp Business. Igual vas a recibir el aviso en el CRM.",
+      "saved": "Configuración de derivaciones guardada",
+      "error": "No se pudo guardar la configuración de derivaciones"
+    },
+    "handoff": {
+      "title": "Derivación a humano",
+      "defaultSummary": "El cliente pidió hablar con una persona.",
+      "take": "Tomar",
+      "taken": "Tomada",
+      "takeError": "No se pudo tomar la derivación"
     }
   },
   "settings": {
@@ -767,6 +925,37 @@
       "restricted": {
         "title": "Sin configuraciones disponibles",
         "description": "Tu usuario no tiene permisos para ver o modificar esta sección."
+      }
+    },
+    "workspace": {
+      "title": "Workspace",
+      "description": "El nombre identifica este espacio en el selector y en las invitaciones. Sólo un Owner puede cambiarlo.",
+      "nameLabel": "Nombre del workspace",
+      "nameHint": "Entre 2 y 100 caracteres.",
+      "tooShort": "Escribí al menos 2 caracteres.",
+      "renamed": "Nombre del workspace actualizado",
+      "ownerOnly": "Sólo un Owner puede administrar este workspace.",
+      "danger": {
+        "title": "Zona de peligro",
+        "description": "Acciones que afectan el acceso de todo el equipo. Revisá antes de confirmar.",
+        "leaveTitle": "Salir del workspace",
+        "leaveDescription": "Perdés el acceso a este espacio. Si sos el único Owner, primero designá a otro.",
+        "leaveAction": "Salir",
+        "leaveConfirm": "¿Seguro que querés salir de «{{name}}»? Vas a perder el acceso.",
+        "left": "Saliste del workspace",
+        "deactivateTitle": "Desactivar workspace",
+        "deactivateDescription": "El espacio queda inaccesible y se elimina definitivamente a los 30 días. Podés restaurarlo durante ese plazo.",
+        "deactivateAction": "Desactivar",
+        "deactivateDialogTitle": "Desactivar «{{name}}»",
+        "deactivateDialogDescription": "Se programa la eliminación en 30 días. Durante ese plazo podés restaurarlo. Para confirmar, escribí el nombre exacto y tu contraseña.",
+        "nameConfirmationLabel": "Escribí «{{name}}» para confirmar",
+        "passwordLabel": "Tu contraseña",
+        "nameMismatch": "El nombre no coincide.",
+        "deactivated": "Workspace desactivado",
+        "restoreTitle": "Restaurar workspace",
+        "restoreDescription": "Este espacio está programado para eliminarse. Restauralo para volver a usarlo.",
+        "restoreAction": "Restaurar",
+        "restored": "Workspace restaurado"
       }
     },
     "navigationLabels": {
@@ -847,6 +1036,7 @@
       "actionIncomplete": "Cada acción necesita un canal y una plantilla.",
       "group": "Grupo",
       "value": "Valor",
+      "valueList": "Valor 1, valor 2",
       "addCondition": "Agregar condición",
       "addGroup": "Agregar grupo",
       "addAction": "Agregar acción",
@@ -905,13 +1095,6 @@
       }
     },
     "save": "Guardar cambios",
-    "notifications": "Notificaciones",
-    "newMessage": "Nuevo mensaje",
-    "taskOverdue": "Tarea vencida",
-    "taskUpcoming": "Tarea próxima",
-    "saleClosed": "Cierre de una venta",
-    "dailyReminders": "Recordatorios diarios",
-    "weeklyReport": "Reporte semanal",
     "roles": "Roles",
     "adminRole": "Admin",
     "adminRoleDesc": "Acceso total + gestión de vendedores",
@@ -1020,6 +1203,8 @@
       "description": "Configurá el proveedor, el modelo y las instrucciones que guían cada respuesta automática.",
       "enabled": "Auto-respuesta habilitada",
       "enabledHint": "Responde automáticamente los mensajes entrantes usando tu proveedor de IA.",
+      "humanHandoff": "Derivar a una persona",
+      "humanHandoffHint": "Si el cliente pide hablar con alguien, la IA deja de responder y avisa al equipo.",
       "statusEnabled": "Activa",
       "statusPaused": "Pausada",
       "provider": "Proveedor",
@@ -1291,24 +1476,43 @@
     },
     "groups": {
       "conversations": "Conversaciones",
+      "sections": "Acceso a secciones",
       "messages": "Mensajes",
       "contacts": "Contactos",
       "contact_fields": "Campos de contacto",
+      "document_extraction": "Extracción de documentos",
       "opportunities": "Oportunidades",
       "pipeline_stages": "Etapas del pipeline",
+      "products": "Productos",
+      "product_fields": "Campos de producto",
       "tasks": "Tareas",
       "tags": "Etiquetas",
       "channels": "Canales",
       "ai_config": "Configuración de IA",
+      "woocommerce": "WooCommerce",
+      "webhooks": "Webhooks",
+      "automations": "Automatizaciones",
+      "billing": "Facturación",
       "templates": "Plantillas WhatsApp",
+      "whatsapp_groups": "Grupos de WhatsApp",
       "analytics": "Analíticas",
       "users": "Usuarios",
       "invitations": "Invitaciones",
       "roles": "Roles",
       "permissions": "Permisos",
-      "branches": "Sucursales"
+      "branches": "Sucursales",
+      "navigation_labels": "Etiquetas de navegación"
     },
     "perms": {
+      "sections.dashboard": "Acceder al Panel",
+      "sections.chats": "Acceder a Chats",
+      "sections.instagram_comments": "Acceder a Comentarios IG",
+      "sections.contacts": "Acceder a Contactos",
+      "sections.catalog": "Acceder al Catálogo",
+      "sections.pipeline": "Acceder a Oportunidades",
+      "sections.tasks": "Acceder a Tareas",
+      "sections.broadcasts": "Acceder a Difusiones",
+      "sections.settings": "Acceder a Configuración",
       "conversations.view_any": "Ver todas las conversaciones",
       "conversations.view_assigned": "Ver conversaciones asignadas",
       "conversations.view": "Abrir una conversación",
@@ -1333,6 +1537,7 @@
       "contacts.view_history": "Ver historial de contacto",
       "contact_fields.view": "Ver campos de contacto",
       "contact_fields.manage": "Gestionar campos de contacto",
+      "document_extraction.use": "Extraer datos de documentos",
       "opportunities.view_any": "Ver todas las oportunidades",
       "opportunities.view_assigned": "Ver oportunidades asignadas",
       "opportunities.view": "Abrir una oportunidad",
@@ -1344,6 +1549,10 @@
       "opportunities.view_summary": "Ver resumen del pipeline",
       "pipeline_stages.view": "Ver etapas del pipeline",
       "pipeline_stages.manage": "Gestionar etapas del pipeline",
+      "products.view": "Ver productos",
+      "products.manage": "Gestionar productos",
+      "product_fields.view": "Ver campos de producto",
+      "product_fields.manage": "Gestionar campos de producto",
       "tasks.view_any": "Ver todas las tareas",
       "tasks.view_assigned": "Ver tareas asignadas",
       "tasks.view": "Abrir una tarea",
@@ -1362,15 +1571,31 @@
       "channels.create": "Crear canales",
       "channels.update": "Editar canales",
       "channels.delete": "Eliminar canales",
+      "channels.disconnect": "Desconectar canales",
       "channels.manage_users": "Gestionar usuarios del canal",
       "channels.connect_whatsapp": "Conectar WhatsApp",
+      "channels.connect_mail": "Conectar canales de email",
       "ai_config.view": "Ver configuración de IA",
       "ai_config.manage": "Gestionar configuración de IA",
+      "woocommerce.view": "Ver integración de WooCommerce",
+      "woocommerce.manage": "Gestionar integración de WooCommerce",
+      "webhooks.view": "Ver webhooks",
+      "webhooks.manage": "Gestionar webhooks",
+      "automations.view": "Ver automatizaciones",
+      "automations.manage": "Gestionar automatizaciones",
+      "billing.view": "Ver facturación",
+      "billing.manage": "Gestionar facturación",
       "templates.view": "Ver plantillas",
       "templates.sync": "Sincronizar plantillas con Meta",
       "templates.create": "Crear plantillas de WhatsApp",
       "templates.delete": "Eliminar plantillas de WhatsApp",
       "templates.send": "Enviar plantillas",
+      "whatsapp_groups.view": "Ver grupos de WhatsApp",
+      "whatsapp_groups.create": "Crear grupos de WhatsApp",
+      "whatsapp_groups.update": "Editar grupos de WhatsApp",
+      "whatsapp_groups.delete": "Eliminar grupos de WhatsApp",
+      "whatsapp_groups.invite": "Invitar a grupos de WhatsApp",
+      "whatsapp_groups.manage_participants": "Gestionar participantes de grupos",
       "analytics.view": "Ver analíticas propias",
       "analytics.view_team": "Ver analíticas del equipo",
       "users.view": "Ver usuarios",
@@ -1386,7 +1611,8 @@
       "branches.view_any": "Ver listado de sucursales",
       "branches.view": "Ver sucursales",
       "branches.manage": "Gestionar sucursales",
-      "branches.view_all": "Ver datos de todas las sucursales"
+      "branches.view_all": "Ver datos de todas las sucursales",
+      "navigation_labels.manage": "Personalizar etiquetas de navegación"
     }
   },
   "sucursales": {
@@ -1489,6 +1715,8 @@
     "fieldType": "Tipo",
     "options": "Opciones (una por línea)",
     "optionsPlaceholder": "S\nM\nL",
+    "optionColor": "Color de la opción {option}",
+    "optionsColorHint": "Elegí un color para identificar cada opción en el selector.",
     "required": "Obligatorio",
     "unique": "Valor único",
     "typeImmutable": "El tipo no se puede cambiar después de crear el campo.",
@@ -1715,6 +1943,81 @@
       "saved": "Alertas de WhatsApp activadas",
       "disable": "Desactivar alertas",
       "disabled": "Alertas de WhatsApp desactivadas"
+    }
+  },
+  "notifications": {
+    "title": "Notificaciones",
+    "unread": "{{count}} sin leer",
+    "unreadLabel": "Sin leer",
+    "bellLabelUnread": "Notificaciones ({{count}} sin leer)",
+    "markAllRead": "Marcar leídas",
+    "loadMore": "Cargar más",
+    "emptyTitle": "Estás al día",
+    "emptyDescription": "Te avisamos acá cuando entre un mensaje, te asignen algo o un canal necesite atención.",
+    "unknownContact": "un contacto",
+    "types": {
+      "message_received": {
+        "label": "Mensajes entrantes",
+        "title": "Nuevo mensaje de {{name}}",
+        "titleMany": "{{count}} mensajes nuevos de {{name}}",
+        "attachment": "Envió un archivo adjunto"
+      },
+      "conversation_assigned": {
+        "label": "Te asignan una conversación",
+        "title": "Te asignaron una conversación",
+        "body": "Conversación con {{name}}",
+        "bodyBy": "{{actor}} te asignó la conversación con {{name}}"
+      },
+      "conversation_unassigned": {
+        "label": "Te quitan de una conversación",
+        "title": "Ya no estás asignado a una conversación",
+        "body": "Conversación con {{name}}"
+      },
+      "handoff_requested": {
+        "label": "La IA deriva a un humano",
+        "title": "La IA derivó una conversación",
+        "body": "{{name}} pidió hablar con una persona"
+      },
+      "task_assigned": {
+        "label": "Te asignan una tarea",
+        "title": "Nueva tarea asignada",
+        "bodyBy": "{{actor}} te asignó «{{task}}»"
+      },
+      "import_completed": {
+        "label": "Importación terminada",
+        "title": "Importación completada"
+      },
+      "import_failed": {
+        "label": "Importación con error",
+        "title": "La importación falló"
+      },
+      "channel_token_invalid": {
+        "label": "Canal desconectado",
+        "title": "Reconectá el canal {{channel}}",
+        "body": "La conexión expiró y no se pueden enviar mensajes desde ese canal."
+      },
+      "scheduled_message_failed": {
+        "label": "Mensaje programado sin enviar",
+        "title": "No se envió el mensaje programado a {{name}}",
+        "body": "Revisalo en el chat para reprogramarlo."
+      },
+      "trial_expiring": {
+        "label": "Fin del período de prueba",
+        "title": "Tu prueba vence en {{days}} días",
+        "titleOne": "Tu prueba vence mañana",
+        "body": "Elegí un plan para seguir usando el CRM sin interrupciones."
+      }
+    },
+    "preferences": {
+      "title": "Notificaciones",
+      "description": "Elegí qué avisos recibís dentro del CRM y cómo te llegan. Se aplican sólo a tu usuario.",
+      "browser": "Notificaciones del navegador",
+      "browserHint": "Avisos del sistema cuando el CRM está en otra pestaña o minimizado.",
+      "browserDenied": "El navegador bloqueó las notificaciones. Habilitalas desde el candado de la barra de direcciones y volvé a intentar.",
+      "browserUnsupported": "Este navegador no soporta notificaciones.",
+      "sound": "Sonido",
+      "soundHint": "Un aviso corto al llegar una notificación.",
+      "typesTitle": "Qué te avisamos"
     }
   }
 }

@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react"
+import { memo, useEffect, useMemo, useRef } from "react"
 import { Card } from "@/components/ui/card"
 import { ContactAvatar } from "@/components/contact-avatar"
 import { Badge } from "@/components/ui/badge"
@@ -22,6 +22,7 @@ interface ConversationCardProps {
   selectionMode?: boolean
   isChecked?: boolean
   onToggleSelect?: (id: number) => void
+  compact?: boolean
 }
 
 const ConversationCard = memo(function ConversationCard({
@@ -32,8 +33,16 @@ const ConversationCard = memo(function ConversationCard({
   selectionMode = false,
   isChecked = false,
   onToggleSelect,
+  compact = false,
 }: ConversationCardProps) {
   const { t } = useTranslation()
+  const cardRef = useRef<HTMLDivElement>(null)
+
+  // En la columna lateral, el chat abierto (p. ej. desde un deep-link) puede
+  // estar fuera de vista: lo traemos sin mover la lista si ya se ve.
+  useEffect(() => {
+    if (compact && isSelected) cardRef.current?.scrollIntoView({ block: "nearest" })
+  }, [compact, isSelected])
 
   const isGroup = conversation.kind === "group"
   const contactName = isGroup
@@ -94,7 +103,9 @@ const ConversationCard = memo(function ConversationCard({
 
   return (
     <Card
-      className={`p-3 cursor-pointer hover:bg-accent transition-colors ${isSelected ? 'bg-accent border-primary' : ''} ${isChecked ? 'bg-primary/5 border-primary/40' : ''} ${isUnread && !isSelected ? 'border-l-2 border-l-blue-500' : ''}`}
+      ref={cardRef}
+      aria-current={isSelected ? "true" : undefined}
+      className={`${compact ? 'px-3 py-2.5' : 'p-3'} cursor-pointer hover:bg-accent transition-colors ${isSelected ? 'bg-accent border-primary' : ''} ${isChecked ? 'bg-primary/5 border-primary/40' : ''} ${isUnread && !isSelected ? 'border-l-2 border-l-blue-500' : ''}`}
       onClick={handleCardClick}
       aria-label={unreadAriaLabel}
     >
@@ -162,7 +173,7 @@ const ConversationCard = memo(function ConversationCard({
               )}
             </div>
           </div>
-          {contactPhone && (
+          {contactPhone && !compact && (
             <p className="text-xs text-muted-foreground/80 truncate tabular-nums tracking-tight">
               {contactPhone}
             </p>
@@ -170,10 +181,10 @@ const ConversationCard = memo(function ConversationCard({
           <p className={`text-xs truncate ${isUnread ? 'text-foreground/90 font-medium' : 'text-muted-foreground'}`}>
             {conversation.last_message}
           </p>
-          {conversation.tags && conversation.tags.length > 0 && (
+          {!compact && conversation.tags && conversation.tags.length > 0 && (
             <TagChips tags={conversation.tags} maxVisible={2} className="mt-2" />
           )}
-          {channel && (
+          {channel && !compact && (
             <p className="text-xs text-muted-foreground/70 truncate">
               {channel.name}
             </p>
@@ -199,6 +210,11 @@ interface ConversationListProps {
   onToggleSelect?: (conversationId: number) => void
   messageResults?: Conversation[]
   isSearchingMessages?: boolean
+  hasMore?: boolean
+  isLoadingMore?: boolean
+  onLoadMore?: () => void
+  /** Variante angosta para la columna junto a un hilo abierto. */
+  compact?: boolean
 }
 
 export function ConversationList({
@@ -213,6 +229,10 @@ export function ConversationList({
   onToggleSelect,
   messageResults = [],
   isSearchingMessages = false,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
+  compact = false,
 }: ConversationListProps) {
   const { t } = useTranslation()
   const resolvedEmptyState = emptyState ?? {
@@ -229,6 +249,38 @@ export function ConversationList({
     return map
   }, [channels])
 
+  // A conversation can be returned more than once while API and realtime
+  // updates overlap. Render each conversation only once so its React identity
+  // remains stable; preserve the API's first (highest-ranked) occurrence.
+  const uniqueConversations = useMemo(() => {
+    const seenIds = new Set<number>()
+    return conversations.filter((conversation) => {
+      if (seenIds.has(conversation.id)) return false
+      seenIds.add(conversation.id)
+      return true
+    })
+  }, [conversations])
+
+  const uniqueMessageResults = useMemo(() => {
+    const seenIds = new Set<number>()
+    return messageResults.filter((conversation) => {
+      if (seenIds.has(conversation.id)) return false
+      seenIds.add(conversation.id)
+      return true
+    })
+  }, [messageResults])
+  const loadMoreRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const target = loadMoreRef.current
+    if (!target || !hasMore || isLoadingMore || !onLoadMore) return
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) onLoadMore()
+    }, { rootMargin: "240px" })
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [hasMore, isLoadingMore, onLoadMore])
+
   if (isLoading) {
     return (
       <div className="flex-1 p-4 overflow-y-auto">
@@ -237,9 +289,9 @@ export function ConversationList({
     )
   }
 
-  const hasMessageResults = messageResults.length > 0
+  const hasMessageResults = uniqueMessageResults.length > 0
 
-  if (conversations.length === 0 && !hasMessageResults && !isSearchingMessages) {
+  if (uniqueConversations.length === 0 && !hasMessageResults && !isSearchingMessages) {
     return (
       <div className="flex-1 p-4 overflow-y-auto">
         <EmptyState
@@ -252,9 +304,9 @@ export function ConversationList({
   }
 
   return (
-    <div className="flex-1 p-4 overflow-y-auto">
-      <div className="space-y-2">
-        {conversations.map((conversation) => (
+    <div className={`flex-1 overflow-y-auto ${compact ? 'p-2' : 'p-4'}`}>
+      <div className={compact ? 'space-y-1' : 'space-y-2'}>
+        {uniqueConversations.map((conversation) => (
           <ConversationCard
             key={conversation.id}
             conversation={conversation}
@@ -264,9 +316,15 @@ export function ConversationList({
             selectionMode={selectionMode}
             isChecked={selectedIds?.has(conversation.id) ?? false}
             onToggleSelect={onToggleSelect}
+            compact={compact}
           />
         ))}
       </div>
+      {hasMore && (
+        <div ref={loadMoreRef} className="flex h-16 items-center justify-center" aria-live="polite">
+          {isLoadingMore && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
+        </div>
+      )}
       {(hasMessageResults || isSearchingMessages) && (
         <div className="mt-4">
           <div className="flex items-center gap-2 px-1 pb-2">
@@ -276,7 +334,7 @@ export function ConversationList({
             {isSearchingMessages && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
           </div>
           <div className="space-y-2">
-            {messageResults.map((conversation) => (
+            {uniqueMessageResults.map((conversation) => (
               <ConversationCard
                 key={`message-result-${conversation.id}`}
                 conversation={
@@ -287,6 +345,7 @@ export function ConversationList({
                 channel={conversation.channel || channelMap.get(conversation.channelId)}
                 isSelected={selectedConversationId === conversation.id}
                 onClick={onConversationClick}
+                compact={compact}
               />
             ))}
           </div>

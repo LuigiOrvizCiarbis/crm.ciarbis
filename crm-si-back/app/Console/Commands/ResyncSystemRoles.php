@@ -13,7 +13,7 @@ class ResyncSystemRoles extends Command
     protected $signature = 'roles:resync-system
                             {--apply : Persist changes. Without this flag the command runs as a dry run}';
 
-    protected $description = 'Resync the seeded system roles (Owner, Admin, Member) of every tenant to the current PermissionCatalog. Detects drift caused by adding new permissions without re-provisioning existing tenants. Dry-run by default.';
+    protected $description = 'Grant newly added PermissionCatalog permissions to the seeded system roles (Owner, Admin, Member) of every tenant. Never rewrites a tenant configuration: permissions it added are kept, and ones it removed are not handed back. Dry-run by default.';
 
     /**
      * Map seeded role name → catalog method that returns the canonical permission set.
@@ -42,21 +42,21 @@ class ResyncSystemRoles extends Command
         }
 
         $rows = [];
-        $totals = ['synced' => 0, 'in_sync' => 0, 'missing_role' => 0];
+        $totals = ['granted' => 0, 'in_sync' => 0, 'missing_role' => 0];
 
         foreach ($tenants as $tenant) {
             $registrar->setPermissionsTeamId($tenant->id);
             $registrar->forgetCachedPermissions();
 
             $ownerRoleId = $tenant->owner_role_id;
+            $unknown = $this->permissionsUnknownToTenant($tenant);
 
             foreach (self::ROLE_CATALOG as $seededName => $catalogCallback) {
                 // For the Owner role we resolve by tenant.owner_role_id so renamed
                 // owner roles (e.g. "Dueño") are still tracked. For Admin/Member we
                 // resolve by name, but skip any role that is already the tenant's
                 // Owner — otherwise a role literally named "Admin" that happens to
-                // be the Owner would be downgraded to Admin permissions on the
-                // second pass.
+                // be the Owner would be processed twice, once per catalog entry.
                 if ($seededName === 'Owner') {
                     $role = $ownerRoleId !== null
                         ? Role::query()->where('id', $ownerRoleId)->where('tenant_id', $tenant->id)->first()
@@ -79,33 +79,40 @@ class ResyncSystemRoles extends Command
                 $expected = $catalogCallback();
                 $current = $role->permissions->pluck('name')->all();
 
-                $missing = array_values(array_diff($expected, $current));
-                $extra = array_values(array_diff($current, $expected));
+                // Only permissions that are new to the whole tenant are granted.
+                // A catalog entry this role is missing while another role still
+                // holds it was removed by the tenant from Settings → Users, and
+                // handing it back on every deploy is exactly the reset they see.
+                $grant = array_values(array_intersect(
+                    array_diff($expected, $current),
+                    $unknown,
+                ));
+                $tailored = count(array_diff($expected, $current)) - count($grant);
 
-                if ($missing === [] && $extra === []) {
+                if ($grant === []) {
                     $totals['in_sync']++;
-                    $rows[] = [$tenant->id, $role->name, count($current), '0 / 0', 'in sync'];
+                    $rows[] = [$tenant->id, $role->name, count($current), '0 / '.$tailored, 'in sync'];
 
                     continue;
                 }
 
                 if ($apply) {
-                    $role->syncPermissions($expected);
+                    $role->givePermissionTo($grant);
                 }
-                $totals['synced']++;
+                $totals['granted']++;
                 $rows[] = [
                     $tenant->id,
                     $role->name,
-                    count($expected),
-                    count($missing).' / '.count($extra),
-                    $apply ? 'synced' : 'WOULD SYNC',
+                    count($current),
+                    count($grant).' / '.$tailored,
+                    $apply ? 'granted' : 'WOULD GRANT',
                 ];
             }
         }
 
         $this->newLine();
         $this->table(
-            ['Tenant', 'Role', 'Target perms', 'Missing / Extra', 'Status'],
+            ['Tenant', 'Role', 'Catalog perms', 'Missing / Custom', 'Status'],
             $rows,
         );
 
@@ -114,17 +121,39 @@ class ResyncSystemRoles extends Command
             ['Metric', 'Count'],
             [
                 ['Roles in sync', $totals['in_sync']],
-                ['Roles '.($apply ? 'synced' : 'to sync'), $totals['synced']],
+                ['Roles '.($apply ? 'granted' : 'to grant'), $totals['granted']],
                 ['Roles missing (will not provision here)', $totals['missing_role']],
             ],
         );
 
-        if (! $apply && $totals['synced'] > 0) {
+        if (! $apply && $totals['granted'] > 0) {
             $this->warn('Re-run with --apply to commit changes.');
         }
 
         $registrar->forgetCachedPermissions();
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Catalog permissions that no role of this tenant holds yet.
+     *
+     * Mirrors RoleProvisioner: a permission that shipped after the tenant was
+     * seeded appears in none of its roles, whereas one the tenant revoked from
+     * Admin or Member is still held elsewhere — so only the former is granted.
+     *
+     * @return list<string>
+     */
+    private function permissionsUnknownToTenant(Tenant $tenant): array
+    {
+        $held = Role::query()
+            ->where('tenant_id', $tenant->id)
+            ->with('permissions:id,name')
+            ->get()
+            ->flatMap(fn (Role $role) => $role->permissions->pluck('name'))
+            ->unique()
+            ->all();
+
+        return array_values(array_diff(PermissionCatalog::all(), $held));
     }
 }

@@ -3,22 +3,37 @@
 namespace App\Http\Controllers;
 
 use App\Enums\ChannelType;
-use App\Events\MessageStatusUpdated;
+use App\Enums\TemplateStatus;
 use App\Events\BroadcastResultsUpdated;
+use App\Events\MessageStatusUpdated;
 use App\Exceptions\ChannelAlreadyConnectedException;
 use App\Http\Requests\ChannelStoreRequest;
+use App\Jobs\CompleteBillingProvisioningJob;
+use App\Jobs\ProcessWhatsAppWebhookReceiptJob;
 use App\Jobs\VerifyContactSyncJob;
 use App\Models\Channel;
+use App\Models\Invoice;
+use App\Models\InvoiceEvent;
+use App\Models\InvoiceSetting;
+use App\Models\InvoiceTemplateProvisioning;
 use App\Models\Message;
+use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppConfig;
+use App\Models\WhatsAppTemplate;
+use App\Models\WhatsAppWebhookReceipt;
+use App\Services\HumanHandoffService;
 use App\Services\WhatsAppBusinessVerificationService;
 use App\Services\WhatsAppContactSyncService;
+use App\Services\WhatsAppGroupEligibilityService;
+use App\Services\WhatsAppGroupWebhookService;
 use App\Services\WhatsAppMessageService;
 use App\Support\MetaOAuth;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -59,8 +74,8 @@ class WhatsAppController extends Controller
 
     public function __construct(
         private WhatsAppMessageService $messageService,
-        private \App\Services\WhatsAppGroupWebhookService $groupWebhookService,
-        private \App\Services\WhatsAppGroupEligibilityService $groupEligibilityService,
+        private WhatsAppGroupWebhookService $groupWebhookService,
+        private WhatsAppGroupEligibilityService $groupEligibilityService,
     ) {}
 
     /**
@@ -325,6 +340,11 @@ class WhatsAppController extends Controller
             // ante la duda intentamos el sync igual, porque marcar not_applicable
             // por un error de red dejaría al cliente sin contactos en silencio.
             $bizAppState = $this->businessAppState($config->phone_number_id, $businessToken);
+
+            // Las alertas de derivación sólo se mandan a números en coexistence.
+            if ($bizAppState !== null) {
+                $config->forceFill(['is_on_biz_app' => $bizAppState, 'is_on_biz_app_checked_at' => now()])->save();
+            }
 
             if ($bizAppState === false) {
                 $config->forceFill([
@@ -1196,47 +1216,181 @@ class WhatsAppController extends Controller
             return response()->json(['error' => 'Verification token mismatch'], 403);
         }
 
+        // Firma de Meta (HMAC del raw body con el app secret). Por ahora sólo
+        // se exige para el número central de alertas, que antes tenía su
+        // propio endpoint con firma; para los canales de tenants se registra
+        // el fallo sin rechazar, hasta confirmar en prod que valida y poder
+        // exigirla como Messenger e Instagram.
+        $signed = $this->hasValidSignature($request);
+        if (! $signed) {
+            Log::warning('WhatsApp webhook: firma X-Hub-Signature-256 ausente o inválida');
+        }
+        $alertsPhoneId = (string) config('services.si_crm_alerts.phone_number_id');
+
         try {
-            foreach ($request->input('entry', []) as $entry) {
-                foreach ($entry['changes'] ?? [] as $change) {
-                    $field = $change['field'] ?? '';
-                    $value = $change['value'] ?? [];
-
-                    if ($field === 'messages' && isset($value['statuses'])) {
-                        $this->processStatusUpdates($value['statuses']);
-                    }
-
-                    if ($field === 'messages' && isset($value['messages'])) {
-                        $this->messageService->processIncomingMessage($change);
-
-                    } elseif ($field === 'smb_message_echoes' && isset($value['message_echoes'])) {
-                        $this->messageService->processSmbMessageEchoes($change);
-
-                    } elseif ($field === 'smb_app_state_sync') {
-                        $this->handleSmbAppStateSync($entry['id'] ?? null, $value);
-
-                    } elseif ($field === 'history') {
-                        $this->handleHistorySync($entry['id'] ?? null, $value);
-
-                    } elseif ($field === 'group_lifecycle_update') {
-                        $this->groupWebhookService->handleLifecycleUpdate($value);
-
-                    } elseif ($field === 'group_participants_update') {
-                        $this->groupWebhookService->handleParticipantsUpdate($value);
-
-                    } elseif ($field === 'group_settings_update') {
-                        $this->groupWebhookService->handleSettingsUpdate($value);
-
-                    } elseif ($field === 'group_status_update') {
-                        $this->groupWebhookService->handleStatusUpdate($value);
+            $pendingIds = DB::transaction(function () use ($request, $signed, $alertsPhoneId): array {
+                $pendingIds = [];
+                foreach ($request->input('entry', []) as $entry) {
+                    foreach ($entry['changes'] ?? [] as $change) {
+                        if (! $signed && $alertsPhoneId !== '' && ($change['value']['metadata']['phone_number_id'] ?? null) === $alertsPhoneId) {
+                            continue;
+                        }
+                        $queue = in_array($change['field'] ?? '', ['history', 'smb_app_state_sync'], true)
+                            ? 'whatsapp-sync'
+                            : 'whatsapp-webhooks';
+                        $key = hash('sha256', json_encode([$entry['id'] ?? null, $change], JSON_THROW_ON_ERROR));
+                        $receipt = WhatsAppWebhookReceipt::firstOrCreate(
+                            ['dedupe_key' => $key],
+                            ['queue_name' => $queue, 'payload' => ['entry' => [[
+                                'id' => $entry['id'] ?? null,
+                                'changes' => [$change],
+                            ]]]]
+                        );
+                        if ($receipt->status === 'failed') {
+                            $receipt->forceFill([
+                                'status' => 'pending',
+                                'attempts' => 0,
+                                'last_error' => null,
+                                'processing_at' => null,
+                                'processed_at' => null,
+                            ])->save();
+                        }
+                        if ($receipt->wasRecentlyCreated || in_array($receipt->status, ['pending', 'failed'], true)) {
+                            $pendingIds[] = [$receipt->id, $receipt->queue_name];
+                        }
                     }
                 }
+
+                return $pendingIds;
+            });
+
+            foreach ($pendingIds as [$id, $queue]) {
+                ProcessWhatsAppWebhookReceiptJob::dispatch($id, $queue);
             }
         } catch (\Throwable $e) {
-            Log::error('Error processing webhook', $this->describeException($e));
+            Log::error('Error accepting WhatsApp webhook', $this->describeException($e));
+
+            return response()->json(['error' => 'Unable to accept webhook'], 503);
         }
 
         return response()->json(['status' => 'EVENT_RECEIVED'], 200);
+    }
+
+    /**
+     * Verifica X-Hub-Signature-256 (HMAC-SHA256 del raw body con el app
+     * secret), igual que MessengerController e InstagramController.
+     */
+    private function hasValidSignature(Request $request): bool
+    {
+        $signature = $request->header('X-Hub-Signature-256');
+        $appSecret = config('services.facebook.app_secret');
+
+        if (! $signature || ! $appSecret) {
+            return false;
+        }
+
+        return hash_equals('sha256='.hash_hmac('sha256', $request->getContent(), $appSecret), $signature);
+    }
+
+    /** Process one persisted change. Queue failures propagate to Laravel retries. */
+    public function processQueuedWebhookChange(?string $wabaId, array $change): void
+    {
+        $field = $change['field'] ?? '';
+        $value = $change['value'] ?? [];
+
+        // El número central de alertas vive en la misma app de Meta, así que
+        // sus eventos llegan por este webhook. No es un canal de ningún
+        // tenant: sólo interesan los estados de las alertas enviadas.
+        $alertsPhoneId = config('services.si_crm_alerts.phone_number_id');
+        if ($alertsPhoneId && ($value['metadata']['phone_number_id'] ?? null) === (string) $alertsPhoneId) {
+            foreach ($value['statuses'] ?? [] as $status) {
+                app(HumanHandoffService::class)->recordAlertStatus($status);
+            }
+
+            return;
+        }
+
+        if ($field === 'messages' && isset($value['statuses'])) {
+            $this->processStatusUpdates($value['statuses'], $value['metadata']['phone_number_id'] ?? null);
+        }
+
+        if ($field === 'messages' && isset($value['messages'])) {
+            foreach ($value['messages'] as $message) {
+                $contact = collect($value['contacts'] ?? [])->firstWhere('wa_id', $message['from'] ?? null);
+                $this->messageService->processIncomingMessage([
+                    'value' => array_merge($value, [
+                        'messages' => [$message],
+                        'contacts' => $contact ? [$contact] : [],
+                    ]),
+                ]);
+            }
+        } elseif ($field === 'smb_message_echoes' && isset($value['message_echoes'])) {
+            foreach ($value['message_echoes'] as $echo) {
+                $this->messageService->processSmbMessageEchoes([
+                    'value' => array_merge($value, ['message_echoes' => [$echo]]),
+                ]);
+            }
+        } elseif ($field === 'smb_app_state_sync') {
+            $this->handleSmbAppStateSync($wabaId, $value);
+        } elseif ($field === 'history') {
+            $this->handleHistorySync($wabaId, $value);
+        } elseif ($field === 'group_lifecycle_update') {
+            $this->groupWebhookService->handleLifecycleUpdate($value);
+        } elseif ($field === 'group_participants_update') {
+            $this->groupWebhookService->handleParticipantsUpdate($value);
+        } elseif ($field === 'group_settings_update') {
+            $this->groupWebhookService->handleSettingsUpdate($value);
+        } elseif ($field === 'group_status_update') {
+            $this->groupWebhookService->handleStatusUpdate($value);
+        } elseif ($field === 'message_template_status_update') {
+            $this->handleTemplateStatusUpdate($value);
+        }
+    }
+
+    /** Split provider batches into independent, replay-safe queue units. */
+    public function expandQueuedWebhookChange(array $change): array
+    {
+        $field = $change['field'] ?? '';
+        $value = $change['value'] ?? [];
+        $units = [];
+
+        if ($field === 'messages') {
+            foreach (array_chunk($value['statuses'] ?? [], 100) as $statuses) {
+                $units[] = ['field' => $field, 'value' => array_merge($value, ['statuses' => $statuses, 'messages' => []])];
+            }
+            foreach (array_chunk($value['messages'] ?? [], 100) as $messages) {
+                $units[] = ['field' => $field, 'value' => array_merge($value, ['statuses' => [], 'messages' => $messages])];
+            }
+        } elseif ($field === 'smb_message_echoes') {
+            foreach (array_chunk($value['message_echoes'] ?? [], 100) as $echoes) {
+                $units[] = ['field' => $field, 'value' => array_merge($value, ['message_echoes' => $echoes])];
+            }
+        } elseif ($field === 'smb_app_state_sync') {
+            foreach (array_chunk($value['state_sync'] ?? [], 100) as $batch) {
+                $units[] = ['field' => $field, 'value' => array_merge($value, ['state_sync' => $batch])];
+            }
+        } elseif ($field === 'history') {
+            foreach ($value['history'] ?? [] as $chunk) {
+                foreach ($chunk['threads'] ?? [] as $thread) {
+                    foreach (array_chunk($thread['messages'] ?? [], 100) as $messages) {
+                        $historyChunk = $chunk;
+                        $historyChunk['threads'] = [array_merge($thread, ['messages' => $messages])];
+                        $units[] = ['field' => $field, 'value' => array_merge($value, ['history' => [$historyChunk]])];
+                    }
+                }
+            }
+
+            $progress = collect($value['history'] ?? [])
+                ->max(fn (array $chunk): int => (int) data_get($chunk, 'metadata.progress', 0));
+            if (count($units) > 1 && $progress >= 100) {
+                foreach (array_slice($units, 0, -1) as &$unit) {
+                    data_set($unit, 'value.history.0.metadata.progress', 99);
+                }
+                unset($unit);
+            }
+        }
+
+        return $units !== [] ? $units : [$change];
     }
 
     /**
@@ -1246,8 +1400,12 @@ class WhatsAppController extends Controller
      * (p. ej. template de documento sin filename) quedaba invisible y el mensaje
      * seguía figurando como enviado en el CRM.
      */
-    private function processStatusUpdates(array $statuses): void
+    private function processStatusUpdates(array $statuses, ?string $phoneNumberId): void
     {
+        if (! $phoneNumberId) {
+            return;
+        }
+
         foreach ($statuses as $status) {
             $wamid = $status['id'] ?? null;
             $state = $status['status'] ?? null;
@@ -1256,7 +1414,17 @@ class WhatsAppController extends Controller
                 continue;
             }
 
-            $message = Message::where('external_id', $wamid)->first();
+            $message = Message::withoutGlobalScope(TenantScope::class)
+                ->where('external_id', $wamid)
+                ->whereHas('conversation', function ($query) use ($phoneNumberId) {
+                    $query->withoutGlobalScope(TenantScope::class)
+                        ->whereColumn('conversations.tenant_id', 'messages.tenant_id')
+                        ->whereHas('channel', function ($query) use ($phoneNumberId) {
+                            $query->withoutGlobalScope(TenantScope::class)
+                                ->whereColumn('channels.tenant_id', 'conversations.tenant_id')
+                                ->whereHas('whatsappConfig', fn ($query) => $query->where('phone_number_id', $phoneNumberId));
+                        });
+                })->first();
 
             if (! $message) {
                 // El status puede llegar antes de que persistamos el mensaje, o
@@ -1270,6 +1438,28 @@ class WhatsAppController extends Controller
             }
 
             $changed = false;
+
+            $invoiceEvent = InvoiceEvent::withoutGlobalScope(TenantScope::class)
+                ->where('tenant_id', $message->tenant_id)
+                ->where('type', 'message_accepted')
+                ->where('details->external_id', $wamid)->latest('id')->first();
+            $invoice = $invoiceEvent ? Invoice::withoutGlobalScopes()->where('tenant_id', $invoiceEvent->tenant_id)->find($invoiceEvent->invoice_id) : null;
+            if ($invoice && in_array($state, ['delivered', 'read'], true)) {
+                $initializeReminderSchedule = $invoice->delivery_status !== 'delivered' && $invoice->reminders_sent === 0;
+                $invoice->update(['delivery_status' => 'delivered', 'delivered_at' => now(), 'delivery_error' => null]);
+                if ($initializeReminderSchedule) {
+                    $invoiceSettings = InvoiceSetting::withoutGlobalScopes()->where('tenant_id', $invoice->tenant_id)->first();
+                    $days = $invoiceSettings?->reminder_days ?? [0, 3, 7];
+                    $sortedDays = collect($days)->sort()->values();
+                    if ($sortedDays->isNotEmpty()) {
+                        $first = (int) $sortedDays->first();
+                        $reminderAt = CarbonImmutable::parse((string) $invoice->due_on, $invoiceSettings?->timezone ?? 'America/Argentina/Buenos_Aires')->addDays($first)->setTime($invoiceSettings?->send_hour ?? 9, 0)->utc();
+                        $invoice->update(['next_reminder_at' => $reminderAt]);
+                    }
+                }
+            } elseif ($invoice && $state === 'failed') {
+                $invoice->update(['delivery_status' => 'failed', 'delivery_error' => $this->describeStatusError($status['errors'] ?? [])]);
+            }
 
             switch ($state) {
                 case 'delivered':
@@ -1505,6 +1695,127 @@ class WhatsAppController extends Controller
                 'contact_history_sync_status' => WhatsAppConfig::SYNC_FAILED,
                 'contact_history_sync_error' => $e->getMessage(),
             ])->save();
+
+            throw $e;
         }
+    }
+
+    /**
+     * Refleja en la plantilla local el cambio de estado que informa Meta
+     * (APPROVED / REJECTED / DISABLED / PAUSED…).
+     *
+     * Sin esto el CRM sólo se entera de una aprobación cuando alguien entra a
+     * /configuracion y sincroniza a mano: una plantilla recién creada queda en
+     * PENDING para siempre desde el punto de vista del sistema, y todo lo que
+     * exige isApproved() —difusiones, reglas de automatización— la rechaza.
+     *
+     * La plantilla se busca por external_id sin resolver el canal: el id de
+     * Meta es único global, así que no hace falta el waba_id y se evita
+     * perder el evento si el WABA no matchea ninguna config local.
+     */
+    private function handleTemplateStatusUpdate(array $value): void
+    {
+        $externalId = $value['message_template_id'] ?? null;
+        $event = (string) ($value['event'] ?? '');
+
+        if (! $externalId || $event === '') {
+            Log::warning('message_template_status_update: payload incompleto', ['value' => $value]);
+
+            return;
+        }
+
+        $template = WhatsAppTemplate::withoutGlobalScope(TenantScope::class)
+            ->where('external_id', (string) $externalId)
+            ->first();
+
+        if (! $template) {
+            // Plantilla creada fuera del CRM (WhatsApp Manager) y todavía no
+            // sincronizada: no es un error, el sync la va a traer con su
+            // estado actual.
+            Log::info('message_template_status_update: plantilla desconocida', [
+                'external_id' => $externalId,
+                'event' => $event,
+            ]);
+
+            return;
+        }
+
+        // Meta manda eventos que el enum no modela (ARCHIVED, FLAGGED,
+        // LOCKED, REINSTATED): se registran y se deja el estado como está en
+        // vez de degradarlo a Unknown, que bloquearía una plantilla que en
+        // Meta sigue aprobada.
+        $status = TemplateStatus::tryFrom($event);
+
+        if (! $status) {
+            Log::info('message_template_status_update: evento sin mapeo en el enum', [
+                'external_id' => $externalId,
+                'event' => $event,
+                'template_id' => $template->id,
+            ]);
+
+            return;
+        }
+
+        $template->forceFill([
+            'status' => $status,
+            'rejected_reason' => $this->templateRejectionReason($value),
+            'synced_at' => now(),
+        ])->save();
+
+        $invoiceProvisionings = InvoiceTemplateProvisioning::withoutGlobalScope(TenantScope::class)
+            ->where(fn ($query) => $query->where('invoice_template_id', $template->id)->orWhere('reminder_template_id', $template->id))
+            ->get();
+        foreach ($invoiceProvisionings as $provisioning) {
+            if ($status === TemplateStatus::Approved) {
+                $settings = InvoiceSetting::withoutGlobalScope(TenantScope::class)
+                    ->where('tenant_id', $provisioning->tenant_id)
+                    ->where('whatsapp_channel_id', $provisioning->channel_id)
+                    ->first();
+                if ($settings) {
+                    if ($provisioning->invoice_template_id === $template->id && in_array($settings->whatsapp_template_id, [null, $template->id], true)) {
+                        $settings->forceFill(['whatsapp_template_id' => $template->id])->save();
+                    }
+                    if ($provisioning->reminder_template_id === $template->id && in_array($settings->reminder_template_id, [null, $template->id], true)) {
+                        $settings->forceFill(['reminder_template_id' => $template->id])->save();
+                    }
+                }
+            }
+            $provisioning->refreshState();
+        }
+
+        Log::info('message_template_status_update: plantilla actualizada', [
+            'template_id' => $template->id,
+            'tenant_id' => $template->tenant_id,
+            'name' => $template->name,
+            'event' => $event,
+        ]);
+
+        // Si la plantilla aprobada es una de las que pidió el asistente de
+        // cobranzas, se intenta cerrar el provisioning. El job decide si ya
+        // están todas las necesarias; acá sólo se filtra por nombre para no
+        // encolar trabajo en cada aprobación de cualquier plantilla.
+        if ($status === TemplateStatus::Approved && str_starts_with($template->name, 'cobranza_')) {
+            CompleteBillingProvisioningJob::dispatch($template->tenant_id);
+        }
+    }
+
+    /**
+     * Motivo del rechazo, priorizando el texto explicativo de Meta sobre el
+     * código. `reason` llega como la cadena "NONE" (no null) cuando no hubo
+     * rechazo, así que se descarta explícitamente.
+     */
+    private function templateRejectionReason(array $value): ?string
+    {
+        $detail = $value['rejection_info']['reason'] ?? null;
+        if (is_string($detail) && $detail !== '') {
+            return $detail;
+        }
+
+        $reason = $value['reason'] ?? null;
+        if (! is_string($reason) || $reason === '' || $reason === 'NONE') {
+            return null;
+        }
+
+        return $reason;
     }
 }

@@ -4,6 +4,7 @@ import {
   CheckSquare,
   Megaphone,
   MessageSquare,
+  ReceiptText,
   Package,
   Settings,
   Target,
@@ -13,11 +14,13 @@ import {
 export const NAVIGATION_KEYS = [
   "dashboard",
   "chats",
+  "instagram_comments",
   "contacts",
   "catalog",
   "pipeline",
   "tasks",
   "broadcasts",
+  "invoices",
   "settings",
 ] as const
 
@@ -35,11 +38,13 @@ export interface NavigationItem {
 export const NAVIGATION_ITEMS: readonly NavigationItem[] = [
   { key: "dashboard", href: "/dashboard", emoji: "📊", icon: BarChart3, labelKey: "nav.panel" },
   { key: "chats", href: "/chats", emoji: "💬", icon: MessageSquare, labelKey: "nav.chats" },
+  { key: "instagram_comments", href: "/comentarios-instagram", emoji: "📸", icon: MessageSquare, labelKey: "nav.instagramComments" },
   { key: "contacts", href: "/contactos", emoji: "👥", icon: Users, labelKey: "nav.contacts" },
   { key: "catalog", href: "/catalogo", emoji: "📦", icon: Package, labelKey: "nav.catalog" },
   { key: "pipeline", href: "/oportunidades", emoji: "🎯", icon: Target, labelKey: "nav.pipeline" },
   { key: "tasks", href: "/tareas", emoji: "✅", icon: CheckSquare, labelKey: "nav.tasks" },
   { key: "broadcasts", href: "/difusiones", emoji: "📣", icon: Megaphone, labelKey: "nav.broadcasts" },
+  { key: "invoices", href: "/invoices", emoji: "🧾", icon: ReceiptText, labelKey: "nav.invoices" },
   { key: "settings", href: "/configuracion", emoji: "⚙️", icon: Settings, labelKey: "nav.settings" },
 ]
 

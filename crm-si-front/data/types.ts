@@ -19,6 +19,8 @@ export interface Channel {
     display_phone_number?: string
     waba_id: string
     verify_token: string | null
+    /** El número está en la app WhatsApp Business (coexistence). null = sin chequear. */
+    is_on_biz_app?: boolean | null
     created_at: string
     updated_at: string
   }
@@ -69,7 +71,8 @@ export interface Channel {
   conversations_count?: number
   phone?: string
   handoff_responsible_user_id?: number | null
-
+  handoff_whatsapp_alert_enabled?: boolean
+  users?: Array<{ id: number; name: string; email: string }>
 }
 
 export interface WhatsAppGroupSummary {
@@ -97,6 +100,8 @@ export interface Conversation {
   leadScore?: number
   stage?: "nuevo" | "calificado" | "demo" | "cierre"
   pipeline_stage_id?: number // Nuevo campo para etapas dinámicas
+  /** Etapas de las oportunidades vinculadas al chat, de cualquier pipeline. */
+  opportunity_stage_ids?: number[]
   priority?: "baja" | "media" | "alta" | "hot"
   assigneeId?: number | string
   archived?: boolean,
@@ -177,6 +182,15 @@ export interface WhatsAppTemplate {
   updated_at: string
 }
 
+export interface MessageReaction {
+  emoji: string
+  count: number
+  /** Sólo reacciones de usuarios del CRM; permite derivar "reaccioné yo" sin más queries. */
+  reactor_user_ids?: number[]
+  /** Sólo lo manda el back en la respuesta HTTP; en realtime se deriva de reactor_user_ids. */
+  reacted_by_me?: boolean
+}
+
 export interface LinkPreview {
   id: number
   url: string
@@ -207,6 +221,9 @@ export interface Message {
   // batch y se adjunta al serializar.
   sender?: { id: number; name: string } | null
   direction: "inbound" | "outbound"
+  // wamid de WhatsApp. Lo necesita canReact: sin esto, Meta no sabe a qué
+  // mensaje reaccionar.
+  external_id?: string | null
   delivered_at?: string | null
   read_at?: string | null
   played_at?: string | null
@@ -221,6 +238,7 @@ export interface Message {
   created_at: string
   updated_at?: string
   interactions?: Array<{ type: string; value?: string | null; content?: string | null; occurred_at: string }>
+  reaction_summary?: MessageReaction[] | null
 }
 
 export interface SharedContact {
@@ -252,4 +270,25 @@ export interface MailMessageDetails {
   in_reply_to?: string[] | null
   references?: string[] | null
   has_remote_images?: boolean
+}
+
+export type ScheduledMessageStatus = "scheduled" | "queued" | "sending" | "sent" | "failed" | "cancelled"
+
+export interface ScheduledMessage {
+  id: number
+  conversation_id: number
+  user_id: number
+  user?: { id: number; name: string }
+  message_type: "text" | "image" | "audio"
+  content: string | null
+  media_url: string | null
+  media_mime: string | null
+  voice: boolean
+  status: ScheduledMessageStatus
+  scheduled_for: string
+  sent_at: string | null
+  message_id: number | null
+  error_reason: string | null
+  error_message: string | null
+  created_at: string
 }

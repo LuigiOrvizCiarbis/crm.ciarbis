@@ -1,5 +1,5 @@
 import { Channel } from "@/data/types";
-import { getAuthToken } from "./auth-token";
+import { getAuthToken, workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 import { ChannelError } from "@/lib/channel-error";
 
@@ -92,6 +92,7 @@ export async function getChannels(): Promise<Channel[]> {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      ...workspaceHeaders(),
     },
   });
 
@@ -105,16 +106,26 @@ export async function getChannels(): Promise<Channel[]> {
   return json.data ?? [];
 }
 
-export async function updateChannelHandoffResponsible(channel: Channel, userId: number | null): Promise<Channel> {
+export interface ChannelHandoffSettings {
+  handoff_responsible_user_id?: number | null;
+  handoff_whatsapp_alert_enabled?: boolean;
+}
+
+/**
+ * Configuración de derivaciones a humano del canal: quién la recibe cuando la
+ * conversación no tiene asignado y si se avisa por WhatsApp al número del
+ * canal (sólo números en la app WhatsApp Business).
+ */
+export async function updateChannelHandoffSettings(id: number, settings: ChannelHandoffSettings): Promise<Channel> {
   const token = getAuthToken();
   if (!token) throw new Error("No authentication token found");
-  const response = await fetch(`/api/channels/${channel.id}`, {
+  const response = await fetch(`/api/channels/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ name: channel.name, handoff_responsible_user_id: userId }),
+    body: JSON.stringify(settings),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throwApiError(response.status, data, "Error al configurar responsable de derivaciones");
+  if (!response.ok) throwApiError(response.status, data, "Error al guardar la configuración de derivaciones");
   return data.data ?? data;
 }
 

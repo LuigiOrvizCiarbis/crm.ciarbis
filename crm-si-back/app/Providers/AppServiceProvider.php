@@ -15,7 +15,9 @@ use App\Models\Conversation;
 use App\Models\Invitation;
 use App\Models\Message;
 use App\Models\Opportunity;
+use App\Models\Pipeline;
 use App\Models\PipelineStage;
+use App\Models\ScheduledMessage;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Models\User;
@@ -31,13 +33,16 @@ use App\Policies\ConversationPolicy;
 use App\Policies\InvitationPolicy;
 use App\Policies\MessagePolicy;
 use App\Policies\OpportunityPolicy;
+use App\Policies\PipelinePolicy;
 use App\Policies\PipelineStagePolicy;
 use App\Policies\RolePolicy;
+use App\Policies\ScheduledMessagePolicy;
 use App\Policies\TagPolicy;
 use App\Policies\TaskPolicy;
 use App\Policies\UserPolicy;
 use App\Policies\WhatsAppGroupPolicy;
 use App\Policies\WhatsAppTemplatePolicy;
+use App\Support\CurrentWorkspace;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -57,6 +62,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->scoped(CurrentWorkspace::class, fn () => new CurrentWorkspace);
         $this->app->singleton(AutomationRegistry::class, fn ($app) => new AutomationRegistry(
             triggers: [
                 new EventTriggerHandler('contact.created', 'Contacto creado', 'contact'),
@@ -107,7 +113,9 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Message::class, MessagePolicy::class);
         Gate::policy(Opportunity::class, OpportunityPolicy::class);
         Gate::policy(PipelineStage::class, PipelineStagePolicy::class);
+        Gate::policy(Pipeline::class, PipelinePolicy::class);
         Gate::policy(Role::class, RolePolicy::class);
+        Gate::policy(ScheduledMessage::class, ScheduledMessagePolicy::class);
         Gate::policy(Tag::class, TagPolicy::class);
         Gate::policy(Task::class, TaskPolicy::class);
         Gate::policy(User::class, UserPolicy::class);

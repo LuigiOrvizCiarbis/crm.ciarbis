@@ -1,7 +1,11 @@
 <?php
 
+use App\Jobs\ProcessWhatsAppWebhookReceiptJob;
 use App\Models\AutomationRun;
+use App\Models\ScheduledMessage;
+use App\Models\UserNotification;
 use App\Models\WebhookDelivery;
+use App\Models\WhatsAppWebhookReceipt;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -14,16 +18,43 @@ Artisan::command('inspire', function () {
 // (config/webhooks.php). Requiere que el scheduler corra en el deploy
 // (servicio `scheduler` en docker-compose.prod.yml).
 Schedule::command('model:prune', ['--model' => [WebhookDelivery::class]])->daily();
+Schedule::call(function (): void {
+    WhatsAppWebhookReceipt::query()
+        ->where(function ($query): void {
+            $query->where('status', 'pending')
+                ->orWhere(function ($stale): void {
+                    $stale->where('status', 'processing')
+                        ->where('processing_at', '<', now()->subMinutes(4));
+                });
+        })
+        ->orderBy('id')
+        ->limit(100)
+        ->get()
+        ->each(function (WhatsAppWebhookReceipt $receipt): void {
+            ProcessWhatsAppWebhookReceiptJob::dispatch($receipt->id, $receipt->queue_name);
+        });
+
+    WhatsAppWebhookReceipt::query()
+        ->where(function ($query): void {
+            $query->where(fn ($completed) => $completed->where('status', 'completed')->where('processed_at', '<', now()->subDays(7)))
+                ->orWhere(fn ($failed) => $failed->where('status', 'failed')->where('created_at', '<', now()->subDays(30)));
+        })
+        ->delete();
+})->everyMinute();
 // withoutOverlapping(N): expira el lock a los N minutos en vez del default de
 // 24h. Si el scheduler muere a mitad de una corrida, un lock de 24h bloquea el
 // comando todo ese tiempo; con el minutero acotado, se autolibera pronto.
 Schedule::command('automations:dispatch-due')->everyMinute()->withoutOverlapping(5);
 Schedule::command('broadcasts:dispatch-due')->everyMinute()->withoutOverlapping(5);
+Schedule::command('messages:dispatch-scheduled')->everyMinute()->withoutOverlapping(5);
 // Polling IMAP de los canales de email. Los canales de chat usan webhooks; el
 // correo no, así que la latencia de entrada es el intervalo de este schedule.
 Schedule::command('mail:sync-channels')->everyMinute()->withoutOverlapping(10);
 Schedule::command('mail:purge-expired-intakes')->daily()->withoutOverlapping();
 Schedule::command('model:prune', ['--model' => [AutomationRun::class]])->dailyAt('02:15');
+Schedule::command('model:prune', ['--model' => [ScheduledMessage::class]])->dailyAt('02:20');
+// Notificaciones in-app: leídas > 30 días o cualquiera > 90 (UserNotification::prunable).
+Schedule::command('model:prune', ['--model' => [UserNotification::class]])->dailyAt('02:30');
 // Detecta difusiones trabadas en la cola: si un destinatario lleva más de 15
 // minutos en `queued`, algo está tapando el worker (ver retry_after en
 // config/queue.php) y hoy nadie se entera hasta que el cliente se queja.
@@ -46,3 +77,7 @@ Schedule::command('extractions:purge-orphans')->dailyAt('03:30')->withoutOverlap
 // (BillingConfig.timezone + last_rolled_at), así que hourly es solo el
 // intervalo de chequeo, no el momento real del corte.
 Schedule::command('billing:roll-cycle')->hourly()->withoutOverlapping(30);
+Schedule::command('invoices:dispatch-due')->everyMinute()->withoutOverlapping(5);
+Schedule::command('workspaces:purge')->dailyAt('04:00')->withoutOverlapping(30);
+// Notificación in-app a owners cuando faltan 3 y 1 día de trial (hora local del server).
+Schedule::command('notifications:trial-reminders')->dailyAt('10:00')->withoutOverlapping(10);

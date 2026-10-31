@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { LeadScoreBadge } from "@/components/Badges"
-import { ArrowLeft, Info, History, Pencil, Check, X, User, Users, Plus, Bot, MoreVertical } from "lucide-react"
+import { ArrowLeft, Info, History, Pencil, Check, X, User, Users, Plus, Bot, MoreVertical, ReceiptText } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from "react"
 import { ContactHistoryDrawer } from "./ContactHistoryDrawer"
 import { ContactTimeline } from "./timeline/ContactTimeline"
 import { NewTaskModal } from "@/components/tasks/NewTaskModal"
+import { CreateInvoiceDialog } from "./CreateInvoiceDialog"
 import { useAuthStore } from "@/store/useAuthStore"
 import { useTranslation } from "@/hooks/useTranslation"
 
@@ -40,6 +41,7 @@ export function ConversationHeader({
   const [historyOpen, setHistoryOpen] = useState(false)
   const [timelineOpen, setTimelineOpen] = useState(false)
   const [taskModalOpen, setTaskModalOpen] = useState(false)
+  const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false)
   const isGroup = conversation.kind === "group"
   const contactId = conversation.contact_id ?? Number(conversation.contact?.id)
   const hasContactId = !isGroup && Boolean(contactId) && !Number.isNaN(contactId)
@@ -52,14 +54,11 @@ export function ConversationHeader({
   const [isSavingName, setIsSavingName] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const currentUser = useAuthStore((state) => state.user)
+  const permissions = useAuthStore((state) => state.permissions)
+  const role = useAuthStore((state) => state.role)
+  const canCreateInvoice = hasContactId && (role?.is_owner === true || (permissions ?? []).includes("invoices.manage"))
   const { t } = useTranslation()
   const leadScore = conversation.leadScore ?? 0
-
-  useEffect(() => {
-    if (!isEditingName) {
-      setNameDraft(displayName)
-    }
-  }, [displayName, isEditingName])
 
   useEffect(() => {
     if (isEditingName) {
@@ -226,6 +225,10 @@ export function ConversationHeader({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
+              {canCreateInvoice && <DropdownMenuItem onSelect={() => setInvoiceDialogOpen(true)}>
+                <ReceiptText className="mr-2 h-4 w-4" />
+                {t("chats.createInvoice")}
+              </DropdownMenuItem>}
               <DropdownMenuItem onSelect={() => setTaskModalOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 {t("chats.createTask")}
@@ -271,6 +274,17 @@ export function ConversationHeader({
             <Plus className="w-4 h-4" />
             {t("chats.createTask")}
           </Button>
+          {canCreateInvoice && <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={() => setInvoiceDialogOpen(true)}
+            title={t("chats.createInvoice")}
+            aria-label={t("chats.createInvoice")}
+          >
+            <ReceiptText className="h-4 w-4" />
+            <span className="hidden lg:inline">{t("chats.createInvoice")}</span>
+          </Button>}
           {hasContactId && (
             <Button
               variant="ghost"
@@ -334,6 +348,12 @@ export function ConversationHeader({
           ...(currentUser ? { assigneeId: String(currentUser.id) } : {}),
         }}
       />
+      {invoiceDialogOpen && hasContactId && conversation.contact && <CreateInvoiceDialog
+        key={contactId}
+        open={invoiceDialogOpen}
+        onOpenChange={setInvoiceDialogOpen}
+        contact={{ id: contactId, name: conversation.contact.name, phone: conversation.contact.phone }}
+      />}
     </div>
   )
 }

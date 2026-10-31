@@ -49,7 +49,7 @@ return [
         'max_history' => env('AI_MAX_HISTORY', 20),
         // Cota del catálogo inyectado al system prompt, para no exceder el
         // límite de contexto del proveedor (haría que generate() devuelva null).
-        'catalog_max_products' => env('AI_CATALOG_MAX_PRODUCTS', 100),
+        'catalog_max_products' => env('AI_CATALOG_MAX_PRODUCTS', 12),
         'catalog_max_description_chars' => env('AI_CATALOG_MAX_DESCRIPTION_CHARS', 300),
         'catalog_max_chars' => env('AI_CATALOG_MAX_CHARS', 12000),
         // Cantidad máxima de imágenes del historial que se envían como bloque
@@ -134,15 +134,15 @@ return [
         'public_media_base_url' => env('META_PUBLIC_MEDIA_BASE_URL', env('APP_URL')),
     ],
 
+    // Número central de SI CRM que avisa al número del canal (coexistence)
+    // cuando la IA deriva una conversación a un humano. Sus webhooks llegan
+    // al mismo /whatsapp-webhook de la app y se separan por phone_number_id.
     'si_crm_alerts' => [
+        'enabled' => (bool) env('SI_CRM_ALERTS_ENABLED', false),
         'phone_number_id' => env('SI_CRM_ALERTS_WA_PHONE_NUMBER_ID'),
         'waba_id' => env('SI_CRM_ALERTS_WA_WABA_ID'),
         'access_token' => env('SI_CRM_ALERTS_WA_ACCESS_TOKEN'),
-        // El número de alertas pertenece a la misma app de Meta que el CRM.
-        'app_secret' => env('FACEBOOK_APP_SECRET'),
-        'verify_token' => env('FACEBOOK_VERIFY_TOKEN'),
         'display_number' => env('SI_CRM_ALERTS_WA_DISPLAY_NUMBER'),
-        'channel_fallback_enabled' => (bool) env('SI_CRM_ALERTS_CHANNEL_FALLBACK_ENABLED', false),
         'handoff_templates' => [
             'es' => env('SI_CRM_ALERTS_HANDOFF_TEMPLATE_ES', 'si_crm_alerts_handoff_es'),
             'en' => env('SI_CRM_ALERTS_HANDOFF_TEMPLATE_EN', 'si_crm_alerts_handoff_en'),

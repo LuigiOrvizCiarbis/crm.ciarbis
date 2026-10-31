@@ -10,6 +10,9 @@ use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\Invoice;
+use App\Models\InvoiceEvent;
+use App\Models\WhatsAppConfig;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -22,7 +25,8 @@ class WhatsAppStatusWebhookTest extends TestCase
 
     private function statusPayload(string $wamid, string $status, array $errors = []): array
     {
-        $entry = ['id' => 'wamid'];
+        $message = Message::where('external_id', $wamid)->first();
+        $phoneNumberId = $message?->conversation?->channel?->whatsappConfig?->phone_number_id ?? 'unknown';
 
         return [
             'entry' => [[
@@ -30,6 +34,7 @@ class WhatsAppStatusWebhookTest extends TestCase
                 'changes' => [[
                     'field' => 'messages',
                     'value' => [
+                        'metadata' => ['phone_number_id' => $phoneNumberId],
                         'statuses' => [array_filter([
                             'id' => $wamid,
                             'status' => $status,
@@ -46,7 +51,13 @@ class WhatsAppStatusWebhookTest extends TestCase
         $tenant = Tenant::create(['name' => 'Acme '.uniqid()]);
         $user = User::factory()->create(['tenant_id' => $tenant->id]);
 
+        $config = WhatsAppConfig::create([
+            'phone_number_id' => 'phone-'.uniqid(),
+            'waba_id' => 'WABA_ID',
+            'bussines_token' => 'test-token',
+        ]);
         $channel = Channel::create([
+            'whatsapp_config_id' => $config->id,
             'tenant_id' => $tenant->id,
             'user_id' => $user->id,
             'type' => ChannelType::WHATSAPP,
@@ -74,6 +85,63 @@ class WhatsAppStatusWebhookTest extends TestCase
             'direction' => MessageDirection::OUTBOUND,
             'external_id' => $wamid,
         ]);
+    }
+
+    private function makeInvoice(Message $message): Invoice
+    {
+        $invoice = Invoice::create([
+            'tenant_id' => $message->tenant_id,
+            'contact_id' => $message->conversation->contact_id,
+            'number' => 'INV-'.uniqid(),
+            'concept' => 'Test invoice',
+            'amount_cents' => 1000,
+            'due_on' => '2026-10-10',
+        ]);
+        InvoiceEvent::create([
+            'tenant_id' => $message->tenant_id,
+            'invoice_id' => $invoice->id,
+            'type' => 'message_accepted',
+            'details' => ['external_id' => 'wamid.INVOICE'],
+        ]);
+
+        return $invoice;
+    }
+
+    public function test_invoice_status_lookup_is_scoped_to_the_verified_message_tenant(): void
+    {
+        $message = $this->makeOutboundMessage('wamid.INVOICE');
+        $invoice = $this->makeInvoice($message);
+        $otherInvoice = $this->makeInvoice($this->makeOutboundMessage('wamid.OTHER'));
+
+        foreach (['delivered', 'read', 'failed'] as $status) {
+            $this->postJson('/api/whatsapp-webhook', $this->statusPayload('wamid.INVOICE', $status))->assertOk();
+            $this->assertSame($status === 'failed' ? 'failed' : 'delivered', $invoice->refresh()->delivery_status);
+            $this->assertNotNull($invoice->next_reminder_at);
+            $this->assertSame('pending', $otherInvoice->refresh()->delivery_status);
+            $this->assertNull($otherInvoice->delivered_at);
+            $this->assertNull($otherInvoice->next_reminder_at);
+            $this->assertNull($otherInvoice->delivery_error);
+        }
+    }
+
+    public function test_invoice_status_requires_the_matching_phone_channel(): void
+    {
+        $message = $this->makeOutboundMessage('wamid.INVOICE');
+        $invoice = $this->makeInvoice($message);
+        $otherMessage = $this->makeOutboundMessage('wamid.OTHER');
+
+        foreach (['delivered', 'read', 'failed'] as $status) {
+            $payload = $this->statusPayload('wamid.INVOICE', $status);
+            foreach ([$otherMessage->conversation->channel->whatsappConfig->phone_number_id, 'unknown', null] as $phoneNumberId) {
+                $payload['entry'][0]['changes'][0]['value']['metadata'] = ['phone_number_id' => $phoneNumberId];
+                $this->postJson('/api/whatsapp-webhook', $payload)->assertOk();
+                $this->assertSame('pending', $invoice->refresh()->delivery_status);
+                $this->assertNull($invoice->delivered_at);
+                $this->assertNull($invoice->next_reminder_at);
+                $this->assertFalse($message->refresh()->isDelivered());
+                $this->assertFalse($message->isFailed());
+            }
+        }
     }
 
     public function test_failed_status_marks_message_as_failed_with_error(): void

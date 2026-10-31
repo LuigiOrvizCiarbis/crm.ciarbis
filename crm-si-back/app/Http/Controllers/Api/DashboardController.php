@@ -123,6 +123,7 @@ class DashboardController extends Controller
     private function stageBreakdown(?int $canalId, ?int $ownerId): array
     {
         $stages = PipelineStage::query()
+            ->whereHas('pipeline', fn ($query) => $query->where('is_default', true))
             ->orderBy('sort_order')
             ->limit(self::KPI_STAGES_LIMIT)
             ->get();
@@ -235,6 +236,7 @@ class DashboardController extends Controller
     private function dailySeries(?int $canalId, ?int $ownerId): array
     {
         $stages = PipelineStage::query()
+            ->whereHas('pipeline', fn ($query) => $query->where('is_default', true))
             ->orderBy('sort_order')
             ->limit(self::KPI_STAGES_LIMIT)
             ->get(['id', 'name']);

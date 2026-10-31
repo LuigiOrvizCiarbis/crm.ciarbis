@@ -428,9 +428,10 @@ function KanbanColumn({ column, opportunities }: { column: Column; opportunities
 
 interface KanbanBoardProps {
   refreshKey?: number
+  pipelineId: number
 }
 
-export function KanbanBoard({ refreshKey = 0 }: KanbanBoardProps) {
+export function KanbanBoard({ refreshKey = 0, pipelineId }: KanbanBoardProps) {
   const [columns, setColumns] = useState<Column[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -454,8 +455,8 @@ export function KanbanBoard({ refreshKey = 0 }: KanbanBoardProps) {
 
     try {
       const [stages, opportunities] = await Promise.all([
-        getPipelineStages(),
-        getOpportunities(),
+        getPipelineStages(pipelineId),
+        getOpportunities({ pipelineId }),
       ])
 
       const normalizedStageIds = new Set(stages.map((stage: PipelineStage) => Number(stage.id)))
@@ -500,7 +501,7 @@ export function KanbanBoard({ refreshKey = 0 }: KanbanBoardProps) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [pipelineId])
 
   useEffect(() => {
     fetchPipelineData()
@@ -556,7 +557,8 @@ export function KanbanBoard({ refreshKey = 0 }: KanbanBoardProps) {
 
     if (sourceColumn.id !== destColumn.id) {
       try {
-        await updateOpportunityStage(activeId, destColumn.id === 0 ? null : destColumn.id)
+        if (destColumn.id === 0) return
+        await updateOpportunityStage(activeId, destColumn.id, pipelineId)
 
         setColumns((prevColumns) =>
           prevColumns.map((col) => {

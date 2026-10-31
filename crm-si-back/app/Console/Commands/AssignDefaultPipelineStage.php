@@ -68,6 +68,7 @@ class AssignDefaultPipelineStage extends Command
 
             // Buscar el stage por defecto para este tenant
             $defaultStage = PipelineStage::where('tenant_id', $tenantId)
+                ->whereHas('pipeline', fn ($query) => $query->where('is_default', true))
                 ->where(function ($query) {
                     $query->where('is_default', true)
                         ->orWhereNotNull('id');

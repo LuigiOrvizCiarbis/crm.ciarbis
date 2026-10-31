@@ -1,5 +1,5 @@
 import { throwApiError } from "./api-error";
-import { getAuthToken } from "./auth-token";
+import { getAuthToken, workspaceHeaders } from "./auth-token";
 
 export interface Tag {
   id: number;
@@ -33,6 +33,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       Authorization: `Bearer ${requireToken()}`,
       Accept: "application/json",
       "Content-Type": "application/json",
+      ...workspaceHeaders(),
       ...options.headers,
     },
     cache: "no-store",

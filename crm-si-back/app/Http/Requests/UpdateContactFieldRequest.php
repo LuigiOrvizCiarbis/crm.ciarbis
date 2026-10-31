@@ -24,6 +24,8 @@ class UpdateContactFieldRequest extends FormRequest
             'options' => ['sometimes', 'nullable', 'array'],
             'options.choices' => ['sometimes', 'nullable', 'array'],
             'options.choices.*' => ['string', 'max:120'],
+            'options.choice_colors' => ['nullable', 'array'],
+            'options.choice_colors.*' => ['string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'options.currency' => ['nullable', 'string', Rule::in(ContactFieldType::currencies())],
             'options.fields' => ['nullable', 'array'],
             'options.min_items' => ['nullable', 'integer', 'between:0,100'],

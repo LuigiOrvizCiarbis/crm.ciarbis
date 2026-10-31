@@ -26,39 +26,87 @@ class RoleProvisioner
         DB::transaction(function () use ($tenant): void {
             $this->registrar->setPermissionsTeamId($tenant->id);
 
-            $owner = Role::firstOrCreate(
-                ['name' => 'Owner', 'guard_name' => 'web', 'tenant_id' => $tenant->id],
-                ['is_system' => true],
-            );
-            if (! $owner->is_system) {
-                $owner->forceFill(['is_system' => true])->save();
-            }
-            $owner->syncPermissions(PermissionCatalog::ownerPermissions());
+            // Resolved before touching any role: once Owner is topped up, every
+            // catalog permission is known to the tenant and Admin/Member would
+            // see an empty "new" set.
+            $unknown = $this->permissionsUnknownToTenant($tenant);
+
+            $owner = $this->provisionRole($tenant, 'Owner', PermissionCatalog::ownerPermissions(), $unknown);
 
             if ($tenant->owner_role_id === null) {
                 $tenant->forceFill(['owner_role_id' => $owner->id])->save();
             }
 
-            $admin = Role::firstOrCreate(
-                ['name' => 'Admin', 'guard_name' => 'web', 'tenant_id' => $tenant->id],
-                ['is_system' => true],
-            );
-            if (! $admin->is_system) {
-                $admin->forceFill(['is_system' => true])->save();
-            }
-            $admin->syncPermissions(PermissionCatalog::adminPermissions());
-
-            $member = Role::firstOrCreate(
-                ['name' => 'Member', 'guard_name' => 'web', 'tenant_id' => $tenant->id],
-                ['is_system' => true],
-            );
-            if (! $member->is_system) {
-                $member->forceFill(['is_system' => true])->save();
-            }
-            $member->syncPermissions(PermissionCatalog::memberPermissions());
+            $this->provisionRole($tenant, 'Admin', PermissionCatalog::adminPermissions(), $unknown);
+            $this->provisionRole($tenant, 'Member', PermissionCatalog::memberPermissions(), $unknown);
         });
 
         $this->registrar->forgetCachedPermissions();
+    }
+
+    /**
+     * Create a seeded system role, or top up an existing one.
+     *
+     * A freshly created role gets the catalog verbatim. An existing role only
+     * receives catalog entries that are new to the tenant, never the ones it is
+     * merely missing: tenants tailor these roles from Settings → Users, and this
+     * method also runs when a new permission is propagated to already-provisioned
+     * tenants. Re-applying the full catalog there would hand back every
+     * permission the tenant deliberately removed, each time the catalog grows.
+     *
+     * @param  list<string>  $catalog
+     * @param  list<string>  $unknown  catalog permissions no role of this tenant holds yet
+     */
+    private function provisionRole(Tenant $tenant, string $name, array $catalog, array $unknown): Role
+    {
+        $role = Role::firstOrCreate(
+            ['name' => $name, 'guard_name' => 'web', 'tenant_id' => $tenant->id],
+            ['is_system' => true],
+        );
+
+        if (! $role->is_system) {
+            $role->forceFill(['is_system' => true])->save();
+        }
+
+        if ($role->wasRecentlyCreated) {
+            $role->syncPermissions($catalog);
+
+            return $role;
+        }
+
+        $grant = array_values(array_intersect(
+            array_diff($catalog, $role->permissions->pluck('name')->all()),
+            $unknown,
+        ));
+
+        if ($grant !== []) {
+            $role->givePermissionTo($grant);
+        }
+
+        return $role;
+    }
+
+    /**
+     * Catalog permissions that no role of this tenant holds yet.
+     *
+     * This is how a genuinely new permission is told apart from one the tenant
+     * revoked on purpose: a permission that shipped after the tenant was seeded
+     * appears nowhere in it, while a revoked one is still held by some other
+     * role (Owner keeps the full catalog unless the tenant pruned it too).
+     *
+     * @return list<string>
+     */
+    private function permissionsUnknownToTenant(Tenant $tenant): array
+    {
+        $held = Role::query()
+            ->where('tenant_id', $tenant->id)
+            ->with('permissions:id,name')
+            ->get()
+            ->flatMap(fn (Role $role) => $role->permissions->pluck('name'))
+            ->unique()
+            ->all();
+
+        return array_values(array_diff(PermissionCatalog::all(), $held));
     }
 
     private function ensurePermissionsExist(): void

@@ -9,7 +9,6 @@ use App\Enums\SenderType;
 use App\Events\MessageSent;
 use App\Events\TenantMessageReceived;
 use App\Jobs\GenerateAiReplyJob;
-use App\Models\AiConfig;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
@@ -587,6 +586,7 @@ class MailMessageService
 
         if (! $conversation->pipeline_stage_id) {
             $defaultStage = PipelineStage::where('tenant_id', $channel->tenant_id)
+                ->whereHas('pipeline', fn ($query) => $query->where('is_default', true))
                 ->orderByDesc('is_default')
                 ->orderBy('sort_order', 'asc')
                 ->first();
@@ -616,12 +616,7 @@ class MailMessageService
             return;
         }
 
-        $hasEnabledAiConfig = AiConfig::withoutGlobalScopes()
-            ->where('tenant_id', $message->tenant_id)
-            ->where('enabled', true)
-            ->exists();
-
-        if (! $hasEnabledAiConfig) {
+        if (! app(AiReplyEligibility::class)->hasUsableConfig($message->tenant_id)) {
             return;
         }
 

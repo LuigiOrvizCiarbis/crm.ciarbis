@@ -27,6 +27,7 @@ class EnsureTrialNotExpired
         }
 
         if ($request->is('api/logout')
+            || $request->is('api/workspaces*')
             || ($request->is('api/user') && $request->isMethod('get'))
             || $request->is('api/profile/password')
             || $request->is('api/profile/sessions*')

@@ -7,6 +7,7 @@ use App\Models\InstagramComment;
 use App\Services\InstagramCommentService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
 
 class InstagramCommentController extends Controller
 {
@@ -34,7 +35,7 @@ class InstagramCommentController extends Controller
             'assigned_to' => [
                 'nullable',
                 Rule::exists('users', 'id')->where(
-                    fn ($query) => $query->where('tenant_id', $request->user()->tenant_id)
+                    fn ($query) => $query->whereIn('id', DB::table('tenant_memberships')->select('user_id')->where('tenant_id', $request->user()->tenant_id)->whereNull('removed_at'))
                 ),
             ],
             'status' => 'nullable|in:new,in_progress,resolved',
