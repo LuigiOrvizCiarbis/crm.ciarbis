@@ -241,10 +241,13 @@ export function ChatQuickBar({
     }
 
     // Llamar a la API para actualizar (ahora con el ID numérico)
+    const originChatId = chatId
     updateConversationStage(chatId, stageId)
       .then(() => {
         // ✅ IMPORTANTE: Notificar al padre para que actualice su estado
         onChangeStage(stageId, stage.name);
+        // El backend creó la oportunidad del chat: mostrarla en el riel.
+        void fetchOpportunities(originChatId);
 
         addToast({
           type: "success",

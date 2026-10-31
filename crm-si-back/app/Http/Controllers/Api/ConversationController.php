@@ -344,9 +344,27 @@ class ConversationController extends Controller
             return response()->json(['message' => 'La etapa de este chat sigue a su oportunidad. Mové la oportunidad.'], 422);
         }
 
-        $conversation->update([
-            'pipeline_stage_id' => $stage->id,
-        ]);
+        DB::transaction(function () use ($conversation, $stage): void {
+            $conversation->update([
+                'pipeline_stage_id' => $stage->id,
+            ]);
+
+            // Sin oportunidad el lead no aparece en el tablero: se crea una en
+            // el pipeline predeterminado, que desde ahí maneja la etapa del chat.
+            // Un grupo no tiene contact_id (NOT NULL en opportunities).
+            if (! $conversation->isGroup()) {
+                Opportunity::create([
+                    'conversation_id' => $conversation->id,
+                    'contact_id' => $conversation->contact_id,
+                    'pipeline_id' => $stage->pipeline_id,
+                    'pipeline_stage_id' => $stage->id,
+                    'title' => 'Oportunidad - '.($conversation->contact?->name ?? 'Sin nombre'),
+                    'status' => 'open',
+                    'source_type' => 'conversation',
+                    'last_activity_at' => now(),
+                ]);
+            }
+        });
 
         return response()->json($conversation);
     }

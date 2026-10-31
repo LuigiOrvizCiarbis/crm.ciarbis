@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\GoogleCalendarConnection;
 use Google\Client as GoogleClient;
 use Google\Service\Calendar as GoogleCalendarService;
+use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\ClientInterface;
 use Illuminate\Support\Facades\Log;
 
@@ -41,9 +42,14 @@ class GoogleCalendarClient
         $client->setIncludeGrantedScopes(true);
         $client->setPrompt('consent');
 
-        if (self::$testHttpClient) {
-            $client->setHttpClient(self::$testHttpClient);
-        }
+        // Mismo cliente que arma el SDK por defecto (base_uri + sin excepciones
+        // HTTP: el SDK mapea los códigos a Google\Service\Exception), con un
+        // timeout explícito: el default del SDK no corta nunca.
+        $client->setHttpClient(self::$testHttpClient ?? new GuzzleClient([
+            'base_uri' => GoogleClient::API_BASE_PATH,
+            'http_errors' => false,
+            'timeout' => (float) config('services.google_calendar.http_timeout', 20),
+        ]));
 
         return $client;
     }

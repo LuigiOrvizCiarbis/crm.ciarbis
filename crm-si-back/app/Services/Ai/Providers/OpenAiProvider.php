@@ -4,9 +4,13 @@ namespace App\Services\Ai\Providers;
 
 use App\Services\Ai\AiExtractionResult;
 use App\Services\Ai\AiProvider;
+use App\Services\Ai\AiTool;
+use App\Services\Ai\AiToolset;
 use App\Services\Ai\AiReplyDecision;
 use App\Services\Ai\AiVerificationResult;
+use App\Services\Ai\ToolLoopDeadline;
 use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\ClientInterface;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -18,25 +22,30 @@ use OpenAI;
  */
 class OpenAiProvider implements AiProvider
 {
+    /**
+     * Override de tests: cliente HTTP con MockHandler para simular las
+     * respuestas de la API sin red. No usado en producción.
+     */
+    public static ?ClientInterface $testHttpClient = null;
+
     public function __construct(private string $apiKey) {}
 
-    public function generate(array $messages, string $systemPrompt, string $model): ?string
+    public function generate(array $messages, string $systemPrompt, string $model, ?AiToolset $toolset = null): ?string
     {
         try {
-            $client = OpenAI::factory()
-                ->withApiKey($this->apiKey)
-                ->withHttpClient(new GuzzleClient([
-                    'timeout' => (int) config('services.ai.generate_timeout', 60),
-                ]))
-                ->make();
+            $messages = [
+                ['role' => 'system', 'content' => $systemPrompt],
+                ...array_map([$this, 'formatMessage'], $messages),
+            ];
 
-            $response = $client->chat()->create([
+            if ($toolset) {
+                return $this->generateWithTools($model, $messages, $toolset);
+            }
+
+            $response = $this->client((float) config('services.ai.generate_timeout', 60))->chat()->create([
                 'model' => $model,
                 'max_tokens' => 1024,
-                'messages' => [
-                    ['role' => 'system', 'content' => $systemPrompt],
-                    ...array_map([$this, 'formatMessage'], $messages),
-                ],
+                'messages' => $messages,
             ]);
 
             $content = $response->choices[0]->message->content ?? null;
@@ -57,6 +66,102 @@ class OpenAiProvider implements AiProvider
 
             return null;
         }
+    }
+
+    /**
+     * Loop modelo → tool_calls → role:tool → modelo, acotado por
+     * MAX_TOOL_ROUNDS y ToolLoopDeadline. Lanza ante errores de la API: el
+     * try/catch de generate() los convierte en null.
+     *
+     * @param  array<int, array<string, mixed>>  $messages  Ya en formato OpenAI, con el system primero.
+     */
+    private function generateWithTools(string $model, array $messages, AiToolset $toolset): ?string
+    {
+        $deadline = app(ToolLoopDeadline::class);
+        $driverTimeout = (float) config('services.ai.generate_timeout', 60);
+        $tools = array_map(fn (AiTool $tool) => [
+            'type' => 'function',
+            'function' => [
+                'name' => $tool->name,
+                'description' => $tool->description,
+                'parameters' => $tool->parameters,
+            ],
+        ], $toolset->definitions());
+
+        for ($round = 0; ; $round++) {
+            if (! $deadline->canRequest()) {
+                Log::warning('OpenAiProvider: loop de herramientas cortado por tiempo', ['round' => $round]);
+
+                return null;
+            }
+
+            $response = $this->client($deadline->requestTimeout($driverTimeout))->chat()->create([
+                'model' => $model,
+                'max_tokens' => 1024,
+                'messages' => $messages,
+                'tools' => $tools,
+            ]);
+
+            $message = $response->choices[0]->message;
+            $toolCalls = $message->toolCalls;
+
+            if ($toolCalls === []) {
+                if ($message->content !== null && trim($message->content) !== '') {
+                    return trim($message->content);
+                }
+
+                Log::warning('OpenAiProvider: respuesta sin contenido de texto', [
+                    'finish_reason' => $response->choices[0]->finishReason ?? null,
+                ]);
+
+                return null;
+            }
+
+            // Hay llamadas pendientes: si no se pueden ejecutar, no se devuelve
+            // el texto de esta respuesta (podría anunciar algo que no ocurrió).
+            if ($round >= self::MAX_TOOL_ROUNDS || ! $deadline->canRunTools()) {
+                Log::warning('OpenAiProvider: loop de herramientas cortado', ['round' => $round]);
+
+                return null;
+            }
+
+            $messages[] = [
+                'role' => 'assistant',
+                'content' => $message->content,
+                'tool_calls' => array_map(fn ($call) => [
+                    'id' => $call->id,
+                    'type' => 'function',
+                    'function' => [
+                        'name' => $call->function->name,
+                        'arguments' => $call->function->arguments,
+                    ],
+                ], $toolCalls),
+            ];
+
+            foreach ($toolCalls as $call) {
+                if (! $deadline->canRunTools()) {
+                    Log::warning('OpenAiProvider: loop de herramientas cortado por tiempo', ['round' => $round]);
+
+                    return null;
+                }
+
+                $input = json_decode($call->function->arguments, true);
+
+                $messages[] = [
+                    'role' => 'tool',
+                    'tool_call_id' => $call->id,
+                    'content' => $toolset->call($call->function->name, is_array($input) ? $input : []),
+                ];
+            }
+        }
+    }
+
+    private function client(float $timeout): OpenAI\Client
+    {
+        return OpenAI::factory()
+            ->withApiKey($this->apiKey)
+            ->withHttpClient(self::$testHttpClient ?? new GuzzleClient(['timeout' => $timeout]))
+            ->make();
     }
 
     public function decide(array $messages, string $systemPrompt, string $model, bool $offerHandoff = true): AiReplyDecision

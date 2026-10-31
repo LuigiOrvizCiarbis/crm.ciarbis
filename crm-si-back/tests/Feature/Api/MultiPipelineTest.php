@@ -173,19 +173,50 @@ class MultiPipelineTest extends TestCase
         $this->assertSame($chatStage->id, $conversation->fresh()->pipeline_stage_id);
     }
 
+    public function test_assigning_chat_stage_puts_the_lead_on_the_default_pipeline_board(): void
+    {
+        $contact = $this->createContact();
+        $default = $this->defaultPipeline();
+        $stages = $default->stages()->orderBy('sort_order')->get();
+        $conversation = $this->createConversation($contact, $stages[0]);
+
+        $this->patchJson("/api/conversations/{$conversation->id}/stage", ['pipeline_stage_id' => $stages[1]->id])->assertOk();
+
+        $this->assertSame($stages[1]->id, $conversation->fresh()->pipeline_stage_id);
+        $board = $this->getJson("/api/opportunities?pipeline_id={$default->id}")->assertOk()->json('data');
+        $this->assertCount(1, $board);
+        $this->assertSame($conversation->id, $board[0]['conversation_id']);
+        $this->assertSame($stages[1]->id, $board[0]['pipeline_stage_id']);
+        $this->assertSame('conversation', $board[0]['source_type']);
+    }
+
+    public function test_assigning_group_chat_stage_does_not_create_opportunity(): void
+    {
+        $stages = $this->defaultPipeline()->stages()->orderBy('sort_order')->get();
+        $group = Conversation::create([
+            'tenant_id' => $this->tenant->id,
+            'channel_id' => $this->createChannel()->id,
+            'kind' => 'group',
+            'status' => 'open',
+            'pipeline_stage_id' => $stages[0]->id,
+        ]);
+
+        $this->patchJson("/api/conversations/{$group->id}/stage", ['pipeline_stage_id' => $stages[1]->id])->assertOk();
+
+        $this->assertSame($stages[1]->id, $group->fresh()->pipeline_stage_id);
+        $this->assertDatabaseMissing('opportunities', ['conversation_id' => $group->id]);
+    }
+
     public function test_chat_stage_is_locked_while_chat_has_default_pipeline_opportunity(): void
     {
         $contact = $this->createContact();
         $stages = $this->defaultPipeline()->stages()->orderBy('sort_order')->get();
         $conversation = $this->createConversation($contact, $stages[0]);
-
-        $this->patchJson("/api/conversations/{$conversation->id}/stage", ['pipeline_stage_id' => $stages[1]->id])->assertOk();
-        $this->assertSame($stages[1]->id, $conversation->fresh()->pipeline_stage_id);
-
         $this->createOpportunity($contact, $stages[1], 'Venta', $conversation);
 
         $this->patchJson("/api/conversations/{$conversation->id}/stage", ['pipeline_stage_id' => $stages[2]->id])->assertStatus(422);
         $this->assertSame($stages[1]->id, $conversation->fresh()->pipeline_stage_id);
+        $this->assertSame(1, Opportunity::where('conversation_id', $conversation->id)->count());
     }
 
     public function test_chat_stage_must_belong_to_default_pipeline(): void
