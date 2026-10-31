@@ -138,11 +138,18 @@ export const useMessengerLogin = () => {
 
     const version = process.env.NEXT_PUBLIC_FACEBOOK_GRAPH_API_VERSION || "v21.0";
 
+    // Set mínimo necesario, uno por capacidad concreta. Cada permiso extra es
+    // superficie de rechazo en App Review:
+    //  - pages_show_list      → GET /me/accounts (listar páginas)
+    //  - pages_manage_metadata → POST /{page}/subscribed_apps (webhooks)
+    //  - pages_messaging      → POST /{page}/messages (el único que exigen las
+    //                            docs del Send API)
+    //  - business_management  → ya aprobado en la app, necesario para páginas
+    //                            administradas vía Business Manager
     const scope = [
       "pages_show_list",
       "pages_manage_metadata",
       "pages_messaging",
-      "pages_read_engagement",
       "business_management",
     ].join(",");
 
