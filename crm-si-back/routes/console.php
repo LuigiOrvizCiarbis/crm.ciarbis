@@ -77,6 +77,10 @@ Schedule::command('extractions:purge-orphans')->dailyAt('03:30')->withoutOverlap
 // (BillingConfig.timezone + last_rolled_at), así que hourly es solo el
 // intervalo de chequeo, no el momento real del corte.
 Schedule::command('billing:roll-cycle')->hourly()->withoutOverlapping(30);
+// Etapas "Contactar <mes siguiente>": el nombre se recalcula con la hora de
+// la app (America/Argentina/Buenos_Aires). Hourly en vez de monthlyOn(1) para
+// que, si el scheduler no corrió justo el 01 a las 00:00, se corrija en la hora.
+Schedule::command('pipeline-stages:refresh-month-names')->hourly()->withoutOverlapping(10);
 Schedule::command('invoices:dispatch-due')->everyMinute()->withoutOverlapping(5);
 Schedule::command('workspaces:purge')->dailyAt('04:00')->withoutOverlapping(30);
 // Notificación in-app a owners cuando faltan 3 y 1 día de trial (hora local del server).
