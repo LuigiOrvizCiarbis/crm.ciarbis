@@ -41,6 +41,7 @@ import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 import { useTaskStore } from "@/store/useTaskStore"
 import { CalendarSyncBadge } from "./CalendarSyncBadge"
+import { AiBookingApprovalBadge } from "./AiBookingApprovalBadge"
 import {
   DndContext,
   closestCenter,
@@ -569,6 +570,7 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
               </Button>
             </div>
             {task.type === "reunion" && <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />}
+            <AiBookingApprovalBadge task={task} />
           </div>
         )
       case "related":

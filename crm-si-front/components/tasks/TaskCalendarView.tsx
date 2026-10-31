@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ChevronLeft, ChevronRight, CalendarIcon } from "lucide-react"
 import type { Task } from "@/lib/types/task"
 import { CalendarSyncBadge } from "./CalendarSyncBadge"
+import { AiBookingApprovalBadge } from "./AiBookingApprovalBadge"
 import {
   format,
   startOfMonth,
@@ -226,8 +227,9 @@ export function TaskCalendarView({ tasks }: { tasks: Task[] }) {
                       {task.description && <p className="text-sm mt-2 opacity-80">{task.description}</p>}
                     </div>
                     {task.type === "reunion" && (
-                      <div className="shrink-0 rounded-md bg-background/90 p-1.5">
+                      <div className="shrink-0 space-y-1.5 rounded-md bg-background/90 p-1.5">
                         <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />
+                        <AiBookingApprovalBadge task={task} />
                       </div>
                     )}
                   </div>

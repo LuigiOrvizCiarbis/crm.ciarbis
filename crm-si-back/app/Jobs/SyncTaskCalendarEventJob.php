@@ -2,6 +2,8 @@
 
 namespace App\Jobs;
 
+use App\Enums\AiBookingStatus;
+use App\Enums\TaskStatus;
 use App\Models\Scopes\TenantScope;
 use App\Models\Task;
 use App\Models\TaskCalendarSync;
@@ -82,6 +84,15 @@ class SyncTaskCalendarEventJob implements ShouldQueue
         $task = Task::withoutGlobalScope(TenantScope::class)->find($this->taskId);
 
         if (! $task || $task->type?->value !== 'reunion') {
+            return;
+        }
+
+        // Un upsert encolado antes de cancelar/rechazar el turno no debe
+        // publicarlo después. Las acciones de cancelación siguen operativas.
+        if ($this->action === 'upsert' && (
+            $task->status === TaskStatus::CANCELED
+            || in_array($task->ai_booking_status, [AiBookingStatus::PENDING, AiBookingStatus::REJECTED], true)
+        )) {
             return;
         }
 
