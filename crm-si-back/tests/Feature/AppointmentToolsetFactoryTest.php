@@ -9,8 +9,8 @@ use App\Models\User;
 use App\Services\AiReplyService;
 use App\Services\Scheduling\AppointmentToolsetFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use ReflectionMethod;
 use Tests\Feature\Concerns\AiSchedulingFixtures;
+use ReflectionMethod;
 use Tests\TestCase;
 
 class AppointmentToolsetFactoryTest extends TestCase
@@ -83,8 +83,8 @@ class AppointmentToolsetFactoryTest extends TestCase
         $method = new ReflectionMethod(AiReplyService::class, 'systemPrompt');
         $service = app(AiReplyService::class);
 
-        $without = $method->invoke($service, $aiConfig, $this->tenant->id, null);
-        $with = $method->invoke($service, $aiConfig, $this->tenant->id, $this->factory()->forConversation($conversation));
+        $without = $method->invoke($service, $aiConfig, $this->tenant->id, [], null);
+        $with = $method->invoke($service, $aiConfig, $this->tenant->id, [], $this->factory()->forConversation($conversation));
 
         $this->assertSame("Sos el asistente de Acme.\n\n".AiReplyService::HISTORY_OVERRIDE_RULE, $without);
         $this->assertStringContainsString('## Agenda de turnos', $with);

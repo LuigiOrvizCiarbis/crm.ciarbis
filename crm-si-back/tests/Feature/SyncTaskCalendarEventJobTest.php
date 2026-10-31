@@ -168,6 +168,11 @@ class SyncTaskCalendarEventJobTest extends TestCase
             new Response(200, [], json_encode([
                 'id' => 'evt123',
                 'htmlLink' => 'https://calendar.google.com/event?eid=evt123',
+                'conferenceData' => [
+                    'entryPoints' => [
+                        ['entryPointType' => 'video', 'uri' => 'https://meet.google.com/existing-meeting'],
+                    ],
+                ],
             ])),
         ]);
 

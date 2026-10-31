@@ -4,9 +4,10 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ChevronLeft, ChevronRight, CalendarIcon } from "lucide-react"
+import { ChevronLeft, ChevronRight, CalendarIcon, CalendarOff } from "lucide-react"
 import type { Task } from "@/lib/types/task"
 import { CalendarSyncBadge } from "./CalendarSyncBadge"
+import { useTranslation } from "@/hooks/useTranslation"
 import { AiBookingApprovalBadge } from "./AiBookingApprovalBadge"
 import {
   format,
@@ -35,7 +36,14 @@ const priorityColors = {
   critica: "bg-red-500/80",
 }
 
-export function TaskCalendarView({ tasks }: { tasks: Task[] }) {
+export function TaskCalendarView({
+  tasks,
+  onBlockAgenda,
+}: {
+  tasks: Task[]
+  onBlockAgenda?: (date: string) => void
+}) {
+  const { t } = useTranslation()
   const [view, setView] = useState<CalendarView>("month")
   const [currentDate, setCurrentDate] = useState(new Date())
 
@@ -79,16 +87,16 @@ export function TaskCalendarView({ tasks }: { tasks: Task[] }) {
   return (
     <div className="space-y-4">
       {/* Controls */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={handlePrevious}>
+            <Button variant="outline" size="icon" className="h-11 w-11" onClick={handlePrevious}>
               <ChevronLeft className="w-4 h-4" />
             </Button>
-            <Button variant="outline" size="sm" onClick={handleToday}>
+            <Button variant="outline" size="sm" className="min-h-11" onClick={handleToday}>
               Hoy
             </Button>
-            <Button variant="outline" size="icon" onClick={handleNext}>
+            <Button variant="outline" size="icon" className="h-11 w-11" onClick={handleNext}>
               <ChevronRight className="w-4 h-4" />
             </Button>
           </div>
@@ -100,13 +108,28 @@ export function TaskCalendarView({ tasks }: { tasks: Task[] }) {
           </h2>
         </div>
 
-        <Tabs value={view} onValueChange={(val) => setView(val as CalendarView)}>
-          <TabsList>
-            <TabsTrigger value="month">Mes</TabsTrigger>
-            <TabsTrigger value="week">Semana</TabsTrigger>
-            <TabsTrigger value="day">Día</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex flex-wrap items-center gap-3">
+          {onBlockAgenda && (
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11 gap-2"
+              onClick={() => onBlockAgenda(format(currentDate, "yyyy-MM-dd"))}
+              title={t("calendarAvailability.entry")}
+              aria-label={t("calendarAvailability.entry")}
+            >
+              <CalendarOff className="h-4 w-4" aria-hidden="true" />
+              {t("calendarAvailability.entry")}
+            </Button>
+          )}
+          <Tabs value={view} onValueChange={(val) => setView(val as CalendarView)}>
+            <TabsList className="h-auto">
+              <TabsTrigger value="month" className="min-h-11">Mes</TabsTrigger>
+              <TabsTrigger value="week" className="min-h-11">Semana</TabsTrigger>
+              <TabsTrigger value="day" className="min-h-11">Día</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
       {/* Calendar Grid */}
