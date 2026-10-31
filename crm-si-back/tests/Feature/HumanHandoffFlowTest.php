@@ -10,7 +10,9 @@ use App\Enums\SenderType;
 use App\Http\Controllers\WhatsAppController;
 use App\Jobs\SendHumanHandoffNotificationJob;
 use App\Models\AiConfig;
+use App\Models\AiSchedulingConfig;
 use App\Models\Conversation;
+use App\Models\GoogleCalendarConnection;
 use App\Models\HandoffNotificationAttempt;
 use App\Models\HumanHandoff;
 use App\Models\Message;
@@ -315,6 +317,47 @@ class HumanHandoffFlowTest extends TestCase
         $this->assertCount(2, $sent);
         $this->assertFalse(isset($sent[0]['tools']));
         $this->assertSame('request_human_handoff', $sent[1]['tools'][0]['name']);
+    }
+
+    /** "Quiero cambiar mi turno" no se deriva antes de que el bot vea su agenda. */
+    public function test_handoff_decision_knows_the_agenda_when_scheduling_is_enabled(): void
+    {
+        $config = AiConfig::withoutGlobalScopes()->create([
+            'tenant_id' => $this->tenant->id,
+            'provider' => AiProvider::CLAUDE,
+            'model' => 'claude-sonnet-5-5',
+            'enabled' => true,
+        ]);
+        $config->setEncryptedApiKey('sk-test');
+        AiSchedulingConfig::withoutGlobalScopes()->create([
+            'tenant_id' => $this->tenant->id,
+            'enabled' => true,
+            'mode' => 'approval',
+            'timezone' => 'America/Argentina/Buenos_Aires',
+            'default_user_id' => $this->owner->id,
+        ]);
+        GoogleCalendarConnection::withoutGlobalScopes()->create([
+            'tenant_id' => $this->tenant->id,
+            'user_id' => $this->owner->id,
+            'google_email' => 'owner@example.com',
+            'access_token' => 'placeholder',
+            'refresh_token' => 'placeholder',
+            'token_expires_at' => now()->addYears(10),
+            'status' => 'connected',
+        ]);
+        $this->createMessage(SenderType::CONTACT, MessageDirection::INBOUND);
+        Http::fake(['api.anthropic.com/*' => Http::response([
+            'id' => 'msg_1', 'type' => 'message', 'role' => 'assistant',
+            'content' => [['type' => 'text', 'text' => 'Hola']], 'stop_reason' => 'end_turn',
+            'model' => 'claude-sonnet-5-5', 'usage' => ['input_tokens' => 1, 'output_tokens' => 1],
+        ])]);
+
+        app(AiReplyService::class)->decide($this->conversation, $config->fresh());
+
+        $decision = Http::recorded()->first()[0];
+        $this->assertSame('request_human_handoff', $decision['tools'][0]['name']);
+        $this->assertStringContainsString('## Agenda de turnos', json_encode($decision['system'], JSON_UNESCAPED_UNICODE));
+        $this->assertStringContainsString('reprogramar_turno', json_encode($decision['system'], JSON_UNESCAPED_UNICODE));
     }
 
     // --- Configuración del canal ------------------------------------------------

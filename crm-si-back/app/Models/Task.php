@@ -43,6 +43,9 @@ class Task extends Model
         'ai_booking_status',
         'ai_booking_decided_by',
         'ai_booking_decided_at',
+        'ai_reschedule_starts_at',
+        'ai_reschedule_ends_at',
+        'ai_reschedule_requested_at',
     ];
 
     protected function casts(): array
@@ -62,6 +65,9 @@ class Task extends Model
             'ends_at' => 'datetime',
             'ai_booking_status' => AiBookingStatus::class,
             'ai_booking_decided_at' => 'datetime',
+            'ai_reschedule_starts_at' => 'datetime',
+            'ai_reschedule_ends_at' => 'datetime',
+            'ai_reschedule_requested_at' => 'datetime',
         ];
     }
 

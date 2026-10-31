@@ -15,7 +15,11 @@ use Illuminate\Support\Facades\Log;
 /**
  * Calcula los turnos libres de un vendedor: horario de atención de la config,
  * menos los eventos de su Google Calendar y sus reuniones del CRM (incluye
- * los turnos pendientes de aprobación, que todavía no están en Google).
+ * los turnos pendientes de aprobación, que todavía no están en Google, y los
+ * horarios pedidos en cambios de turno que esperan aprobación).
+ *
+ * $ignoreTaskId excluye una reunión del CRM y su propio evento de Google: al
+ * reprogramar o aprobar un turno, el turno no choca consigo mismo.
  *
  * Usa events.list y no freeBusy.query: el scope concedido
  * (calendar.events.owned) permite el primero pero no el segundo.
@@ -29,7 +33,7 @@ class AppointmentAvailabilityService
      *
      * @throws AppointmentAvailabilityException
      */
-    public function availableSlots(AiSchedulingConfig $config, User $owner, CarbonImmutable $from, CarbonImmutable $to, ?CalendarRequestBudget $budget = null): array
+    public function availableSlots(AiSchedulingConfig $config, User $owner, CarbonImmutable $from, CarbonImmutable $to, ?CalendarRequestBudget $budget = null, ?int $ignoreTaskId = null): array
     {
         $tz = $config->timezone;
         $duration = $config->meeting_duration_minutes;
@@ -47,7 +51,7 @@ class AppointmentAvailabilityService
             return [];
         }
 
-        $busy = $this->busyIntervals($owner, $start, $end, $tz, budget: $budget);
+        $busy = $this->busyIntervals($owner, $start, $end, $tz, $ignoreTaskId, $budget);
 
         return array_values(array_filter(
             $candidates,
@@ -61,12 +65,12 @@ class AppointmentAvailabilityService
      *
      * @throws AppointmentAvailabilityException
      */
-    public function isAvailable(AiSchedulingConfig $config, User $owner, CarbonImmutable $start, ?CalendarRequestBudget $budget = null): bool
+    public function isAvailable(AiSchedulingConfig $config, User $owner, CarbonImmutable $start, ?CalendarRequestBudget $budget = null, ?int $ignoreTaskId = null): bool
     {
         $start = $start->setTimezone($config->timezone);
         $day = $start->startOfDay();
 
-        foreach ($this->availableSlots($config, $owner, $day, $day->addDay(), $budget) as $slot) {
+        foreach ($this->availableSlots($config, $owner, $day, $day->addDay(), $budget, $ignoreTaskId) as $slot) {
             if ($slot->equalTo($start)) {
                 return true;
             }
@@ -78,13 +82,15 @@ class AppointmentAvailabilityService
     /**
      * Si [$start, $end) choca con la agenda del vendedor, sin aplicar horario
      * de atención ni anticipación: lo usa la aprobación de un turno ya
-     * propuesto, que puede estar dentro de la anticipación mínima.
+     * propuesto, que puede estar dentro de la anticipación mínima, y la
+     * edición manual de una reunión. Con $includeGoogle en false solo cuentan
+     * las reuniones del CRM (vendedor sin Google conectado).
      *
      * @throws AppointmentAvailabilityException
      */
-    public function hasConflict(User $owner, CarbonImmutable $start, CarbonImmutable $end, ?int $ignoreTaskId = null, ?CalendarRequestBudget $budget = null): bool
+    public function hasConflict(User $owner, CarbonImmutable $start, CarbonImmutable $end, ?int $ignoreTaskId = null, ?CalendarRequestBudget $budget = null, bool $includeGoogle = true): bool
     {
-        $busy = $this->busyIntervals($owner, $start, $end, $start->getTimezone()->getName(), $ignoreTaskId, $budget);
+        $busy = $this->busyIntervals($owner, $start, $end, $start->getTimezone()->getName(), $ignoreTaskId, $budget, $includeGoogle);
 
         return $this->overlapsAny($start, $end, $busy);
     }
@@ -123,10 +129,10 @@ class AppointmentAvailabilityService
      *
      * @throws AppointmentAvailabilityException
      */
-    private function busyIntervals(User $owner, CarbonImmutable $start, CarbonImmutable $end, string $tz, ?int $ignoreTaskId = null, ?CalendarRequestBudget $budget = null): array
+    private function busyIntervals(User $owner, CarbonImmutable $start, CarbonImmutable $end, string $tz, ?int $ignoreTaskId = null, ?CalendarRequestBudget $budget = null, bool $includeGoogle = true): array
     {
         return [
-            ...$this->googleBusy($owner, $start, $end, $tz, $budget),
+            ...($includeGoogle ? $this->googleBusy($owner, $start, $end, $tz, $budget, $ignoreTaskId) : []),
             ...$this->crmBusy($owner, $start, $end, $ignoreTaskId),
         ];
     }
@@ -136,7 +142,7 @@ class AppointmentAvailabilityService
      *
      * @throws AppointmentAvailabilityException
      */
-    private function googleBusy(User $owner, CarbonImmutable $start, CarbonImmutable $end, string $tz, ?CalendarRequestBudget $budget = null): array
+    private function googleBusy(User $owner, CarbonImmutable $start, CarbonImmutable $end, string $tz, ?CalendarRequestBudget $budget = null, ?int $ignoreTaskId = null): array
     {
         $connection = $owner->googleCalendarConnection()->withoutGlobalScopes()->where('tenant_id', $owner->tenant_id)->first();
         $service = $connection ? GoogleCalendarClient::serviceFor($connection, $budget) : null;
@@ -165,6 +171,10 @@ class AppointmentAvailabilityService
                 $events = $service->events->listEvents('primary', $params);
 
                 foreach ($events->getItems() as $event) {
+                    if ($ignoreTaskId && $this->isTaskEvent($event, $ignoreTaskId, $owner)) {
+                        continue;
+                    }
+
                     $interval = $this->eventInterval($event, $events->getTimeZone() ?: $tz);
 
                     if ($interval) {
@@ -185,6 +195,15 @@ class AppointmentAvailabilityService
         }
 
         return $busy;
+    }
+
+    /** Evento que SyncTaskCalendarEventJob creó para esa reunión del mismo workspace. */
+    private function isTaskEvent(Event $event, int $taskId, User $owner): bool
+    {
+        $private = $event->getExtendedProperties()?->getPrivate() ?? [];
+
+        return ($private['crm_task_id'] ?? null) === (string) $taskId
+            && ($private['crm_tenant_id'] ?? null) === (string) $owner->tenant_id;
     }
 
     /**
@@ -232,7 +251,8 @@ class AppointmentAvailabilityService
     }
 
     /**
-     * Reuniones del CRM del vendedor que se superponen con [$start, $end).
+     * Reuniones del CRM del vendedor que se superponen con [$start, $end),
+     * más los horarios pedidos en cambios de turno pendientes de aprobación.
      *
      * @return list<array{0: CarbonImmutable, 1: CarbonImmutable}>
      */
@@ -241,23 +261,27 @@ class AppointmentAvailabilityService
         // Las columnas guardan la hora local de la app sin zona: los límites
         // tienen que ir en esa misma zona o la comparación SQL corre la ventana.
         $appTz = config('app.timezone');
+        $intervals = [];
 
-        return Task::withoutGlobalScopes()
-            ->where('tenant_id', $owner->tenant_id)
-            ->where('assigned_to', $owner->id)
-            ->where('type', TaskType::MEETING)
-            ->where('status', '!=', TaskStatus::CANCELED)
-            ->whereNotNull('starts_at')
-            ->whereNotNull('ends_at')
-            ->where('starts_at', '<', $end->setTimezone($appTz))
-            ->where('ends_at', '>', $start->setTimezone($appTz))
-            ->when($ignoreTaskId, fn ($query) => $query->whereKeyNot($ignoreTaskId))
-            ->get(['starts_at', 'ends_at'])
-            ->map(fn (Task $task) => [
-                CarbonImmutable::instance($task->starts_at),
-                CarbonImmutable::instance($task->ends_at),
-            ])
-            ->all();
+        foreach ([['starts_at', 'ends_at'], ['ai_reschedule_starts_at', 'ai_reschedule_ends_at']] as [$from, $to]) {
+            $rows = Task::withoutGlobalScopes()
+                ->where('tenant_id', $owner->tenant_id)
+                ->where('assigned_to', $owner->id)
+                ->where('type', TaskType::MEETING)
+                ->where('status', '!=', TaskStatus::CANCELED)
+                ->whereNotNull($from)
+                ->whereNotNull($to)
+                ->where($from, '<', $end->setTimezone($appTz))
+                ->where($to, '>', $start->setTimezone($appTz))
+                ->when($ignoreTaskId, fn ($query) => $query->whereKeyNot($ignoreTaskId))
+                ->get([$from, $to]);
+
+            foreach ($rows as $task) {
+                $intervals[] = [CarbonImmutable::instance($task->{$from}), CarbonImmutable::instance($task->{$to})];
+            }
+        }
+
+        return $intervals;
     }
 
     /**

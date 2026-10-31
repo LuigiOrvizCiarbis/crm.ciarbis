@@ -2,10 +2,12 @@ import { create } from "zustand"
 import type { Task } from "@/lib/types/task"
 import {
   approveAiBooking as approveAiBookingRequest,
+  approveAiReschedule as approveAiRescheduleRequest,
   createTask as createTaskRequest,
   deleteTask as deleteTaskRequest,
   getTasks,
   rejectAiBooking as rejectAiBookingRequest,
+  rejectAiReschedule as rejectAiRescheduleRequest,
   updateTask as updateTaskRequest,
   type TaskPayload,
 } from "@/lib/api/tasks"
@@ -20,6 +22,8 @@ interface TaskStore {
   deleteTask: (id: string) => Promise<void>
   approveAiBooking: (id: string) => Promise<boolean>
   rejectAiBooking: (id: string) => Promise<boolean>
+  approveAiReschedule: (id: string) => Promise<boolean>
+  rejectAiReschedule: (id: string) => Promise<boolean>
   getTasks: () => Task[]
 }
 
@@ -78,6 +82,22 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
   rejectAiBooking: async (id: string) => {
     const { task: updated, contactNotified } = await rejectAiBookingRequest(id)
+    set((state) => ({
+      tasks: state.tasks.map((task) => (task.id === id ? updated : task)),
+    }))
+    return contactNotified
+  },
+
+  approveAiReschedule: async (id: string) => {
+    const { task: updated, contactNotified } = await approveAiRescheduleRequest(id)
+    set((state) => ({
+      tasks: state.tasks.map((task) => (task.id === id ? updated : task)),
+    }))
+    return contactNotified
+  },
+
+  rejectAiReschedule: async (id: string) => {
+    const { task: updated, contactNotified } = await rejectAiRescheduleRequest(id)
     set((state) => ({
       tasks: state.tasks.map((task) => (task.id === id ? updated : task)),
     }))

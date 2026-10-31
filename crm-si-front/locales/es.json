@@ -975,7 +975,10 @@
       "reject": "Rechazar",
       "approved": "Turno confirmado",
       "rejected": "Turno rechazado",
-      "notNotified": "No se pudo avisar al cliente por el chat"
+      "notNotified": "No se pudo avisar al cliente por el chat",
+      "rescheduleProposed": "{{assignee}}: el cliente pidió cambiar su turno del {{from}} al {{when}}",
+      "rescheduleApproved": "Cambio de turno confirmado",
+      "rescheduleRejected": "Cambio de turno rechazado"
     },
     "views": {
       "label": "Vistas de conversaciones",

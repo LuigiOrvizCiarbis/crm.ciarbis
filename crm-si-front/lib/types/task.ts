@@ -63,5 +63,7 @@ export interface Task {
   meetingTimezone?: string // IANA tz
   meetingGuestEmail?: string
   aiBookingStatus?: AiBookingStatus | null
+  aiRescheduleStartsAt?: string | null
+  aiRescheduleEndsAt?: string | null
   calendarSync?: TaskCalendarSyncInfo | null
 }
