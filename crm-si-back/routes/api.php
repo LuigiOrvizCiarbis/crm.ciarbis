@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DocumentExtractionController;
 use App\Http\Controllers\Api\GoogleCalendarAvailabilityBlockController;
 use App\Http\Controllers\Api\GoogleCalendarConnectionController;
+use App\Http\Controllers\Api\GoogleCalendarEventController;
 use App\Http\Controllers\Api\IncomingWebhookController;
 use App\Http\Controllers\Api\InstagramCommentController;
 use App\Http\Controllers\Api\InvitationController;
@@ -704,6 +705,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('google-calendar/blocks', [GoogleCalendarAvailabilityBlockController::class, 'index']);
     Route::post('google-calendar/blocks', [GoogleCalendarAvailabilityBlockController::class, 'store']);
     Route::delete('google-calendar/blocks/{eventId}', [GoogleCalendarAvailabilityBlockController::class, 'destroy']);
+    Route::get('google-calendar/events', [GoogleCalendarEventController::class, 'index']);
+    Route::delete('google-calendar/events/{eventId}', [GoogleCalendarEventController::class, 'destroy']);
 
     Route::post('conversations/{id}/users', [ConversationController::class, 'assignUsers']);
     Route::post('conversations/{id}/users/add', [ConversationController::class, 'addUser']);

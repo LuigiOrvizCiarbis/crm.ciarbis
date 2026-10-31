@@ -36,12 +36,12 @@ export class CalendarBlockApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function calendarRequest<T>(url: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken()
   if (!token) throw new CalendarBlockApiError("Tu sesión venció. Volvé a iniciar sesión.", 401)
   let response: Response
   try {
-    response = await fetch(`/api/google-calendar/blocks${path}`, {
+    response = await fetch(url, {
       ...options,
       cache: "no-store",
       headers: {
@@ -69,13 +69,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export function listCalendarAvailabilityBlocks(range?: { from_date: string; through_date: string }): Promise<CalendarBlockList> {
   const query = range ? `?${new URLSearchParams(range)}` : ""
-  return request<CalendarBlockList>(query)
+  return calendarRequest<CalendarBlockList>(`/api/google-calendar/blocks${query}`)
 }
 
 export function createCalendarAvailabilityBlock(input: CreateCalendarBlockInput): Promise<CalendarAvailabilityBlock> {
-  return request<CalendarAvailabilityBlock>("", { method: "POST", body: JSON.stringify(input) })
+  return calendarRequest<CalendarAvailabilityBlock>("/api/google-calendar/blocks", { method: "POST", body: JSON.stringify(input) })
 }
 
 export function deleteCalendarAvailabilityBlock(eventId: string): Promise<void> {
-  return request<void>(`/${encodeURIComponent(eventId)}`, { method: "DELETE" })
+  return calendarRequest<void>(`/api/google-calendar/blocks/${encodeURIComponent(eventId)}`, { method: "DELETE" })
 }

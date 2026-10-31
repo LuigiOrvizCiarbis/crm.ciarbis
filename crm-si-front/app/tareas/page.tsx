@@ -41,6 +41,7 @@ export default function TareasPage() {
   const [filteredTasks, setFilteredTasks] = useState(tasks)
   const [showNewTask, setShowNewTask] = useState(false)
   const [calendarBlockDialog, setCalendarBlockDialog] = useState<{ open: boolean; initialDate?: string }>({ open: false })
+  const [calendarRefreshKey, setCalendarRefreshKey] = useState(0)
   const [showFilters, setShowFilters] = useState(false)
   const [users, setUsers] = useState<SystemUser[]>([])
   const [filters, setFilters] = useState<TaskFilters>({
@@ -276,6 +277,7 @@ export default function TareasPage() {
           <TaskCalendarView
             tasks={filteredTasks}
             onBlockAgenda={(date) => setCalendarBlockDialog({ open: true, initialDate: date })}
+            googleRefreshKey={calendarRefreshKey}
           />
         )}
       </div>
@@ -284,7 +286,10 @@ export default function TareasPage() {
       <NewTaskModal open={showNewTask} onOpenChange={setShowNewTask} onCreateTask={handleCreateTask} />
       <CalendarAvailabilityBlockDialog
         open={calendarBlockDialog.open}
-        onOpenChange={(open) => setCalendarBlockDialog((current) => ({ ...current, open }))}
+        onOpenChange={(open) => {
+          setCalendarBlockDialog((current) => ({ ...current, open }))
+          if (!open) setCalendarRefreshKey((k) => k + 1)
+        }}
         initialDate={calendarBlockDialog.initialDate}
       />
 

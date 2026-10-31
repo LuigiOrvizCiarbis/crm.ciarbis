@@ -60,6 +60,40 @@
       "oauth": "No se pudo iniciar la conexión con Google Calendar. Volvé a intentar."
     }
   },
+  "calendarEvents": {
+    "legend": "Eventos de tu Google Calendar",
+    "loading": "Cargando tus eventos de Google…",
+    "notConnected": "Conectá tu Google Calendar desde «Bloquear mi agenda» para ver y eliminar tus eventos acá.",
+    "loadError": "No se pudieron cargar tus eventos de Google.",
+    "retry": "Reintentar",
+    "untitled": "(Sin título)",
+    "allDay": "Todo el día",
+    "more": "+{{count}} de Google",
+    "availabilityBlock": "Bloqueo de agenda",
+    "recurringNote": "Es un evento recurrente: se elimina solo esta fecha. Para borrar la serie, hacelo desde Google Calendar.",
+    "viewGoogle": "Ver en Google",
+    "delete": "Eliminar evento",
+    "unblock": "Desbloquear",
+    "confirmDelete": "¿Eliminar este evento de tu Google Calendar?",
+    "confirmUnblock": "¿Desbloquear este horario? El bot podrá volver a ofrecerlo.",
+    "notifyGuests": "Avisar a los invitados por email",
+    "confirm": "Eliminar",
+    "cancel": "Cancelar",
+    "deleting": "Eliminando…",
+    "close": "Cerrar",
+    "deleted": "Evento eliminado de Google Calendar",
+    "unblocked": "Agenda desbloqueada",
+    "notDeletable": "Solo podés eliminar desde el CRM los eventos que organizás vos. Gestionalo desde Google Calendar.",
+    "managedElsewhere": "Este evento lo gestiona el CRM en otro espacio de trabajo. Gestionalo desde ahí.",
+    "errors": {
+      "notConnected": "Conectá o reconectá tu Google Calendar para eliminar eventos.",
+      "busy": "La agenda está siendo actualizada. Volvé a intentar.",
+      "notDeletable": "Este evento no se puede eliminar desde el CRM. Gestionalo desde Google Calendar.",
+      "session": "Tu sesión venció. Volvé a iniciar sesión.",
+      "workspace": "No tenés acceso a este espacio de trabajo.",
+      "delete": "No se pudo eliminar el evento. Volvé a intentar."
+    }
+  },
   "nav": {
     "panel": "Panel",
     "chats": "Chats",
