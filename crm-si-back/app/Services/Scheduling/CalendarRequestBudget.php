@@ -33,9 +33,10 @@ class CalendarRequestBudget
     public function middleware(): callable
     {
         return fn (callable $handler): Closure => function (RequestInterface $request, array $options) use ($handler) {
+            // curl truncates sub-millisecond timeouts to 0, which means "no limit".
             $remaining = $this->remaining();
-            if ($remaining <= 0) {
-                $this->assertAvailable();
+            if ($remaining < 0.001) {
+                throw new AppointmentAvailabilityException('Se agotó el tiempo de consulta de la agenda', AppointmentAvailabilityException::GOOGLE_ERROR);
             }
             $timeout = (float) ($options['timeout'] ?? 0);
             $options['timeout'] = min($timeout > 0 ? $timeout : 20.0, $remaining);

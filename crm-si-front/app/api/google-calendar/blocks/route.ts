@@ -11,6 +11,8 @@ export async function GET(req: NextRequest) {
       cache: "no-store",
       timeoutMs: 60000,
     })
+    // GET may fall through proxy bases; keep the Google-specific message instead of a generic 502.
+    if (status >= 500) return NextResponse.json({ message: "No se pudo consultar Google Calendar. Volvé a intentar." }, { status: 503 })
     return proxyResponse(data, status)
   } catch {
     return NextResponse.json({ message: "No se pudo consultar Google Calendar. Volvé a intentar." }, { status: 503 })

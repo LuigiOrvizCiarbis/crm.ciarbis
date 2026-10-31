@@ -25,7 +25,9 @@ use GuzzleHttp\Promise\Create as PromiseCreate;
 use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Psr\Http\Message\RequestInterface;
@@ -58,6 +60,7 @@ class CalendarAvailabilityBlockTest extends TestCase
 
     protected function tearDown(): void
     {
+        Sleep::fake(false);
         $this->resetSchedulingFakes();
         parent::tearDown();
     }
@@ -89,13 +92,30 @@ class CalendarAvailabilityBlockTest extends TestCase
 
     public function test_rest_of_day_uses_google_local_now_and_next_local_midnight(): void
     {
-        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 15:20:59', 'Asia/Tokyo'));
+        // 07:10 in Tokyo is still the previous day (19:10) for the app's Buenos Aires clock.
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-21 07:10:59', 'Asia/Tokyo'));
         $this->calendarTimezone = 'Asia/Tokyo';
-        config()->set('app.timezone', 'UTC');
         $this->postJson('/api/google-calendar/blocks', [
             'request_id' => (string) Str::uuid(), 'mode' => 'rest_of_day', 'timezone' => 'Asia/Tokyo',
-        ])->assertCreated()->assertJsonPath('data.start', '2026-07-20T15:20:00+09:00')
-            ->assertJsonPath('data.end', '2026-07-21T00:00:00+09:00')->assertJsonPath('data.all_day', false);
+        ])->assertCreated()->assertJsonPath('data.start', '2026-07-21T07:10:00+09:00')
+            ->assertJsonPath('data.end', '2026-07-22T00:00:00+09:00')->assertJsonPath('data.all_day', false);
+    }
+
+    public function test_day_starting_at_one_am_after_midnight_dst_jump_still_ends_at_next_midnight(): void
+    {
+        // Chile springs forward at 00:00 on 2026-09-06, so that day starts at 01:00.
+        $tz = 'America/Santiago';
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-06 10:00', $tz));
+        $this->calendarTimezone = $tz;
+        $this->postJson('/api/google-calendar/blocks', ['request_id' => (string) Str::uuid(), 'mode' => 'rest_of_day', 'timezone' => $tz])
+            ->assertCreated()->assertJsonPath('data.end', '2026-09-07T00:00:00-03:00');
+        $this->events = ['early123' => [
+            'id' => 'early123', 'status' => 'confirmed',
+            'start' => ['dateTime' => '2026-09-07T00:00:00-03:00'], 'end' => ['dateTime' => '2026-09-07T00:30:00-03:00'],
+        ]];
+        // A full day ending on 09-06 must not extend into the next day's first hour.
+        $this->postJson('/api/google-calendar/blocks', $this->daysInput('2026-09-06', '2026-09-06', $tz))
+            ->assertCreated()->assertJsonPath('data.end', '2026-09-07');
     }
 
     public function test_inclusive_full_days_and_dst_are_calendar_dates_not_1440_minute_intervals(): void
@@ -159,6 +179,10 @@ class CalendarAvailabilityBlockTest extends TestCase
             ->assertJsonPath('code', 'overlap_confirmation_required');
         $this->assertCount(0, $this->writes());
         $this->postJson('/api/google-calendar/blocks', [...$input, 'confirm_overlap' => true])->assertCreated();
+        $writes = $this->writes();
+        $this->assertCount(1, $writes, 'Confirming the overlap must not touch the existing meeting.');
+        $this->assertSame('POST', $writes[0]['request']->getMethod());
+        $this->assertStringEndsWith('/calendars/primary/events', $writes[0]['request']->getUri()->getPath());
         $this->assertSame($before, $proposal->fresh()->getAttributes());
         $this->assertSame($meeting, $this->events['meeting123']);
         Queue::assertNotPushed(SyncTaskCalendarEventJob::class);
@@ -172,6 +196,20 @@ class CalendarAvailabilityBlockTest extends TestCase
             ->assertStatus(409)->assertJsonPath('code', 'overlap_confirmation_required');
         $this->assertSame(AiBookingStatus::PENDING, $proposal->fresh()->ai_booking_status);
         $this->assertCount(0, $this->writes());
+    }
+
+    public function test_create_and_delete_wait_on_the_owner_lock_shared_with_bookings(): void
+    {
+        Sleep::fake(syncWithCarbon: true);
+        $held = Cache::lock("ai-booking:owner:{$this->owner->id}", 60);
+        $this->assertTrue($held->get());
+        $this->postJson('/api/google-calendar/blocks', $this->rangeInput())
+            ->assertStatus(409)->assertJsonPath('code', 'calendar_busy');
+        $this->deleteJson('/api/google-calendar/blocks/block123')
+            ->assertStatus(409)->assertJsonPath('code', 'calendar_busy');
+        $this->assertCount(0, $this->transport, 'No Google call happens without the owner lock.');
+        $held->release();
+        $this->postJson('/api/google-calendar/blocks', $this->rangeInput())->assertCreated();
     }
 
     public function test_retry_after_uncertain_insert_recovers_same_event_without_duplicate_or_update(): void
@@ -267,10 +305,19 @@ class CalendarAvailabilityBlockTest extends TestCase
             ->assertJsonPath('data.timezone', self::TZ)->assertJsonPath('data.from_date', '2026-07-20')
             ->assertJsonPath('data.through_date', '2026-08-19')->assertJsonCount(2, 'data.blocks');
         $this->assertSame(['block123', 'block456'], array_column($result->json('data.blocks'), 'id'));
-        $url = (string) $this->history[1]['request']->getUri();
-        $this->assertStringContainsString('crm_tenant_id', urldecode($url));
-        $this->assertStringContainsString('crm_user_id', urldecode($url));
-        $this->assertStringContainsString('crm_availability_block', urldecode($url));
+        $filters = [];
+        foreach (explode('&', $this->history[1]['request']->getUri()->getQuery()) as $pair) {
+            [$key, $value] = array_map('rawurldecode', explode('=', $pair, 2) + [1 => '']);
+            if ($key === 'privateExtendedProperty') {
+                $filters[] = $value;
+            }
+        }
+        sort($filters);
+        $this->assertSame([
+            'crm_availability_block=1',
+            'crm_tenant_id='.$this->tenant->id,
+            'crm_user_id='.$this->owner->id,
+        ], $filters);
         parse_str($this->history[2]['request']->getUri()->getQuery(), $query);
         $this->assertSame('page2', $query['pageToken']);
     }
@@ -402,6 +449,10 @@ class CalendarAvailabilityBlockTest extends TestCase
         $this->assertSame('connected', $this->connection->fresh()->status);
         $this->assertSame(20.0, (float) $this->transport[0]['options']['timeout']);
         $this->assertLessThanOrEqual(13, $this->transport[2]['options']['timeout']);
+        // The lease is released after the failed attempt; a fresh budget can write.
+        $clock = 0.0;
+        $this->installGoogle();
+        $this->postJson('/api/google-calendar/blocks', $this->rangeInput())->assertCreated();
     }
 
     public function test_listing_pages_share_one_budget_too(): void
@@ -438,7 +489,10 @@ class CalendarAvailabilityBlockTest extends TestCase
         $toolset = app(AppointmentToolsetFactory::class)->forConversation($conversation);
         $this->assertNotNull($toolset, 'An active B membership resolves the assigned owner despite the legacy A tenant.');
         $this->assertSame($workspaceB->id, $toolset->owner()->tenant_id);
-        $toolset->call(AppointmentToolset::BOOK, ['inicio' => '2026-07-20 15:30']);
+        $this->assertSame(
+            'Ese horario ya no está disponible. Consultá disponibilidad de nuevo y ofrecé otras opciones.',
+            $toolset->call(AppointmentToolset::BOOK, ['inicio' => '2026-07-20 15:30']),
+        );
         $this->assertNull($toolset->lastBooking());
         $this->assertDatabaseCount('tasks', 0);
         $proposal = $this->makePendingBooking($conversation, $scoped, '2026-07-20 15:30');
@@ -469,14 +523,18 @@ class CalendarAvailabilityBlockTest extends TestCase
         $slots = app(AppointmentAvailabilityService::class)->availableSlots($config, $this->owner, $start, $start->addHours(2));
         $this->assertSame([], $slots);
         $toolset = new AppointmentToolset($conversation, $config, $this->owner, app(AppointmentAvailabilityService::class), app(AppointmentBookingService::class));
-        $toolset->call(AppointmentToolset::BOOK, ['inicio' => '2026-07-20 15:30']);
+        $this->assertSame(
+            'Ese horario ya no está disponible. Consultá disponibilidad de nuevo y ofrecé otras opciones.',
+            $toolset->call(AppointmentToolset::BOOK, ['inicio' => '2026-07-20 15:30']),
+        );
         $this->assertNull($toolset->lastBooking());
         $this->assertDatabaseCount('tasks', 1);
         $this->mock(WhatsAppMessageService::class, fn ($mock) => $mock->shouldNotReceive('sendSystemTextMessageFromCRM'));
         // Member manages blocks but task approval retains its existing permission.
         app(PermissionRegistrar::class)->setPermissionsTeamId($this->tenant->id);
         $this->owner->syncRoles(['Owner']);
-        $this->postJson('/api/tasks/'.$proposal->id.'/ai-booking/approve')->assertStatus(409);
+        $this->postJson('/api/tasks/'.$proposal->id.'/ai-booking/approve')->assertStatus(409)
+            ->assertJsonPath('message', 'El horario ya está ocupado en la agenda del responsable');
         $this->assertSame(AiBookingStatus::PENDING, $proposal->fresh()->ai_booking_status);
         $this->deleteJson('/api/google-calendar/blocks/'.$id)->assertNoContent();
         $slots = app(AppointmentAvailabilityService::class)->availableSlots($config, $this->owner, $start, $start->addMinutes(30));

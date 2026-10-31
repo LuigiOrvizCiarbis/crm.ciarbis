@@ -262,13 +262,14 @@ class CalendarAvailabilityBlockService
         $now = CarbonImmutable::now($timezone);
         $today = $now->startOfDay();
         if ($input['mode'] === 'rest_of_day') {
-            return [$now->startOfMinute(), $today->addDay(), false];
+            // startOfDay() after addDay(): a midnight DST jump makes "00:00" 01:00.
+            return [$now->startOfMinute(), $now->addDay()->startOfDay(), false];
         }
         $allDay = $input['mode'] === 'full_days';
         $start = $this->strictDate($input[$allDay ? 'start_date' : 'starts_at'], $allDay ? 'Y-m-d' : 'Y-m-d H:i', $timezone, $allDay ? 'start_date' : 'starts_at');
         $end = $this->strictDate($input[$allDay ? 'end_date' : 'ends_at'], $allDay ? 'Y-m-d' : 'Y-m-d H:i', $timezone, $allDay ? 'end_date' : 'ends_at');
         if ($allDay) {
-            $end = $end->addDay();
+            $end = $end->addDay()->startOfDay();
         }
         if ($start < $today || $end <= $start || $end <= $now) {
             throw ValidationException::withMessages([$allDay ? 'end_date' : 'ends_at' => 'Elegí un período válido desde hoy que termine en el futuro.']);

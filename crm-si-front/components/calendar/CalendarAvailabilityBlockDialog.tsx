@@ -101,6 +101,8 @@ export function CalendarAvailabilityBlockDialog({ open, onOpenChange, initialDat
   const [overlap, setOverlap] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState<string | null>(null)
   const [dateAdjusted, setDateAdjusted] = useState(false)
+  // A sent-but-unconfirmed intent must be retryable as-is, even after midnight.
+  const [pendingRetry, setPendingRetry] = useState(false)
 
   function reset() {
     generationRef.current += 1
@@ -122,6 +124,7 @@ export function CalendarAvailabilityBlockDialog({ open, onOpenChange, initialDat
     setConnectionMissing(false)
     setDeleteConfirmation(null)
     setDateAdjusted(false)
+    setPendingRetry(false)
   }
 
   function closeAndReset() {
@@ -183,6 +186,7 @@ export function CalendarAvailabilityBlockDialog({ open, onOpenChange, initialDat
         setFormError("")
         setOverlap(false)
         requestIdRef.current = crypto.randomUUID()
+        setPendingRetry(false)
       }
     } catch (error) {
       if (!isCurrent(session) || sequence !== listGenerationRef.current) return
@@ -228,6 +232,7 @@ export function CalendarAvailabilityBlockDialog({ open, onOpenChange, initialDat
     setOverlap(false)
     setFormError("")
     setDateAdjusted(false)
+    setPendingRetry(false)
   }
 
   function changeField(key: keyof Fields, value: string) {
@@ -250,6 +255,7 @@ export function CalendarAvailabilityBlockDialog({ open, onOpenChange, initialDat
       const block = await createCalendarAvailabilityBlock(input)
       if (!isCurrent(session)) return
       requestIdRef.current = crypto.randomUUID()
+      setPendingRetry(false)
       setFields(defaults(calendar.timezone))
       setOverlap(false)
       setDateAdjusted(false)
@@ -258,7 +264,11 @@ export function CalendarAvailabilityBlockDialog({ open, onOpenChange, initialDat
       const nextRange = startDate < calendar.from_date || startDate > calendar.through_date
         ? { from_date: startDate, through_date: addCalendarDays(startDate, 30) }
         : { from_date: calendar.from_date, through_date: calendar.through_date }
-      await load(session, nextRange)
+      // Release the dialog as soon as Google confirmed the write; the list refresh
+      // is guarded by its own generation and keeps the form disabled via `loading`.
+      busyRef.current = false
+      setBusy(null)
+      void load(session, nextRange)
     } catch (error) {
       if (!isCurrent(session)) return
       handleConnectionError(error)
@@ -266,6 +276,7 @@ export function CalendarAvailabilityBlockDialog({ open, onOpenChange, initialDat
         setOverlap(true)
       } else {
         if (error instanceof CalendarBlockApiError && error.code === "calendar_timezone_changed") setTimezoneChanged(true)
+        setPendingRetry(true)
         setFormError(errorMessage(error, "create"))
       }
     } finally {
@@ -391,8 +402,8 @@ export function CalendarAvailabilityBlockDialog({ open, onOpenChange, initialDat
             )}
             {mode === "full_days" && (
               <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-                <div className="min-w-0 space-y-1.5"><Label htmlFor={`${id}-start-date`}>{tr("from")}</Label><Input id={`${id}-start-date`} className="h-11 min-w-0 max-w-full text-base sm:text-sm" type="date" required min={today} value={fields.startDate} onChange={(event) => changeField("startDate", event.target.value)} /></div>
-                <div className="min-w-0 space-y-1.5"><Label htmlFor={`${id}-end-date`}>{tr("throughInclusive")}</Label><Input id={`${id}-end-date`} className="h-11 min-w-0 max-w-full text-base sm:text-sm" type="date" required min={fields.startDate || today} value={fields.endDate} onChange={(event) => changeField("endDate", event.target.value)} /></div>
+                <div className="min-w-0 space-y-1.5"><Label htmlFor={`${id}-start-date`}>{tr("from")}</Label><Input id={`${id}-start-date`} className="h-11 min-w-0 max-w-full text-base sm:text-sm" type="date" required min={pendingRetry ? undefined : today} value={fields.startDate} onChange={(event) => changeField("startDate", event.target.value)} /></div>
+                <div className="min-w-0 space-y-1.5"><Label htmlFor={`${id}-end-date`}>{tr("throughInclusive")}</Label><Input id={`${id}-end-date`} className="h-11 min-w-0 max-w-full text-base sm:text-sm" type="date" required min={pendingRetry ? undefined : fields.startDate || today} value={fields.endDate} onChange={(event) => changeField("endDate", event.target.value)} /></div>
               </div>
             )}
           </fieldset>
