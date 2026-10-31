@@ -33,11 +33,10 @@ export function GoogleCalendarEventDialog({ event, onOpenChange, onDeleted }: Go
   const [notifyGuests, setNotifyGuests] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
-  const eventId = event?.id
-  const [stateEventId, setStateEventId] = useState(eventId)
-  // Adjust state while rendering when a different event opens (no effect round-trip).
-  if (stateEventId !== eventId) {
-    setStateEventId(eventId)
+  const [displayedEvent, setDisplayedEvent] = useState(event)
+  // Keep the last event mounted through Radix's close animation; replace it when another opens.
+  if (event && event.id !== displayedEvent?.id) {
+    setDisplayedEvent(event)
     setConfirming(false)
     setNotifyGuests(true)
     setError("")
@@ -88,30 +87,30 @@ export function GoogleCalendarEventDialog({ event, onOpenChange, onDeleted }: Go
     return `${formatter.format(new Date(target.start))} → ${formatter.format(new Date(target.end))}`
   }
 
-  const isBlock = event?.kind === "availability_block"
+  const isBlock = displayedEvent?.kind === "availability_block"
   const Icon = isBlock ? CalendarOff : CalendarIcon
 
   return (
     <Dialog open={event !== null} onOpenChange={(next) => { if (!next) close() }}>
       <DialogContent className="max-h-[90dvh] w-[calc(100%_-_1rem)] overflow-y-auto rounded-lg p-4 sm:max-w-md sm:p-6 [&>button]:min-h-11 [&>button]:min-w-11" onEscapeKeyDown={(e) => { if (busyRef.current) e.preventDefault() }} onInteractOutside={(e) => { if (busyRef.current) e.preventDefault() }}>
-        {event && (
+        {displayedEvent && (
           <>
             <DialogHeader className="pr-10 text-left">
-              <DialogTitle className="flex items-start gap-2 break-words"><Icon aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-sky-600 dark:text-sky-400" />{event.summary ?? tr("untitled")}</DialogTitle>
+              <DialogTitle className="flex items-start gap-2 break-words"><Icon aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-sky-600 dark:text-sky-400" />{displayedEvent.summary ?? tr("untitled")}</DialogTitle>
               <DialogDescription className="space-y-1">
                 {isBlock && <span className="block">{tr("availabilityBlock")}</span>}
-                <span className="block">{timeLabel(event)}</span>
+                <span className="block">{timeLabel(displayedEvent)}</span>
               </DialogDescription>
             </DialogHeader>
 
-            {event.recurring && <p className="rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">{tr("recurringNote")}</p>}
-            {event.html_link && <a href={event.html_link} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1 self-start rounded-md px-2 text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{tr("viewGoogle")}<ExternalLink aria-hidden="true" className="size-3.5" /></a>}
+            {displayedEvent.recurring && <p className="rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">{tr("recurringNote")}</p>}
+            {displayedEvent.html_link && <a href={displayedEvent.html_link} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1 self-start rounded-md px-2 text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{tr("viewGoogle")}<ExternalLink aria-hidden="true" className="size-3.5" /></a>}
 
-            {event.can_delete && (event.kind === "event" || isBlock) ? (
+            {displayedEvent.can_delete && (displayedEvent.kind === "event" || isBlock) ? (
               confirming ? (
                 <div className="space-y-3 rounded-md bg-muted/50 p-3">
                   <p className="text-sm">{tr(isBlock ? "confirmUnblock" : "confirmDelete")}</p>
-                  {!isBlock && event.has_guests && (
+                  {!isBlock && displayedEvent.has_guests && (
                     <div className="flex min-h-11 items-center gap-2">
                       <Checkbox id={`${id}-notify`} checked={notifyGuests} disabled={busy} onCheckedChange={(checked) => setNotifyGuests(checked === true)} />
                       <label htmlFor={`${id}-notify`} className="text-sm">{tr("notifyGuests")}</label>
@@ -119,7 +118,7 @@ export function GoogleCalendarEventDialog({ event, onOpenChange, onDeleted }: Go
                   )}
                   <div className="flex flex-wrap justify-end gap-2">
                     <Button type="button" variant="outline" className="min-h-11" disabled={busy} onClick={() => { setConfirming(false); setError("") }}>{tr("cancel")}</Button>
-                    <Button type="button" variant="destructive" className="min-h-11" disabled={busy} aria-busy={busy} onClick={() => void remove(event)}>{busy ? tr("deleting") : isBlock ? tr("unblock") : tr("confirm")}</Button>
+                    <Button type="button" variant="destructive" className="min-h-11" disabled={busy} aria-busy={busy} onClick={() => void remove(displayedEvent)}>{busy ? tr("deleting") : isBlock ? tr("unblock") : tr("confirm")}</Button>
                   </div>
                 </div>
               ) : (
@@ -128,7 +127,7 @@ export function GoogleCalendarEventDialog({ event, onOpenChange, onDeleted }: Go
                 </div>
               )
             ) : (
-              <p className="text-sm text-muted-foreground">{tr(event.kind === "event" ? "notDeletable" : "managedElsewhere")}</p>
+              <p className="text-sm text-muted-foreground">{tr(displayedEvent.kind === "event" ? "notDeletable" : "managedElsewhere")}</p>
             )}
 
             {error && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
