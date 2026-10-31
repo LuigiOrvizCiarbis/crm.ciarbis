@@ -86,6 +86,8 @@ export function normalizeTask(apiTask: any): Task {
     meetingTimezone: apiTask.meeting_timezone ?? undefined,
     meetingGuestEmail: apiTask.meeting_guest_email ?? undefined,
     aiBookingStatus: apiTask.ai_booking_status ?? null,
+    aiRescheduleStartsAt: apiTask.ai_reschedule_starts_at ?? null,
+    aiRescheduleEndsAt: apiTask.ai_reschedule_ends_at ?? null,
     calendarSync: apiTask.calendar_sync
       ? {
           status: apiTask.calendar_sync.status,
@@ -101,6 +103,7 @@ export function normalizeTask(apiTask: any): Task {
 export interface TaskFilters {
   conversationId?: number
   aiBookingStatus?: AiBookingStatus
+  aiReschedulePending?: boolean
 }
 
 export async function getTasks(filters?: TaskFilters): Promise<Task[]> {
@@ -109,6 +112,7 @@ export async function getTasks(filters?: TaskFilters): Promise<Task[]> {
   const params = new URLSearchParams({ per_page: "100" })
   if (filters?.conversationId !== undefined) params.set("conversation_id", String(filters.conversationId))
   if (filters?.aiBookingStatus) params.set("ai_booking_status", filters.aiBookingStatus)
+  if (filters?.aiReschedulePending) params.set("ai_reschedule_pending", "1")
 
   const response = await fetch(`/api/tasks?${params.toString()}`, {
     headers: {
@@ -192,7 +196,7 @@ export interface AiBookingDecisionResult {
 
 async function decideAiBooking(
   taskId: string,
-  action: "approve" | "reject",
+  action: "approve" | "reject" | "reschedule/approve" | "reschedule/reject",
   fallbackMessage: string,
 ): Promise<AiBookingDecisionResult> {
   const token = requireToken()
@@ -222,4 +226,12 @@ export function approveAiBooking(taskId: string): Promise<AiBookingDecisionResul
 
 export function rejectAiBooking(taskId: string): Promise<AiBookingDecisionResult> {
   return decideAiBooking(taskId, "reject", "Error al rechazar el turno")
+}
+
+export function approveAiReschedule(taskId: string): Promise<AiBookingDecisionResult> {
+  return decideAiBooking(taskId, "reschedule/approve", "Error al aceptar el cambio de turno")
+}
+
+export function rejectAiReschedule(taskId: string): Promise<AiBookingDecisionResult> {
+  return decideAiBooking(taskId, "reschedule/reject", "Error al rechazar el cambio de turno")
 }

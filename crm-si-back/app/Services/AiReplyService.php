@@ -9,10 +9,10 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\Product;
 use App\Services\Ai\AiProviderFactory;
-use App\Services\Scheduling\AppointmentToolset;
-use App\Services\Scheduling\AppointmentToolsetFactory;
 use App\Services\Ai\AiReplyDecision;
 use App\Services\Ai\CatalogProductSearch;
+use App\Services\Scheduling\AppointmentToolset;
+use App\Services\Scheduling\AppointmentToolsetFactory;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -116,15 +116,18 @@ class AiReplyService
             return AiReplyDecision::reply(null);
         }
         if (method_exists($provider, 'decide')) {
+            // La decisión de derivar conoce la agenda: "quiero cambiar mi
+            // turno" lo resuelve el bot con sus herramientas, no un humano.
+            $toolset = $this->appointmentToolsets->forConversation($conversation);
             // Con la derivación apagada para el tenant, la tool no se ofrece:
             // el modelo sólo puede contestar.
             $decision = $provider->decide(
                 $messages,
-                $this->systemPrompt($config, $conversation->tenant_id, $messages),
+                $this->systemPrompt($config, $conversation->tenant_id, $messages, $toolset),
                 $model,
                 offerHandoff: $config->human_handoff_enabled !== false,
             );
-            if ($decision->requestsHandoff() || $decision->reply === null || ! $this->appointmentToolsets->forConversation($conversation)) {
+            if ($decision->requestsHandoff() || $decision->reply === null || ! $toolset) {
                 return $decision;
             }
 

@@ -7,15 +7,23 @@ use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Enums\TaskType;
 use App\Http\Controllers\Controller;
-use App\Services\Notifications\DomainNotifier;
 use App\Jobs\SyncTaskCalendarEventJob;
+use App\Models\GoogleCalendarConnection;
 use App\Models\Task;
 use App\Models\TaskCalendarSync;
+use App\Models\User;
+use App\Services\Notifications\DomainNotifier;
+use App\Services\Scheduling\AppointmentAvailabilityException;
+use App\Services\Scheduling\AppointmentAvailabilityService;
+use App\Services\Scheduling\CalendarOwnerLock;
+use App\Services\Scheduling\CalendarRequestBudget;
 use App\Support\TimezoneAliases;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 class TaskController extends Controller
@@ -88,6 +96,7 @@ class TaskController extends Controller
         $this->normalizeMeetingTimezone($request);
 
         $validated = $request->validate($this->rules($request, $task));
+        $confirmOverlap = (bool) ($validated['confirm_overlap'] ?? false);
 
         $wasMeeting = $task->type === TaskType::MEETING;
         $previousAssignee = $task->assigned_to;
@@ -117,6 +126,22 @@ class TaskController extends Controller
             }
         }
 
+        $intervalChanged = $wasMeeting && $task->type === TaskType::MEETING && $task->isDirty(['starts_at', 'ends_at', 'assigned_to']);
+
+        // Una edición humana del horario, responsable o estado reemplaza el
+        // cambio de turno que el cliente pidió por la IA.
+        if ($task->ai_reschedule_starts_at && ($intervalChanged || $task->isDirty('status') || $task->type !== TaskType::MEETING)) {
+            $task->ai_reschedule_starts_at = null;
+            $task->ai_reschedule_ends_at = null;
+            $task->ai_reschedule_requested_at = null;
+        }
+
+        $checkAgenda = $intervalChanged && $task->status !== TaskStatus::CANCELED && $task->assigned_to;
+
+        if ($checkAgenda && $task->isDirty('starts_at') && $task->starts_at->lte(now())) {
+            throw ValidationException::withMessages(['starts_at' => 'Elegí un horario futuro.']);
+        }
+
         $reassigned = $wasMeeting && array_key_exists('assigned_to', $validated) && $validated['assigned_to'] !== $previousAssignee;
 
         // Si deja de ser reunión, el job ya no puede cancelar por sí solo (su
@@ -124,17 +149,88 @@ class TaskController extends Controller
         $droppedMeeting = $wasMeeting && $task->type !== TaskType::MEETING;
         $snapshot = $droppedMeeting ? $this->cancelableSnapshot($task) : null;
 
-        $task->save();
+        $persist = function () use ($task, $request, $previousAssignee, $wasMeeting, $previousStatus, $reassigned, $snapshot): void {
+            $task->save();
 
-        if ($task->assigned_to !== null && (int) $task->assigned_to !== (int) $previousAssignee) {
-            app(DomainNotifier::class)->taskAssigned($task, $request->user());
+            if ($task->assigned_to !== null && (int) $task->assigned_to !== (int) $previousAssignee) {
+                app(DomainNotifier::class)->taskAssigned($task, $request->user());
+            }
+
+            $this->syncCalendarAfterUpdate($task, $wasMeeting, $previousStatus, $reassigned, $snapshot);
+        };
+
+        if (! $checkAgenda) {
+            $persist();
+        } elseif ($conflict = $this->persistUnlessOverlap($task, $confirmOverlap, $persist)) {
+            return $conflict;
         }
-
-        $this->syncCalendarAfterUpdate($task, $wasMeeting, $previousStatus, $reassigned, $snapshot);
 
         $task->load(self::EAGER_LOAD);
 
         return response()->json(['data' => $task]);
+    }
+
+    /**
+     * Mover una reunión o cambiarle el responsable corre bajo el mismo lock que
+     * las reservas de la IA y los bloqueos de agenda, y no pisa en silencio otra
+     * reunión o evento: sin `confirm_overlap` un choque devuelve 409. Si el
+     * responsable no tiene Google conectado solo cuentan las reuniones del CRM.
+     */
+    private function persistUnlessOverlap(Task $task, bool $confirmOverlap, callable $persist): ?JsonResponse
+    {
+        $owner = User::withoutGlobalScopes()->find($task->assigned_to);
+
+        if (! $owner) {
+            $persist();
+
+            return null;
+        }
+        $owner->setAttribute('tenant_id', $task->tenant_id);
+
+        $tz = $task->meeting_timezone ?: config('app.timezone');
+        $start = CarbonImmutable::instance($task->starts_at)->setTimezone($tz);
+        $end = CarbonImmutable::instance($task->ends_at)->setTimezone($tz);
+        $availability = app(AppointmentAvailabilityService::class);
+
+        try {
+            return app(CalendarOwnerLock::class)->run($owner->id, function (CalendarRequestBudget $budget) use ($task, $owner, $start, $end, $confirmOverlap, $availability, $persist): ?JsonResponse {
+                if (! $confirmOverlap && $this->overlaps($availability, $task, $owner, $start, $end, $budget)) {
+                    return response()->json([
+                        'code' => 'overlap_confirmation_required',
+                        'message' => 'Este horario se superpone con otra reunión o evento. Confirmá para guardarlo igual.',
+                    ], 409);
+                }
+
+                $persist();
+
+                return null;
+            });
+        } catch (AppointmentAvailabilityException $e) {
+            return $e->getCode() === AppointmentAvailabilityException::BUSY
+                ? response()->json(['code' => 'calendar_busy', 'message' => 'La agenda del responsable está siendo actualizada. Volvé a intentar.'], 409)
+                : response()->json(['code' => 'calendar_google_error', 'message' => 'No se pudo consultar la agenda.'], 503);
+        }
+    }
+
+    private function overlaps(AppointmentAvailabilityService $availability, Task $task, User $owner, CarbonImmutable $start, CarbonImmutable $end, CalendarRequestBudget $budget): bool
+    {
+        $googleConnected = GoogleCalendarConnection::withoutGlobalScopes()
+            ->where('tenant_id', $task->tenant_id)
+            ->where('user_id', $owner->id)
+            ->where('status', 'connected')
+            ->exists();
+
+        try {
+            return $availability->hasConflict($owner, $start, $end, $task->id, $budget, $googleConnected);
+        } catch (AppointmentAvailabilityException $e) {
+            // Conexión marcada como conectada pero sin token usable: se edita
+            // igual con las reuniones del CRM, como un responsable sin Google.
+            if ($e->getCode() !== AppointmentAvailabilityException::NOT_CONNECTED) {
+                throw $e;
+            }
+
+            return $availability->hasConflict($owner, $start, $end, $task->id, $budget, false);
+        }
     }
 
     public function destroy(Request $request, Task $task): JsonResponse
@@ -284,6 +380,10 @@ class TaskController extends Controller
             }
         }
 
+        if ($request->boolean('ai_reschedule_pending')) {
+            $query->whereNotNull('ai_reschedule_starts_at');
+        }
+
         if ($request->filled('assigned_to')) {
             $request->query('assigned_to') === 'none'
                 ? $query->whereNull('assigned_to')
@@ -350,6 +450,8 @@ class TaskController extends Controller
             'starts_at' => [...$meetingRule('starts_at'), 'date'],
             'ends_at' => [...$meetingRule('ends_at'), 'date', 'after:starts_at'],
             'meeting_timezone' => [...$meetingRule('meeting_timezone'), 'timezone'],
+            // Guardar una reunión aunque se superponga con otra; no se persiste.
+            'confirm_overlap' => ['sometimes', 'boolean'],
             'meeting_guest_email' => ['nullable', 'email'],
         ];
     }
@@ -379,6 +481,7 @@ class TaskController extends Controller
         ];
 
         $payload = array_merge($defaults, $validated);
+        unset($payload['confirm_overlap']);
 
         if (($payload['status'] ?? null) === TaskStatus::DONE->value && ! array_key_exists('completed_at', $payload)) {
             $payload['completed_at'] = now();
