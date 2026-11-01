@@ -697,6 +697,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('tasks/{task}/google-calendar/retry', [TaskController::class, 'retryCalendarSync']);
     Route::post('tasks/{task}/ai-booking/approve', [TaskAiBookingController::class, 'approve']);
     Route::post('tasks/{task}/ai-booking/reject', [TaskAiBookingController::class, 'reject']);
+    Route::post('tasks/{task}/ai-booking/reschedule/approve', [TaskAiBookingController::class, 'approveReschedule']);
+    Route::post('tasks/{task}/ai-booking/reschedule/reject', [TaskAiBookingController::class, 'rejectReschedule']);
     Route::apiResource('notes', NoteController::class)->only(['index', 'store', 'destroy']);
 
     Route::get('google-calendar/connection', [GoogleCalendarConnectionController::class, 'show']);

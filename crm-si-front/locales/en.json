@@ -975,7 +975,13 @@
       "reject": "Reject",
       "approved": "Appointment confirmed",
       "rejected": "Appointment rejected",
-      "notNotified": "The customer could not be notified via chat"
+      "notNotified": "The customer could not be notified via chat",
+      "rescheduleProposed": "{{assignee}}: the customer asked to move their appointment from {{from}} to {{when}}",
+      "rescheduleApproved": "Appointment change confirmed",
+      "rescheduleRejected": "Appointment change rejected",
+      "rescheduleRequested": "Change requested: {{when}}",
+      "pending": "Pending approval",
+      "resolveError": "Could not resolve the appointment"
     },
     "views": {
       "label": "Conversation views",

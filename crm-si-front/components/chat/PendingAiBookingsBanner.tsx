@@ -5,7 +5,7 @@ import { CalendarClock, Check, Loader2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/Toast"
 import { useTranslation } from "@/hooks/useTranslation"
-import { approveAiBooking, getTasks, rejectAiBooking } from "@/lib/api/tasks"
+import { approveAiBooking, approveAiReschedule, getTasks, rejectAiBooking, rejectAiReschedule } from "@/lib/api/tasks"
 import type { Task } from "@/lib/types/task"
 
 interface PendingAiBookingsBannerProps {
@@ -13,12 +13,16 @@ interface PendingAiBookingsBannerProps {
   refreshKey: number
 }
 
-type Decision = { taskId: string; action: "approve" | "reject" }
+type RowKind = "booking" | "reschedule"
+type Row = { kind: RowKind; task: Task }
+type Decision = { key: string; action: "approve" | "reject" }
+
+const rowKey = (row: Row) => `${row.kind}:${row.task.id}`
 
 export function PendingAiBookingsBanner({ conversationId, refreshKey }: PendingAiBookingsBannerProps) {
   const { addToast } = useToast()
   const { t, language } = useTranslation()
-  const [tasks, setTasks] = useState<Task[]>([])
+  const [rows, setRows] = useState<Row[]>([])
   const [deciding, setDeciding] = useState<Decision | null>(null)
 
   const loadGeneration = useRef(0)
@@ -27,15 +31,23 @@ export function PendingAiBookingsBanner({ conversationId, refreshKey }: PendingA
   const loadPending = useCallback(async () => {
     const generation = ++loadGeneration.current
     try {
-      const pending = await getTasks({ conversationId, aiBookingStatus: "pending" })
-      if (generation === loadGeneration.current) setTasks(pending)
+      const [bookings, reschedules] = await Promise.all([
+        getTasks({ conversationId, aiBookingStatus: "pending" }),
+        getTasks({ conversationId, aiReschedulePending: true }),
+      ])
+      if (generation === loadGeneration.current) {
+        setRows([
+          ...bookings.map((task): Row => ({ kind: "booking", task })),
+          ...reschedules.map((task): Row => ({ kind: "reschedule", task })),
+        ])
+      }
     } catch {
-      if (generation === loadGeneration.current) setTasks([])
+      if (generation === loadGeneration.current) setRows([])
     }
   }, [conversationId])
 
   useEffect(() => {
-    setTasks([])
+    setRows([])
     setDeciding(null)
     return () => {
       conversationGeneration.current += 1
@@ -49,22 +61,35 @@ export function PendingAiBookingsBanner({ conversationId, refreshKey }: PendingA
     }
   }, [loadPending, refreshKey])
 
-  if (tasks.length === 0) return null
+  if (rows.length === 0) return null
 
-  const handleDecision = async (task: Task, action: Decision["action"]) => {
+  const handleDecision = async (row: Row, action: Decision["action"]) => {
     const generation = conversationGeneration.current
-    setDeciding({ taskId: task.id, action })
+    const key = rowKey(row)
+    const { task } = row
+    setDeciding({ key, action })
     try {
       const { contactNotified } =
-        action === "approve" ? await approveAiBooking(task.id) : await rejectAiBooking(task.id)
+        row.kind === "booking"
+          ? action === "approve"
+            ? await approveAiBooking(task.id)
+            : await rejectAiBooking(task.id)
+          : action === "approve"
+            ? await approveAiReschedule(task.id)
+            : await rejectAiReschedule(task.id)
       if (generation !== conversationGeneration.current) return
       loadGeneration.current += 1
-      setTasks((prev) => prev.filter((item) => item.id !== task.id))
+      setRows((prev) => prev.filter((item) => rowKey(item) !== key))
       void loadPending()
-      addToast({
-        type: "success",
-        title: t(action === "approve" ? "chats.aiBooking.approved" : "chats.aiBooking.rejected"),
-      })
+      const successKey =
+        row.kind === "booking"
+          ? action === "approve"
+            ? "chats.aiBooking.approved"
+            : "chats.aiBooking.rejected"
+          : action === "approve"
+            ? "chats.aiBooking.rescheduleApproved"
+            : "chats.aiBooking.rescheduleRejected"
+      addToast({ type: "success", title: t(successKey) })
       if (!contactNotified) {
         addToast({ type: "info", title: t("chats.aiBooking.notNotified") })
       }
@@ -83,23 +108,32 @@ export function PendingAiBookingsBanner({ conversationId, refreshKey }: PendingA
   return (
     <div className="shrink-0 border-b border-border bg-amber-500/10 px-4 py-2">
       <div className="space-y-1.5">
-        {tasks.map((task) => {
-          const when = task.startsAt
-            ? new Intl.DateTimeFormat(language === "en" ? "en-US" : "es-AR", {
-                timeZone: task.meetingTimezone ?? undefined,
-                weekday: "long",
-                day: "numeric",
-                month: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              }).format(new Date(task.startsAt))
-            : ""
+        {rows.map((row) => {
+          const { task } = row
+          const key = rowKey(row)
+          const formatter = new Intl.DateTimeFormat(language === "en" ? "en-US" : "es-AR", {
+            timeZone: task.meetingTimezone ?? undefined,
+            weekday: "long",
+            day: "numeric",
+            month: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+          const format = (value?: string | null) => (value ? formatter.format(new Date(value)) : "")
+          const message =
+            row.kind === "booking"
+              ? t("chats.aiBooking.proposed", { when: format(task.startsAt), assignee: task.assignee })
+              : t("chats.aiBooking.rescheduleProposed", {
+                  from: format(task.startsAt),
+                  when: format(task.aiRescheduleStartsAt),
+                  assignee: task.assignee,
+                })
           const busy = deciding !== null
           return (
-            <div key={task.id} className="flex flex-wrap items-center justify-between gap-2">
+            <div key={key} className="flex flex-wrap items-center justify-between gap-2">
               <p className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-400">
                 <CalendarClock className="h-4 w-4 shrink-0" />
-                <span>{t("chats.aiBooking.proposed", { when, assignee: task.assignee })}</span>
+                <span>{message}</span>
               </p>
               <div className="flex items-center gap-1">
                 <Button
@@ -108,9 +142,9 @@ export function PendingAiBookingsBanner({ conversationId, refreshKey }: PendingA
                   variant="ghost"
                   className="h-7 gap-1 px-2 text-xs"
                   disabled={busy}
-                  onClick={() => handleDecision(task, "approve")}
+                  onClick={() => handleDecision(row, "approve")}
                 >
-                  {deciding?.taskId === task.id && deciding.action === "approve" ? (
+                  {deciding?.key === key && deciding.action === "approve" ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <Check className="h-3.5 w-3.5" />
@@ -123,9 +157,9 @@ export function PendingAiBookingsBanner({ conversationId, refreshKey }: PendingA
                   variant="ghost"
                   className="h-7 gap-1 px-2 text-xs text-destructive hover:text-destructive"
                   disabled={busy}
-                  onClick={() => handleDecision(task, "reject")}
+                  onClick={() => handleDecision(row, "reject")}
                 >
-                  {deciding?.taskId === task.id && deciding.action === "reject" ? (
+                  {deciding?.key === key && deciding.action === "reject" ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <X className="h-3.5 w-3.5" />

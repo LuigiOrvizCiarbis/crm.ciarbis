@@ -13,6 +13,7 @@ use App\Services\Scheduling\AppointmentAvailabilityService;
 use App\Services\Scheduling\AppointmentBookingException;
 use App\Services\Scheduling\AppointmentBookingService;
 use App\Services\WhatsAppMessageService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
@@ -238,6 +239,138 @@ class TaskAiBookingTest extends TestCase
 
         $this->postJson("/api/tasks/{$foreign->id}/ai-booking/approve")->assertNotFound();
         $this->assertSame(AiBookingStatus::PENDING, $foreign->fresh()->ai_booking_status);
+    }
+
+    public function test_approving_a_reschedule_moves_the_turno_syncs_google_and_notifies_contact(): void
+    {
+        $task = $this->requestedReschedule('2026-07-21 11:00', '2026-07-22 10:00');
+        $this->mockGoogle([$this->googleEvents()]);
+        $this->expectContactMessage(fn (string $text) => $text === '¡Listo! Tu turno se cambió al miércoles 22 de julio a las 10:00 hs.');
+
+        $this->postJson("/api/tasks/{$task->id}/ai-booking/reschedule/approve")
+            ->assertOk()
+            ->assertJsonPath('data.ai_booking_status', 'confirmed')
+            ->assertJsonPath('data.ai_reschedule_starts_at', null)
+            ->assertJsonPath('data.ai_booking_decided_by', $this->owner->id)
+            ->assertJsonPath('contact_notified', true);
+
+        $task->refresh();
+        $this->assertTrue($task->starts_at->equalTo(CarbonImmutable::parse('2026-07-22 10:00', self::TZ)));
+        $this->assertTrue($task->ends_at->equalTo(CarbonImmutable::parse('2026-07-22 10:30', self::TZ)));
+        $this->assertTrue($task->deadline->equalTo($task->starts_at));
+        Queue::assertPushed(SyncTaskCalendarEventJob::class, fn ($job) => $job->taskId === $task->id && $job->action === 'upsert');
+    }
+
+    public function test_approving_a_reschedule_ignores_the_turnos_own_google_event(): void
+    {
+        $task = $this->requestedReschedule('2026-07-21 11:00', '2026-07-21 11:15');
+        $this->mockGoogle([$this->googleEvents([$this->googleEvent('2026-07-21 11:00', '2026-07-21 11:30', [
+            'extendedProperties' => ['private' => ['crm_task_id' => (string) $task->id, 'crm_tenant_id' => (string) $this->tenant->id]],
+        ])])]);
+        $this->expectContactMessage(fn () => true);
+
+        $this->postJson("/api/tasks/{$task->id}/ai-booking/reschedule/approve")->assertOk();
+
+        $this->assertTrue($task->fresh()->starts_at->equalTo(CarbonImmutable::parse('2026-07-21 11:15', self::TZ)));
+    }
+
+    public function test_reschedule_approval_is_refused_on_conflict_or_past_proposal(): void
+    {
+        $task = $this->requestedReschedule('2026-07-21 11:00', '2026-07-22 10:00');
+        $this->mockGoogle([$this->googleEvents([$this->googleEvent('2026-07-22 10:00', '2026-07-22 11:00')])]);
+
+        $this->postJson("/api/tasks/{$task->id}/ai-booking/reschedule/approve")
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'El horario ya está ocupado en la agenda del responsable');
+        $this->assertNotNull($task->fresh()->ai_reschedule_starts_at);
+
+        $past = $this->requestedReschedule('2026-07-23 11:00', '2026-07-20 07:00', $this->makeConversation($this->tenant, $this->owner, $this->owner->id));
+        $this->postJson("/api/tasks/{$past->id}/ai-booking/reschedule/approve")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'El horario propuesto ya pasó');
+
+        $this->assertTrue($task->fresh()->starts_at->equalTo(CarbonImmutable::parse('2026-07-21 11:00', self::TZ)));
+        Queue::assertNotPushed(SyncTaskCalendarEventJob::class);
+    }
+
+    public function test_reschedule_approval_refuses_a_request_that_changed_meanwhile(): void
+    {
+        $task = $this->requestedReschedule('2026-07-21 11:00', '2026-07-22 10:00');
+        $stale = $task->fresh();
+        $this->setRequest($task, '2026-07-22 11:00');
+        $this->mockGoogle([$this->googleEvents()]);
+
+        try {
+            app(AppointmentBookingService::class)->approveReschedule($stale, $this->owner);
+            $this->fail('A changed request must not be applied.');
+        } catch (AppointmentBookingException $e) {
+            $this->assertSame(AppointmentBookingException::ALREADY_DECIDED, $e->reason);
+        }
+
+        $task->refresh();
+        $this->assertTrue($task->starts_at->equalTo(CarbonImmutable::parse('2026-07-21 11:00', self::TZ)));
+        $this->assertTrue($task->ai_reschedule_starts_at->equalTo(CarbonImmutable::parse('2026-07-22 11:00', self::TZ)));
+    }
+
+    public function test_rejecting_a_reschedule_keeps_the_turno_and_tells_the_contact_both_times(): void
+    {
+        $task = $this->requestedReschedule('2026-07-21 11:00', '2026-07-22 10:00');
+        $this->expectContactMessage(fn (string $text) => $text === 'No pudimos cambiar tu turno al miércoles 22 de julio a las 10:00 hs. '
+            .'Seguís con tu turno del martes 21 de julio a las 11:00 hs. ¿Querés que busquemos otro horario?');
+
+        $this->postJson("/api/tasks/{$task->id}/ai-booking/reschedule/reject")
+            ->assertOk()
+            ->assertJsonPath('contact_notified', true);
+
+        $task->refresh();
+        $this->assertNull($task->ai_reschedule_starts_at);
+        $this->assertNull($task->ai_reschedule_ends_at);
+        $this->assertSame(AiBookingStatus::CONFIRMED, $task->ai_booking_status);
+        $this->assertTrue($task->starts_at->equalTo(CarbonImmutable::parse('2026-07-21 11:00', self::TZ)));
+        Queue::assertNotPushed(SyncTaskCalendarEventJob::class);
+    }
+
+    public function test_reschedule_decisions_require_a_pending_request(): void
+    {
+        $confirmed = $this->makePendingBooking($this->conversation, $this->owner, status: AiBookingStatus::CONFIRMED);
+        $pending = $this->makePendingBooking($this->makeConversation($this->tenant, $this->owner, $this->owner->id), $this->owner, '2026-07-22 11:00');
+
+        foreach ([$confirmed, $pending] as $task) {
+            foreach (['approve', 'reject'] as $action) {
+                $this->postJson("/api/tasks/{$task->id}/ai-booking/reschedule/{$action}")
+                    ->assertStatus(409)
+                    ->assertJsonPath('message', 'El cambio de turno ya fue resuelto');
+            }
+        }
+    }
+
+    public function test_tasks_can_be_filtered_by_pending_reschedule(): void
+    {
+        $requested = $this->requestedReschedule('2026-07-21 11:00', '2026-07-22 10:00');
+        $this->makePendingBooking($this->makeConversation($this->tenant, $this->owner, $this->owner->id), $this->owner, '2026-07-23 11:00', AiBookingStatus::CONFIRMED);
+
+        $this->getJson('/api/tasks?ai_reschedule_pending=1')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $requested->id);
+    }
+
+    private function requestedReschedule(string $start, string $proposed, ?Conversation $conversation = null): Task
+    {
+        $task = $this->makePendingBooking($conversation ?? $this->conversation, $this->owner, $start, AiBookingStatus::CONFIRMED);
+        $this->setRequest($task, $proposed);
+
+        return $task->fresh();
+    }
+
+    private function setRequest(Task $task, string $start): void
+    {
+        $startsAt = CarbonImmutable::parse($start, self::TZ)->setTimezone(config('app.timezone'));
+        Task::withoutGlobalScopes()->whereKey($task->id)->update([
+            'ai_reschedule_starts_at' => $startsAt->format('Y-m-d H:i:s'),
+            'ai_reschedule_ends_at' => $startsAt->addMinutes(30)->format('Y-m-d H:i:s'),
+            'ai_reschedule_requested_at' => now(),
+        ]);
     }
 
     private function expectContactMessage(callable $matches): void

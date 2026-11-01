@@ -114,7 +114,7 @@ function TaskCard({ task, onMarkDone }: TaskCardProps) {
           />
         </div>
 
-        {task.aiBookingStatus === "pending" && (
+        {(task.aiBookingStatus === "pending" || task.aiRescheduleStartsAt) && (
           <div className="mb-2">
             <AiBookingApprovalBadge task={task} />
           </div>
