@@ -202,7 +202,9 @@ class AppointmentToolset implements AiToolset
         return "## Agenda de turnos\n"
             ."Podés ofrecer y agendar turnos de {$this->config->meeting_duration_minutes} minutos con un asesor. "
             ."Hoy es {$today} (zona horaria {$tz}).\n"
-            ."- Antes de ofrecer horarios usá siempre consultar_disponibilidad. Ofrecé pocas opciones (2 o 3) salvo que el cliente pida más.\n"
+            .'- Antes de ofrecer horarios usá siempre consultar_disponibilidad. Ofrecé pocas opciones (2 o 3) y preguntale al '
+            .'cliente si quiere ver más horarios o si prefiere a la mañana o a la tarde. Si pide más horarios o elige una '
+            ."franja, ofrecé los horarios libres que correspondan.\n"
             ."- Usá agendar_turno solo cuando el cliente eligió explícitamente un horario de la lista.\n"
             .'- Si el cliente quiere cambiar su turno, consultá disponibilidad y usá reprogramar_turno con el horario que elija. '
             ."Nunca agendes un segundo turno.\n"
