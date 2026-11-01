@@ -12,7 +12,19 @@ namespace App\Services\Ai;
 interface AiProvider
 {
     /**
+     * Máximo de rondas de herramientas por generación. Acota costo y tiempo
+     * si el modelo encadena llamadas.
+     */
+    public const MAX_TOOL_ROUNDS = 3;
+
+    /**
      * Genera una respuesta de texto a partir del historial de conversación.
+     *
+     * Con $toolset, el driver ofrece esas herramientas al modelo, ejecuta las
+     * llamadas que pida y vuelve a consultarlo hasta obtener una respuesta sin
+     * llamadas pendientes (máximo MAX_TOOL_ROUNDS rondas, dentro de
+     * ToolLoopDeadline). Si el loop se corta con llamadas sin ejecutar devuelve
+     * null: el texto de esa respuesta podría afirmar algo que no ocurrió.
      *
      * @param  array<int, array{role: string, content: string|array<int, array<string, mixed>>}>  $messages
      *                                                                                                       Historial en orden cronológico. role ∈ {user, assistant}. content es texto
@@ -20,9 +32,10 @@ interface AiProvider
      *                                                                                                       driver traduce al formato multimodal de su API.
      * @param  string  $systemPrompt  Instrucciones de sistema para el modelo.
      * @param  string  $model  Identificador del modelo del proveedor.
+     * @param  AiToolset|null  $toolset  Herramientas disponibles, o null para generar solo texto.
      * @return string|null Texto de la respuesta, o null si no se pudo generar.
      */
-    public function generate(array $messages, string $systemPrompt, string $model): ?string;
+    public function generate(array $messages, string $systemPrompt, string $model, ?AiToolset $toolset = null): ?string;
 
     /**
      * Traduce un texto con un request corto y determinista. Usa un modelo

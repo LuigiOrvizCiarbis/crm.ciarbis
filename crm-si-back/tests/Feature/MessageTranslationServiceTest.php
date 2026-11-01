@@ -12,6 +12,7 @@ use App\Models\Message;
 use App\Models\Tenant;
 use App\Services\Ai\AiExtractionResult;
 use App\Services\Ai\AiProvider;
+use App\Services\Ai\AiToolset;
 use App\Services\Ai\AiVerificationResult;
 use App\Services\Ai\TranslationProviderFactory;
 use App\Services\MessageTranslationService;
@@ -110,7 +111,7 @@ class MessageTranslationServiceTest extends TestCase
 
             public ?string $lastSystemPrompt = null;
 
-            public function generate(array $messages, string $systemPrompt, string $model): ?string
+            public function generate(array $messages, string $systemPrompt, string $model, ?AiToolset $toolset = null): ?string
             {
                 return null;
             }

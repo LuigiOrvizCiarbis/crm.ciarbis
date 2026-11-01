@@ -9,6 +9,7 @@ import { TaskKanbanView } from "@/components/tasks/TaskKanbanView"
 import { TaskGanttView } from "@/components/tasks/TaskGanttView"
 import { TaskCalendarView } from "@/components/tasks/TaskCalendarView"
 import { NewTaskModal } from "@/components/tasks/NewTaskModal"
+import { CalendarAvailabilityBlockDialog } from "@/components/calendar/CalendarAvailabilityBlockDialog"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
@@ -39,6 +40,8 @@ export default function TareasPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [filteredTasks, setFilteredTasks] = useState(tasks)
   const [showNewTask, setShowNewTask] = useState(false)
+  const [calendarBlockDialog, setCalendarBlockDialog] = useState<{ open: boolean; initialDate?: string }>({ open: false })
+  const [calendarRefreshKey, setCalendarRefreshKey] = useState(0)
   const [showFilters, setShowFilters] = useState(false)
   const [users, setUsers] = useState<SystemUser[]>([])
   const [filters, setFilters] = useState<TaskFilters>({
@@ -270,11 +273,25 @@ export default function TareasPage() {
         {!isLoading && !error && activeView === "lista" && <TaskListView tasks={filteredTasks} />}
         {!isLoading && !error && activeView === "kanban" && <TaskKanbanView tasks={filteredTasks} />}
         {!isLoading && !error && activeView === "gantt" && <TaskGanttView tasks={filteredTasks} />}
-        {!isLoading && !error && activeView === "calendario" && <TaskCalendarView tasks={filteredTasks} />}
+        {!isLoading && !error && activeView === "calendario" && (
+          <TaskCalendarView
+            tasks={filteredTasks}
+            onBlockAgenda={(date) => setCalendarBlockDialog({ open: true, initialDate: date })}
+            googleRefreshKey={calendarRefreshKey}
+          />
+        )}
       </div>
 
       {/* New Task Modal */}
       <NewTaskModal open={showNewTask} onOpenChange={setShowNewTask} onCreateTask={handleCreateTask} />
+      <CalendarAvailabilityBlockDialog
+        open={calendarBlockDialog.open}
+        onOpenChange={(open) => {
+          setCalendarBlockDialog((current) => ({ ...current, open }))
+          if (!open) setCalendarRefreshKey((k) => k + 1)
+        }}
+        initialDate={calendarBlockDialog.initialDate}
+      />
 
       {/* Simple Sheet for Filters */}
       <Sheet open={showFilters} onOpenChange={setShowFilters}>

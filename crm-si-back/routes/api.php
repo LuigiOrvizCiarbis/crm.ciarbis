@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AiConfigController;
+use App\Http\Controllers\Api\AiSchedulingConfigController;
 use App\Http\Controllers\Api\AutomationController;
 use App\Http\Controllers\Api\AutomationRunController;
 use App\Http\Controllers\Api\BillingConfigController;
@@ -16,7 +17,9 @@ use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\ConversationTranslationController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DocumentExtractionController;
+use App\Http\Controllers\Api\GoogleCalendarAvailabilityBlockController;
 use App\Http\Controllers\Api\GoogleCalendarConnectionController;
+use App\Http\Controllers\Api\GoogleCalendarEventController;
 use App\Http\Controllers\Api\IncomingWebhookController;
 use App\Http\Controllers\Api\InstagramCommentController;
 use App\Http\Controllers\Api\InvitationController;
@@ -47,6 +50,7 @@ use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\ScheduledMessageController;
 use App\Http\Controllers\Api\TagController;
+use App\Http\Controllers\Api\TaskAiBookingController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\WebhookEndpointController;
@@ -539,6 +543,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('ai-config/models', [AiConfigController::class, 'models']);
     Route::post('ai-config/test', [AiConfigController::class, 'test']);
     Route::put('ai-config', [AiConfigController::class, 'update']);
+    // Agenda de turnos de la IA (horarios, modo de aprobación, calendario por defecto).
+    Route::get('ai-config/scheduling', [AiSchedulingConfigController::class, 'show']);
+    Route::put('ai-config/scheduling', [AiSchedulingConfigController::class, 'update']);
 
     // Config de WooCommerce por tenant (credenciales REST API + sync de productos).
     Route::get('woocommerce-config', [WooCommerceConfigController::class, 'show']);
@@ -688,11 +695,20 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::apiResource('tasks', TaskController::class);
     Route::post('tasks/{task}/google-calendar/retry', [TaskController::class, 'retryCalendarSync']);
+    Route::post('tasks/{task}/ai-booking/approve', [TaskAiBookingController::class, 'approve']);
+    Route::post('tasks/{task}/ai-booking/reject', [TaskAiBookingController::class, 'reject']);
+    Route::post('tasks/{task}/ai-booking/reschedule/approve', [TaskAiBookingController::class, 'approveReschedule']);
+    Route::post('tasks/{task}/ai-booking/reschedule/reject', [TaskAiBookingController::class, 'rejectReschedule']);
     Route::apiResource('notes', NoteController::class)->only(['index', 'store', 'destroy']);
 
     Route::get('google-calendar/connection', [GoogleCalendarConnectionController::class, 'show']);
     Route::post('google-calendar/authorization-url', [GoogleCalendarConnectionController::class, 'authorizationUrl']);
     Route::delete('google-calendar/connection', [GoogleCalendarConnectionController::class, 'destroy']);
+    Route::get('google-calendar/blocks', [GoogleCalendarAvailabilityBlockController::class, 'index']);
+    Route::post('google-calendar/blocks', [GoogleCalendarAvailabilityBlockController::class, 'store']);
+    Route::delete('google-calendar/blocks/{eventId}', [GoogleCalendarAvailabilityBlockController::class, 'destroy']);
+    Route::get('google-calendar/events', [GoogleCalendarEventController::class, 'index']);
+    Route::delete('google-calendar/events/{eventId}', [GoogleCalendarEventController::class, 'destroy']);
 
     Route::post('conversations/{id}/users', [ConversationController::class, 'assignUsers']);
     Route::post('conversations/{id}/users/add', [ConversationController::class, 'addUser']);

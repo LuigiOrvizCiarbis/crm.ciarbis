@@ -3,9 +3,14 @@
 namespace App\Support;
 
 use App\Models\GoogleCalendarConnection;
+use App\Services\Scheduling\AppointmentAvailabilityException;
+use App\Services\Scheduling\CalendarRequestBudget;
 use Google\Client as GoogleClient;
 use Google\Service\Calendar as GoogleCalendarService;
+use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\ClientInterface;
+use GuzzleHttp\Exception\TransferException;
+use GuzzleHttp\HandlerStack;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -30,7 +35,7 @@ class GoogleCalendarClient
      */
     public static ?ClientInterface $testHttpClient = null;
 
-    public static function make(?array $scopes = null): GoogleClient
+    public static function make(?array $scopes = null, ?CalendarRequestBudget $budget = null): GoogleClient
     {
         $client = new GoogleClient;
         $client->setClientId(config('services.google_calendar.client_id'));
@@ -41,9 +46,23 @@ class GoogleCalendarClient
         $client->setIncludeGrantedScopes(true);
         $client->setPrompt('consent');
 
-        if (self::$testHttpClient) {
-            $client->setHttpClient(self::$testHttpClient);
+        // Mismo cliente que arma el SDK por defecto (base_uri + sin excepciones
+        // HTTP: el SDK mapea los códigos a Google\Service\Exception), con un
+        // timeout explícito: el default del SDK no corta nunca.
+        $http = self::$testHttpClient ?? new GuzzleClient([
+            'base_uri' => GoogleClient::API_BASE_PATH,
+            'http_errors' => false,
+            'timeout' => (float) config('services.google_calendar.http_timeout', 20),
+        ]);
+        if ($budget) {
+            $options = $http->getConfig();
+            $handler = $options['handler'] ?? null;
+            $stack = $handler instanceof HandlerStack ? clone $handler : HandlerStack::create($handler);
+            $stack->push($budget->middleware(), 'calendar_budget');
+            $options['handler'] = $stack;
+            $http = new GuzzleClient($options);
         }
+        $client->setHttpClient($http);
 
         return $client;
     }
@@ -52,7 +71,7 @@ class GoogleCalendarClient
      * Devuelve un servicio de Calendar autenticado para la conexión dada,
      * refrescando el token si hace falta. Null si la conexión no es utilizable.
      */
-    public static function serviceFor(GoogleCalendarConnection $connection): ?GoogleCalendarService
+    public static function serviceFor(GoogleCalendarConnection $connection, ?CalendarRequestBudget $budget = null): ?GoogleCalendarService
     {
         if ($connection->status === 'needs_reauth') {
             return null;
@@ -64,7 +83,7 @@ class GoogleCalendarClient
             return null;
         }
 
-        $client = self::make();
+        $client = self::make(budget: $budget);
 
         $accessToken = $connection->getDecryptedAccessToken();
         $refreshToken = $connection->getDecryptedRefreshToken();
@@ -104,6 +123,9 @@ class GoogleCalendarClient
 
                 $client->setAccessToken($newToken);
             } catch (\Exception $e) {
+                if ($budget && ($e instanceof AppointmentAvailabilityException || $e instanceof TransferException)) {
+                    throw new AppointmentAvailabilityException('Error consultando Google Calendar', AppointmentAvailabilityException::GOOGLE_ERROR, $e);
+                }
                 Log::error('GoogleCalendarClient: refresh token failed', [
                     'connection_id' => $connection->id,
                     'error' => $e->getMessage(),

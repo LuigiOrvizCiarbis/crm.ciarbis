@@ -1,6 +1,6 @@
 import { throwApiError } from "./api-error"
 import { getAuthToken } from "./auth-token"
-import type { Task } from "@/lib/types/task"
+import type { AiBookingStatus, Task } from "@/lib/types/task"
 
 export interface TaskPayload {
   name?: string
@@ -85,6 +85,9 @@ export function normalizeTask(apiTask: any): Task {
     endsAt: apiTask.ends_at ?? undefined,
     meetingTimezone: apiTask.meeting_timezone ?? undefined,
     meetingGuestEmail: apiTask.meeting_guest_email ?? undefined,
+    aiBookingStatus: apiTask.ai_booking_status ?? null,
+    aiRescheduleStartsAt: apiTask.ai_reschedule_starts_at ?? null,
+    aiRescheduleEndsAt: apiTask.ai_reschedule_ends_at ?? null,
     calendarSync: apiTask.calendar_sync
       ? {
           status: apiTask.calendar_sync.status,
@@ -97,10 +100,21 @@ export function normalizeTask(apiTask: any): Task {
   }
 }
 
-export async function getTasks(): Promise<Task[]> {
+export interface TaskFilters {
+  conversationId?: number
+  aiBookingStatus?: AiBookingStatus
+  aiReschedulePending?: boolean
+}
+
+export async function getTasks(filters?: TaskFilters): Promise<Task[]> {
   const token = requireToken()
 
-  const response = await fetch("/api/tasks?per_page=100", {
+  const params = new URLSearchParams({ per_page: "100" })
+  if (filters?.conversationId !== undefined) params.set("conversation_id", String(filters.conversationId))
+  if (filters?.aiBookingStatus) params.set("ai_booking_status", filters.aiBookingStatus)
+  if (filters?.aiReschedulePending) params.set("ai_reschedule_pending", "1")
+
+  const response = await fetch(`/api/tasks?${params.toString()}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
@@ -173,4 +187,51 @@ export async function deleteTask(taskId: string): Promise<void> {
   if (!response.ok) {
     throwApiError(response.status, payload, "Error al eliminar tarea")
   }
+}
+
+export interface AiBookingDecisionResult {
+  task: Task
+  contactNotified: boolean
+}
+
+async function decideAiBooking(
+  taskId: string,
+  action: "approve" | "reject" | "reschedule/approve" | "reschedule/reject",
+  fallbackMessage: string,
+): Promise<AiBookingDecisionResult> {
+  const token = requireToken()
+
+  const response = await fetch(`/api/tasks/${taskId}/ai-booking/${action}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    },
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throwApiError(response.status, payload, fallbackMessage)
+  }
+
+  return {
+    task: normalizeTask(payload.data),
+    contactNotified: Boolean(payload.contact_notified),
+  }
+}
+
+export function approveAiBooking(taskId: string): Promise<AiBookingDecisionResult> {
+  return decideAiBooking(taskId, "approve", "Error al aceptar el turno")
+}
+
+export function rejectAiBooking(taskId: string): Promise<AiBookingDecisionResult> {
+  return decideAiBooking(taskId, "reject", "Error al rechazar el turno")
+}
+
+export function approveAiReschedule(taskId: string): Promise<AiBookingDecisionResult> {
+  return decideAiBooking(taskId, "reschedule/approve", "Error al aceptar el cambio de turno")
+}
+
+export function rejectAiReschedule(taskId: string): Promise<AiBookingDecisionResult> {
+  return decideAiBooking(taskId, "reschedule/reject", "Error al rechazar el cambio de turno")
 }

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AiBookingStatus;
 use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Enums\TaskType;
@@ -39,6 +40,12 @@ class Task extends Model
         'ends_at',
         'meeting_timezone',
         'meeting_guest_email',
+        'ai_booking_status',
+        'ai_booking_decided_by',
+        'ai_booking_decided_at',
+        'ai_reschedule_starts_at',
+        'ai_reschedule_ends_at',
+        'ai_reschedule_requested_at',
     ];
 
     protected function casts(): array
@@ -56,6 +63,11 @@ class Task extends Model
             'completed_at' => 'datetime',
             'starts_at' => 'datetime',
             'ends_at' => 'datetime',
+            'ai_booking_status' => AiBookingStatus::class,
+            'ai_booking_decided_at' => 'datetime',
+            'ai_reschedule_starts_at' => 'datetime',
+            'ai_reschedule_ends_at' => 'datetime',
+            'ai_reschedule_requested_at' => 'datetime',
         ];
     }
 

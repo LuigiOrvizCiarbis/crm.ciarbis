@@ -195,6 +195,63 @@ class MessengerWebhookTest extends TestCase
         $this->assertStringEndsWith('.pdf', $message->media_url);
     }
 
+    /**
+     * Transición de stickers (hasta el 30-ago-2026): Meta manda el sticker
+     * duplicado como `sticker` Y como `image`. Debe ganar el tipo específico,
+     * sin depender del orden del array.
+     */
+    public function test_sticker_during_transition_wins_over_duplicate_image(): void
+    {
+        Event::fake();
+        Storage::fake('public');
+        Http::fake([
+            'https://cdn.example.com/*' => Http::response('PNGDATA', 200, ['Content-Type' => 'image/png']),
+            '*' => Http::response([], 200),
+        ]);
+
+        $this->createChannel();
+
+        // El image viene PRIMERO a propósito: attachments[0] daría Image.
+        $payload = $this->wrapEvent([
+            'sender' => ['id' => 'PSID_1'],
+            'recipient' => ['id' => self::PAGE_ID],
+            'message' => [
+                'mid' => 'mid_stk',
+                'attachments' => [
+                    ['type' => 'image', 'payload' => ['url' => 'https://cdn.example.com/s.png']],
+                    ['type' => 'sticker', 'payload' => ['url' => 'https://cdn.example.com/s.png', 'sticker_id' => 369239263222822]],
+                ],
+            ],
+        ]);
+
+        $this->postWebhook($payload)->assertOk();
+
+        $this->assertSame(MessageType::Sticker, Message::first()->message_type);
+    }
+
+    /**
+     * Después del 30-ago-2026 sólo llega el attachment `sticker`.
+     */
+    public function test_sticker_only_payload_is_stored_as_sticker(): void
+    {
+        Event::fake();
+        Storage::fake('public');
+        Http::fake([
+            'https://cdn.example.com/*' => Http::response('PNGDATA', 200, ['Content-Type' => 'image/png']),
+            '*' => Http::response([], 200),
+        ]);
+
+        $this->createChannel();
+
+        $payload = $this->attachmentPayload('PSID_1', 'sticker', 'https://cdn.example.com/s.png', 'mid_stk2');
+        $this->postWebhook($payload)->assertOk();
+
+        $message = Message::first();
+        $this->assertSame(MessageType::Sticker, $message->message_type);
+        $this->assertNotNull($message->media_url);
+        $this->assertSame('🈁 Sticker', Conversation::first()->last_message_content);
+    }
+
     public function test_duplicate_mid_is_deduped(): void
     {
         Event::fake();

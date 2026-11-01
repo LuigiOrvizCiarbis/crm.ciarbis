@@ -69,7 +69,7 @@ class DashboardMetricsTest extends TestCase
         ]);
         $user->assignRole('Owner');
         $stage = PipelineStage::where('tenant_id', $tenant->id)
-            ->where('name', 'Capturados')
+            ->where('name', 'Lead/Prospecto')
             ->firstOrFail();
         $channel = Channel::create([
             'tenant_id' => $tenant->id,

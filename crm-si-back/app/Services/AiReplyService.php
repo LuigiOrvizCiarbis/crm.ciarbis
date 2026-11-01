@@ -11,6 +11,8 @@ use App\Models\Product;
 use App\Services\Ai\AiProviderFactory;
 use App\Services\Ai\AiReplyDecision;
 use App\Services\Ai\CatalogProductSearch;
+use App\Services\Scheduling\AppointmentToolset;
+use App\Services\Scheduling\AppointmentToolsetFactory;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -23,7 +25,10 @@ use Illuminate\Support\Facades\Storage;
  */
 class AiReplyService
 {
-    public function __construct(private readonly CatalogProductSearch $catalogSearch) {}
+    public function __construct(
+        private readonly CatalogProductSearch $catalogSearch,
+        private readonly AppointmentToolsetFactory $appointmentToolsets,
+    ) {}
 
     public const DEFAULT_SYSTEM_PROMPT = 'Sos un asistente de atención al cliente que responde mensajes de WhatsApp '
         .'en nombre de la empresa. Respondé en el mismo idioma del cliente, de forma breve, cordial y útil. '
@@ -59,6 +64,11 @@ class AiReplyService
      * Genera el texto de respuesta para la conversación usando el proveedor
      * configurado por el tenant, o null si no se pudo. Nunca lanza: los drivers
      * loguean y devuelven null para no romper el flujo.
+     *
+     * Con la agenda de turnos activa y un calendario conectado, el modelo
+     * recibe las herramientas de agenda. Si reservó un turno pero no llegó a
+     * redactar la respuesta, se devuelve un aviso fijo: el cliente no puede
+     * quedarse sin enterarse de un turno que ya existe.
      */
     public function respond(Conversation $conversation, AiConfig $config): ?string
     {
@@ -81,7 +91,16 @@ class AiReplyService
             return null;
         }
 
-        return $provider->generate($messages, $this->systemPrompt($config, $conversation->tenant_id, $messages), $model);
+        $toolset = $this->appointmentToolsets->forConversation($conversation);
+
+        $reply = $provider->generate(
+            $messages,
+            $this->systemPrompt($config, $conversation->tenant_id, $messages, $toolset),
+            $model,
+            $toolset,
+        );
+
+        return $reply ?? $toolset?->bookingFallbackMessage();
     }
 
     public function decide(Conversation $conversation, AiConfig $config): AiReplyDecision
@@ -97,17 +116,25 @@ class AiReplyService
             return AiReplyDecision::reply(null);
         }
         if (method_exists($provider, 'decide')) {
+            // La decisión de derivar conoce la agenda: "quiero cambiar mi
+            // turno" lo resuelve el bot con sus herramientas, no un humano.
+            $toolset = $this->appointmentToolsets->forConversation($conversation);
             // Con la derivación apagada para el tenant, la tool no se ofrece:
             // el modelo sólo puede contestar.
-            return $provider->decide(
+            $decision = $provider->decide(
                 $messages,
-                $this->systemPrompt($config, $conversation->tenant_id, $messages),
+                $this->systemPrompt($config, $conversation->tenant_id, $messages, $toolset),
                 $model,
                 offerHandoff: $config->human_handoff_enabled !== false,
             );
+            if ($decision->requestsHandoff() || $decision->reply === null || ! $toolset) {
+                return $decision;
+            }
+
+            return AiReplyDecision::reply($this->respond($conversation, $config));
         }
 
-        return AiReplyDecision::reply($provider->generate($messages, $this->systemPrompt($config, $conversation->tenant_id, $messages), $model));
+        return AiReplyDecision::reply($this->respond($conversation, $config));
     }
 
     /**
@@ -321,15 +348,18 @@ class AiReplyService
         return $content;
     }
 
-    private function systemPrompt(AiConfig $config, int $tenantId, array $messages): string
+    private function systemPrompt(AiConfig $config, int $tenantId, array $messages, ?AppointmentToolset $toolset = null): string
     {
         $base = trim($config->system_prompt ?: self::DEFAULT_SYSTEM_PROMPT);
 
-        $catalog = $this->catalogSection($tenantId, $messages);
+        $sections = array_filter([
+            $base,
+            $this->catalogSection($tenantId, $messages),
+            $toolset?->promptSection() ?? '',
+        ], fn (string $section) => $section !== '');
 
-        $prompt = $catalog === '' ? $base : $base."\n\n".$catalog;
-
-        return $prompt."\n\n".self::HISTORY_OVERRIDE_RULE;
+        // HISTORY_OVERRIDE_RULE siempre al final (ver su comentario).
+        return implode("\n\n", $sections)."\n\n".self::HISTORY_OVERRIDE_RULE;
     }
 
     /**

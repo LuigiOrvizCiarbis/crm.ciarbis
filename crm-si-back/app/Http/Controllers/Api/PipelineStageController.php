@@ -63,6 +63,13 @@ class PipelineStageController extends Controller
             'sort_order' => 'sometimes|integer',
         ]);
 
+        // Un nombre elegido por el usuario gana sobre la plantilla mensual. El
+        // frontend manda solo los campos que cambiaron, así que un cambio de
+        // color no arrastra un nombre viejo que corte la plantilla.
+        if (array_key_exists('name', $validated) && $validated['name'] !== $stage->name) {
+            $validated['name_template'] = null;
+        }
+
         $stage->update($validated);
 
         return response()->json($stage);

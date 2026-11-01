@@ -26,6 +26,7 @@ import type { Task } from "@/lib/types/task"
 import { format } from "date-fns"
 import { toast } from "sonner"
 import { useTaskStore } from "@/store/useTaskStore"
+import { AiBookingApprovalBadge } from "./AiBookingApprovalBadge"
 
 const statusValues = ["nuevo", "en-curso", "en-espera", "reprogramado", "bloqueado", "hecho", "cancelado"] as const
 const priorityValues = ["baja", "media", "alta", "critica"] as const
@@ -112,6 +113,12 @@ function TaskCard({ task, onMarkDone }: TaskCardProps) {
             onClick={(e) => e.stopPropagation()}
           />
         </div>
+
+        {(task.aiBookingStatus === "pending" || task.aiRescheduleStartsAt) && (
+          <div className="mb-2">
+            <AiBookingApprovalBadge task={task} />
+          </div>
+        )}
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
