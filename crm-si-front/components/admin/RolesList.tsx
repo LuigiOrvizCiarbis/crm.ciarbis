@@ -218,13 +218,14 @@ function RoleRow({ role, canEdit, canDelete, onEdit, onDelete, t }: RoleRowProps
               className="h-8 w-8"
               onClick={onEdit}
               title={isOwnerRole ? t("roles.ownerViewOnly") : t("roles.editRole")}
+              aria-label={isOwnerRole ? t("roles.viewRoleNamed", { name: role.name }) : t("roles.editRoleNamed", { name: role.name })}
             >
-              {isOwnerRole ? <Eye className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
+              {isOwnerRole ? <Eye className="w-4 h-4" aria-hidden="true" /> : <Pencil className="w-4 h-4" aria-hidden="true" />}
             </Button>
           )}
           {canDelete && (
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onDelete}>
-              <Trash2 className="w-4 h-4" />
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onDelete} aria-label={t("roles.deleteRoleNamed", { name: role.name })}>
+              <Trash2 className="w-4 h-4" aria-hidden="true" />
             </Button>
           )}
         </div>

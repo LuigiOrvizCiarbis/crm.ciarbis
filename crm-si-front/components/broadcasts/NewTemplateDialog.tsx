@@ -47,7 +47,9 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
   }
 
   const requestClose = () => {
-    if (hasDraft && !submitting) { setConfirmDiscard(true); return }
+    // Cerrar a mitad del envío borraría el formulario sin saber si Meta lo recibió.
+    if (submitting) return
+    if (hasDraft) { setConfirmDiscard(true); return }
     reset()
     onOpenChange(false)
   }
@@ -139,7 +141,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
                     <Input value={headerText} onChange={(event) => setHeaderText(event.target.value)} placeholder="Actualización de tu pedido" />
                   )}
                   {headerFormat !== "NONE" && headerFormat !== "TEXT" && (
-                    <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground hover:bg-muted/40">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground hover:bg-muted/40 focus-within:ring-[3px] focus-within:ring-ring/50">
                       <FileImage className="size-4" />
                       <span className="truncate">{headerFile?.name || "Elegir archivo de ejemplo"}</span>
                       <input
@@ -202,8 +204,8 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
                       {button.type === "PHONE_NUMBER" && (
                         <Input value={button.phone_number || ""} onChange={(event) => setButtons((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, phone_number: event.target.value } : item))} placeholder="54911…" />
                       )}
-                      <Button type="button" variant="ghost" size="icon" onClick={() => setButtons((current) => current.filter((_, itemIndex) => itemIndex !== index))}>
-                        <X className="size-4" />
+                      <Button type="button" variant="ghost" size="icon" onClick={() => setButtons((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={button.text ? `Quitar botón ${button.text}` : `Quitar botón ${index + 1}`}>
+                        <X className="size-4" aria-hidden="true" />
                       </Button>
                     </div>
                   ))}
@@ -212,7 +214,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
 
               <div className="rounded-lg border border-border bg-muted/30 p-4">
                 <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vista previa</p>
-                <div className="rounded-lg rounded-tl-sm border border-border bg-card p-3 text-sm text-card-foreground shadow-xs dark:shadow-none">
+                <div className="rounded-lg rounded-tl-sm border border-border bg-card p-3 text-sm text-card-foreground shadow-xs">
                   {(headerFormat === "TEXT" ? headerText : headerFormat !== "NONE" ? headerFormat : "") && (
                     <p className="mb-2 text-[11px] font-medium text-muted-foreground">
                       {headerFormat === "TEXT" ? headerText || "Encabezado" : headerFormat}

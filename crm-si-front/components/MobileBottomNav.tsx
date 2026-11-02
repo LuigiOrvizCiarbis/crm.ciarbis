@@ -1,7 +1,6 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
 import { getConversationUnreadCount } from "@/lib/api/conversations"
@@ -12,7 +11,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "@/hooks/useTranslation"
-import { resolveNavigationLabel } from "@/data/navigation"
+import { resolveNavigationLabel, type NavigationKey } from "@/data/navigation"
 import { accessibleNavigationItems } from "@/lib/section-access"
 import { NotificationsPanel } from "@/components/notifications/NotificationsPanel"
 import { useNotificationsStore } from "@/store/useNotificationsStore"
@@ -20,6 +19,33 @@ import { useNotificationsStore } from "@/store/useNotificationsStore"
 interface MobileBottomNavProps {
   className?: string
 }
+
+// Cuatro destinos fijos en la barra (los que más usa un vendedor) y el resto en "Más".
+// Si el rol no tiene alguno, el siguiente de la lista ocupa su lugar.
+const PRIMARY_TAB_ORDER: readonly NavigationKey[] = ["chats", "contacts", "pipeline", "tasks", "dashboard"]
+const PRIMARY_TAB_LIMIT = 4
+
+const SHORT_LABEL_KEYS: Partial<Record<NavigationKey, string>> = {
+  dashboard: "nav.panelShort",
+  chats: "nav.chatsShort",
+  contacts: "nav.contactsShort",
+  catalog: "nav.catalogShort",
+  pipeline: "nav.pipelineShort",
+  tasks: "nav.tasksShort",
+  settings: "nav.settingsShort",
+}
+
+const TAB_CLASS =
+  "flex min-h-11 min-w-0 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50"
+const TAB_ACTIVE_CLASS = "bg-primary/10 text-primary"
+const TAB_IDLE_CLASS = "text-muted-foreground hover:text-foreground"
+const TAB_BADGE_CLASS =
+  "absolute -top-1.5 left-3 h-5 min-w-5 rounded-full px-1.5 tabular-nums"
+
+const SHEET_ITEM_CLASS =
+  "flex h-12 min-w-0 items-center gap-3 rounded-md border px-3 text-sm font-medium outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+const SHEET_ITEM_ACTIVE_CLASS = "border-primary/30 bg-primary/10 text-primary"
+const SHEET_ITEM_IDLE_CLASS = "border-border text-foreground hover:bg-accent"
 
 export function MobileBottomNav({ className }: MobileBottomNavProps) {
   const pathname = usePathname()
@@ -118,124 +144,142 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
 
   const formatBadgeCount = (count: number) => (count > 99 ? "99+" : String(count))
 
+  const isRouteActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`)
+
   const accessibleItems = accessibleNavigationItems(permissions, role)
-  const mainNavItems = accessibleItems
-    .filter((item) => ["dashboard", "chats", "contacts", "pipeline", "tasks"].includes(item.key))
+  const primaryKeys = PRIMARY_TAB_ORDER.filter((key) => accessibleItems.some((item) => item.key === key)).slice(0, PRIMARY_TAB_LIMIT)
+
+  const primaryTabs = primaryKeys.map((key) => {
+    const item = accessibleItems.find((candidate) => candidate.key === key)!
+    const label = resolveNavigationLabel(item, navigationLabels, t)
+    const shortLabelKey = SHORT_LABEL_KEYS[item.key]
+    // Una etiqueta personalizada del tenant manda; si no hay, la versión corta entra en una sola línea.
+    const shortLabel = navigationLabels?.[item.key] || (shortLabelKey ? t(shortLabelKey) : label)
+    return {
+      ...item,
+      label,
+      shortLabel,
+      isActive: isRouteActive(item.href),
+      badge: item.key === "chats" ? unreadChats : item.key === "tasks" ? pendingTasks : 0,
+    }
+  })
+
+  const moreItems = accessibleItems
+    .filter((item) => !primaryKeys.includes(item.key))
     .map((item) => ({
       ...item,
       label: resolveNavigationLabel(item, navigationLabels, t),
-      isActive: pathname === item.href,
-      badge: item.key === "chats" ? unreadChats : item.key === "tasks" ? pendingTasks : 0,
+      isActive: isRouteActive(item.href),
     }))
 
-  const menuItems = accessibleItems
-    .filter((item) => ["instagram_comments", "catalog", "broadcasts", "settings"].includes(item.key))
-    .map((item) => ({ ...item, label: resolveNavigationLabel(item, navigationLabels, t) }))
+  const isProfileActive = isRouteActive("/perfil")
+  const isMoreActive = isMenuOpen || isProfileActive || moreItems.some((item) => item.isActive)
 
   return (
-    <div
+    <nav
+      aria-label={t("nav.mobileNavigation")}
       className={cn(
         "fixed bottom-0 left-0 right-0 z-50 bg-background border-t border-border md:hidden",
         "pb-[max(env(safe-area-inset-bottom),0px)]",
         className,
       )}
     >
-      <div className="flex items-center justify-around px-2 py-2">
-        {mainNavItems.map((item) => (
-          <Link key={item.href} href={item.href} className="flex-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn(
-                "flex flex-col items-center gap-1 h-auto py-2 px-1 relative min-h-11",
-                item.isActive ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground",
-              )}
-              title={item.label}
-            >
-              <item.icon className="w-5 h-5" />
-              <span className="w-full truncate text-xs font-medium">{item.label}</span>
+      <div className="grid grid-flow-col auto-cols-fr gap-1 px-1 py-1">
+        {primaryTabs.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            aria-current={item.isActive ? "page" : undefined}
+            title={item.label}
+            className={cn(TAB_CLASS, item.isActive ? TAB_ACTIVE_CLASS : TAB_IDLE_CLASS)}
+          >
+            <span className="relative">
+              <item.icon className="size-5" aria-hidden="true" />
               {item.badge ? (
-                <Badge
-                  variant="destructive"
-                  className="absolute -top-1 -right-1 h-5 min-w-5 px-1 text-xs flex items-center justify-center"
-                >
+                <Badge variant="destructive" className={TAB_BADGE_CLASS}>
                   {formatBadgeCount(item.badge)}
                 </Badge>
               ) : null}
-            </Button>
+            </span>
+            <span className="max-w-full truncate text-xs font-medium leading-4" aria-hidden={item.shortLabel !== item.label}>
+              {item.shortLabel}
+            </span>
+            {item.shortLabel !== item.label ? <span className="sr-only">{item.label}</span> : null}
           </Link>
         ))}
 
         <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
           <SheetTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="flex flex-col items-center gap-1 h-auto py-2 px-1 text-muted-foreground hover:text-foreground min-h-11 relative"
+            <button
+              type="button"
+              className={cn(TAB_CLASS, isMoreActive ? TAB_ACTIVE_CLASS : TAB_IDLE_CLASS)}
             >
-              <Menu className="w-5 h-5" />
-              <span className="text-xs font-medium">Menú</span>
-              {unreadNotifications ? (
-                <Badge
-                  variant="destructive"
-                  className="absolute -top-1 -right-1 h-5 min-w-5 px-1 text-xs flex items-center justify-center"
-                >
-                  {formatBadgeCount(unreadNotifications)}
-                </Badge>
-              ) : null}
-            </Button>
+              <span className="relative">
+                <Menu className="size-5" aria-hidden="true" />
+                {unreadNotifications ? (
+                  <Badge variant="destructive" className={TAB_BADGE_CLASS}>
+                    {formatBadgeCount(unreadNotifications)}
+                  </Badge>
+                ) : null}
+              </span>
+              <span className="max-w-full truncate text-xs font-medium leading-4">{t("nav.more")}</span>
+            </button>
           </SheetTrigger>
-          <SheetContent side="bottom" className="h-auto">
-            <div className="py-4">
-              <SheetHeader className="px-0 pt-0">
-                <SheetTitle>Menú</SheetTitle>
-              </SheetHeader>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  variant="outline"
-                  className="w-full justify-start gap-3 h-12 bg-transparent col-span-2"
-                  onClick={() => {
-                    setIsMenuOpen(false)
-                    setIsNotificationsOpen(true)
-                  }}
+          <SheetContent
+            side="bottom"
+            className="h-auto max-h-[85dvh] gap-0 overflow-y-auto rounded-t-xl px-4 pt-4 pb-[max(env(safe-area-inset-bottom),1rem)]"
+          >
+            <SheetHeader className="px-0 pt-0 pb-3">
+              <SheetTitle>{t("nav.more")}</SheetTitle>
+            </SheetHeader>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className={cn(SHEET_ITEM_CLASS, SHEET_ITEM_IDLE_CLASS, "col-span-2")}
+                onClick={() => {
+                  setIsMenuOpen(false)
+                  setIsNotificationsOpen(true)
+                }}
+              >
+                <Bell className="size-5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{t("notifications.title")}</span>
+                {unreadNotifications ? (
+                  <Badge variant="destructive" className="ml-auto h-5 min-w-5 rounded-full px-1.5 tabular-nums">
+                    {formatBadgeCount(unreadNotifications)}
+                  </Badge>
+                ) : null}
+              </button>
+              {moreItems.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={item.isActive ? "page" : undefined}
+                  title={item.label}
+                  onClick={() => setIsMenuOpen(false)}
+                  className={cn(SHEET_ITEM_CLASS, item.isActive ? SHEET_ITEM_ACTIVE_CLASS : SHEET_ITEM_IDLE_CLASS)}
                 >
-                  <Bell className="w-5 h-5 shrink-0" />
-                  <span className="truncate">{t("notifications.title")}</span>
-                  {unreadNotifications ? (
-                    <Badge variant="destructive" className="ml-auto h-5 min-w-5 px-1 text-xs">
-                      {formatBadgeCount(unreadNotifications)}
-                    </Badge>
-                  ) : null}
-                </Button>
-                <Link href="/perfil" onClick={() => setIsMenuOpen(false)}>
-                  <Button variant="outline" className="w-full justify-start gap-3 h-12 bg-transparent" title={t("nav.profile")}>
-                    <User className="w-5 h-5 shrink-0" />
-                    <span className="truncate">{t("nav.profile")}</span>
-                  </Button>
+                  <item.icon className="size-5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{item.label}</span>
                 </Link>
-                {menuItems.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => {
-                      setIsMenuOpen(false)
-                    }}
-                  >
-                    <Button variant="outline" className="w-full justify-start gap-3 h-12 bg-transparent" title={item.label}>
-                      <item.icon className="w-5 h-5 shrink-0" />
-                      <span className="truncate">{item.label}</span>
-                    </Button>
-                  </Link>
-                ))}
-                <Button
-                  variant="outline"
-                  onClick={handleLogout}
-                  className="w-full justify-start gap-3 h-12 bg-transparent text-destructive hover:text-destructive hover:bg-destructive/10 col-span-2"
-                >
-                  <LogOut className="w-5 h-5" />
-                  {t("nav.logout")}
-                </Button>
-              </div>
+              ))}
+              <Link
+                href="/perfil"
+                aria-current={isProfileActive ? "page" : undefined}
+                title={t("nav.profile")}
+                onClick={() => setIsMenuOpen(false)}
+                className={cn(SHEET_ITEM_CLASS, isProfileActive ? SHEET_ITEM_ACTIVE_CLASS : SHEET_ITEM_IDLE_CLASS)}
+              >
+                <User className="size-5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{t("nav.profile")}</span>
+              </Link>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className={cn(SHEET_ITEM_CLASS, "col-span-2 border-border text-destructive hover:bg-destructive/10")}
+              >
+                <LogOut className="size-5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{t("nav.logout")}</span>
+              </button>
             </div>
           </SheetContent>
         </Sheet>
@@ -249,6 +293,6 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
           </SheetContent>
         </Sheet>
       </div>
-    </div>
+    </nav>
   )
 }

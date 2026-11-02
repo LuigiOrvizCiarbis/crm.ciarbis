@@ -46,7 +46,7 @@ export function RemarketingCampaigns() {
   const campaigns = [
     {
       id: 1,
-      name: "Reactivación Leads Fríos",
+      name: "Reactivación de leads fríos",
       status: "active",
       type: "WhatsApp",
       audience: "Leads sin actividad 30+ días",
@@ -61,7 +61,7 @@ export function RemarketingCampaigns() {
       name: "Follow-up Demo Perdidas",
       status: "paused",
       type: "Email",
-      audience: "Etapa Demo - Sin respuesta",
+      audience: "Etapa demo: sin respuesta",
       sent: 89,
       opened: 72,
       clicked: 23,
@@ -70,7 +70,7 @@ export function RemarketingCampaigns() {
     },
     {
       id: 3,
-      name: "Oferta Especial Q1",
+      name: "Oferta especial Q1",
       status: "scheduled",
       type: "SMS",
       audience: "Clientes activos",
@@ -85,19 +85,19 @@ export function RemarketingCampaigns() {
   const messageTemplates = [
     {
       id: "reactivation",
-      name: "Reactivación Personalizada",
+      name: "Reactivación personalizada",
       content:
         "Hola {nombre}, notamos que hace tiempo no hablamos. ¿Seguís interesado en {producto}? Tenemos novedades que te pueden interesar 🚀",
     },
     {
       id: "demo-followup",
-      name: "Seguimiento Post-Demo",
+      name: "Seguimiento post-demo",
       content:
         "¡Hola {nombre}! ¿Qué te pareció la demo de {producto}? ¿Tenés alguna pregunta? Estoy acá para ayudarte 💪",
     },
     {
       id: "special-offer",
-      name: "Oferta Especial",
+      name: "Oferta especial",
       content:
         "🎉 ¡{nombre}, tenemos una oferta especial para vos! {descuento}% de descuento en {producto}. ¡Solo por tiempo limitado!",
     },
@@ -184,7 +184,7 @@ export function RemarketingCampaigns() {
       <Tabs defaultValue="campaigns" className="w-full">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="campaigns">Campañas</TabsTrigger>
-          <TabsTrigger value="create">Crear Campaña</TabsTrigger>
+          <TabsTrigger value="create">Crear campaña</TabsTrigger>
           <TabsTrigger value="templates">Templates</TabsTrigger>
         </TabsList>
 
@@ -232,7 +232,7 @@ export function RemarketingCampaigns() {
                     </div>
                     <div>
                       <p className="text-muted-foreground">Conversiones</p>
-                      <p className="font-semibold text-green-600">{campaign.converted}</p>
+                      <p className="font-semibold text-success">{campaign.converted}</p>
                     </div>
                   </div>
                   <div className="flex justify-between items-center mt-4">
@@ -261,8 +261,8 @@ export function RemarketingCampaigns() {
         <TabsContent value="create" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Nueva Campaña de Remarketing</CardTitle>
-              <CardDescription>Crea mensajes masivos personalizados por etapa o etiqueta</CardDescription>
+              <CardTitle>Nueva campaña de remarketing</CardTitle>
+              <CardDescription>Creá mensajes masivos personalizados por etapa o etiqueta</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -287,7 +287,7 @@ export function RemarketingCampaigns() {
               </div>
 
               <div>
-                <Label>Audiencia Objetivo</Label>
+                <Label>Audiencia objetivo</Label>
                 <Card className="mt-2">
                   <CardContent className="space-y-5 pt-4">
                     {isLoadingAudience ? (
@@ -431,7 +431,7 @@ export function RemarketingCampaigns() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="send-date">Fecha de Envío</Label>
+                  <Label htmlFor="send-date">Fecha de envío</Label>
                   <Input id="send-date" type="datetime-local" />
                 </div>
                 <div>
@@ -466,7 +466,7 @@ export function RemarketingCampaigns() {
 
         <TabsContent value="templates" className="space-y-4">
           <div className="flex justify-between items-center">
-            <h3 className="text-lg font-semibold">Templates de Mensajes</h3>
+            <h3 className="text-lg font-semibold">Plantillas de mensajes</h3>
             <Button>
               <Plus className="w-4 h-4 mr-2" />
               Nuevo Template

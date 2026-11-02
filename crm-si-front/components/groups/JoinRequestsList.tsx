@@ -18,16 +18,21 @@ export function JoinRequestsList({ groupId, onResolved }: JoinRequestsListProps)
   const [requests, setRequests] = useState<Array<{ wa_id: string }>>([])
   const [isLoading, setIsLoading] = useState(false)
   const [processingWaId, setProcessingWaId] = useState<string | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
 
   const load = useCallback(() => {
     let cancelled = false
     setIsLoading(true)
+    setLoadFailed(false)
     getGroupJoinRequests(groupId)
       .then((data) => {
         if (!cancelled) setRequests(data)
       })
       .catch(() => {
-        if (!cancelled) setRequests([])
+        if (!cancelled) {
+          setRequests([])
+          setLoadFailed(true)
+        }
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false)
@@ -42,7 +47,19 @@ export function JoinRequestsList({ groupId, onResolved }: JoinRequestsListProps)
     return cleanup
   }, [load])
 
-  if (isLoading || requests.length === 0) return null
+  // Mientras recarga se mantiene la lista anterior para no parpadear.
+  if (loadFailed && !isLoading) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 p-3">
+        <p className="text-xs text-destructive">No se pudieron cargar las solicitudes de ingreso.</p>
+        <Button size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs" onClick={() => load()}>
+          Reintentar
+        </Button>
+      </div>
+    )
+  }
+
+  if (requests.length === 0) return null
 
   const respond = async (waId: string, approve: boolean) => {
     try {
@@ -81,8 +98,9 @@ export function JoinRequestsList({ groupId, onResolved }: JoinRequestsListProps)
                   onClick={() => void respond(request.wa_id, true)}
                   disabled={processingWaId === request.wa_id}
                   title="Aprobar"
+                  aria-label={`Aprobar solicitud de ${request.wa_id}`}
                 >
-                  {processingWaId === request.wa_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  {processingWaId === request.wa_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Check className="h-3.5 w-3.5" aria-hidden="true" />}
                 </Button>
                 <Button
                   size="sm"
@@ -91,8 +109,9 @@ export function JoinRequestsList({ groupId, onResolved }: JoinRequestsListProps)
                   onClick={() => void respond(request.wa_id, false)}
                   disabled={processingWaId === request.wa_id}
                   title="Rechazar"
+                  aria-label={`Rechazar solicitud de ${request.wa_id}`}
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>
               </div>
             )}

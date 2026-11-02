@@ -96,7 +96,7 @@ export function NavigationLabelsCard() {
             <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 border-b border-border/70 pb-3 last:border-0">
               <div className="min-w-0 space-y-1.5">
                 <Label htmlFor={`navigation-label-${item.key}`} className="flex items-center gap-2">
-                  <span aria-hidden>{item.emoji}</span>
+                  <item.icon className="size-4 text-muted-foreground" aria-hidden="true" />
                   {defaultLabel}
                 </Label>
                 <Input

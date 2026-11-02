@@ -85,15 +85,16 @@ export function SucursalesList({ creating: creatingProp, onCreatingChange }: Suc
                   </div>
                   {canManage && (
                     <div className="flex gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => setEditing(branch)}>
-                        <Pencil className="w-4 h-4" />
+                      <Button size="icon" variant="ghost" onClick={() => setEditing(branch)} aria-label={t("sucursales.editNamed", { name: branch.name })}>
+                        <Pencil className="w-4 h-4" aria-hidden="true" />
                       </Button>
                       <Button
                         size="icon"
                         variant="ghost"
                         onClick={() => setDeletingId(branch.id)}
+                        aria-label={t("sucursales.deleteNamed", { name: branch.name })}
                       >
-                        <Trash2 className="w-4 h-4 text-destructive" />
+                        <Trash2 className="w-4 h-4 text-destructive" aria-hidden="true" />
                       </Button>
                     </div>
                   )}

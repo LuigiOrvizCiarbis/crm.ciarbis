@@ -3,11 +3,12 @@ import { MessageBubble } from "./MessageBubble"
 import { getDayLabel, isSameDay, parseTemplateContent } from "./messageThreadUtils"
 import { ThreadBackdrop } from "./ThreadBackdrop"
 import { ChannelType } from "@/data/enums"
-import { Fragment, useEffect, useRef, useLayoutEffect, useState, useMemo, useCallback } from "react"
+import { Fragment, memo, useEffect, useRef, useLayoutEffect, useState, useMemo, useCallback } from "react"
 import { Loader2, Search, X, ChevronUp, ChevronDown, RefreshCw } from "lucide-react"
 import type { MessageTranslationResponse } from "@/lib/api/messages"
 import { useTranslation } from "@/hooks/useTranslation"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,6 +36,8 @@ interface MessageListProps {
   onLoadMore: () => Promise<void>
   hasMore: boolean
   isLoadingMore: boolean
+  /** La última carga de mensajes anteriores falló: se ofrece reintento manual. */
+  loadMoreFailed?: boolean
   onEditMessage?: (message: Message) => void
   onDeleteMessage?: (message: Message) => void
   onReactMessage?: (message: Message, emoji: string) => void
@@ -58,11 +61,105 @@ interface TranslationState {
   error?: string
 }
 
-export function MessageList({
+/**
+ * Chip flotante con el día visible (estilo WhatsApp). Tiene su propio estado para que
+ * scrollear no re-renderice el hilo: el día sale de un IntersectionObserver sobre los
+ * separadores (sólo avisa cuando uno cruza el borde superior) y la visibilidad, de un
+ * listener pasivo de scroll. Ninguno lee layout por evento.
+ */
+function FloatingDayChip({
+  scrollRef,
+  messages,
+  language,
+  raised,
+}: {
+  scrollRef: React.RefObject<HTMLDivElement | null>
+  /** Sólo como dependencia: los separadores cambian con los mensajes. */
+  messages: Message[]
+  language: string
+  raised: boolean
+}) {
+  const [day, setDay] = useState("")
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    const root = scrollRef.current
+    if (!root) return
+    const separators = Array.from(root.querySelectorAll<HTMLElement>("[data-day-label]"))
+    if (separators.length < 2) {
+      setDay("")
+      return
+    }
+    const above = new Set<Element>()
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const rootTop = entry.rootBounds?.top ?? 0
+          if (entry.boundingClientRect.top < rootTop) above.add(entry.target)
+          else above.delete(entry.target)
+        }
+        let label = separators[0].dataset.dayLabel || ""
+        for (const separator of separators) {
+          if (!above.has(separator)) break
+          label = separator.dataset.dayLabel || label
+        }
+        setDay(label)
+      },
+      { root, rootMargin: "-12px 0px 0px 0px", threshold: [0, 1] },
+    )
+    separators.forEach((separator) => observer.observe(separator))
+    return () => observer.disconnect()
+  }, [scrollRef, messages, language])
+
+  // Visible mientras dura el scroll; se desvanece ~1s después de parar.
+  useEffect(() => {
+    const root = scrollRef.current
+    if (!root) return
+    let shown = false
+    let hideTimer: ReturnType<typeof setTimeout> | undefined
+    const onScroll = () => {
+      if (!shown) {
+        shown = true
+        setVisible(true)
+      }
+      clearTimeout(hideTimer)
+      hideTimer = setTimeout(() => {
+        shown = false
+        setVisible(false)
+      }, 1000)
+    }
+    root.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      root.removeEventListener("scroll", onScroll)
+      clearTimeout(hideTimer)
+    }
+  }, [scrollRef])
+
+  if (!day) return null
+  return (
+    <div
+      aria-hidden={!visible}
+      className={`pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 motion-safe:transition-opacity motion-safe:duration-200 ${
+        raised ? "top-16" : "top-3"
+      } ${visible ? "opacity-100" : "opacity-0"}`}
+    >
+      <span className="rounded-full border border-border/60 bg-card/95 px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur">
+        {day}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * Memoizado: la página re-renderiza por eventos que no tocan el hilo (lista de
+ * conversaciones, tiempo real de otros chats). Con props estables, el hilo no se repinta.
+ */
+export const MessageList = memo(function MessageList({
   messages,
   onLoadMore,
   hasMore,
   isLoadingMore,
+  loadMoreFailed = false,
   onEditMessage,
   onDeleteMessage,
   onReactMessage,
@@ -77,45 +174,21 @@ export function MessageList({
 }: MessageListProps) {
   const { t, language } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
-  const prevScrollHeightRef = useRef(0)
+  // Posición previa a cargar mensajes viejos, para mantener el ancla visual al anteponerlos.
+  const prependAnchorRef = useRef<{ height: number; top: number } | null>(null)
   const lastMessageIdRef = useRef<number | null>(null)
+  const topSentinelRef = useRef<HTMLDivElement>(null)
   const [deleteTarget, setDeleteTarget] = useState<Message | null>(null)
   const [translations, setTranslations] = useState<Record<string, TranslationState>>({})
-
-  // --- Chip flotante de fecha (estilo WhatsApp) ---
-  const [floatingDay, setFloatingDay] = useState("")
-  const [floatingVisible, setFloatingVisible] = useState(false)
-  const floatingHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (floatingHideTimerRef.current) clearTimeout(floatingHideTimerRef.current)
-    }
-  }, [])
-
-  // Determina el día del primer separador visible/superado y muestra el chip
-  // mientras dura el scroll; se desvanece ~1s después de parar.
-  const updateFloatingDay = useCallback(() => {
-    const container = scrollRef.current
-    if (!container) return
-    const separators = container.querySelectorAll<HTMLElement>("[data-day-label]")
-    if (separators.length < 2) return
-
-    const containerTop = container.getBoundingClientRect().top
-    let label = separators[0].dataset.dayLabel || ""
-    for (const sep of separators) {
-      if (sep.getBoundingClientRect().top - containerTop <= 12) {
-        label = sep.dataset.dayLabel || label
-      } else {
-        break
-      }
-    }
-
-    setFloatingDay(label)
-    setFloatingVisible(true)
-    if (floatingHideTimerRef.current) clearTimeout(floatingHideTimerRef.current)
-    floatingHideTimerRef.current = setTimeout(() => setFloatingVisible(false), 1000)
-  }, [])
+  // Lectura sin dependencia: handleTranslate queda estable y las burbujas memoizadas no se invalidan.
+  const translationsRef = useRef(translations)
+  const onLoadMoreRef = useRef(onLoadMore)
+  useLayoutEffect(() => {
+    translationsRef.current = translations
+    onLoadMoreRef.current = onLoadMore
+  })
+  // Anuncio para lectores de pantalla: sólo mensajes entrantes nuevos al final del hilo.
+  const [arrivalAnnouncement, setArrivalAnnouncement] = useState("")
 
   // --- Búsqueda dentro de la conversación ---
   const [searchOpen, setSearchOpen] = useState(false)
@@ -147,11 +220,13 @@ export function MessageList({
     return content
   }, [])
 
-  // Lista ordenada de claves de coincidencia para navegar (prev/siguiente).
-  const matchKeys = useMemo(() => {
-    if (!normalizedQuery) return [] as string[]
-    const lower = normalizedQuery.toLowerCase()
+  // Claves de coincidencia ordenadas (prev/siguiente) y los mensajes que coinciden:
+  // sólo esas burbujas reciben la búsqueda, el resto conserva props y no re-renderiza.
+  const { matchKeys, matchedIds } = useMemo(() => {
     const keys: string[] = []
+    const ids = new Set<number>()
+    if (!normalizedQuery) return { matchKeys: keys, matchedIds: ids }
+    const lower = normalizedQuery.toLowerCase()
     for (const msg of messages) {
       const text = getSearchableText(msg).toLowerCase()
       if (!text) continue
@@ -160,16 +235,18 @@ export function MessageList({
       let idx = text.indexOf(lower, from)
       while (idx !== -1) {
         keys.push(`msg-${msg.id}-${n}`)
+        ids.add(msg.id)
         n++
         from = idx + lower.length
         idx = text.indexOf(lower, from)
       }
     }
-    return keys
+    return { matchKeys: keys, matchedIds: ids }
   }, [messages, normalizedQuery, getSearchableText])
 
   const matchCount = matchKeys.length
   const activeMatchKey = matchCount > 0 ? matchKeys[Math.min(activeMatch, matchCount - 1)] : null
+  const activeMatchMessageId = activeMatchKey ? Number(activeMatchKey.split("-")[1]) : null
 
   // Reiniciar el índice activo cuando cambia la búsqueda o los resultados.
   useEffect(() => {
@@ -216,13 +293,13 @@ export function MessageList({
     }
   }
 
+  // Al anteponer mensajes viejos, conservar lo que el usuario estaba viendo.
   useLayoutEffect(() => {
-    if (scrollRef.current && prevScrollHeightRef.current > 0) {
-      const newScrollHeight = scrollRef.current.scrollHeight
-      const diff = newScrollHeight - prevScrollHeightRef.current
-      scrollRef.current.scrollTop = diff
-      prevScrollHeightRef.current = 0
-    }
+    const root = scrollRef.current
+    const anchor = prependAnchorRef.current
+    if (!root || !anchor) return
+    root.scrollTop = root.scrollHeight - anchor.height + anchor.top
+    prependAnchorRef.current = null
   }, [messages])
 
   useEffect(() => {
@@ -233,29 +310,46 @@ export function MessageList({
     const lastMsg = messages[messages.length - 1]
 
     if (lastMsg.id !== lastMessageIdRef.current) {
+      const isFirstPaint = lastMessageIdRef.current === null
       if (scrollRef.current) {
-        const behavior = lastMessageIdRef.current === null ? "auto" : "smooth"
+        const behavior = isFirstPaint ? "auto" : "smooth"
         scrollRef.current.scrollTo({
           top: scrollRef.current.scrollHeight,
           behavior: behavior
         })
       }
+      if (!isFirstPaint && lastMsg.direction === "inbound") {
+        const preview = lastMsg.content?.trim().slice(0, 160) ?? ""
+        const name = lastMsg.sender?.name
+        setArrivalAnnouncement(
+          name
+            ? t("chats.newMessageFromAnnouncement", { name, text: preview })
+            : t("chats.newMessageAnnouncement", { text: preview }),
+        )
+      }
       lastMessageIdRef.current = lastMsg.id
     }
   }, [messages])
 
-  const handleScroll = () => {
-    if (!scrollRef.current) return
-
-    const { scrollTop, scrollHeight } = scrollRef.current
-
-    updateFloatingDay()
-
-    if (scrollTop === 0 && !isLoadingMore && hasMore) {
-      prevScrollHeightRef.current = scrollHeight
-      onLoadMore()
-    }
-  }
+  // Paginación hacia atrás: un centinela arriba del hilo dispara la carga al acercarse
+  // (300px antes del tope), en lugar de leer scrollTop/scrollHeight en cada evento.
+  useEffect(() => {
+    const root = scrollRef.current
+    const sentinel = topSentinelRef.current
+    if (!root || !sentinel || !hasMore || isLoadingMore || loadMoreFailed) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // Al montar el hilo arranca arriba: esperar al primer scroll al final.
+        if (!entry.isIntersecting || lastMessageIdRef.current === null) return
+        observer.disconnect()
+        prependAnchorRef.current = { height: root.scrollHeight, top: root.scrollTop }
+        void onLoadMoreRef.current()
+      },
+      { root, rootMargin: "300px 0px 0px 0px" },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasMore, isLoadingMore, loadMoreFailed])
 
   const canEdit = (msg: Message) =>
     msg.sender_type === "user" &&
@@ -291,9 +385,9 @@ export function MessageList({
 
   const hasActions = (msg: Message) => canEdit(msg) || canDelete(msg) || canTranslate(msg) || canReact(msg)
 
-  const handleTranslate = async (msg: Message) => {
+  const handleTranslate = useCallback(async (msg: Message) => {
     const key = String(msg.id)
-    const current = translations[key]
+    const current = translationsRef.current[key]
     const isCurrent = current?.sourceContent === msg.content && current.targetLanguage === translationLanguage
 
     if (isCurrent && current.content) {
@@ -338,7 +432,9 @@ export function MessageList({
         },
       }))
     }
-  }
+  }, [onTranslateMessage, t, translationLanguage])
+
+  const translateMessage = useCallback((msg: Message) => void handleTranslate(msg), [handleTranslate])
 
   return (
     <>
@@ -360,7 +456,7 @@ export function MessageList({
 
         {/* Barra de búsqueda flotante */}
         {searchOpen && (
-          <div className="absolute inset-x-3 top-3 z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 py-1 pl-3 pr-1 shadow-lg backdrop-blur duration-150 animate-in fade-in slide-in-from-top-2">
+          <div className="absolute inset-x-3 top-3 z-10 flex items-center gap-1 rounded-full border border-border bg-card/95 py-1 pl-3 pr-1 shadow-lg backdrop-blur duration-150 animate-in fade-in slide-in-from-top-2 has-[input:focus-visible]:border-ring has-[input:focus-visible]:ring-[3px] has-[input:focus-visible]:ring-ring/50">
             <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
             <Input
               ref={searchInputRef}
@@ -427,32 +523,38 @@ export function MessageList({
           </div>
         )}
 
-        {/* Chip flotante con el día visible durante el scroll */}
-        {floatingDay && (
-          <div
-            aria-hidden={!floatingVisible}
-            className={`pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 motion-safe:transition-opacity motion-safe:duration-200 ${
-              searchOpen ? "top-16" : "top-3"
-            } ${floatingVisible ? "opacity-100" : "opacity-0"}`}
-          >
-            <span className="rounded-full border border-border/60 bg-card/95 px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur dark:shadow-none">
-              {floatingDay}
-            </span>
-          </div>
-        )}
+        <FloatingDayChip scrollRef={scrollRef} messages={messages} language={language} raised={searchOpen} />
 
         <div
           ref={scrollRef}
           className={`thread-scroller relative z-[1] flex-1 p-4 overflow-y-auto min-h-0 transition-[padding] ${searchOpen ? "pt-16" : ""}`}
-          onScroll={handleScroll}
         >
+        <div ref={topSentinelRef} aria-hidden="true" className="h-px" />
         {isLoadingMore && (
-          <div className="flex justify-center py-2">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          <div role="status" aria-label={t("chats.loading")} className="flex justify-center py-2">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
+          </div>
+        )}
+        {loadMoreFailed && !isLoadingMore && hasMore && (
+          <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
+            <span>{t("chats.loadHistoryError")}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs"
+              onClick={() => {
+                const root = scrollRef.current
+                if (root) prependAnchorRef.current = { height: root.scrollHeight, top: root.scrollTop }
+                void onLoadMore()
+              }}
+            >
+              <RefreshCw className="h-3 w-3" aria-hidden="true" />
+              {t("chats.retry")}
+            </Button>
           </div>
         )}
 
-        <div className="space-y-4">
+        <div className="space-y-4" role="log" aria-live="off" aria-label={t("chats.threadLabel")}>
           {messages.map((msg, index) => {
             const msgTimestamp = msg.delivered_at || msg.created_at
             const msgDate = msgTimestamp ? new Date(msgTimestamp) : null
@@ -515,11 +617,11 @@ export function MessageList({
                   isLastOfGroup={isLastOfGroup}
                   translationLanguage={translationLanguage}
                   translationState={translations[String(msg.id)]}
-                  normalizedQuery={normalizedQuery}
-                  activeMatchKey={activeMatchKey}
-                  onTranslate={(target) => void handleTranslate(target)}
+                  normalizedQuery={matchedIds.has(msg.id) ? normalizedQuery : ""}
+                  activeMatchKey={activeMatchMessageId === msg.id ? activeMatchKey : null}
+                  onTranslate={translateMessage}
                   onEdit={onEditMessage}
-                  onDelete={(target) => setDeleteTarget(target)}
+                  onDelete={setDeleteTarget}
                   onReact={onReactMessage}
                   onSaveContact={onSaveContact}
                   canEdit={!!canEdit(msg) && !!onEditMessage}
@@ -535,6 +637,11 @@ export function MessageList({
           </div>
         </div>
       </div>
+      {/* El log no anuncia por sí mismo (leería todo el historial al cargar o paginar);
+          este estado anuncia sólo lo que llega en vivo. */}
+      <p role="status" className="sr-only">
+        {arrivalAnnouncement}
+      </p>
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
@@ -563,4 +670,4 @@ export function MessageList({
       </AlertDialog>
     </>
   )
-}
+})

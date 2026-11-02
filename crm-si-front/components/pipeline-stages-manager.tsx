@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/Toast"
 import { usePermission } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
+import { useDndAccessibility } from "@/hooks/useDndAccessibility"
 import {
-  getPipelineStages,
+  fetchPipelineStages,
   createPipelineStage,
   updatePipelineStage,
   deletePipelineStage,
@@ -67,6 +68,7 @@ function SortableStageRow({
   onDelete: (stage: PipelineStage) => void
   saving: boolean
 }) {
+  const { t } = useTranslation()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: stage.id.toString(),
     disabled: !canManage,
@@ -87,11 +89,12 @@ function SortableStageRow({
       {canManage && (
         <button
           type="button"
-          className="cursor-grab active:cursor-grabbing text-muted-foreground touch-none"
+          className="cursor-grab rounded-sm text-muted-foreground touch-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+          aria-label={t("pipeline.stages.reorderAria", { name: stage.name })}
           {...attributes}
           {...listeners}
         >
-          <GripVertical className="h-4 w-4" />
+          <GripVertical className="h-4 w-4" aria-hidden="true" />
         </button>
       )}
 
@@ -102,7 +105,7 @@ function SortableStageRow({
         onChange={(e) => onColorChange(stage.id, e.target.value)}
         onBlur={() => onCommit(stage)}
         className="h-8 w-8 shrink-0 cursor-pointer rounded border border-border bg-transparent p-0.5 disabled:cursor-not-allowed"
-        aria-label="color"
+        aria-label={t("pipeline.stages.colorAria", { name: stage.name })}
       />
 
       <Input
@@ -111,6 +114,7 @@ function SortableStageRow({
         onChange={(e) => onNameChange(stage.id, e.target.value)}
         onBlur={() => onCommit(stage)}
         className="h-8 flex-1"
+        aria-label={t("pipeline.stages.nameAria")}
       />
 
       {canManage && (
@@ -120,8 +124,9 @@ function SortableStageRow({
           className="h-8 w-8 p-0 text-destructive hover:text-destructive"
           disabled={saving}
           onClick={() => onDelete(stage)}
+          aria-label={t("pipeline.stages.deleteAria", { name: stage.name })}
         >
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
         </Button>
       )}
     </div>
@@ -135,6 +140,7 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
 
   const [stages, setStages] = useState<PipelineStage[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [saving, setSaving] = useState(false)
   const [newName, setNewName] = useState("")
   const [newColor, setNewColor] = useState(DEFAULT_NEW_COLOR)
@@ -147,14 +153,24 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
+  const dndAccessibility = useDndAccessibility((id) => {
+    const name = stages.find((stage) => stage.id.toString() === String(id))?.name
+    return name ? t("pipeline.stages.reorderTarget", { name }) : undefined
+  })
 
   const fetchStages = useCallback(async () => {
     setLoading(true)
-    const data = await getPipelineStages(pipelineId)
-    const sorted = [...data].sort((a, b) => a.sort_order - b.sort_order)
-    savedValues.current = new Map(sorted.map((s) => [s.id, { name: s.name, color: s.color }]))
-    setStages(sorted)
-    setLoading(false)
+    setLoadError(false)
+    try {
+      const data = await fetchPipelineStages(pipelineId)
+      const sorted = [...data].sort((a, b) => a.sort_order - b.sort_order)
+      savedValues.current = new Map(sorted.map((s) => [s.id, { name: s.name, color: s.color }]))
+      setStages(sorted)
+    } catch {
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
   }, [pipelineId])
 
   useEffect(() => {
@@ -289,14 +305,25 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden="true" />
+      </div>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <div role="alert" className="space-y-3 py-6 text-center">
+        <p className="text-sm text-destructive">{t("pipeline.stages.errorLoad")}</p>
+        <Button variant="outline" size="sm" onClick={() => void fetchStages()}>
+          {t("pipeline.errors.retry")}
+        </Button>
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} accessibility={dndAccessibility} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext
           items={stages.map((s) => s.id.toString())}
           strategy={verticalListSortingStrategy}
@@ -331,7 +358,7 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
             value={newColor}
             onChange={(e) => setNewColor(e.target.value)}
             className="h-9 w-9 shrink-0 cursor-pointer rounded border border-border bg-transparent p-0.5"
-            aria-label="color"
+            aria-label={t("pipeline.stages.newColorAria")}
           />
           <Input
             value={newName}
@@ -344,7 +371,7 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
             disabled={saving}
           />
           <Button onClick={handleAdd} size="sm" className="h-9" disabled={saving || !newName.trim()}>
-            <Plus className="mr-1 h-4 w-4" />
+            {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="mr-1 h-4 w-4" aria-hidden="true" />}
             {t("pipeline.stages.add")}
           </Button>
         </div>
@@ -365,9 +392,15 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleConfirmDelete}
+              // Queda abierto mientras borra: el cierre llega en el finally.
+              onClick={(event) => {
+                event.preventDefault()
+                void handleConfirmDelete()
+              }}
+              disabled={saving}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
               {t("common.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>

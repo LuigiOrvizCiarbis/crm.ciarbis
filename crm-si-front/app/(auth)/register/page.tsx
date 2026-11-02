@@ -39,7 +39,19 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [error, setError] = useState("")
+  // Campos a los que se refiere el error actual (validación local o errores del backend)
+  const [errorFields, setErrorFields] = useState<string[]>([])
   const isSubmittingRef = useRef(false)
+
+  const fieldErrorProps = (field: string) =>
+    error && errorFields.includes(field)
+      ? { "aria-invalid": true as const, "aria-describedby": "register-error" }
+      : {}
+
+  const fail = (message: string, fields: string[]) => {
+    setError(message)
+    setErrorFields(fields)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -50,21 +62,22 @@ export default function RegisterPage() {
 
     isSubmittingRef.current = true
     setError("")
+    setErrorFields([])
 
     if (password !== confirmPassword) {
-      setError(t("auth.passwordsDoNotMatch"))
+      fail(t("auth.passwordsDoNotMatch"), ["confirmPassword"])
       isSubmittingRef.current = false
       return
     }
 
     if (password.length < 8) {
-      setError(t("auth.passwordTooShort"))
+      fail(t("auth.passwordTooShort"), ["password"])
       isSubmittingRef.current = false
       return
     }
 
     if (!acceptTerms) {
-      setError(t("auth.mustAcceptTerms"))
+      fail(t("auth.mustAcceptTerms"), ["terms"])
       isSubmittingRef.current = false
       return
     }
@@ -81,6 +94,11 @@ export default function RegisterPage() {
       const data = await res.json()
 
       if (!res.ok) {
+        // Laravel devuelve `errors` por campo en 422: marcamos esos inputs como inválidos
+        const serverFields = Object.keys(data.errors ?? {}).map((key) =>
+          key === "password_confirmation" ? "confirmPassword" : key
+        )
+        setErrorFields(serverFields)
         throw new Error(data.message || t("auth.registerError"))
       }
 
@@ -98,10 +116,10 @@ export default function RegisterPage() {
   }
 
   return (
-    <Card className="border-border/50 shadow-xl">
+    <Card>
       <CardHeader className="text-center space-y-4">
         <div className="mx-auto w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
-          <MessageSquare className="w-6 h-6 text-primary" />
+          <MessageSquare className="w-6 h-6 text-primary" aria-hidden="true" />
         </div>
         <div>
           <CardTitle className="text-2xl font-bold">{t("auth.registerTitle")}</CardTitle>
@@ -123,7 +141,11 @@ export default function RegisterPage() {
           )}
 
           {error && (
-            <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg">
+            <div
+              id="register-error"
+              role="alert"
+              className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg"
+            >
               {error}
             </div>
           )}
@@ -139,6 +161,7 @@ export default function RegisterPage() {
               required
               autoComplete="name"
               disabled={isLoading}
+              {...fieldErrorProps("name")}
             />
           </div>
 
@@ -154,6 +177,7 @@ export default function RegisterPage() {
               autoComplete="email"
               disabled={isLoading || !!invitationToken}
               readOnly={!!invitationToken}
+              {...fieldErrorProps("email")}
             />
           </div>
 
@@ -169,18 +193,21 @@ export default function RegisterPage() {
                 required
                 autoComplete="new-password"
                 disabled={isLoading}
+                {...fieldErrorProps("password")}
                 className="pr-10"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                tabIndex={-1}
+                className="absolute right-1 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
+                aria-pressed={showPassword}
+                aria-controls="password"
               >
                 {showPassword ? (
-                  <EyeOff className="w-4 h-4" />
+                  <EyeOff className="w-4 h-4" aria-hidden="true" />
                 ) : (
-                  <Eye className="w-4 h-4" />
+                  <Eye className="w-4 h-4" aria-hidden="true" />
                 )}
               </button>
             </div>
@@ -198,18 +225,21 @@ export default function RegisterPage() {
                 required
                 autoComplete="new-password"
                 disabled={isLoading}
+                {...fieldErrorProps("confirmPassword")}
                 className="pr-10"
               />
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                tabIndex={-1}
+                className="absolute right-1 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={showConfirmPassword ? t("auth.hidePassword") : t("auth.showPassword")}
+                aria-pressed={showConfirmPassword}
+                aria-controls="confirmPassword"
               >
                 {showConfirmPassword ? (
-                  <EyeOff className="w-4 h-4" />
+                  <EyeOff className="w-4 h-4" aria-hidden="true" />
                 ) : (
-                  <Eye className="w-4 h-4" />
+                  <Eye className="w-4 h-4" aria-hidden="true" />
                 )}
               </button>
             </div>
@@ -222,6 +252,7 @@ export default function RegisterPage() {
               onCheckedChange={(checked) => setAcceptTerms(checked as boolean)}
               disabled={isLoading}
               className="mt-0.5"
+              {...fieldErrorProps("terms")}
             />
             <Label htmlFor="terms" className="text-sm font-normal cursor-pointer leading-relaxed">
               {t("auth.acceptTermsLabel")}{" "}
@@ -240,7 +271,7 @@ export default function RegisterPage() {
           <Button type="submit" className="w-full" disabled={isLoading || !acceptTerms}>
             {isLoading ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
                 {t("auth.registerSubmitting")}
               </>
             ) : (

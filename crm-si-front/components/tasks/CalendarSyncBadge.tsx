@@ -4,14 +4,14 @@ import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { CalendarClock, ExternalLink, Loader2, RefreshCw } from "lucide-react"
-import { toast } from "sonner"
+import { useToast } from "@/components/Toast"
 import type { TaskCalendarSyncInfo } from "@/lib/types/task"
 import { retryTaskCalendarSync } from "@/lib/api/google-calendar"
 
 const STATUS_STYLES: Record<TaskCalendarSyncInfo["status"], string> = {
-  synced: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-transparent",
+  synced: "bg-success/10 text-success border-transparent",
   pending: "bg-muted text-muted-foreground border-transparent",
-  error: "bg-destructive/15 text-destructive border-transparent",
+  error: "bg-destructive/10 text-destructive border-transparent",
   paused: "bg-muted text-muted-foreground border-transparent",
 }
 
@@ -29,6 +29,7 @@ interface CalendarSyncBadgeProps {
 }
 
 export function CalendarSyncBadge({ taskId, sync, onRetried }: CalendarSyncBadgeProps) {
+  const { addToast } = useToast()
   const [retrying, setRetrying] = useState(false)
   const effectiveSync = sync ?? {
     status: "pending" as const,
@@ -53,11 +54,11 @@ export function CalendarSyncBadge({ taskId, sync, onRetried }: CalendarSyncBadge
     setRetrying(false)
 
     if (result.error) {
-      toast.error(result.error)
+      addToast({ type: "error", title: result.error })
       return
     }
 
-    toast.success("Reintento encolado")
+    addToast({ type: "success", title: "Reintento encolado" })
     onRetried?.()
   }
 

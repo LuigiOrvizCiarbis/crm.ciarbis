@@ -1,12 +1,12 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useId } from "react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { useToast } from "@/components/Toast"
-import { Archive, Briefcase, Loader2, Mail, MailOpen, Plus, Tag as TagLucideIcon } from "lucide-react"
-import { getPipelineStages, PipelineStage } from "@/lib/api/pipeline"
-import { getUsers } from "@/lib/api/users"
+import { AlertCircle, Archive, Briefcase, ChevronDown, Loader2, Mail, MailOpen, Plus, Tag as TagLucideIcon } from "lucide-react"
+import { fetchPipelineStages, PipelineStage } from "@/lib/api/pipeline"
+import { fetchUsers } from "@/lib/api/users"
 import { updateConversationStage, assignConversationUser } from "@/lib/api/conversations"
 import { getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
 import { ChatOpportunityRail, type ChatOpportunity } from "@/components/ChatOpportunityRail"
@@ -36,6 +36,23 @@ function StageDot({ color }: { color?: string }) {
   return <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-muted-foreground" style={color ? { backgroundColor: color } : undefined} />
 }
 
+/** Error compacto dentro de un control que no pudo cargar sus opciones. */
+function LoadError({ message, retryLabel, onRetry }: { message: string; retryLabel: string; onRetry: () => void }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5 text-destructive">
+      <AlertCircle className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="truncate">{message}</span>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="shrink-0 font-medium underline underline-offset-2 hover:no-underline focus-visible:outline-none"
+      >
+        {retryLabel}
+      </button>
+    </span>
+  )
+}
+
 interface ChatQuickBarValue {
   stageId?: number
   priority?: Priority
@@ -61,6 +78,9 @@ interface ChatQuickBarProps {
   onOpportunityStagesChange?: (chatId: number, stageIds: number[]) => void
 }
 
+// Los controles van sin borde dentro de su "pastilla"; el anillo de foco se dibuja en la pastilla.
+const PILL_FOCUS_RING = "has-[:focus-visible]:border-ring has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50"
+
 // Eliminado TEAM fijo: ahora se cargan usuarios reales desde API. Se mantiene posibilidad de pasar prop "team" como override.
 
 export function ChatQuickBar({
@@ -80,23 +100,34 @@ export function ChatQuickBar({
 }: ChatQuickBarProps) {
   const { addToast } = useToast()
   const { t } = useTranslation()
+  const fieldId = useId()
+  const stageLabelId = `${fieldId}-stage`
+  const priorityLabelId = `${fieldId}-priority`
+  const assigneeLabelId = `${fieldId}-assignee`
   const [isTagsSheetOpen, setIsTagsSheetOpen] = useState(false)
+  const [isManageSheetOpen, setIsManageSheetOpen] = useState(false)
 
   // Etapa del chat (pipeline predeterminado): dispara automatizaciones y filtra campañas.
   const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>([])
   const [isLoadingStages, setIsLoadingStages] = useState(true)
+  const [stagesFailed, setStagesFailed] = useState(false)
   // Oportunidades vinculadas al chat; cada una se mueve dentro de su propio pipeline.
   // Las oportunidades se guardan con el chat al que pertenecen: el componente
   // no se remonta al cambiar de chat y una respuesta tardía no debe mostrarse
   // (ni moverse) en otro.
   const [loadedOpportunities, setLoadedOpportunities] = useState<{ chatId: number; items: ChatOpportunity[] } | null>(null)
   const opportunities = loadedOpportunities?.chatId === chatId ? loadedOpportunities.items : []
+  // Chat cuyas oportunidades (o las etapas de sus pipelines) no se pudieron cargar.
+  const [opportunitiesFailedChatId, setOpportunitiesFailedChatId] = useState<number | null>(null)
+  const [pipelineStagesFailed, setPipelineStagesFailed] = useState(false)
+  const [pipelineStagesReloadKey, setPipelineStagesReloadKey] = useState(0)
   const currentChatIdRef = useRef(chatId)
   const [stagesByPipeline, setStagesByPipeline] = useState<Record<number, PipelineStage[]>>({})
   const [isNewOpportunityOpen, setIsNewOpportunityOpen] = useState(false)
   const [pendingOpportunityId, setPendingOpportunityId] = useState<number | null>(null)
   const [users, setUsers] = useState<TeamUser[]>([])
   const [isLoadingUsers, setIsLoadingUsers] = useState(true)
+  const [usersFailed, setUsersFailed] = useState(false)
 
   // Helpers de normalización
   const toNumber = (v: unknown): number | undefined => {
@@ -108,30 +139,41 @@ export function ChatQuickBar({
     return undefined
   }
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [stages, fetchedUsers] = await Promise.all([
-          getPipelineStages(),
-          getUsers(),
-        ])
-        setPipelineStages(stages)
-        setUsers(fetchedUsers.map((user) => ({
-          id: user.id,
-          name: user.name,
-          role: typeof user.role === "string"
-            ? user.role
-            : user.role?.name || "Vendedor",
-        })))
-      } catch (error) {
-        console.error('Error loading stages/users', error)
-      } finally {
-        setIsLoadingStages(false)
-        setIsLoadingUsers(false)
-      }
+  const loadStages = useCallback(async () => {
+    setIsLoadingStages(true)
+    setStagesFailed(false)
+    try {
+      setPipelineStages(await fetchPipelineStages())
+    } catch {
+      setStagesFailed(true)
+    } finally {
+      setIsLoadingStages(false)
     }
-    loadData()
   }, [])
+
+  const loadUsers = useCallback(async () => {
+    setIsLoadingUsers(true)
+    setUsersFailed(false)
+    try {
+      const fetchedUsers = await fetchUsers()
+      setUsers(fetchedUsers.map((user) => ({
+        id: user.id,
+        name: user.name,
+        role: typeof user.role === "string"
+          ? user.role
+          : user.role?.name || "Vendedor",
+      })))
+    } catch {
+      setUsersFailed(true)
+    } finally {
+      setIsLoadingUsers(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadStages()
+    void loadUsers()
+  }, [loadStages, loadUsers])
 
   useEffect(() => {
     currentChatIdRef.current = chatId
@@ -154,8 +196,16 @@ export function ChatQuickBar({
 
   /** Trae las oportunidades del chat; descarta la respuesta si ya se cambió de chat. */
   const fetchOpportunities = useCallback(async (targetChatId: number): Promise<ChatOpportunity[] | null> => {
-    const items = (await getOpportunities({ conversationId: targetChatId }).catch(() => [])) as ChatOpportunity[]
+    let items: ChatOpportunity[]
+    try {
+      items = (await getOpportunities({ conversationId: targetChatId })) as ChatOpportunity[]
+    } catch {
+      // Sin pisar las etapas que la bandeja ya conoce: sólo se marca el error.
+      if (currentChatIdRef.current === targetChatId) setOpportunitiesFailedChatId(targetChatId)
+      return null
+    }
     if (currentChatIdRef.current !== targetChatId) return null
+    setOpportunitiesFailedChatId(null)
     setLoadedOpportunities({ chatId: targetChatId, items })
     return items
   }, [])
@@ -170,18 +220,29 @@ export function ChatQuickBar({
   useEffect(() => {
     if (!pipelineIdsKey) return
     let cancelled = false
-    Promise.all(
-      pipelineIdsKey.split(",").map(Number).map(async (pipelineId) => {
-        const stages = await getPipelineStages(pipelineId).catch(() => [])
-        return [pipelineId, [...stages].sort((a, b) => a.sort_order - b.sort_order)] as const
+    const pipelineIds = pipelineIdsKey.split(",").map(Number)
+    Promise.allSettled(
+      pipelineIds.map(async (pipelineId) => {
+        const stages = await fetchPipelineStages(pipelineId)
+        return [...stages].sort((a, b) => a.sort_order - b.sort_order)
       }),
-    ).then((entries) => {
-      if (!cancelled) setStagesByPipeline(Object.fromEntries(entries))
+    ).then((results) => {
+      if (cancelled) return
+      setStagesByPipeline(Object.fromEntries(results.map((result, index) => (
+        [pipelineIds[index], result.status === "fulfilled" ? result.value : []]
+      ))))
+      setPipelineStagesFailed(results.some((result) => result.status === "rejected"))
     })
     return () => {
       cancelled = true
     }
-  }, [pipelineIdsKey])
+  }, [pipelineIdsKey, pipelineStagesReloadKey])
+
+  const opportunitiesFailed = opportunitiesFailedChatId === chatId || (pipelineStagesFailed && opportunities.length > 0)
+  const retryOpportunities = () => {
+    if (opportunitiesFailedChatId === chatId) void fetchOpportunities(chatId)
+    if (pipelineStagesFailed) setPipelineStagesReloadKey((key) => key + 1)
+  }
 
   const handleOpportunityCreated = async () => {
     const before = new Set(opportunities.map((item) => item.id))
@@ -230,7 +291,6 @@ export function ChatQuickBar({
   const handleStageChange = (stageId: number) => {
     // Encontrar la etapa por ID
     const stage = pipelineStages.find(s => s.id === stageId);
-    console.log("🚀 ~ handleStageChange ~ stage:", stage)
     if (!stage) {
       addToast({
         type: "error",
@@ -387,30 +447,36 @@ export function ChatQuickBar({
       <div className="hidden md:flex items-center gap-2">
         {/* Stage Select: etapa del chat (sólo si ninguna oportunidad la maneja) */}
         {showChatStage && (
-        <div className="inline-flex shrink-0 items-center gap-2 text-[12px] text-[#9AA4B2] bg-[#131722] border border-[#1e2533] rounded-xl px-3 py-1.5">
+        <div className={`inline-flex shrink-0 items-center gap-2 text-[12px] text-muted-foreground bg-muted border border-border rounded-xl px-3 py-1.5 ${PILL_FOCUS_RING}`}>
           <StageDot color={chatStageColor} />
-          <span>{t("chats.chatStageLabel")}:</span>
+          <span id={stageLabelId}>{t("chats.chatStageLabel")}:</span>
           {isLoadingStages ? (
             <Loader2 className="h-3 w-3 animate-spin" />
+          ) : stagesFailed ? (
+            <LoadError message={t("chats.stagesLoadError")} retryLabel={t("chats.retry")} onRetry={() => void loadStages()} />
           ) : (
             <Select
               key={`${value.stageId}-${pipelineStages.length}`}
               value={value.stageId?.toString() || ""}
               onValueChange={(val) => handleStageChange(Number(val))}
             >
-              <SelectTrigger className="h-auto w-35 border-0 bg-transparent p-0 text-[#D8DEE9] text-sm focus:ring-0 focus:ring-offset-0 gap-2 hover:bg-transparent data-placeholder:text-[#D8DEE9]">
+              <SelectTrigger
+                id={`${stageLabelId}-trigger`}
+                aria-labelledby={`${stageLabelId} ${stageLabelId}-trigger`}
+                className="h-auto w-35 border-0 bg-transparent p-0 text-foreground text-sm shadow-none focus-visible:ring-0 gap-2 hover:bg-transparent data-placeholder:text-foreground"
+              >
                 <SelectValue placeholder={t("chats.select")} className="truncate">
                   <span className="truncate block w-full text-left">
                     {selectedStageName}
                   </span>
                 </SelectValue>
               </SelectTrigger>
-              <SelectContent className="bg-[#0F1117] border-[#1e2533] text-[#D8DEE9]">
+              <SelectContent>
                 {pipelineStages.map((stage) => (
                   <SelectItem
                     key={stage.id}
                     value={String(stage.id)}
-                    className="focus:bg-[#1A1F2B] focus:text-[#D8DEE9] cursor-pointer"
+                    className="cursor-pointer"
                   >
                     {stage.name}
                   </SelectItem>
@@ -422,12 +488,13 @@ export function ChatQuickBar({
         )}
 
         {/* Priority Select */}
-        <div className="inline-flex items-center gap-2 text-[12px] text-[#9AA4B2] bg-[#131722] border border-[#1e2533] rounded-xl px-3 py-1.5">
-          <span>{t("chats.priorityLabel")}:</span>
+        <div className={`inline-flex items-center gap-2 text-[12px] text-muted-foreground bg-muted border border-border rounded-xl px-3 py-1.5 ${PILL_FOCUS_RING}`}>
+          <span id={priorityLabelId}>{t("chats.priorityLabel")}:</span>
           <select
             value={value.priority || "baja"}
             onChange={(e) => handlePriorityChange(e.target.value as Priority)}
-            className={`bg-transparent text-sm focus:outline-none ${getPriorityColor(value.priority || "baja")}`}
+            aria-labelledby={priorityLabelId}
+            className={`bg-transparent text-sm focus-visible:outline-none ${getPriorityColor(value.priority || "baja")}`}
           >
             <option value="baja">{t("chats.priorityLow")}</option>
             <option value="media">{t("chats.priorityMedium")}</option>
@@ -437,25 +504,31 @@ export function ChatQuickBar({
         </div>
 
         {/* Assignee Select (shadcn Select) */}
-        <div className="inline-flex items-center gap-2 text-[12px] text-[#9AA4B2] bg-[#131722] border border-[#1e2533] rounded-xl px-3 py-1.5">
-          <span>{t("chats.assignToLabel")}:</span>
+        <div className={`inline-flex items-center gap-2 text-[12px] text-muted-foreground bg-muted border border-border rounded-xl px-3 py-1.5 ${PILL_FOCUS_RING}`}>
+          <span id={assigneeLabelId}>{t("chats.assignToLabel")}:</span>
           {isLoadingUsers ? (
             <Loader2 className="h-3 w-3 animate-spin" />
+          ) : usersFailed && !team.length ? (
+            <LoadError message={t("chats.usersLoadError")} retryLabel={t("chats.retry")} onRetry={() => void loadUsers()} />
           ) : (
             <Select
               value={String(selectedAssigneeId)}
               onValueChange={(val) => handleAssigneeChange(Number(val))}
             >
-              <SelectTrigger className="h-auto w-40 border-0 bg-transparent p-0 text-[#D8DEE9] text-sm focus:ring-0 focus:ring-offset-0 gap-2">
+              <SelectTrigger
+                id={`${assigneeLabelId}-trigger`}
+                aria-labelledby={`${assigneeLabelId} ${assigneeLabelId}-trigger`}
+                className="h-auto w-40 border-0 bg-transparent p-0 text-foreground text-sm shadow-none focus-visible:ring-0 gap-2"
+              >
                 <SelectValue placeholder={t("chats.select")} className="truncate">
                   <span className="truncate block w-full text-left">
                     {selectedAssigneeName}
                   </span>
                 </SelectValue>
               </SelectTrigger>
-              <SelectContent className="bg-[#0F1117] border-[#1e2533] text-[#D8DEE9] max-h-64 overflow-y-auto">
+              <SelectContent className="max-h-64 overflow-y-auto">
                 {effectiveTeam.map((member) => (
-                  <SelectItem key={member.id} value={String(member.id)} className="focus:bg-[#1A1F2B] focus:text-[#D8DEE9] cursor-pointer">
+                  <SelectItem key={member.id} value={String(member.id)} className="cursor-pointer">
                     {member.name}
                   </SelectItem>
                 ))}
@@ -465,7 +538,7 @@ export function ChatQuickBar({
         </div>
 
         {/* Action Buttons */}
-        <div className="flex min-w-0 max-w-[280px] items-center gap-2 rounded-xl border border-[#1e2533] bg-[#131722] px-3 py-1.5">
+        <div className="flex min-w-0 max-w-[280px] items-center gap-2 rounded-xl border border-border bg-muted px-3 py-1.5">
           <TagChips tags={tags} maxVisible={2} />
           <TagPicker
             target="conversation"
@@ -484,20 +557,20 @@ export function ChatQuickBar({
             <Button
               variant="ghost"
               size="sm"
-              className="relative p-2 rounded-lg border border-[#1e2533] hover:bg-[#1A1F2B] text-[#D8DEE9]"
+              className="relative p-2 rounded-lg border border-border hover:bg-accent text-foreground"
               onClick={openNewOpportunity}
               title={t("chats.newOpportunity")}
               aria-label={t("chats.newOpportunity")}
             >
               <Briefcase className="w-4 h-4" />
-              <Plus className="absolute bottom-1 right-1 h-2.5 w-2.5 rounded-full bg-[#131722] stroke-[3]" aria-hidden="true" />
+              <Plus className="absolute bottom-1 right-1 h-2.5 w-2.5 rounded-full bg-background stroke-[3]" aria-hidden="true" />
             </Button>
           )}
           {onToggleReadStatus && (
             <Button
               variant="ghost"
               size="sm"
-              className="p-2 rounded-lg border border-[#1e2533] hover:bg-[#1A1F2B] text-[#D8DEE9]"
+              className="p-2 rounded-lg border border-border hover:bg-accent text-foreground"
               onClick={onToggleReadStatus}
               title={isUnread ? t("chats.markAsRead") : t("chats.markAsUnread")}
               aria-label={isUnread ? t("chats.markAsRead") : t("chats.markAsUnread")}
@@ -508,82 +581,140 @@ export function ChatQuickBar({
           <Button
             variant="ghost"
             size="sm"
-            className="p-2 rounded-lg border border-[#1e2533] hover:bg-[#1A1F2B] text-[#D8DEE9]"
+            className="p-2 rounded-lg border border-border hover:bg-accent text-foreground"
             onClick={handleToggleArchive}
             title={value.archived ? t("chats.unarchiveShortcut") : t("chats.archiveShortcut")}
+            aria-label={value.archived ? t("chats.unarchiveShortcut") : t("chats.archiveShortcut")}
           >
-            <Archive className="w-4 h-4" />
+            <Archive className="w-4 h-4" aria-hidden="true" />
           </Button>
         </div>
       </div>
 
       {/* Mobile Layout: una sola fila, sin scroll horizontal.
-          Los tres selects se reparten el ancho disponible (`flex-1 min-w-0`) y
-          las acciones quedan fijas a la derecha, siempre alcanzables.
-          Los prefijos ("Etapa:", "Prioridad:", "Derivar a:") existen sólo como
-          `aria-label`: gastaban ~200px repitiendo lo que el propio valor ya
-          dice, y ese exceso era justo lo que empujaba las acciones fuera de
-          pantalla. Se distinguen por posición, que es estable, y por el color
-          en el caso de prioridad. */}
+          Tres selects a 16px (el mínimo para que iOS no haga zoom) y 40px de
+          alto no entran junto a las acciones en 360px, así que la fila muestra
+          un resumen tocable (etapa y prioridad) que abre la hoja "Gestionar
+          chat" con los tres controles apilados y con su etiqueta visible. */}
       <div className="flex items-center gap-1.5 md:hidden">
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          {showChatStage && (
-          <div className="flex min-w-0 flex-1 items-center rounded-lg border border-border bg-muted/50 px-2 py-1">
-            {isLoadingStages ? (
-              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-            ) : (
-              <select
-                value={String(value.stageId ?? "")}
-                onChange={(e) => handleStageChange(Number(e.target.value))}
-                className="w-full min-w-0 truncate bg-transparent text-xs text-foreground focus:outline-none"
-                aria-label={t("chats.chatStageLabel")}
-                title={t("chats.chatStageLabel")}
+        <Sheet open={isManageSheetOpen} onOpenChange={setIsManageSheetOpen}>
+          <div className={`flex min-w-0 flex-1 items-center rounded-lg border border-border bg-muted/50 ${PILL_FOCUS_RING}`}>
+            <SheetTrigger asChild>
+              <button
+                type="button"
+                className="flex h-10 w-full min-w-0 items-center gap-1.5 px-3 text-left text-base focus-visible:outline-none"
+                aria-label={[
+                  t("chats.manageChat"),
+                  showChatStage ? `${t("chats.chatStageLabel")}: ${selectedStageName}` : null,
+                  `${t("chats.priorityLabel")}: ${getPriorityLabel(value.priority || "baja")}`,
+                  `${t("chats.assignToLabel")}: ${selectedAssigneeName}`,
+                ].filter(Boolean).join(". ")}
               >
-                {pipelineStages.map((stage) => (
-                  <option key={stage.id} value={String(stage.id)}>
-                    {stage.name}
-                  </option>
-                ))}
-              </select>
-            )}
+                {showChatStage && <StageDot color={chatStageColor} />}
+                {/* La prioridad no se recorta: si falta lugar, cede el nombre de la etapa. */}
+                {showChatStage && (
+                  <>
+                    <span className="min-w-0 truncate text-foreground">{selectedStageName}</span>
+                    <span className="shrink-0 text-muted-foreground" aria-hidden="true">·</span>
+                  </>
+                )}
+                <span className={`shrink-0 ${getPriorityColor(value.priority || "baja")}`}>{getPriorityLabel(value.priority || "baja")}</span>
+                <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </button>
+            </SheetTrigger>
           </div>
-          )}
+          <SheetContent
+            side="bottom"
+            aria-describedby={undefined}
+            className="max-h-[85dvh] gap-0 overflow-y-auto rounded-t-xl px-4 pt-4 pb-[max(env(safe-area-inset-bottom),1rem)]"
+          >
+            <SheetHeader className="px-0 pt-0 pb-4">
+              <SheetTitle>{t("chats.manageChat")}</SheetTitle>
+            </SheetHeader>
+            <div className="space-y-4">
+              {showChatStage && (
+                <div className="space-y-1.5">
+                  <label htmlFor={`${stageLabelId}-mobile`} className="text-sm font-medium text-foreground">
+                    {t("chats.chatStageLabel")}
+                  </label>
+                  <div className={`flex h-11 items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 ${PILL_FOCUS_RING}`}>
+                    <StageDot color={chatStageColor} />
+                    {isLoadingStages ? (
+                      <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label={t("chats.loading")} />
+                    ) : stagesFailed ? (
+                      <span className="flex min-w-0 text-sm">
+                        <LoadError message={t("chats.stagesLoadError")} retryLabel={t("chats.retry")} onRetry={() => void loadStages()} />
+                      </span>
+                    ) : (
+                      <select
+                        id={`${stageLabelId}-mobile`}
+                        value={String(value.stageId ?? "")}
+                        onChange={(e) => handleStageChange(Number(e.target.value))}
+                        className="h-full w-full min-w-0 truncate bg-transparent text-base text-foreground focus-visible:outline-none"
+                      >
+                        {pipelineStages.map((stage) => (
+                          <option key={stage.id} value={String(stage.id)}>
+                            {stage.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+              )}
 
-          <div className="flex min-w-0 shrink items-center rounded-lg border border-border bg-muted/50 px-2 py-1">
-            <select
-              value={value.priority || "baja"}
-              onChange={(e) => handlePriorityChange(e.target.value as Priority)}
-              className={`w-full min-w-0 truncate bg-transparent text-xs focus:outline-none ${getPriorityColor(value.priority || "baja")}`}
-              aria-label={t("chats.priorityLabel")}
-              title={t("chats.priorityLabel")}
-            >
-              <option value="baja">{t("chats.priorityLow")}</option>
-              <option value="media">{t("chats.priorityMedium")}</option>
-              <option value="alta">{t("chats.priorityHigh")}</option>
-              <option value="hot">{t("chats.priorityHot")}</option>
-            </select>
-          </div>
+              <div className="space-y-1.5">
+                <label htmlFor={`${priorityLabelId}-mobile`} className="text-sm font-medium text-foreground">
+                  {t("chats.priorityLabel")}
+                </label>
+                <div className={`flex h-11 items-center rounded-lg border border-border bg-muted/50 px-3 ${PILL_FOCUS_RING}`}>
+                  <select
+                    id={`${priorityLabelId}-mobile`}
+                    value={value.priority || "baja"}
+                    onChange={(e) => handlePriorityChange(e.target.value as Priority)}
+                    className={`h-full w-full min-w-0 truncate bg-transparent text-base focus-visible:outline-none ${getPriorityColor(value.priority || "baja")}`}
+                  >
+                    <option value="baja">{t("chats.priorityLow")}</option>
+                    <option value="media">{t("chats.priorityMedium")}</option>
+                    <option value="alta">{t("chats.priorityHigh")}</option>
+                    <option value="hot">{t("chats.priorityHot")}</option>
+                  </select>
+                </div>
+              </div>
 
-          <div className="flex min-w-0 flex-1 items-center rounded-lg border border-border bg-muted/50 px-2 py-1">
-            {isLoadingUsers ? (
-              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-            ) : (
-              <select
-                value={String(selectedAssigneeId)}
-                onChange={(e) => handleAssigneeChange(Number(e.target.value))}
-                className="w-full min-w-0 truncate bg-transparent text-xs text-foreground focus:outline-none"
-                aria-label={t("chats.assignToLabel")}
-                title={t("chats.assignToLabel")}
-              >
-                {effectiveTeam.map((member) => (
-                  <option key={member.id} value={String(member.id)}>
-                    {member.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-        </div>
+              <div className="space-y-1.5">
+                <label htmlFor={`${assigneeLabelId}-mobile`} className="text-sm font-medium text-foreground">
+                  {t("chats.assignToLabel")}
+                </label>
+                <div className={`flex h-11 items-center rounded-lg border border-border bg-muted/50 px-3 ${PILL_FOCUS_RING}`}>
+                  {isLoadingUsers ? (
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label={t("chats.loadingUsers")} />
+                  ) : usersFailed && !team.length ? (
+                    <span className="flex min-w-0 text-sm">
+                      <LoadError message={t("chats.usersLoadError")} retryLabel={t("chats.retry")} onRetry={() => void loadUsers()} />
+                    </span>
+                  ) : (
+                    <select
+                      id={`${assigneeLabelId}-mobile`}
+                      value={String(selectedAssigneeId)}
+                      onChange={(e) => handleAssigneeChange(Number(e.target.value))}
+                      className="h-full w-full min-w-0 truncate bg-transparent text-base text-foreground focus-visible:outline-none"
+                    >
+                      {effectiveTeam.map((member) => (
+                        <option key={member.id} value={String(member.id)}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+            </div>
+            <Button type="button" className="mt-6 h-11 w-full" onClick={() => setIsManageSheetOpen(false)}>
+              {t("chats.manageDone")}
+            </Button>
+          </SheetContent>
+        </Sheet>
 
         <div className="flex shrink-0 items-center gap-0.5">
           {contact && !hasOpportunities && (
@@ -657,6 +788,12 @@ export function ChatQuickBar({
           </Button>
         </div>
       </div>
+
+      {contact && opportunitiesFailed && (
+        <div className="mt-1.5 flex items-center rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-1 text-xs">
+          <LoadError message={t("chats.opportunitiesLoadError")} retryLabel={t("chats.retry")} onRetry={retryOpportunities} />
+        </div>
+      )}
 
       {hasOpportunities && (
         <ChatOpportunityRail

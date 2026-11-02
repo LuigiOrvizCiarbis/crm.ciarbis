@@ -36,10 +36,11 @@ export function TagChips({
           key={tag.id}
           variant="outline"
           className="h-6 max-w-[10rem] gap-1 rounded-md border px-2 text-[11px] font-medium"
+          // El color de la etiqueta es dato del usuario y puede ser cualquier
+          // hex: va en borde y tinte, nunca como color de texto.
           style={{
             borderColor: tag.color,
             backgroundColor: `${tag.color}1A`,
-            color: tag.color,
           }}
           title={tag.name}
         >
@@ -47,14 +48,14 @@ export function TagChips({
           {removable && (
             <button
               type="button"
-              className="rounded-sm opacity-80 transition hover:opacity-100"
+              className="rounded-sm opacity-80 outline-none transition hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50"
               onClick={(event) => {
                 event.stopPropagation()
                 onRemove?.(tag)
               }}
               aria-label={`Quitar ${tag.name}`}
             >
-              <X className="h-3 w-3" />
+              <X className="h-3 w-3" aria-hidden="true" />
             </button>
           )}
         </Badge>

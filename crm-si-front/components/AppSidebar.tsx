@@ -45,7 +45,7 @@ export function AppSidebar() {
           cerrado en ese rango (ver useState abajo), así no cubre la pantalla de
           negro al cargar en anchos intermedios (768–1024px). */}
       {sidebarOpen ? (
-        <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={closeSidebar} />
+        <div className="fixed inset-0 z-40 bg-overlay lg:hidden" onClick={closeSidebar} />
       ) : null}
 
       <div

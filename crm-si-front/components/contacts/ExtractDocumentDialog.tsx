@@ -241,7 +241,7 @@ export function ExtractDocumentDialog({
         </DialogHeader>
 
         {error && (
-          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
@@ -295,7 +295,8 @@ export function ExtractDocumentDialog({
           </Button>
           {step === "review" && (
             <Button onClick={() => void handleConfirm()} disabled={busy || selectedCount === 0}>
-              {busy ? "Guardando…" : `Aplicar ${selectedCount} campo(s)`}
+              {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
+              {busy ? "Guardando…" : `Aplicar ${selectedCount} ${selectedCount === 1 ? "campo" : "campos"}`}
             </Button>
           )}
         </DialogFooter>
@@ -339,8 +340,8 @@ function ReviewPanels({
   return (
     <div className="flex-1 overflow-hidden flex flex-col gap-3">
       {partial && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-          <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
+        <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm">
+          <Info className="h-4 w-4 shrink-0 mt-0.5 text-warning" />
           <span>
             No se pudo leer el texto de {missingPages.length === 1 ? "la página" : "las páginas"}{" "}
             {missingPages.join(", ")}. Un campo vacío puede estar ahí.
@@ -421,7 +422,7 @@ function ReviewPanels({
                   )}
 
                   {overwrites && (
-                    <p className="text-xs text-amber-600 pl-6">
+                    <p className="text-xs text-warning pl-6">
                       Reemplaza el valor actual: {String(currentCustomData[field.key])}
                     </p>
                   )}

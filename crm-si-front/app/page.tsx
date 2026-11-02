@@ -5,9 +5,9 @@ import { InboxMockup } from "@/components/landing/InboxMockup"
 import { MessageSquare, Users, KanbanSquare, CalendarDays } from "lucide-react"
 
 export const metadata: Metadata = {
-  title: "Social Impulse CRM — CRM conversacional con IA para WhatsApp e Instagram",
+  title: "Social Impulse CRM | CRM conversacional con IA para WhatsApp e Instagram",
   description:
-    "Social Impulse CRM centraliza las conversaciones de WhatsApp, Instagram y Facebook en una bandeja única, con gestión de contactos, pipeline de ventas y agendamiento de reuniones en Google Calendar.",
+    "Social Impulse CRM centraliza las conversaciones de WhatsApp, Instagram y Facebook en una bandeja única, con gestión de contactos, embudo de ventas y agendamiento de reuniones en Google Calendar.",
   alternates: {
     canonical: "https://sicrmapp.com",
   },
@@ -28,7 +28,7 @@ const features = [
   },
   {
     icon: KanbanSquare,
-    title: "Pipeline de ventas",
+    title: "Embudo de ventas",
     description:
       "Convertí conversaciones en oportunidades y seguí su avance por las etapas de tu embudo en un tablero Kanban.",
   },
@@ -73,9 +73,9 @@ export default function HomePage() {
                 Social Impulse CRM es una aplicación web que centraliza las conversaciones de WhatsApp, Instagram
                 y Facebook de tu empresa en una bandeja única
               </h1>
-              <p className="mt-6 max-w-[62ch] text-lg leading-relaxed text-primary-foreground/85">
+              <p className="mt-6 max-w-[62ch] text-lg leading-relaxed">
                 Los equipos de ventas y soporte la usan para responder los mensajes de sus clientes desde un solo
-                lugar, registrarlos como contactos, seguir cada venta por un pipeline y agendar reuniones en el
+                lugar, registrarlos como contactos, seguir cada venta por un embudo y agendar reuniones en el
                 Google Calendar del vendedor sin salir de la conversación.
               </p>
               <div className="mt-9 flex flex-wrap gap-3">

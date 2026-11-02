@@ -85,9 +85,18 @@ export function EditableCell({
   if (!isEditing) {
     return (
       <div
-        className={`cursor-text hover:bg-muted/40 rounded px-2 py-1 min-h-[32px] flex items-center transition-colors ${className}`}
+        role="button"
+        tabIndex={0}
+        className={`cursor-text hover:bg-muted/40 rounded px-2 py-1 min-h-[32px] flex items-center transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ${className}`}
         onClick={onEditStart}
-        title="Click para editar"
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault()
+            onEditStart()
+          }
+        }}
+        title="Hacé clic para editar"
       >
         {renderDisplay ? renderDisplay(value) : <span className={value ? "" : "text-muted-foreground"}>{value || "—"}</span>}
       </div>
@@ -98,6 +107,10 @@ export function EditableCell({
     return (
       <Select
         defaultOpen
+        // Cerrar el desplegable sin elegir (Escape, clic afuera) termina la edición.
+        onOpenChange={(open) => {
+          if (!open) onCancel?.()
+        }}
         value={editValue}
         onValueChange={(val) => {
           setEditValue(val)
@@ -108,7 +121,7 @@ export function EditableCell({
           }
         }}
       >
-        <SelectTrigger className={error ? "border-red-500" : ""}>
+        <SelectTrigger className={error ? "border-destructive" : ""}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -132,9 +145,9 @@ export function EditableCell({
         onChange={(e) => setEditValue(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={handleSave}
-        className={`h-8 ${error ? "border-red-500" : ""}`}
+        className={`h-8 ${error ? "border-destructive" : ""}`}
       />
-      {error && <span className="text-xs text-red-500 absolute -bottom-5 left-0 z-10 bg-background px-1">{error}</span>}
+      {error && <span className="text-xs text-destructive absolute -bottom-5 left-0 z-10 bg-background px-1">{error}</span>}
     </div>
   )
 }

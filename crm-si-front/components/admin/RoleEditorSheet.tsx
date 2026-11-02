@@ -136,13 +136,13 @@ export function RoleEditorSheet({ open, role, onClose, onSaved }: RoleEditorShee
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {isOwnerRole && (
-            <div className="flex gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-              <Info className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex gap-3 rounded-lg border border-warning/30 bg-warning/10 p-4">
+              <Info className="w-5 h-5 text-warning shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                <p className="text-sm font-medium text-warning">
                   {t("roles.ownerLockedTitle")}
                 </p>
-                <p className="text-xs text-amber-800/80 dark:text-amber-300/80 leading-relaxed">
+                <p className="text-xs text-warning leading-relaxed">
                   {t("roles.ownerLockedDescription")}
                 </p>
               </div>

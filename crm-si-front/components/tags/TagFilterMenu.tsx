@@ -31,6 +31,8 @@ export function TagFilterMenu({
   const [open, setOpen] = useState(false)
   const [tags, setTags] = useState<Tag[]>([])
   const [loading, setLoading] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   const selectedSet = useMemo(() => new Set(selectedSlugs), [selectedSlugs])
 
@@ -39,11 +41,14 @@ export function TagFilterMenu({
 
     let cancelled = false
     setLoading(true)
+    setFailed(false)
     getTags()
       .then((loadedTags) => {
         if (!cancelled) setTags(loadedTags)
       })
       .catch((error) => {
+        if (cancelled) return
+        setFailed(true)
         addToast({
           type: "error",
           title: "No se pudieron cargar las etiquetas",
@@ -57,7 +62,7 @@ export function TagFilterMenu({
     return () => {
       cancelled = true
     }
-  }, [open, tags.length, addToast])
+  }, [open, tags.length, reloadKey, addToast])
 
   const toggle = (slug: string) => {
     if (selectedSet.has(slug)) {
@@ -73,7 +78,7 @@ export function TagFilterMenu({
       <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-            <Filter className="h-4 w-4" />
+            <Filter className="h-4 w-4" aria-hidden="true" />
             {label}
             {selectedSlugs.length > 0 && (
               <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
@@ -87,8 +92,15 @@ export function TagFilterMenu({
           <DropdownMenuSeparator />
           {loading ? (
             <div className="flex items-center gap-2 px-2 py-6 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               Cargando etiquetas
+            </div>
+          ) : failed ? (
+            <div className="flex flex-col items-start gap-2 px-2 py-4 text-sm text-muted-foreground">
+              <span>No se pudieron cargar las etiquetas.</span>
+              <Button variant="outline" size="sm" onClick={() => setReloadKey((key) => key + 1)}>
+                Reintentar
+              </Button>
             </div>
           ) : tags.length > 0 ? (
             tags.map((tag) => (
@@ -98,7 +110,7 @@ export function TagFilterMenu({
                 onCheckedChange={() => toggle(tag.slug)}
                 onSelect={(event) => event.preventDefault()}
               >
-                <span className="mr-2 h-2.5 w-2.5 rounded-full" style={{ backgroundColor: tag.color }} />
+                <span className="mr-2 h-2.5 w-2.5 rounded-full" style={{ backgroundColor: tag.color }} aria-hidden="true" />
                 <span className="truncate">{tag.name}</span>
               </DropdownMenuCheckboxItem>
             ))
@@ -114,8 +126,9 @@ export function TagFilterMenu({
           size="sm"
           className="h-8 px-2 text-muted-foreground"
           onClick={() => onChange([])}
+          aria-label="Limpiar filtro de etiquetas"
         >
-          <X className="h-4 w-4" />
+          <X className="h-4 w-4" aria-hidden="true" />
         </Button>
       )}
     </div>

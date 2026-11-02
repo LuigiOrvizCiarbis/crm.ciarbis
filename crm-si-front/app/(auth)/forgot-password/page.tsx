@@ -50,13 +50,13 @@ export default function ForgotPasswordPage() {
 
   if (isSubmitted) {
     return (
-      <Card className="border-border/50 shadow-xl">
+      <Card>
         <CardHeader className="text-center space-y-4">
-          <div className="mx-auto w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center">
-            <Mail className="w-6 h-6 text-green-500" />
+          <div className="mx-auto w-12 h-12 bg-success/10 rounded-xl flex items-center justify-center">
+            <Mail className="w-6 h-6 text-success" aria-hidden="true" />
           </div>
-          <div>
-            <CardTitle className="text-2xl font-bold">Revisa tu correo</CardTitle>
+          <div role="status">
+            <CardTitle className="text-2xl font-bold">Revisá tu correo</CardTitle>
             <CardDescription className="mt-2">
               Hemos enviado instrucciones para restablecer tu contraseña a{" "}
               <span className="font-medium text-foreground">{email}</span>
@@ -66,7 +66,7 @@ export default function ForgotPasswordPage() {
         
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground text-center">
-            Si no recibes el correo en unos minutos, revisa tu carpeta de spam o correo no deseado.
+            Si no te llega el correo en unos minutos, revisá la carpeta de spam o correo no deseado.
           </p>
         </CardContent>
         
@@ -84,7 +84,7 @@ export default function ForgotPasswordPage() {
           
           <Link href="/login" className="w-full">
             <Button variant="ghost" className="w-full">
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
               Volver al login
             </Button>
           </Link>
@@ -94,15 +94,15 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <Card className="border-border/50 shadow-xl">
+    <Card>
       <CardHeader className="text-center space-y-4">
         <div className="mx-auto w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
-          <MessageSquare className="w-6 h-6 text-primary" />
+          <MessageSquare className="w-6 h-6 text-primary" aria-hidden="true" />
         </div>
         <div>
           <CardTitle className="text-2xl font-bold">¿Olvidaste tu contraseña?</CardTitle>
           <CardDescription className="mt-2">
-            Ingresa tu correo y te enviaremos instrucciones para restablecerla
+            Ingresá tu correo y te enviaremos instrucciones para restablecerla
           </CardDescription>
         </div>
       </CardHeader>
@@ -110,7 +110,11 @@ export default function ForgotPasswordPage() {
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
           {error && (
-            <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg">
+            <div
+              id="forgot-password-error"
+              role="alert"
+              className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg"
+            >
               {error}
             </div>
           )}
@@ -126,6 +130,8 @@ export default function ForgotPasswordPage() {
               required
               autoComplete="email"
               disabled={isLoading}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? "forgot-password-error" : undefined}
             />
           </div>
         </CardContent>
@@ -134,7 +140,7 @@ export default function ForgotPasswordPage() {
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
                 Enviando...
               </>
             ) : (
@@ -144,7 +150,7 @@ export default function ForgotPasswordPage() {
           
           <Link href="/login" className="w-full">
             <Button variant="ghost" className="w-full">
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
               Volver al login
             </Button>
           </Link>

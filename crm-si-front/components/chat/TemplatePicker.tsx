@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { FileText, RefreshCw, ArrowLeft, Send, Search } from "lucide-react"
+import { useToast } from "@/components/Toast"
 import { WhatsAppTemplate } from "@/data/types"
 import { getTemplates, syncTemplates, sendTemplate, uploadTemplateMedia } from "@/lib/api/templates"
 import {
@@ -29,7 +30,8 @@ import {
 interface TemplatePickerProps {
   channelId: number
   conversationId: number
-  onSend: (content: string) => void
+  /** Agrega el mensaje optimista; puede devolver cómo quitarlo si el envío falla. */
+  onSend: (content: string) => (() => void) | void
   disabled?: boolean
   /**
    * Apertura controlada desde afuera. En móvil el picker se abre desde la hoja
@@ -76,6 +78,7 @@ export function TemplatePicker({
   const [sending, setSending] = useState(false)
   const [search, setSearch] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const { addToast } = useToast()
 
   const fetchTemplates = async () => {
     setLoading(true)
@@ -137,6 +140,7 @@ export function TemplatePicker({
   const handleSend = async () => {
     if (!selected) return
     setSending(true)
+    let rollback: (() => void) | void = undefined
     try {
       let headerMedia
       if (selectedMediaFormat) {
@@ -156,12 +160,16 @@ export function TemplatePicker({
       const summary = preview
         ? `📋 ${selected.name}\n${preview}`
         : `📋 ${selected.name}`
-      onSend(summary)
+      rollback = onSend(summary)
       setOpen(false)
 
       await sendTemplate(conversationId, selected.id, components)
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e: unknown) {
+      rollback?.()
+      // El diálogo ya se cerró: el error tiene que verse fuera de él.
+      const message = e instanceof Error ? e.message : undefined
+      setError(message ?? null)
+      addToast({ type: "error", title: "No se pudo enviar la plantilla", description: message })
     } finally {
       setSending(false)
     }
@@ -180,8 +188,8 @@ export function TemplatePicker({
     <Dialog open={open} onOpenChange={setOpen}>
       {!hideTrigger && (
         <DialogTrigger asChild>
-          <Button variant="ghost" size="sm" disabled={disabled} title="Plantillas de WhatsApp">
-            <FileText className="w-4 h-4" />
+          <Button variant="ghost" size="sm" disabled={disabled} title="Plantillas de WhatsApp" aria-label="Plantillas de WhatsApp">
+            <FileText className="w-4 h-4" aria-hidden="true" />
           </Button>
         </DialogTrigger>
       )}
@@ -194,8 +202,9 @@ export function TemplatePicker({
                 size="sm"
                 className="h-6 w-6 p-0"
                 onClick={() => setSelected(null)}
+                aria-label="Volver a la lista de plantillas"
               >
-                <ArrowLeft className="w-4 h-4" />
+                <ArrowLeft className="w-4 h-4" aria-hidden="true" />
               </Button>
             )}
             {selected ? selected.name : "Plantillas de WhatsApp"}
@@ -227,6 +236,7 @@ export function TemplatePicker({
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Buscar plantilla..."
+                aria-label="Buscar plantilla"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9"
@@ -234,23 +244,31 @@ export function TemplatePicker({
             </div>
             <ScrollArea className="flex-1 max-h-[50vh]">
               {loading ? (
-                <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
+                <div role="status" className="flex items-center justify-center py-8 text-muted-foreground text-sm">
                   Cargando plantillas...
+                </div>
+              ) : templates.length === 0 && error ? (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground text-sm gap-2">
+                  <p>No se pudieron cargar las plantillas.</p>
+                  <Button variant="outline" size="sm" onClick={() => void fetchTemplates()}>
+                    Reintentar
+                  </Button>
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-muted-foreground text-sm gap-2">
-                  <FileText className="w-8 h-8 opacity-50" />
+                  <FileText className="w-8 h-8 opacity-50" aria-hidden="true" />
                   {templates.length === 0
-                    ? "No hay plantillas. Haz clic en Sincronizar."
+                    ? "No hay plantillas. Hacé clic en Sincronizar."
                     : "No se encontraron resultados"}
                 </div>
               ) : (
                 <div className="flex flex-col gap-2 pr-3">
                   {filtered.map((template) => (
                     <button
+                      type="button"
                       key={template.id}
                       onClick={() => handleSelectTemplate(template)}
-                      className="text-left p-3 rounded-lg border border-border hover:bg-accent transition-colors"
+                      className="text-left p-3 rounded-lg border border-border outline-none hover:bg-accent transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium text-sm truncate">{template.name}</span>
@@ -262,7 +280,7 @@ export function TemplatePicker({
                         {template.language}
                         {template.components.find((c) => c.type === "BODY" || c.type === "body")?.text && (
                           <span className="ml-2 truncate">
-                            — {template.components.find((c) => c.type === "BODY" || c.type === "body")!.text!.substring(0, 60)}...
+                            · {template.components.find((c) => c.type === "BODY" || c.type === "body")!.text!.substring(0, 60)}…
                           </span>
                         )}
                       </div>

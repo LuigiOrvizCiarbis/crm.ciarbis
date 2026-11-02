@@ -29,7 +29,7 @@ import { useToast } from "@/components/Toast"
 import { ChannelError, ChannelErrorDetail } from "@/lib/channel-error"
 import { FilterType, Channel, Conversation, Message, TranslationLanguage } from "@/data/types"
 import { ChannelType, filterTypeToChannelType } from "@/data/enums"
-import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { ChatQuickBar } from "@/components/ChatQuickBar"
 import {
@@ -39,6 +39,7 @@ import {
   bulkAiAutoreplyConversations,
   bulkDeleteConversations,
   bulkMarkReadConversations,
+  ConversationUnavailableError,
   getConversationMessages,
   getConversationsCursorPage,
   getConversationWithMessages,
@@ -74,6 +75,7 @@ import {
 import { sendMessage, sendContactsMessage, saveSharedContact, sendMailMessage, editMessage, deleteMessage, translateMessage, reactToMessage, type SendMailMessageInput } from "@/lib/api/messages"
 import { ConversationHeader } from "@/components/chat/ConversationHeader"
 import { PendingAiBookingsBanner } from "@/components/chat/PendingAiBookingsBanner"
+import { HumanHandoffBanner } from "@/components/chat/HumanHandoffBanner"
 import { MessageList } from "@/components/chat/MessageList"
 import { applyReactionToggle } from "@/components/chat/messageThreadUtils"
 import { MessageInput } from "@/components/chat/MessageInput"
@@ -96,6 +98,7 @@ import { getPusher } from "@/lib/pusher"
 import { cancelManualAiDraft, getManualAiDraft, requestManualAiDraft, type ManualAiDraft } from "@/lib/api/manual-ai-drafts"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useAuthStore } from "@/store/useAuthStore"
+import { useComposerStore } from "@/store/useComposerStore"
 import { useFacebookSDK } from "@/hooks/useFacebookSDK"
 import { useInstagramLogin } from "@/hooks/useInstagramLogin"
 import { InstagramPageSelectDialog } from "@/components/chat/InstagramPageSelectDialog"
@@ -109,7 +112,10 @@ import { useNotificationsStore } from "@/store/useNotificationsStore"
 import { useScheduledMessages } from "@/hooks/useScheduledMessages"
 import { createScheduledMessage, supportsScheduledMessages } from "@/lib/api/scheduled-messages"
 import { ScheduledMessagesBar } from "@/components/chat/ScheduledMessagesBar"
+import { EmptyState } from "@/components/EmptyState"
+import { SkeletonList } from "@/components/Skeleton"
 import {
+  AlertCircle,
   Archive,
   ArchiveRestore,
   Bot,
@@ -269,6 +275,39 @@ function ChatsCompactHeader({
   )
 }
 
+const EMPTY_MESSAGES: Message[] = []
+
+/**
+ * Reemplaza sólo el mensaje que coincide. Sin coincidencia o sin cambios devuelve
+ * la misma conversación: React no re-renderiza y las demás burbujas (memoizadas)
+ * conservan su referencia.
+ */
+function patchConversationMessage<C extends { messages?: Message[] }>(
+  conversation: C | null,
+  matches: (message: Message) => boolean,
+  update: (message: Message) => Message,
+): C | null {
+  const messages = conversation?.messages
+  if (!conversation || !messages) return conversation
+  const index = messages.findIndex(matches)
+  if (index === -1) return conversation
+  const next = update(messages[index])
+  if (next === messages[index]) return conversation
+  const patched = messages.slice()
+  patched[index] = next
+  return { ...conversation, messages: patched }
+}
+
+// El panel de contacto va al costado desde lg; por debajo se abre como sheet.
+const LG_VIEWPORT_QUERY = "(min-width: 1024px)"
+function subscribeToLgViewport(onChange: () => void) {
+  const mql = window.matchMedia(LG_VIEWPORT_QUERY)
+  mql.addEventListener("change", onChange)
+  return () => mql.removeEventListener("change", onChange)
+}
+const getLgViewportSnapshot = () => window.matchMedia(LG_VIEWPORT_QUERY).matches
+const getLgViewportServerSnapshot = () => true
+
 export default function ChatsPage() {
   const { addToast, removeToast } = useToast()
   const { t, language } = useTranslation()
@@ -307,6 +346,8 @@ export default function ChatsPage() {
   const [selectedChannel, setSelectedChannel] = useState<number | null>(null)
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null)
   const [isContactInfoOpen, setIsContactInfoOpen] = useState(false)
+  const contactInfoTriggerRef = useRef<HTMLElement | null>(null)
+  const isLgViewport = useSyncExternalStore(subscribeToLgViewport, getLgViewportSnapshot, getLgViewportServerSnapshot)
   const [isChannelsSheetOpen, setIsChannelsSheetOpen] = useState(false)
   const [isMailConnectOpen, setMailConnectOpen] = useState(false)
   const [activeFilter, setActiveFilter] = useState<FilterType>("todos")
@@ -319,7 +360,8 @@ export default function ChatsPage() {
   const [isSearchingMessages, setIsSearchingMessages] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isChannelsLoading, setIsChannelsLoading] = useState(false)
-  const [message, setMessage] = useState("")
+  // Escribe el borrador del composer sin suscribirse: tipear no re-renderiza la página.
+  const setMessage = useComposerStore((state) => state.setDraft)
   const [channels, setChannels] = useState<Channel[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null)
@@ -328,7 +370,13 @@ export default function ChatsPage() {
   // que el banner de turnos de la IA vuelva a consultar los pendientes.
   const [aiBookingsRefreshKey, setAiBookingsRefreshKey] = useState(0)
 
-  const activeConversation = useMemo(() => conversations.find((c) => c.id === selectedConversationId), [conversations, selectedConversationId])
+  // Un deep link puede apuntar a una conversación que todavía no llegó en la paginación:
+  // mientras tanto el hilo usa la conversación cargada por id.
+  const activeConversation = useMemo(
+    () => conversations.find((c) => c.id === selectedConversationId)
+      ?? (currentConversation?.id === selectedConversationId ? currentConversation : undefined),
+    [conversations, currentConversation, selectedConversationId],
+  )
 
   const hotkeyExpansionContext = useMemo(() => ({
     contactName: (currentConversation ?? activeConversation)?.contact?.name ?? null,
@@ -448,6 +496,14 @@ export default function ChatsPage() {
   const [bulkSubmitting, setBulkSubmitting] = useState(false)
   const [newGroupOpen, setNewGroupOpen] = useState(false)
   const [groupsOnly, setGroupsOnly] = useState(false)
+  // Un fallo de carga no debe verse como "no hay conversaciones".
+  const [conversationsLoadFailed, setConversationsLoadFailed] = useState(false)
+  const [channelsLoadFailed, setChannelsLoadFailed] = useState(false)
+  // "unavailable": 404/403, reintentar no sirve; "failed": error recuperable.
+  const [conversationLoadError, setConversationLoadError] = useState<"unavailable" | "failed" | null>(null)
+  const [conversationReloadKey, setConversationReloadKey] = useState(0)
+  const [channelsReloadKey, setChannelsReloadKey] = useState(0)
+  const [loadMoreMessagesFailed, setLoadMoreMessagesFailed] = useState(false)
 
   const conversationsRef = useRef(conversations);
   useEffect(() => {
@@ -460,6 +516,7 @@ export default function ChatsPage() {
     const requestVersion = reset ? ++conversationRequestVersion.current : conversationRequestVersion.current
     if (reset) {
       setIsLoading(true)
+      setConversationsLoadFailed(false)
       conversationCursorRef.current = null
       setHasMoreConversations(false)
       hasMoreConversationsRef.current = false
@@ -485,8 +542,13 @@ export default function ChatsPage() {
       hasMoreConversationsRef.current = result.hasMore
     } catch {
       if (requestVersion === conversationRequestVersion.current) {
-        addToast({ type: "error", title: t("chats.loadConversationsError") })
-        if (reset) setConversations([])
+        // La carga inicial ya muestra el error en la lista con "Reintentar"; el toast queda solo para "cargar más".
+        if (reset) {
+          setConversations([])
+          setConversationsLoadFailed(true)
+        } else {
+          addToast({ type: "error", title: t("chats.loadConversationsError") })
+        }
       }
     } finally {
       if (requestVersion === conversationRequestVersion.current) {
@@ -607,74 +669,51 @@ export default function ChatsPage() {
   }, [getRealtimeMessagePreview, normalizeIncomingTemplateContent, selectedConversationId]);
 
   const handleRealTimeEdit = useCallback((updatedMsg: Message) => {
-    setCurrentConversation((prev) => {
-      if (!prev) return prev;
-      const messages = prev.messages || [];
-      return {
-        ...prev,
-        messages: messages.map((m: Message) =>
-          m.id === updatedMsg.id
-            ? {
-                ...m,
-                content: updatedMsg.content,
-                edited_at: updatedMsg.edited_at,
-                original_content: updatedMsg.original_content ?? m.original_content,
-              }
-            : m
-        ),
-      };
-    });
+    setCurrentConversation((prev) =>
+      patchConversationMessage(prev, (m) => m.id === updatedMsg.id, (m) => ({
+        ...m,
+        content: updatedMsg.content,
+        edited_at: updatedMsg.edited_at,
+        original_content: updatedMsg.original_content ?? m.original_content,
+      })),
+    );
   }, []);
 
   const handleRealTimeDelete = useCallback((data: { id: number; conversation_id: number }) => {
-    setCurrentConversation((prev) => {
-      if (!prev) return prev;
-      const messages = prev.messages || [];
-      return {
-        ...prev,
-        messages: messages.map((m: Message) =>
-          m.id === data.id ? { ...m, deleted_at: new Date().toISOString() } : m
-        ),
-      };
-    });
+    setCurrentConversation((prev) =>
+      patchConversationMessage(prev, (m) => m.id === data.id, (m) =>
+        m.deleted_at ? m : { ...m, deleted_at: new Date().toISOString() },
+      ),
+    );
   }, []);
 
   const handleRealTimeStatus = useCallback((status: MessageStatusUpdate) => {
-    setCurrentConversation((prev) => {
-      if (!prev) return prev;
-      const messages = prev.messages || [];
-      return {
-        ...prev,
-        messages: messages.map((m: Message) =>
-          String(m.id) === String(status.id)
-            ? {
-                ...m,
-                delivered_at: status.delivered_at ?? m.delivered_at,
-                read_at: status.read_at ?? m.read_at,
-                played_at: status.played_at ?? m.played_at,
-                failed_at: status.failed_at ?? m.failed_at,
-                error_message: status.error_message ?? m.error_message,
-              }
-            : m
-        ),
-      };
-    });
+    setCurrentConversation((prev) =>
+      patchConversationMessage(prev, (m) => String(m.id) === String(status.id), (m) => {
+        const next = {
+          delivered_at: status.delivered_at ?? m.delivered_at,
+          read_at: status.read_at ?? m.read_at,
+          played_at: status.played_at ?? m.played_at,
+          failed_at: status.failed_at ?? m.failed_at,
+          error_message: status.error_message ?? m.error_message,
+        };
+        // Los webhooks repiten estados (p. ej. "delivered" dos veces): sin cambios, sin render.
+        const unchanged = (Object.keys(next) as (keyof typeof next)[]).every((key) => next[key] === m[key]);
+        return unchanged ? m : { ...m, ...next };
+      }),
+    );
   }, []);
 
   // El evento trae el estado completo de reacciones del mensaje, no un delta:
   // siempre pisa cualquier proyección optimista local, sin reconciliación
   // heurística.
   const handleRealTimeReaction = useCallback((data: MessageReactionUpdate) => {
-    setCurrentConversation((prev) => {
-      if (!prev) return prev;
-      const messages = prev.messages || [];
-      return {
-        ...prev,
-        messages: messages.map((m: Message) =>
-          String(m.id) === String(data.message_id) ? { ...m, reaction_summary: data.reactions } : m
-        ),
-      };
-    });
+    setCurrentConversation((prev) =>
+      patchConversationMessage(prev, (m) => String(m.id) === String(data.message_id), (m) => ({
+        ...m,
+        reaction_summary: data.reactions,
+      })),
+    );
   }, []);
 
   const scheduledMessages = useScheduledMessages(selectedConversationId);
@@ -731,10 +770,11 @@ export default function ChatsPage() {
     onMessage: handleTenantMessage,
   });
 
-  const handleLoadMoreMessages = async () => {
+  const handleLoadMoreMessages = useCallback(async () => {
     if (!selectedConversationId || isLoadingMoreMessages || !hasMore) return
 
     setIsLoadingMoreMessages(true)
+    setLoadMoreMessagesFailed(false)
     try {
       const nextPage = page + 1
       // Llamamos a la API pidiendo la siguiente página
@@ -749,9 +789,9 @@ export default function ChatsPage() {
         setCurrentConversation((prev) => {
           if (!prev) return prev;
 
-          const existingIds = new Set((prev.messages || []).map((m: any) => m.id));
-          const uniqueNewMessages = newMessages.filter((m: any) => !existingIds.has(m.id));
-          const combinedMessages = [...uniqueNewMessages, ...(prev.messages || [])].sort((a: any, b: any) => a.id - b.id);
+          const existingIds = new Set((prev.messages || []).map((m) => m.id));
+          const uniqueNewMessages = (newMessages as Message[]).filter((m) => !existingIds.has(m.id));
+          const combinedMessages = [...uniqueNewMessages, ...(prev.messages || [])].sort((a, b) => a.id - b.id);
 
           return { ...prev, messages: combinedMessages };
         });
@@ -765,10 +805,12 @@ export default function ChatsPage() {
     } catch (error) {
       console.error("Error cargando más mensajes:", error)
       addToast({ type: "error", title: t("chats.loadHistoryError") })
+      // Corta la carga automática al scrollear: sin esto reintenta en bucle.
+      setLoadMoreMessagesFailed(true)
     } finally {
       setIsLoadingMoreMessages(false)
     }
-  }
+  }, [addToast, hasMore, isLoadingMoreMessages, page, selectedConversationId, t])
 
 
   const {
@@ -908,6 +950,7 @@ export default function ChatsPage() {
     let cancelled = false;
     (async () => {
       setIsChannelsLoading(true)
+      setChannelsLoadFailed(false)
       const [channelsResult] = await Promise.allSettled([
         getChannels(),
       ])
@@ -916,13 +959,14 @@ export default function ChatsPage() {
       if (channelsResult.status === "fulfilled") {
         setChannels(channelsResult.value)
       } else {
+        setChannelsLoadFailed(true)
         addToast({ type: "error", title: t("chats.loadAccountsError"), description: t("chats.loadAccountsErrorDesc") })
       }
 
       setIsChannelsLoading(false)
     })()
     return () => { cancelled = true }
-  }, [])
+  }, [channelsReloadKey])
 
   // Channel connection events
   useEffect(() => {
@@ -986,6 +1030,8 @@ export default function ChatsPage() {
 
     // Clear stale data immediately so we never show conversation A under conversation B's header
     setCurrentConversation(null);
+    setConversationLoadError(null);
+    setLoadMoreMessagesFailed(false);
 
     let cancelled = false;
     (async () => {
@@ -998,6 +1044,11 @@ export default function ChatsPage() {
       } catch (error) {
         if (cancelled) return;
         setCurrentConversation(null);
+        if (error instanceof ConversationUnavailableError) {
+          setConversationLoadError("unavailable");
+          return;
+        }
+        setConversationLoadError("failed");
         addToast({
           type: "error",
           title: t("chats.loadConversationError"),
@@ -1006,7 +1057,26 @@ export default function ChatsPage() {
       }
     })();
     return () => { cancelled = true };
-  }, [selectedConversationId]);
+  }, [selectedConversationId, conversationReloadKey]);
+
+  // La conversación abierta por deep link puede no estar en la primera página: se suma a la
+  // lista (en su lugar por fecha) para que las acciones que leen la lista funcionen. Si luego
+  // llega por paginación, loadConversationPage ya descarta ids repetidos.
+  useEffect(() => {
+    if (!currentConversation || currentConversation.id !== selectedConversationId) return;
+    if (selectedChannelId && currentConversation.channelId !== selectedChannelId) return;
+    if (isLoading || conversations.some((c) => c.id === currentConversation.id)) return;
+
+    // Sin mensajes: la lista sólo necesita el resumen.
+    const entry: Conversation = { ...currentConversation, messages: undefined };
+    const entryTime = new Date(entry.last_message_at || entry.timestamp || 0).getTime();
+    setConversations((prev) => {
+      if (prev.some((c) => c.id === entry.id)) return prev;
+      const index = prev.findIndex((c) => new Date(c.last_message_at || c.timestamp || 0).getTime() < entryTime);
+      if (index === -1) return [...prev, entry];
+      return [...prev.slice(0, index), entry, ...prev.slice(index)];
+    });
+  }, [conversations, currentConversation, isLoading, selectedChannelId, selectedConversationId]);
 
   useEffect(() => {
     const userId = user?.id;
@@ -1057,8 +1127,8 @@ export default function ChatsPage() {
     setAiDraft(null);
   }, [selectedConversationId]);
   const handleUseAiDraft = useCallback(() => {
-    if (aiDraft?.content && !message.trim()) setMessage(aiDraft.content);
-  }, [aiDraft?.content, message]);
+    if (aiDraft?.content && !useComposerStore.getState().draft.trim()) setMessage(aiDraft.content);
+  }, [aiDraft?.content, setMessage]);
 
 
   const handleConnectChannel = (channelType: ConnectableChannel = "whatsapp") => {
@@ -1078,7 +1148,7 @@ export default function ChatsPage() {
       addToast({
         type: "loading",
         title: "Preparando Facebook",
-        description: "El onboarding se está cargando. Intentá nuevamente en unos segundos.",
+        description: "La conexión con Facebook se está cargando. Intentá de nuevo en unos segundos.",
       })
       return
     }
@@ -1264,8 +1334,11 @@ export default function ChatsPage() {
     }
   }, [addToast, t])
 
+  // Devuelve el rollback que TemplatePicker invoca si el envío falla.
   const handleSendTemplate = (content: string) => {
     if (!selectedConversationId) return;
+    const conversationId = selectedConversationId;
+    const previousLastMessage = conversationsRef.current.find((c) => c.id === conversationId)?.last_message;
 
     const tempId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticMessage: any = {
@@ -1274,7 +1347,7 @@ export default function ChatsPage() {
       type: "text",
       created_at: new Date().toISOString(),
       status: "sending",
-      conversation_id: selectedConversationId,
+      conversation_id: conversationId,
       direction: "outbound",
       sender_type: "user",
     };
@@ -1286,13 +1359,26 @@ export default function ChatsPage() {
     });
 
     setConversations((prevConversations) => {
-      const index = prevConversations.findIndex((c) => c.id === selectedConversationId);
+      const index = prevConversations.findIndex((c) => c.id === conversationId);
       if (index === -1) return prevConversations;
       const updated = { ...prevConversations[index], aiAutoreplyEnabled: false, last_message: content, updated_at: new Date().toISOString() };
       const next = [...prevConversations];
       next.splice(index, 1);
       return [updated, ...next];
     });
+
+    // Igual que con los mensajes de texto: si falla, el optimista se quita del hilo.
+    return () => {
+      setCurrentConversation((prev) => (
+        prev && prev.id === conversationId
+          ? { ...prev, messages: (prev.messages || []).filter((m) => String(m.id) !== tempId) }
+          : prev
+      ));
+      if (previousLastMessage === undefined) return;
+      setConversations((prev) => prev.map((c) => (
+        c.id === conversationId && c.last_message === content ? { ...c, last_message: previousLastMessage } : c
+      )));
+    };
   };
 
   const handleEditMessage = useCallback((msg: Message) => {
@@ -1487,18 +1573,12 @@ export default function ChatsPage() {
     }
   }, [currentUserId, addToast, t]);
 
-  const handleDeleteMessage = async (msg: Message) => {
+  const handleDeleteMessage = useCallback(async (msg: Message) => {
     try {
       await deleteMessage(msg.id);
-      setCurrentConversation((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          messages: (prev.messages || []).map((m: Message) =>
-            m.id === msg.id ? { ...m, deleted_at: new Date().toISOString() } : m
-          ),
-        };
-      });
+      setCurrentConversation((prev) =>
+        patchConversationMessage(prev, (m) => m.id === msg.id, (m) => ({ ...m, deleted_at: new Date().toISOString() })),
+      );
       addToast({ type: "success", title: t("chats.messageDeletedSuccess") });
     } catch (error) {
       console.error('[ChatsPage] Error deleting message:', error);
@@ -1508,7 +1588,7 @@ export default function ChatsPage() {
         description: error instanceof Error ? error.message : t("chats.unknownError"),
       });
     }
-  };
+  }, [addToast, t]);
 
   const handleSendMessage = async (content: string, media?: File, voice = false) => {
     if (!content && !media) return;
@@ -1686,14 +1766,14 @@ export default function ChatsPage() {
     }
   }
 
-  const handleSaveSharedContact = async (message: Message, index: number) => {
+  const handleSaveSharedContact = useCallback(async (message: Message, index: number) => {
     try {
       await saveSharedContact(message.id, index)
       addToast({ type: "success", title: "Contacto guardado" })
     } catch (error) {
       addToast({ type: "error", title: "No se pudo guardar el contacto", description: error instanceof Error ? error.message : undefined })
     }
-  }
+  }, [addToast])
 
   const handleSendMail = async (input: SendMailMessageInput) => {
     if (!selectedConversationId) return
@@ -2037,7 +2117,7 @@ export default function ChatsPage() {
         <TagFilterMenu
           selectedSlugs={tagFilterSlugs}
           onChange={setTagFilterSlugs}
-          label="Tags"
+          label="Etiquetas"
           align="start"
         />
         <StageFilterMenu
@@ -2055,7 +2135,8 @@ export default function ChatsPage() {
           selectedChannel={selectedChannel}
           activeFilter={activeFilter}
           isLoading={isChannelsLoading}
-          error={null}
+          error={channelsLoadFailed ? new Error(t("chats.loadAccountsErrorDesc")) : null}
+          onRetry={() => setChannelsReloadKey((key) => key + 1)}
           onChannelSelect={onChannelSelect}
           onRenameChannel={canUpdateChannels ? handleRenameChannel : undefined}
           onSyncMailChannel={canUpdateChannels ? handleSyncMailChannel : undefined}
@@ -2069,7 +2150,7 @@ export default function ChatsPage() {
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="w-full justify-center gap-2 bg-transparent">
               <Zap className="h-4 w-4 text-primary" />
-              + Connect chat
+              Conectar canal
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-[--radix-dropdown-menu-trigger-width]">
@@ -2162,6 +2243,8 @@ export default function ChatsPage() {
               hasMore={hasMoreConversations}
               isLoadingMore={isLoadingMoreConversations}
               onLoadMore={() => { void loadConversationPage() }}
+              loadFailed={conversationsLoadFailed}
+              onRetryLoad={() => { void loadConversationPage(true) }}
             />
           </aside>
         )}
@@ -2330,7 +2413,7 @@ export default function ChatsPage() {
                         variant="ghost"
                         onClick={() => handleBulkAiAutoreply(true)}
                         disabled={bulkSubmitting}
-                        className="h-6 px-2 text-xs text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
+                        className="h-6 px-2 text-xs text-success hover:bg-success/10 hover:text-success"
                       >
                         {t("chats.bulk.enableAi")}
                       </Button>
@@ -2383,14 +2466,26 @@ export default function ChatsPage() {
                 hasMore={hasMoreConversations}
                 isLoadingMore={isLoadingMoreConversations}
                 onLoadMore={() => { void loadConversationPage() }}
-                emptyState={{
-                  title: searchQuery ? t("chats.noSearchResults") : t("chats.noConversations"),
-                  description: searchQuery
-                    ? t("chats.noSearchResultsDesc")
-                    : selectedChannelId
-                    ? `${activeChannel?.name}`
-                    : t("chats.noConversationsDesc"),
-                }}
+                loadFailed={conversationsLoadFailed}
+                onRetryLoad={() => { void loadConversationPage(true) }}
+                emptyState={
+                  searchQuery
+                    ? { title: t("chats.noSearchResults"), description: t("chats.noSearchResultsDesc") }
+                    : tagFilterSlugs.length > 0 || stageFilter.length > 0 || groupsOnly
+                    ? {
+                        title: t("chats.noSearchResults"),
+                        description: t("chats.noFilterMatchesDesc"),
+                        action: {
+                          label: t("chats.clearFilters"),
+                          onClick: () => {
+                            setTagFilterSlugs([])
+                            setStageFilter([])
+                            setGroupsOnly(false)
+                          },
+                        },
+                      }
+                    : { title: t("chats.noConversations"), description: t("chats.noConversationsDesc") }
+                }
               />
             </>
           )}
@@ -2402,13 +2497,27 @@ export default function ChatsPage() {
                 conversation={activeConversation}
                 isContactInfoOpen={isContactInfoOpen}
                 onBack={handleBackToConversations}
-                onToggleContactInfo={() => setIsContactInfoOpen(!isContactInfoOpen)}
+                onToggleContactInfo={(trigger) => {
+                  contactInfoTriggerRef.current = trigger
+                  setIsContactInfoOpen(!isContactInfoOpen)
+                }}
                 onRenameContact={handleRenameContact}
                 onRenameGroup={handleRenameGroup}
                 onToggleAiAutoreply={handleToggleAiAutoreply}
               />
+              {currentConversation?.id === selectedConversationId && (
+                <HumanHandoffBanner
+                  conversation={currentConversation}
+                  onUpdated={(updated) => {
+                    setCurrentConversation(updated)
+                    setConversations((prev) => prev.map((c) => (
+                      c.id === updated.id ? { ...c, assigneeId: updated.assigneeId, humanHandoff: updated.humanHandoff } : c
+                    )))
+                  }}
+                />
+              )}
               <PendingAiBookingsBanner
-                key={selectedConversationId}
+                key={`ai-bookings-${selectedConversationId}`}
                 conversationId={selectedConversationId}
                 refreshKey={aiBookingsRefreshKey}
               />
@@ -2451,11 +2560,12 @@ export default function ChatsPage() {
                 onTagsChange={handleConversationTagsChange}
               />
               <MessageList
-                key={selectedConversationId}
-                messages={currentConversation?.messages || []}
+                key={`thread-${selectedConversationId}`}
+                messages={currentConversation?.messages ?? EMPTY_MESSAGES}
                 onLoadMore={handleLoadMoreMessages}
                 hasMore={hasMore}
                 isLoadingMore={isLoadingMoreMessages}
+                loadMoreFailed={loadMoreMessagesFailed}
                 onEditMessage={handleEditMessage}
                 onDeleteMessage={handleDeleteMessage}
                 onReactMessage={handleReactToMessage}
@@ -2470,8 +2580,6 @@ export default function ChatsPage() {
               />
               {activeConversation?.channel?.type === ChannelType.MAIL ? (
                 <MailMessageInput
-                  value={message}
-                  onChange={setMessage}
                   onSend={handleSendMail}
                   disabled={isLoading}
                   subject={[...(currentConversation?.messages ?? [])]
@@ -2493,8 +2601,6 @@ export default function ChatsPage() {
                   onRemoved={scheduledMessages.remove}
                 />
                 <MessageInput
-                  value={message}
-                  onChange={setMessage}
                   onSend={editingMessage ? handleSaveEdit : handleSendMessage}
                   disabled={isLoading}
                   channelId={activeConversation?.channel?.id ?? activeConversation?.channelId}
@@ -2524,33 +2630,88 @@ export default function ChatsPage() {
 
           )}
 
+          {/* Mientras carga o si falla el hilo, el panel no queda en blanco. */}
+          {selectedConversationId && !currentConversation && (
+            conversationLoadError === "unavailable" ? (
+              <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto p-4">
+                <EmptyState
+                  icon={AlertCircle}
+                  title={t("chats.conversationUnavailable")}
+                  description={t("chats.conversationUnavailableDesc")}
+                  action={{ label: t("chats.back"), onClick: handleBackToConversations }}
+                />
+              </div>
+            ) : conversationLoadError === "failed" ? (
+              <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto p-4">
+                <EmptyState
+                  icon={AlertCircle}
+                  title={t("chats.loadConversationError")}
+                  description={t("chats.channelErrorNetwork")}
+                  action={{ label: t("chats.retry"), onClick: () => setConversationReloadKey((key) => key + 1) }}
+                />
+                <Button variant="ghost" size="sm" onClick={handleBackToConversations}>
+                  {t("chats.back")}
+                </Button>
+              </div>
+            ) : (
+              <div role="status" aria-label={t("chats.loading")} className="flex-1 overflow-y-auto p-4">
+                <SkeletonList count={4} />
+              </div>
+            )
+          )}
+
         </div>
 
-        {/* Panel de información de contacto o de grupo */}
+        {/* Panel de información de contacto o de grupo: columna lateral desde lg,
+            sheet a pantalla completa (max-w-md en tablet) por debajo. */}
         {selectedConversationId && activeConversation && (() => {
-          if (activeConversation.kind === "group") {
-            if (!activeConversation.group) return null
-            return (
-              <GroupPanel
-                groupId={activeConversation.group.id}
-                isOpen={isContactInfoOpen}
-                onClose={() => setIsContactInfoOpen(false)}
-                onDeleted={() => {
-                  setIsContactInfoOpen(false)
-                  handleBackToConversations()
-                }}
-              />
-            )
-          }
-
+          const isGroup = activeConversation.kind === "group"
           const contactId = activeConversation.contact_id ?? Number(activeConversation.contact?.id)
-          if (!contactId || Number.isNaN(contactId)) return null
-          return (
+          if (isGroup ? !activeConversation.group : !contactId || Number.isNaN(contactId)) return null
+          const panelClassName = isLgViewport ? undefined : "w-full border-l-0"
+          const panel = isGroup && activeConversation.group ? (
+            <GroupPanel
+              groupId={activeConversation.group.id}
+              isOpen={isContactInfoOpen}
+              onClose={() => setIsContactInfoOpen(false)}
+              onDeleted={() => {
+                setIsContactInfoOpen(false)
+                handleBackToConversations()
+              }}
+              className={panelClassName}
+            />
+          ) : (
             <ContactInfoPanel
               contactId={contactId}
               isOpen={isContactInfoOpen}
               onClose={() => setIsContactInfoOpen(false)}
+              className={panelClassName}
             />
+          )
+
+          if (isLgViewport) return panel
+
+          // El panel ya trae su propio botón de cerrar: se oculta el de la sheet.
+          return (
+            <Sheet open={isContactInfoOpen} onOpenChange={setIsContactInfoOpen}>
+              <SheetContent
+                side="right"
+                aria-describedby={undefined}
+                className="w-full gap-0 p-0 sm:max-w-md [&>button:last-child]:hidden"
+                onCloseAutoFocus={(event) => {
+                  const trigger = contactInfoTriggerRef.current
+                  if (trigger?.isConnected) {
+                    event.preventDefault()
+                    trigger.focus()
+                  }
+                }}
+              >
+                <SheetTitle className="sr-only">
+                  {isGroup ? (activeConversation.group?.subject ?? t("chats.contactInfo")) : t("chats.contactInfo")}
+                </SheetTitle>
+                {panel}
+              </SheetContent>
+            </Sheet>
           )
         })()}
       </div>

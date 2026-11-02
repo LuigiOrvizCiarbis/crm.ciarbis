@@ -211,8 +211,8 @@ export function BillingTemplatesCard() {
       ) : (
         <div className="space-y-6">
           {allRequiredApproved && (
-            <div className="flex items-start gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4">
-              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" aria-hidden />
+            <div className="flex items-start gap-3 rounded-lg border border-success/30 bg-success/10 p-4">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" aria-hidden />
               <div className="space-y-1 text-sm">
                 <p className="font-medium">Plantillas aprobadas</p>
                 <p className="text-muted-foreground">
@@ -224,8 +224,8 @@ export function BillingTemplatesCard() {
           )}
 
           {pending.length > 0 && (
-            <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-              <Clock className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" aria-hidden />
+            <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/10 p-4">
+              <Clock className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden />
               <div className="space-y-1 text-sm">
                 <p className="font-medium">Meta está revisando tus plantillas</p>
                 <p className="text-muted-foreground">
@@ -236,8 +236,8 @@ export function BillingTemplatesCard() {
           )}
 
           {rejected.length > 0 && (
-            <div className="flex items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/5 p-4">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-500" aria-hidden />
+            <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
               <div className="space-y-1 text-sm">
                 <p className="font-medium">Meta rechazó una plantilla</p>
                 <ul className="space-y-0.5 text-muted-foreground">

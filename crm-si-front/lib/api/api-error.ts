@@ -1,6 +1,6 @@
 import { classifyApiFailure, reportApiFailure } from "@/lib/observability/sentry";
 
-const GENERIC_ERROR = "Ocurrió un error inesperado. Inténtalo de nuevo más tarde.";
+const GENERIC_ERROR = "Ocurrió un error inesperado. Intentá de nuevo más tarde.";
 
 function reportApiError(status: number, payload: any, fallback?: string) {
   const classification = classifyApiFailure(status, payload);

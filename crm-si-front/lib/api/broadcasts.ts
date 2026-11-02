@@ -158,6 +158,8 @@ export interface BroadcastEstimate {
     pipeline_stage_restricts_to_existing_conversations: boolean
   }
   estimated_cost_usd: number
+  /** Tarifa por mensaje que usó el back para la estimación (config broadcasts.cost_per_message_usd). */
+  cost_per_message_usd: number
   capped: boolean
   messaging_limit: BroadcastMessagingLimit
 }

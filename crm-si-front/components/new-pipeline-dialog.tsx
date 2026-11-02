@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { createPipeline, getPipelineStages, type Pipeline } from "@/lib/api/pipeline"
+import { createPipeline, fetchPipelineStages, type Pipeline } from "@/lib/api/pipeline"
 import { useTranslation } from "@/hooks/useTranslation"
 import { cn } from "@/lib/utils"
 
@@ -48,15 +48,18 @@ export function NewPipelineDialog({ open, onOpenChange, pipelines, onCreated }: 
   useEffect(() => {
     if (!open || mode !== "copy" || !effectiveSourceId) return
     let cancelled = false
-    getPipelineStages(effectiveSourceId).then((items) => {
+    fetchPipelineStages(effectiveSourceId).then((items) => {
       if (cancelled) return
       const stages = [...items].sort((a, b) => a.sort_order - b.sort_order).map(({ name, color }) => ({ name, color }))
       setLoadedSource({ id: effectiveSourceId, stages })
+    }).catch(() => {
+      // Sin esto la vista previa queda cargando para siempre y no se puede crear.
+      if (!cancelled) setError(t("pipeline.create.copyLoadError"))
     })
     return () => {
       cancelled = true
     }
-  }, [open, mode, effectiveSourceId])
+  }, [open, mode, effectiveSourceId, t])
 
   // Al cerrar se limpia el formulario: la próxima apertura arranca de cero.
   const handleOpenChange = (next: boolean) => {
@@ -127,9 +130,12 @@ export function NewPipelineDialog({ open, onOpenChange, pipelines, onCreated }: 
                     role="radio"
                     aria-checked={active}
                     disabled={disabled}
-                    onClick={() => setMode(value)}
+                    onClick={() => {
+                      setMode(value)
+                      setError("")
+                    }}
                     className={cn(
-                      "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors disabled:pointer-events-none disabled:opacity-40",
+                      "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40",
                       active ? "border-primary bg-primary/5" : "border-border hover:border-foreground/30 hover:bg-muted/40",
                     )}
                   >
@@ -142,7 +148,7 @@ export function NewPipelineDialog({ open, onOpenChange, pipelines, onCreated }: 
             </div>
 
             {mode === "copy" && pipelines.length > 1 && (
-              <Select value={String(effectiveSourceId)} onValueChange={(value) => setSourceId(Number(value))}>
+              <Select value={String(effectiveSourceId)} onValueChange={(value) => { setSourceId(Number(value)); setError("") }}>
                 <SelectTrigger className="h-9" aria-label={t("pipeline.create.copyFrom")}>
                   <span className="text-muted-foreground">{t("pipeline.create.copyFrom")}</span>
                   <SelectValue />

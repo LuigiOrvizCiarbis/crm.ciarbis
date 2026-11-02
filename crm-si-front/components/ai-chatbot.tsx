@@ -88,7 +88,7 @@ export function AIChatbot() {
     }
 
     if (lowerMessage.includes("funcionalidades") || lowerMessage.includes("características")) {
-      return "Nuestro CRM incluye: Pipeline Kanban, Omnicanalidad (WhatsApp, Instagram, Facebook), Automatización de tareas, Chatbot con IA, Dashboard de métricas y mucho más. ¿Hay alguna funcionalidad específica que te interese conocer?"
+      return "Nuestro CRM incluye: Embudo con tablero Kanban, Omnicanalidad (WhatsApp, Instagram, Facebook), Automatización de tareas, Chatbot con IA, Panel de métricas y mucho más. ¿Hay alguna funcionalidad específica que te interese conocer?"
     }
 
     if (lowerMessage.includes("empresa") || lowerMessage.includes("compañía")) {
@@ -158,9 +158,9 @@ export function AIChatbot() {
   }
 
   const getScoreLabel = (score: number) => {
-    if (score >= 70) return "Hot Lead"
-    if (score >= 40) return "Warm Lead"
-    return "Cold Lead"
+    if (score >= 70) return "Lead caliente"
+    if (score >= 40) return "Lead tibio"
+    return "Lead frío"
   }
 
   return (
@@ -268,11 +268,11 @@ export function AIChatbot() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="Escribe tu mensaje..."
+                placeholder="Escribí tu mensaje..."
                 className="flex-1"
               />
-              <Button onClick={handleSend} disabled={!input.trim() || isTyping}>
-                <Send className="h-4 w-4" />
+              <Button onClick={handleSend} disabled={!input.trim() || isTyping} aria-label="Enviar mensaje">
+                <Send className="h-4 w-4" aria-hidden="true" />
               </Button>
             </div>
           </div>
@@ -282,12 +282,12 @@ export function AIChatbot() {
       {/* Lead Info Panel */}
       <Card className="w-80">
         <CardHeader>
-          <CardTitle className="text-sm">Información del Lead</CardTitle>
+          <CardTitle className="text-sm">Información del lead</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Score del Lead</span>
+              <span className="text-sm text-muted-foreground">Puntaje del lead</span>
               <Badge className={`${getScoreColor(leadData.score)} text-white`}>{leadData.score}%</Badge>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2">
@@ -314,7 +314,7 @@ export function AIChatbot() {
           </div>
 
           <div className="space-y-2">
-            <h4 className="text-sm font-medium">Acciones Sugeridas</h4>
+            <h4 className="text-sm font-medium">Acciones sugeridas</h4>
             <div className="space-y-1">
               <Button variant="outline" size="sm" className="w-full justify-start bg-transparent">
                 <Calendar className="h-4 w-4 mr-2" />
@@ -326,7 +326,7 @@ export function AIChatbot() {
               </Button>
               <Button variant="outline" size="sm" className="w-full justify-start bg-transparent">
                 <Star className="h-4 w-4 mr-2" />
-                Marcar como Hot Lead
+                Marcar como lead caliente
               </Button>
             </div>
           </div>

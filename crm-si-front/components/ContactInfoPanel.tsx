@@ -36,6 +36,7 @@ export function ContactInfoPanel({ contactId, isOpen, onClose, className }: Cont
   const [contact, setContact] = useState<Contact | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (!isOpen || !contactId) return
@@ -49,7 +50,11 @@ export function ContactInfoPanel({ contactId, isOpen, onClose, className }: Cont
         if (!cancelled) setContact(data)
       })
       .catch(() => {
-        if (!cancelled) setError(t("contactPanel.loadError"))
+        // Sin esto quedaría visible el contacto anterior debajo del error.
+        if (!cancelled) {
+          setContact(null)
+          setError(t("contactPanel.loadError"))
+        }
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false)
@@ -58,7 +63,7 @@ export function ContactInfoPanel({ contactId, isOpen, onClose, className }: Cont
     return () => {
       cancelled = true
     }
-  }, [contactId, isOpen, t])
+  }, [contactId, isOpen, t, reloadKey])
 
   if (!isOpen) return null
 
@@ -77,20 +82,25 @@ export function ContactInfoPanel({ contactId, isOpen, onClose, className }: Cont
     >
       <div className="p-4 border-b border-border flex items-center justify-between sticky top-0 bg-card z-10">
         <h2 className="font-semibold text-lg">{t("contactPanel.title")}</h2>
-        <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0">
-          <X className="w-4 h-4" />
+        <Button variant="ghost" size="sm" onClick={onClose} className="size-10 p-0 lg:size-8" aria-label={t("contactPanel.close")}>
+          <X className="w-4 h-4" aria-hidden="true" />
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div className="flex-1 overflow-y-auto p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] space-y-6">
         {isLoading && (
-          <div className="flex items-center justify-center py-12 text-muted-foreground">
-            <Loader2 className="w-5 h-5 animate-spin" />
+          <div role="status" aria-label={t("chats.loading")} className="flex items-center justify-center py-12 text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
           </div>
         )}
 
         {error && !isLoading && (
-          <p className="text-sm text-destructive text-center py-8">{error}</p>
+          <div className="flex flex-col items-center gap-3 py-8 text-center">
+            <p className="text-sm text-destructive">{error}</p>
+            <Button size="sm" variant="outline" onClick={() => setReloadKey((key) => key + 1)}>
+              {t("chats.retry")}
+            </Button>
+          </div>
         )}
 
         {contact && !isLoading && (
@@ -150,7 +160,7 @@ export function ContactInfoPanel({ contactId, isOpen, onClose, className }: Cont
 
             <div className="flex gap-2 pt-4 border-t border-border">
               {phoneDigits && (
-                <Button variant="outline" className="flex-1 gap-2 bg-transparent" asChild>
+                <Button variant="outline" className="h-11 flex-1 gap-2 bg-transparent lg:h-9" asChild>
                   <a href={`https://wa.me/${phoneDigits}`} target="_blank" rel="noopener noreferrer">
                     <MessageSquare className="w-4 h-4" />
                     {t("contactPanel.openWhatsApp")}
@@ -158,7 +168,7 @@ export function ContactInfoPanel({ contactId, isOpen, onClose, className }: Cont
                 </Button>
               )}
               {contact.phone && (
-                <Button variant="outline" className="flex-1 gap-2 bg-transparent" asChild>
+                <Button variant="outline" className="h-11 flex-1 gap-2 bg-transparent lg:h-9" asChild>
                   <a href={`tel:${contact.phone}`}>
                     <Phone className="w-4 h-4" />
                     {t("contactPanel.call")}

@@ -116,7 +116,7 @@ export function ScheduleMessagePicker({ initialDate, windowExpiresAt, mode = "cr
       {error ? (
         <p className="text-xs text-destructive" role="alert">{error}</p>
       ) : windowWarning ? (
-        <p className="flex gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+        <p className="flex gap-1.5 text-xs text-warning">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {windowWarning}
         </p>

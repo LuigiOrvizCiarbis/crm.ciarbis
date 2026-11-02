@@ -29,6 +29,7 @@ import { ChevronDown, ChevronUp, GripVertical, Loader2, Pencil, Plus, SlidersHor
 import { cn } from "@/lib/utils"
 
 import { useTranslation } from "@/hooks/useTranslation"
+import { useDndAccessibility } from "@/hooks/useDndAccessibility"
 import { useToast } from "@/components/Toast"
 import { useAuthStore } from "@/store/useAuthStore"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
@@ -190,6 +191,7 @@ export function FieldsCard() {
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
+  const dndAccessibility = useDndAccessibility((id) => fields.find((field) => field.id === id)?.label)
 
   const openCreate = () => {
     setEditing(null)
@@ -384,7 +386,7 @@ export function FieldsCard() {
             ) : null}
           </div>
         ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <DndContext sensors={sensors} accessibility={dndAccessibility} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={fields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
               <ul className="space-y-1.5">
                 {fields.map((field) => (

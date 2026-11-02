@@ -215,8 +215,8 @@ function IntegrationDetail({
 const STATUS_STYLES: Record<IntegrationStatus, { dot: string; text: string }> =
   {
     connected: {
-      dot: "bg-emerald-500",
-      text: "text-emerald-600 dark:text-emerald-400",
+      dot: "bg-success",
+      text: "text-success",
     },
     available: { dot: "bg-muted-foreground/40", text: "text-muted-foreground" },
     error: { dot: "bg-destructive", text: "text-destructive" },

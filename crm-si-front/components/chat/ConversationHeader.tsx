@@ -24,7 +24,8 @@ interface ConversationHeaderProps {
   conversation: Conversation
   isContactInfoOpen: boolean
   onBack: () => void
-  onToggleContactInfo: () => void
+  /** Recibe el control que lo abrió para devolverle el foco cuando el panel se muestra como sheet. */
+  onToggleContactInfo: (trigger: HTMLElement | null) => void
   onRenameContact?: (name: string) => Promise<void> | void
   onRenameGroup?: (subject: string) => Promise<void> | void
   onToggleAiAutoreply?: (enabled: boolean) => Promise<void> | void
@@ -55,6 +56,7 @@ export function ConversationHeader({
   const [nameDraft, setNameDraft] = useState(displayName)
   const [isSavingName, setIsSavingName] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
+  const moreActionsRef = useRef<HTMLButtonElement>(null)
   const currentUser = useAuthStore((state) => state.user)
   const permissions = useAuthStore((state) => state.permissions)
   const role = useAuthStore((state) => state.role)
@@ -150,8 +152,9 @@ export function ConversationHeader({
                     onClick={() => void saveName()}
                     disabled={isSavingName}
                     title={t("chats.save")}
+                    aria-label={t("chats.save")}
                   >
-                    <Check className="w-4 h-4" />
+                    <Check className="w-4 h-4" aria-hidden="true" />
                   </Button>
                   <Button
                     variant="ghost"
@@ -160,8 +163,9 @@ export function ConversationHeader({
                     onClick={cancelEditingName}
                     disabled={isSavingName}
                     title={t("chats.cancel")}
+                    aria-label={t("chats.cancel")}
                   >
-                    <X className="w-4 h-4" />
+                    <X className="w-4 h-4" aria-hidden="true" />
                   </Button>
                 </div>
               ) : (
@@ -178,7 +182,7 @@ export function ConversationHeader({
                       title={t("chats.editContactName")}
                       aria-label={t("chats.editContactName")}
                     >
-                      <Pencil className="w-3.5 h-3.5" />
+                      <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
                     </Button>
                   )}
                 </div>
@@ -212,18 +216,19 @@ export function ConversationHeader({
               title={t("chats.aiAutoreplyHint")}
               aria-label={t("chats.aiAutoreply")}
             >
-              <Bot className="h-[18px] w-[18px]" />
+              <Bot className="h-[18px] w-[18px]" aria-hidden="true" />
             </Button>
           )}
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <Button
+                ref={moreActionsRef}
                 variant="ghost"
                 size="sm"
                 className="h-11 w-11 shrink-0 rounded-full p-0"
                 aria-label={t("chats.moreActions")}
               >
-                <MoreVertical className="h-[18px] w-[18px]" />
+                <MoreVertical className="h-[18px] w-[18px]" aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
@@ -247,7 +252,7 @@ export function ConversationHeader({
                 <History className="mr-2 h-4 w-4" />
                 {t("chats.viewFullHistory")}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onToggleContactInfo}>
+              <DropdownMenuItem onSelect={() => onToggleContactInfo(moreActionsRef.current)}>
                 <Info className="mr-2 h-4 w-4" />
                 {t("chats.contactInfo")}
               </DropdownMenuItem>
@@ -309,8 +314,9 @@ export function ConversationHeader({
               size="sm"
               onClick={() => setTimelineOpen(true)}
               title={t("timeline.title")}
+              aria-label={t("timeline.title")}
             >
-              <User className="w-4 h-4" />
+              <User className="w-4 h-4" aria-hidden="true" />
             </Button>
           )}
           {hasContactId && (
@@ -319,18 +325,20 @@ export function ConversationHeader({
               size="sm"
               onClick={() => setHistoryOpen(true)}
               title={t("chats.viewFullHistory")}
+              aria-label={t("chats.viewFullHistory")}
             >
-              <History className="w-4 h-4" />
+              <History className="w-4 h-4" aria-hidden="true" />
             </Button>
           )}
           <Button
             variant="ghost"
             size="sm"
-            onClick={onToggleContactInfo}
+            onClick={(event) => onToggleContactInfo(event.currentTarget)}
             aria-pressed={isContactInfoOpen}
             title={t("chats.contactInfo")}
+            aria-label={t("chats.contactInfo")}
           >
-            <Info className="w-4 h-4" />
+            <Info className="w-4 h-4" aria-hidden="true" />
           </Button>
         </div>
       </div>

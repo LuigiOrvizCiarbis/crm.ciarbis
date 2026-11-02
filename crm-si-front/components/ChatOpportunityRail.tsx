@@ -81,9 +81,9 @@ export function ChatOpportunityRail({
         onClick={onNew}
         title={t("chats.newOpportunity")}
         aria-label={t("chats.newOpportunity")}
-        className="flex w-8 shrink-0 snap-start items-center justify-center self-center rounded-lg py-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="flex w-8 shrink-0 snap-start items-center justify-center self-center rounded-lg py-2 text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
       >
-        <Plus className="h-4 w-4" />
+        <Plus className="h-4 w-4" aria-hidden="true" />
       </button>
     </div>
   )
@@ -155,7 +155,7 @@ function OpportunityTicket({
                 title={stage.name}
                 aria-label={t("chats.moveOpportunityTo", { stage: stage.name })}
                 aria-current={isCurrent ? "step" : undefined}
-                className="group/seg py-1.5 disabled:cursor-default"
+                className="group/seg rounded-sm py-1.5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-default"
               >
                 <span
                   className={cn(
@@ -211,9 +211,9 @@ function StepButton({
       onClick={() => target && onMove(target.id)}
       title={label}
       aria-label={label}
-      className="flex h-8 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+      className="flex h-8 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-30"
     >
-      <Icon className="h-4 w-4" />
+      <Icon className="h-4 w-4" aria-hidden="true" />
     </button>
   )
 }

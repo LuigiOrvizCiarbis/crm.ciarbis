@@ -17,7 +17,7 @@ export default function AnalyticsIAPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Predicción de Ventas</CardTitle>
+              <CardTitle className="text-sm font-medium">Predicción de ventas</CardTitle>
               <Brain className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -28,7 +28,7 @@ export default function AnalyticsIAPage() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Leads Calientes</CardTitle>
+              <CardTitle className="text-sm font-medium">Leads calientes</CardTitle>
               <Target className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -39,7 +39,7 @@ export default function AnalyticsIAPage() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Churn Risk</CardTitle>
+              <CardTitle className="text-sm font-medium">Riesgo de abandono</CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>

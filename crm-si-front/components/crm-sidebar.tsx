@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { ChevronDown, ChevronLeft, ChevronRight, LogOut, Menu, Settings, User } from "lucide-react"
+import { Bot, ChevronDown, ChevronLeft, ChevronRight, LineChart, LogOut, Mail, Menu, Settings, Shuffle, Sparkles, User, Workflow, Zap } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -74,32 +74,32 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
   const automationItems = [
     {
       href: "/asistente-ia",
-      emoji: "✨",
+      icon: Sparkles,
       label: "Atlas IA",
     },
     {
       href: "/chatbot",
-      emoji: "🤖",
+      icon: Bot,
       label: "Chatbot IA",
     },
     {
       href: "/remarketing",
-      emoji: "📧",
+      icon: Mail,
       label: "Remarketing",
     },
     {
       href: "/workflows",
-      emoji: "⚡",
+      icon: Workflow,
       label: "Workflows",
     },
     {
       href: "/asignacion-ia",
-      emoji: "🎲",
+      icon: Shuffle,
       label: "Asignación IA",
     },
     {
       href: "/analytics-ia",
-      emoji: "📈",
+      icon: LineChart,
       label: "Analytics IA",
     },
   ]
@@ -143,8 +143,15 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
           </div>
         )}
         {!isCollapsed && <NotificationsBell />}
-        <Button variant="ghost" size="sm" onClick={onToggle} className="p-2 hover:bg-sidebar-accent">
-          {isCollapsed ? <Menu className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onToggle}
+          className="p-2 hover:bg-sidebar-accent"
+          aria-label={isCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
+          aria-expanded={!isCollapsed}
+        >
+          {isCollapsed ? <Menu className="h-4 w-4" aria-hidden="true" /> : <ChevronLeft className="h-4 w-4" aria-hidden="true" />}
         </Button>
       </div>
 
@@ -176,7 +183,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
                 )}
                 title={label}
               >
-                <span className={cn(isCollapsed ? "text-xl leading-none" : "text-base")}>{item.emoji}</span>
+                <item.icon className={isCollapsed ? "size-5" : "size-4"} aria-hidden="true" />
                 {isCollapsed ? (
                   <span className="w-full truncate text-[10px] font-medium leading-tight text-center">
                     {label}
@@ -204,7 +211,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
               )}
               title={isCollapsed ? t("nav.automation") : undefined}
             >
-              <span className={cn(isCollapsed ? "text-xl leading-none" : "text-base")}>🚀</span>
+              <Zap className={isCollapsed ? "size-5" : "size-4"} aria-hidden="true" />
               {isCollapsed ? (
                 <span className="text-[10px] font-medium leading-tight text-center">
                   {t("nav.automationShort")}
@@ -238,7 +245,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
                             : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                         )}
                       >
-                        <span className="text-sm">{item.emoji}</span>
+                        <item.icon className="size-4" aria-hidden="true" />
                         {item.label}
                       </Button>
                     </Link>
@@ -268,7 +275,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
                 )}
                 title={label}
               >
-                <span className={cn(isCollapsed ? "text-xl leading-none" : "text-base")}>{item.emoji}</span>
+                <item.icon className={isCollapsed ? "size-5" : "size-4"} aria-hidden="true" />
                 {isCollapsed ? (
                   <span className="w-full truncate text-[10px] font-medium leading-tight text-center">
                     {label}
@@ -342,7 +349,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
               <Tooltip>
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
-                    <button className="flex w-full items-center justify-center rounded-md p-1.5 transition-colors hover:bg-sidebar-accent">
+                    <button className="flex w-full items-center justify-center rounded-md p-1.5 transition-colors hover:bg-sidebar-accent" aria-label={t("nav.userMenu")}>
                       <Avatar className="h-7 w-7">
                         <AvatarImage src={user?.avatar_url ?? undefined} alt={user?.name ?? ""} />
                         <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">

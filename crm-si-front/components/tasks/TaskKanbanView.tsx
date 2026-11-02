@@ -24,9 +24,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Phone, Video, FileText, MapPin, HeadphonesIcon, CalendarIcon, AlertTriangle } from "lucide-react"
 import type { Task } from "@/lib/types/task"
 import { format } from "date-fns"
-import { toast } from "sonner"
+import { useToast } from "@/components/Toast"
+import { useDndAccessibility } from "@/hooks/useDndAccessibility"
 import { useTaskStore } from "@/store/useTaskStore"
 import { AiBookingApprovalBadge } from "./AiBookingApprovalBadge"
+import { priorityLabels as priorityNames } from "./task-labels"
 
 const statusValues = ["nuevo", "en-curso", "en-espera", "reprogramado", "bloqueado", "hecho", "cancelado"] as const
 const priorityValues = ["baja", "media", "alta", "critica"] as const
@@ -53,10 +55,10 @@ const statusColors = {
 }
 
 const priorityColors = {
-  baja: "bg-gray-500/20 text-gray-300",
-  media: "bg-blue-500/20 text-blue-300",
-  alta: "bg-orange-500/20 text-orange-300",
-  critica: "bg-red-500/20 text-red-300",
+  baja: "bg-gray-500/10 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300",
+  media: "bg-blue-500/10 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
+  alta: "bg-orange-500/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300",
+  critica: "bg-red-500/10 text-red-700 dark:bg-red-500/20 dark:text-red-300",
 }
 
 const priorityLabels = {
@@ -109,8 +111,10 @@ function TaskCard({ task, onMarkDone }: TaskCardProps) {
           </div>
           <Checkbox
             checked={task.status === "hecho"}
+            disabled={task.status === "hecho"}
             onCheckedChange={() => onMarkDone(task.id)}
             onClick={(e) => e.stopPropagation()}
+            aria-label={`Marcar ${task.name} como hecha`}
           />
         </div>
 
@@ -133,15 +137,16 @@ function TaskCard({ task, onMarkDone }: TaskCardProps) {
             <span className="text-xs text-muted-foreground">{task.assignee}</span>
           </div>
 
-          <Badge variant="outline" className={`text-xs ${priorityColors[task.priority]}`}>
-            {priorityLabels[task.priority]}
+          <Badge variant="outline" className={`text-xs ${priorityColors[task.priority]}`} title={`Prioridad ${priorityNames[task.priority].toLowerCase()}`}>
+            <span aria-hidden="true">{priorityLabels[task.priority]}</span>
+            <span className="sr-only">Prioridad {priorityNames[task.priority].toLowerCase()}</span>
           </Badge>
         </div>
 
         {task.deadline && (
           <div
             className={`flex items-center gap-1 mt-2 text-xs ${
-              isOverdue ? "text-red-400 font-semibold" : "text-muted-foreground"
+              isOverdue ? "text-destructive font-semibold" : "text-muted-foreground"
             }`}
           >
             {isOverdue && <AlertTriangle className="w-3 h-3" />}
@@ -152,7 +157,7 @@ function TaskCard({ task, onMarkDone }: TaskCardProps) {
 
         {task.checklist.length > 0 && (
           <div className="mt-2 text-xs text-muted-foreground">
-            {checklistDone}/{task.checklist.length} completados
+            {checklistDone}/{task.checklist.length} ítems completados
           </div>
         )}
       </Card>
@@ -205,6 +210,7 @@ function KanbanColumn({ title, tasks, columnId, color, onMarkDone }: KanbanColum
 
 export function TaskKanbanView({ tasks }: { tasks: Task[] }) {
   const updateTask = useTaskStore((state) => state.updateTask)
+  const { addToast } = useToast()
   const [groupBy, setGroupBy] = useState<GroupBy>("status")
   const [localTasks, setLocalTasks] = useState(tasks)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -282,10 +288,10 @@ export function TaskKanbanView({ tasks }: { tasks: Task[] }) {
     )
 
     updateTask(activeTask.id, { [groupBy]: newValue }).then(
-      () => toast.success("Tarea movida"),
+      () => addToast({ type: "success", title: "Tarea movida" }),
       (error) => {
         setLocalTasks(previousTasks)
-        toast.error(error instanceof Error ? error.message : "No se pudo mover la tarea")
+        addToast({ type: "error", title: error instanceof Error ? error.message : "No se pudo mover la tarea" })
       },
     )
 
@@ -306,8 +312,8 @@ export function TaskKanbanView({ tasks }: { tasks: Task[] }) {
       ),
     )
     updateTask(taskId, { status: "hecho", completed_at: new Date().toISOString() }).then(
-      () => toast.success("Tarea marcada como completada"),
-      (error) => toast.error(error instanceof Error ? error.message : "No se pudo completar la tarea"),
+      () => addToast({ type: "success", title: "Tarea marcada como completada" }),
+      (error) => addToast({ type: "error", title: error instanceof Error ? error.message : "No se pudo completar la tarea" }),
     )
   }
 
@@ -317,12 +323,12 @@ export function TaskKanbanView({ tasks }: { tasks: Task[] }) {
       return {
         nuevo: { title: "Nuevo", tasks: localTasks.filter((t) => t.status === "nuevo"), color: statusColors.nuevo },
         "en-curso": {
-          title: "En Curso",
+          title: "En curso",
           tasks: localTasks.filter((t) => t.status === "en-curso"),
           color: statusColors["en-curso"],
         },
         "en-espera": {
-          title: "En Espera",
+          title: "En espera",
           tasks: localTasks.filter((t) => t.status === "en-espera"),
           color: statusColors["en-espera"],
         },
@@ -409,14 +415,28 @@ export function TaskKanbanView({ tasks }: { tasks: Task[] }) {
 
   const columns = getColumns()
   const activeTask = activeId ? localTasks.find((t) => t.id === activeId) : null
+  const columnTitles: Record<string, string> = Object.fromEntries(
+    Object.entries(columns).map(([key, column]) => [key, column.title]),
+  )
+  const dndAccessibility = useDndAccessibility(
+    (id) => localTasks.find((task) => task.id === id)?.name,
+    (id) => {
+      const value = getDropValue(String(id))
+      return value ? columnTitles[value] : undefined
+    },
+  )
 
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Agrupar por:</span>
+          <span id="task-kanban-group-by" className="text-sm text-muted-foreground">Agrupar por:</span>
           <Select value={groupBy} onValueChange={(val) => setGroupBy(val as GroupBy)}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger
+              id="task-kanban-group-by-trigger"
+              className="w-[180px]"
+              aria-labelledby="task-kanban-group-by task-kanban-group-by-trigger"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -430,9 +450,11 @@ export function TaskKanbanView({ tasks }: { tasks: Task[] }) {
 
       <DndContext
         sensors={sensors}
+        accessibility={dndAccessibility}
         collisionDetection={closestCorners}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveId(null)}
       >
         <div className="flex gap-4 overflow-x-auto pb-4">
           {Object.entries(columns).map(([key, { title, tasks, color }]) => (

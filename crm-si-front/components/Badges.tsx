@@ -1,9 +1,9 @@
 import type React from "react"
 import { cn } from "@/lib/utils"
-import { CheckCircle, Clock, AlertTriangle, XCircle, DollarSign, User, Zap } from "lucide-react"
+import { CheckCircle, Clock, AlertTriangle, XCircle, User } from "lucide-react"
 
 export interface BadgeProps {
-  variant: "success" | "warning" | "error" | "info" | "default" | "ai" | "score"
+  variant: "success" | "warning" | "error" | "info" | "default"
   size?: "sm" | "md" | "lg"
   children: React.ReactNode
   className?: string
@@ -20,16 +20,11 @@ export function Badge({ variant, size = "md", children, className, icon = false 
   }
 
   const variantClasses = {
-    success:
-      "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/50 dark:text-green-400 dark:border-green-800",
-    warning:
-      "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/50 dark:text-orange-400 dark:border-orange-800",
-    error: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/50 dark:text-red-400 dark:border-red-800",
-    info: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-400 dark:border-blue-800",
-    default: "bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-950/50 dark:text-gray-400 dark:border-gray-800",
-    ai: "bg-gradient-to-r from-cyan-50 to-blue-50 text-cyan-700 border-cyan-200 dark:from-cyan-950/50 dark:to-blue-950/50 dark:text-cyan-400 dark:border-cyan-800",
-    score:
-      "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/50 dark:text-purple-400 dark:border-purple-800",
+    success: "bg-success/10 text-success border-success/30",
+    warning: "bg-warning/10 text-warning border-warning/30",
+    error: "bg-destructive/10 text-destructive border-destructive/30",
+    info: "bg-info/10 text-info border-info/30",
+    default: "bg-muted text-muted-foreground border-border",
   }
 
   const icons = {
@@ -38,8 +33,6 @@ export function Badge({ variant, size = "md", children, className, icon = false 
     error: XCircle,
     info: Clock,
     default: User,
-    ai: Zap,
-    score: DollarSign,
   }
 
   const Icon = icons[variant]
