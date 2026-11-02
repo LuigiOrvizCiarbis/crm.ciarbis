@@ -46,14 +46,14 @@ export default function AdminPage() {
 
   const systemStats = [
     {
-      title: "Usuarios Activos",
+      title: "Usuarios activos",
       value: "1,247",
       change: "+12%",
       icon: Users,
       color: "text-blue-500",
     },
     {
-      title: "Mensajes Procesados",
+      title: "Mensajes procesados",
       value: "45,231",
       change: "+8%",
       icon: MessageSquare,
@@ -111,13 +111,13 @@ export default function AdminPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "operational":
-        return <CheckCircle className="w-4 h-4 text-green-500" />
+        return <CheckCircle className="w-4 h-4 text-success" />
       case "degraded":
-        return <AlertTriangle className="w-4 h-4 text-yellow-500" />
+        return <AlertTriangle className="w-4 h-4 text-warning" />
       case "maintenance":
-        return <Clock className="w-4 h-4 text-blue-500" />
+        return <Clock className="w-4 h-4 text-info" />
       default:
-        return <AlertTriangle className="w-4 h-4 text-red-500" />
+        return <AlertTriangle className="w-4 h-4 text-destructive" />
     }
   }
 
@@ -142,18 +142,18 @@ export default function AdminPage() {
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2">
               <Shield className="w-8 h-8 text-primary" />
-              Panel de Administración
+              Panel de administración
             </h1>
             <p className="text-muted-foreground">Monitoreo y gestión del sistema</p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => handleSystemAction("Backup creado")}>
               <Database className="w-4 h-4 mr-2" />
-              Crear Backup
+              Crear backup
             </Button>
             <Button onClick={handleUpgrade}>
               <Zap className="w-4 h-4 mr-2" />
-              Upgrade Plan
+              Mejorar plan
             </Button>
           </div>
         </div>
@@ -191,7 +191,7 @@ export default function AdminPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="w-5 h-5" />
-              Estado de Servicios
+              Estado de servicios
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -209,8 +209,8 @@ export default function AdminPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {getStatusBadge(service.status)}
-                    <Button variant="ghost" size="sm">
-                      <Settings className="w-4 h-4" />
+                    <Button variant="ghost" size="sm" aria-label={`Configurar ${service.service}`}>
+                      <Settings className="w-4 h-4" aria-hidden="true" />
                     </Button>
                   </div>
                 </div>
@@ -225,7 +225,7 @@ export default function AdminPage() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">CPU Usage</p>
+                  <p className="text-sm font-medium text-muted-foreground">Uso de CPU</p>
                   <p className="text-2xl font-bold">45%</p>
                   <div className="w-full bg-muted rounded-full h-2 mt-2">
                     <div className="bg-blue-500 h-2 rounded-full" style={{ width: "45%" }} />
@@ -240,7 +240,7 @@ export default function AdminPage() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Memory</p>
+                  <p className="text-sm font-medium text-muted-foreground">Memoria</p>
                   <p className="text-2xl font-bold">68%</p>
                   <div className="w-full bg-muted rounded-full h-2 mt-2">
                     <div className="bg-green-500 h-2 rounded-full" style={{ width: "68%" }} />
@@ -255,7 +255,7 @@ export default function AdminPage() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Storage</p>
+                  <p className="text-sm font-medium text-muted-foreground">Almacenamiento</p>
                   <p className="text-2xl font-bold">23%</p>
                   <div className="w-full bg-muted rounded-full h-2 mt-2">
                     <div className="bg-purple-500 h-2 rounded-full" style={{ width: "23%" }} />
@@ -270,7 +270,7 @@ export default function AdminPage() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Network</p>
+                  <p className="text-sm font-medium text-muted-foreground">Red</p>
                   <p className="text-2xl font-bold">12MB/s</p>
                   <div className="w-full bg-muted rounded-full h-2 mt-2">
                     <div className="bg-orange-500 h-2 rounded-full" style={{ width: "60%" }} />
@@ -287,7 +287,7 @@ export default function AdminPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Zap className="w-5 h-5" />
-              Acciones Rápidas
+              Acciones rápidas
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -295,10 +295,10 @@ export default function AdminPage() {
               <Button
                 variant="outline"
                 className="h-20 flex-col gap-2 bg-transparent"
-                onClick={() => handleSystemAction("Cache limpiado")}
+                onClick={() => handleSystemAction("Caché limpiada")}
               >
                 <Database className="w-6 h-6" />
-                Limpiar Cache
+                Limpiar caché
               </Button>
               <Button
                 variant="outline"
@@ -306,7 +306,7 @@ export default function AdminPage() {
                 onClick={() => handleSystemAction("Logs exportados")}
               >
                 <BarChart3 className="w-6 h-6" />
-                Exportar Logs
+                Exportar logs
               </Button>
               <Button
                 variant="outline"
@@ -314,7 +314,7 @@ export default function AdminPage() {
                 onClick={() => handleSystemAction("Sistema reiniciado")}
               >
                 <Activity className="w-6 h-6" />
-                Reiniciar Sistema
+                Reiniciar sistema
               </Button>
               <Button
                 variant="outline"

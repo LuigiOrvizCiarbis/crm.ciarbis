@@ -5,10 +5,10 @@ import { MessageStatus } from "./MessageStatus"
 import { MessageReactions } from "./MessageReactions"
 import { ReactionPicker } from "./ReactionPicker"
 import { EmojiPicker } from "./EmojiPicker"
-import { MoreHorizontal, Pencil, Trash2, Bot, Languages, EyeOff } from "lucide-react"
+import { MoreHorizontal, Pencil, Trash2, Bot, Languages, EyeOff, Phone, Mail } from "lucide-react"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useLongPress } from "@/hooks/useLongPress"
-import { useState } from "react"
+import { memo, useState } from "react"
 import {
   Sheet,
   SheetContent,
@@ -68,7 +68,12 @@ interface MessageBubbleProps {
   isGroupConversation?: boolean
 }
 
-export function MessageBubble({
+/**
+ * Memoizada: el hilo re-renderiza en cada mensaje nuevo, cambio de estado o
+ * reacción; sólo la burbuja cuyo `message` (u otra prop) cambió vuelve a pintarse.
+ * MessageList debe pasar callbacks estables y props de búsqueda acotadas a esta burbuja.
+ */
+export const MessageBubble = memo(function MessageBubble({
   message: msg,
   isLastOfGroup,
   isFirstOfGroup,
@@ -190,8 +195,8 @@ export function MessageBubble({
         >
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-7 w-7">
-                <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+              <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={t("chats.messageActions")}>
+                <MoreHorizontal className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align={isUser ? "end" : "start"}>
@@ -347,8 +352,8 @@ export function MessageBubble({
       {(msg.contacts as SharedContact[]).map((contact, index) => (
         <div key={`${contact.name.formatted_name}-${index}`} className="min-w-56 rounded-lg border border-current/15 bg-background/40 p-2.5">
           <p className="text-sm font-semibold">{contact.name.formatted_name}</p>
-          {contact.phones?.map((phone, phoneIndex) => phone.phone && <p key={`p-${phoneIndex}`} className="text-xs opacity-80">📞 {phone.phone}</p>)}
-          {contact.emails?.map((email, emailIndex) => email.email && <p key={`e-${emailIndex}`} className="truncate text-xs opacity-80">✉️ {email.email}</p>)}
+          {contact.phones?.map((phone, phoneIndex) => phone.phone && <p key={`p-${phoneIndex}`} className="flex items-center gap-1.5 text-xs opacity-80"><Phone className="size-3 shrink-0" aria-hidden="true" />{phone.phone}</p>)}
+          {contact.emails?.map((email, emailIndex) => email.email && <p key={`e-${emailIndex}`} className="flex items-center gap-1.5 text-xs opacity-80"><Mail className="size-3 shrink-0" aria-hidden="true" /><span className="min-w-0 truncate">{email.email}</span></p>)}
           {contact.org?.company && <p className="text-xs opacity-70">{contact.org.company}{contact.org.title ? ` · ${contact.org.title}` : ""}</p>}
           {msg.direction === "inbound" && onSaveContact && <button type="button" className="mt-2 text-xs font-medium underline underline-offset-2" onClick={() => onSaveContact(msg, index)}>Guardar en contactos</button>}
         </div>
@@ -468,9 +473,9 @@ export function MessageBubble({
                 isUser ? "" : "text-muted-foreground"
               }`}
             >
-              {isEdited && <span className="opacity-80">{t("chats.edited")}</span>}
+              {isEdited && <span>{t("chats.edited")}</span>}
               {timestamp && (
-                <span className={`tabular-nums ${isUser ? "text-primary-foreground/70" : ""}`}>
+                <span className={`tabular-nums ${isUser ? "text-primary-foreground" : ""}`}>
                   {new Date(timestamp).toLocaleTimeString([], {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -552,4 +557,4 @@ export function MessageBubble({
       )}
     </div>
   )
-}
+})

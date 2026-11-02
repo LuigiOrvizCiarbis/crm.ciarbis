@@ -21,16 +21,16 @@ export function TrialBanner() {
     : t("trial.banner.daysLeft", { count: daysLeft })
 
   return (
-    <div className="bg-blue-500/10 border-b border-blue-500/20 px-4 py-2">
+    <div className="bg-info/10 border-b border-info/30 px-4 py-2">
       <div className="flex items-center justify-between gap-4 max-w-7xl mx-auto">
         <div className="flex items-center gap-2">
-          <Clock className="w-4 h-4 text-blue-500 shrink-0" />
-          <p className="text-sm text-blue-700 dark:text-blue-400">
+          <Clock className="w-4 h-4 text-info shrink-0" />
+          <p className="text-sm text-info">
             <strong>{label}</strong>
           </p>
         </div>
         <Link href="/pricing">
-          <span className="text-sm underline hover:no-underline font-medium text-blue-700 dark:text-blue-400">
+          <span className="text-sm underline hover:no-underline font-medium text-info">
             {t("trial.banner.cta")}
           </span>
         </Link>

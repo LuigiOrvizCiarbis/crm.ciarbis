@@ -13,12 +13,12 @@ export default function WorkflowsPage() {
             <Workflow className="w-6 h-6 text-indigo-500" />
             <div>
               <h1 className="text-2xl font-bold">Workflows</h1>
-              <p className="text-muted-foreground">Automatiza procesos y acciones repetitivas</p>
+              <p className="text-muted-foreground">Automatizá procesos y acciones repetitivas</p>
             </div>
           </div>
           <Button className="gap-2">
             <Plus className="w-4 h-4" />
-            Crear Workflow
+            Crear workflow
           </Button>
         </div>
 
@@ -26,8 +26,8 @@ export default function WorkflowsPage() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Asignación Automática</CardTitle>
-                <Badge variant="default" className="bg-green-500">
+                <CardTitle className="text-lg">Asignación automática</CardTitle>
+                <Badge variant="default" className="bg-success text-success-foreground">
                   Activo
                 </Badge>
               </div>
@@ -41,11 +41,11 @@ export default function WorkflowsPage() {
                 <span>127 ejecuciones esta semana</span>
               </div>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline">
-                  <Pause className="w-4 h-4" />
+                <Button size="sm" variant="outline" aria-label="Pausar asignación automática">
+                  <Pause className="w-4 h-4" aria-hidden="true" />
                 </Button>
-                <Button size="sm" variant="outline">
-                  <Settings className="w-4 h-4" />
+                <Button size="sm" variant="outline" aria-label="Configurar asignación automática">
+                  <Settings className="w-4 h-4" aria-hidden="true" />
                 </Button>
               </div>
             </CardContent>
@@ -54,7 +54,7 @@ export default function WorkflowsPage() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Seguimiento de Leads</CardTitle>
+                <CardTitle className="text-lg">Seguimiento de leads</CardTitle>
                 <Badge variant="secondary">Pausado</Badge>
               </div>
             </CardHeader>
@@ -63,15 +63,15 @@ export default function WorkflowsPage() {
                 Envía mensajes de seguimiento automáticos después de 24h sin respuesta
               </p>
               <div className="flex items-center gap-2 text-sm">
-                <Zap className="w-4 h-4 text-gray-400" />
+                <Zap className="w-4 h-4 text-muted-foreground" />
                 <span>0 ejecuciones hoy</span>
               </div>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline">
-                  <Play className="w-4 h-4" />
+                <Button size="sm" variant="outline" aria-label="Activar seguimiento de leads">
+                  <Play className="w-4 h-4" aria-hidden="true" />
                 </Button>
-                <Button size="sm" variant="outline">
-                  <Settings className="w-4 h-4" />
+                <Button size="sm" variant="outline" aria-label="Configurar seguimiento de leads">
+                  <Settings className="w-4 h-4" aria-hidden="true" />
                 </Button>
               </div>
             </CardContent>
@@ -81,7 +81,7 @@ export default function WorkflowsPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg">Calificación IA</CardTitle>
-                <Badge variant="default" className="bg-blue-500">
+                <Badge variant="default" className="bg-success text-success-foreground">
                   Activo
                 </Badge>
               </div>
@@ -95,11 +95,11 @@ export default function WorkflowsPage() {
                 <span>89 ejecuciones esta semana</span>
               </div>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline">
-                  <Pause className="w-4 h-4" />
+                <Button size="sm" variant="outline" aria-label="Pausar Calificación IA">
+                  <Pause className="w-4 h-4" aria-hidden="true" />
                 </Button>
-                <Button size="sm" variant="outline">
-                  <Settings className="w-4 h-4" />
+                <Button size="sm" variant="outline" aria-label="Configurar Calificación IA">
+                  <Settings className="w-4 h-4" aria-hidden="true" />
                 </Button>
               </div>
             </CardContent>

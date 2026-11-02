@@ -193,7 +193,7 @@ export function AiSchedulingSettings() {
             {calendarUsers.length === 0 && (
               <div
                 role="alert"
-                className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400"
+                className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning"
               >
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>{t("settings.aiAssistant.scheduling.noCalendarUsers")}</span>

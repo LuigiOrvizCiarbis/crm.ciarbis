@@ -9,12 +9,12 @@ export default function ChatbotPage() {
       <div className="p-6 space-y-6">
         <div>
           <h1 className="text-3xl font-bold">Chatbot con IA</h1>
-          <p className="text-muted-foreground">Gestiona conversaciones inteligentes y califica leads automáticamente</p>
+          <p className="text-muted-foreground">Gestioná conversaciones inteligentes y calificá leads automáticamente</p>
         </div>
 
         <Tabs defaultValue="chat" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="chat">Chat en Vivo</TabsTrigger>
+            <TabsTrigger value="chat">Chat en vivo</TabsTrigger>
             <TabsTrigger value="analytics">Analíticas</TabsTrigger>
             <TabsTrigger value="config">Configuración</TabsTrigger>
           </TabsList>

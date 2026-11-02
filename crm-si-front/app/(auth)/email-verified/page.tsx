@@ -22,10 +22,10 @@ function EmailVerifiedContent() {
 
   if (alreadyVerified) {
     return (
-      <Card className="border-border/50 shadow-xl">
+      <Card>
         <CardHeader className="text-center space-y-4">
-          <div className="mx-auto w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center">
-            <CheckCircle className="w-8 h-8 text-blue-500" />
+          <div className="mx-auto w-16 h-16 bg-info/10 rounded-full flex items-center justify-center">
+            <CheckCircle className="w-8 h-8 text-info" aria-hidden="true" />
           </div>
           <div>
             <CardTitle className="text-2xl font-bold">Email ya verificado</CardTitle>
@@ -54,10 +54,10 @@ function EmailVerifiedContent() {
 
   if (success) {
     return (
-      <Card className="border-border/50 shadow-xl">
+      <Card>
         <CardHeader className="text-center space-y-4">
-          <div className="mx-auto w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center">
-            <CheckCircle className="w-8 h-8 text-green-500" />
+          <div className="mx-auto w-16 h-16 bg-success/10 rounded-full flex items-center justify-center">
+            <CheckCircle className="w-8 h-8 text-success" aria-hidden="true" />
           </div>
           <div>
             <CardTitle className="text-2xl font-bold">¡Email verificado!</CardTitle>
@@ -69,7 +69,7 @@ function EmailVerifiedContent() {
         
         <CardContent>
           <p className="text-sm text-muted-foreground text-center">
-            Ahora puedes acceder a todas las funcionalidades de Social Impulse.
+            Ahora podés acceder a todas las funcionalidades de Social Impulse.
           </p>
         </CardContent>
         
@@ -86,10 +86,10 @@ function EmailVerifiedContent() {
 
   // Error case
   return (
-    <Card className="border-border/50 shadow-xl">
+    <Card>
       <CardHeader className="text-center space-y-4">
         <div className="mx-auto w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center">
-          <AlertCircle className="w-8 h-8 text-destructive" />
+          <AlertCircle className="w-8 h-8 text-destructive" aria-hidden="true" />
         </div>
         <div>
           <CardTitle className="text-2xl font-bold">Error de verificación</CardTitle>
@@ -101,7 +101,7 @@ function EmailVerifiedContent() {
       
       <CardContent>
         <p className="text-sm text-muted-foreground text-center">
-          Por favor solicita un nuevo email de verificación desde tu cuenta.
+          Solicitá un nuevo email de verificación desde tu cuenta.
         </p>
       </CardContent>
       
@@ -124,9 +124,10 @@ function EmailVerifiedContent() {
 export default function EmailVerifiedPage() {
   return (
     <Suspense fallback={
-      <Card className="border-border/50 shadow-xl">
-        <CardContent className="p-8 flex items-center justify-center">
-          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      <Card>
+        <CardContent className="p-8 flex items-center justify-center" role="status">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" aria-hidden="true" />
+          <span className="sr-only">Cargando...</span>
         </CardContent>
       </Card>
     }>

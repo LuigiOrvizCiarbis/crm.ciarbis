@@ -102,7 +102,7 @@ export async function getOpportunitySummary(pipelineId?: number): Promise<Opport
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throwApiError(response.status, payload, "Error al cargar resumen de pipeline");
+    throwApiError(response.status, payload, "Error al cargar resumen del embudo");
   }
 
   return payload as OpportunitySummary;

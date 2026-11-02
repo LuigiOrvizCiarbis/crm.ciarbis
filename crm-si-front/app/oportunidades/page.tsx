@@ -1,31 +1,44 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+import { GitBranch, Loader2 } from "lucide-react"
 import { KanbanBoard } from "@/components/kanban-board"
 import { SidebarLayout } from "@/components/SidebarLayout"
-import { PipelineCompactHeader } from "@/components/pipeline-compact-header"
+import { EMPTY_PIPELINE_FILTERS, PipelineCompactHeader, type PipelineFilters } from "@/components/pipeline-compact-header"
 import { useToast } from "@/components/Toast"
+import { EmptyState } from "@/components/EmptyState"
+import { Button } from "@/components/ui/button"
 import { getPipelines, type Pipeline } from "@/lib/api/pipeline"
 import { NewOpportunityDialog } from "@/components/new-opportunity-dialog"
 import { NewPipelineDialog } from "@/components/new-pipeline-dialog"
 import { useTranslation } from "@/hooks/useTranslation"
+import { usePermission } from "@/hooks/usePermission"
 
 export default function OportunidadesPage() {
   const { addToast } = useToast()
   const { t } = useTranslation()
+  const canManageStages = usePermission("pipeline_stages.manage")
   const [refreshKey, setRefreshKey] = useState(0)
   const [pipelines, setPipelines] = useState<Pipeline[]>([])
+  const [pipelinesStatus, setPipelinesStatus] = useState<"loading" | "error" | "ready">("loading")
   const [selectedPipelineId, setSelectedPipelineId] = useState(0)
   const [newOpportunityOpen, setNewOpportunityOpen] = useState(false)
   const [newPipelineOpen, setNewPipelineOpen] = useState(false)
   const [stagesDialogOpen, setStagesDialogOpen] = useState(false)
+  const [filters, setFilters] = useState<PipelineFilters>(EMPTY_PIPELINE_FILTERS)
 
-  useEffect(() => {
+  const loadPipelines = useCallback(() => {
+    setPipelinesStatus("loading")
     getPipelines().then((items) => {
       setPipelines(items)
       setSelectedPipelineId((current) => current || items.find((item) => item.is_default)?.id || items[0]?.id || 0)
-    }).catch(() => setPipelines([]))
+      setPipelinesStatus("ready")
+    }).catch(() => setPipelinesStatus("error"))
   }, [])
+
+  useEffect(() => {
+    loadPipelines()
+  }, [loadPipelines])
 
   const handleNewOpportunity = (): void => {
     setNewOpportunityOpen(true)
@@ -48,6 +61,8 @@ export default function OportunidadesPage() {
     <SidebarLayout>
       <PipelineCompactHeader
         onNewOpportunity={handleNewOpportunity}
+        filters={filters}
+        onFiltersChange={setFilters}
         onStagesChanged={handleStagesChanged}
         pipelines={pipelines}
         selectedPipelineId={selectedPipelineId}
@@ -57,9 +72,35 @@ export default function OportunidadesPage() {
         onStagesDialogOpenChange={setStagesDialogOpen}
       />
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-4 md:px-6 lg:px-8 py-6 space-y-6">
-          <KanbanBoard refreshKey={refreshKey} pipelineId={selectedPipelineId} />
+      {/* En teléfono el tablero ocupa el alto disponible y cada columna scrollea por dentro. */}
+      <div className="flex-1 overflow-y-auto max-md:flex max-md:min-h-0 max-md:flex-col">
+        <div className="px-4 md:px-6 lg:px-8 py-6 space-y-6 max-md:flex max-md:min-h-0 max-md:flex-1 max-md:flex-col max-md:py-4">
+          {pipelinesStatus === "loading" ? (
+            <div role="status" className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" aria-hidden="true" />
+              <span className="sr-only">Cargando embudos</span>
+            </div>
+          ) : pipelinesStatus === "error" ? (
+            <div role="alert" className="text-center py-12">
+              <p className="mb-4 font-medium text-destructive">No se pudieron cargar los embudos.</p>
+              <Button onClick={loadPipelines} variant="outline">Reintentar</Button>
+            </div>
+          ) : selectedPipelineId ? (
+            <KanbanBoard
+              refreshKey={refreshKey}
+              pipelineId={selectedPipelineId}
+              filters={filters}
+              onClearFilters={() => setFilters(EMPTY_PIPELINE_FILTERS)}
+              onManageStages={canManageStages ? () => setStagesDialogOpen(true) : undefined}
+            />
+          ) : (
+            <EmptyState
+              icon={GitBranch}
+              title="Todavía no hay embudos"
+              description={canManageStages ? "Creá un embudo para empezar a seguir tus oportunidades." : "Pedile a un administrador que cree el primer embudo."}
+              action={canManageStages ? { label: "Crear embudo", onClick: () => setNewPipelineOpen(true) } : undefined}
+            />
+          )}
         </div>
       </div>
       <NewPipelineDialog
@@ -74,7 +115,7 @@ export default function OportunidadesPage() {
         pipelines={pipelines}
         initialPipelineId={selectedPipelineId}
         onCreated={() => {
-          addToast({ type: "success", title: "Oportunidad creada", description: "Se agregó al pipeline seleccionado." })
+          addToast({ type: "success", title: "Oportunidad creada", description: "Se agregó al embudo seleccionado." })
           setRefreshKey((prev) => prev + 1)
         }}
       />

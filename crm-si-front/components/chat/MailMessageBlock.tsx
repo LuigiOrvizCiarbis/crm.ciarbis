@@ -78,7 +78,7 @@ export function MailMessageBlock({ message }: MailMessageBlockProps) {
 
   return (
     <article
-      className={`group/mail w-full max-w-[min(85%,72rem)] overflow-hidden rounded-lg border shadow-sm dark:shadow-none ${
+      className={`group/mail w-full max-w-[min(85%,72rem)] overflow-hidden rounded-lg border shadow-sm ${
         isOutbound
           ? "ml-auto border-primary/20 bg-primary/[0.045]"
           : "mr-auto border-border bg-card"
@@ -125,7 +125,7 @@ export function MailMessageBlock({ message }: MailMessageBlockProps) {
               <dt className="font-medium text-muted-foreground">{t("chats.mailTo")}</dt>
               <dd className="break-all">{addressList(details?.to) || t("chats.mailNotAvailable")}</dd>
               {!!details?.cc?.length && <><dt className="font-medium text-muted-foreground">CC</dt><dd className="break-all">{addressList(details.cc)}</dd></>}
-              {!!details?.reply_to && <><dt className="font-medium text-muted-foreground">Reply-To</dt><dd className="break-all">{addressLabel(details.reply_to)}</dd></>}
+              {!!details?.reply_to && <><dt className="font-medium text-muted-foreground">Responder a</dt><dd className="break-all">{addressLabel(details.reply_to)}</dd></>}
             </dl>
           )}
         </div>

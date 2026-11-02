@@ -57,15 +57,20 @@ export function BulkTagsConversationsDialog({
     setQuery("")
   }, [open])
 
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
+
   useEffect(() => {
     if (!open) return
     let cancelled = false
     setLoadingTags(true)
+    setLoadFailed(false)
     getTags()
       .then((loaded) => {
         if (!cancelled) setTags(loaded)
       })
       .catch((err) => {
+        if (!cancelled) setLoadFailed(true)
         addToast({
           type: "error",
           title: t("chats.bulk.errors.loadTags"),
@@ -78,7 +83,7 @@ export function BulkTagsConversationsDialog({
     return () => {
       cancelled = true
     }
-  }, [open, addToast, t])
+  }, [open, addToast, t, reloadKey])
 
   const filteredTags = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -168,7 +173,7 @@ export function BulkTagsConversationsDialog({
                   key={opt}
                   htmlFor={`bulk-conv-action-${opt}`}
                   className={cn(
-                    "flex cursor-pointer items-center justify-center rounded-md border px-3 py-2 text-sm transition",
+                    "flex cursor-pointer items-center justify-center rounded-md border px-3 py-2 text-sm transition has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50",
                     action === opt
                       ? "border-primary bg-primary/10 font-medium"
                       : "border-input hover:bg-accent",
@@ -182,7 +187,7 @@ export function BulkTagsConversationsDialog({
             <p
               className={cn(
                 "flex items-start gap-2 text-xs",
-                action === "replace" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
+                action === "replace" ? "text-warning" : "text-muted-foreground",
               )}
             >
               {action === "replace" && <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
@@ -200,19 +205,27 @@ export function BulkTagsConversationsDialog({
               )}
             </Label>
             <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={t("chats.bulk.dialog.searchTags")}
+                aria-label={t("chats.bulk.dialog.searchTags")}
                 className="pl-8"
               />
             </div>
             <div className="max-h-60 overflow-y-auto rounded-md border">
               {loadingTags ? (
-                <div className="flex items-center gap-2 px-3 py-6 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                <div role="status" className="flex items-center gap-2 px-3 py-6 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                   {t("chats.bulk.dialog.loadingTags")}
+                </div>
+              ) : loadFailed ? (
+                <div className="flex flex-col items-center gap-3 px-3 py-6 text-center text-sm text-muted-foreground">
+                  <p>{t("chats.bulk.errors.loadTags")}</p>
+                  <Button variant="outline" size="sm" onClick={() => setReloadKey((key) => key + 1)}>
+                    {t("chats.retry")}
+                  </Button>
                 </div>
               ) : filteredTags.length === 0 ? (
                 <div className="px-3 py-6 text-center text-sm text-muted-foreground">
@@ -226,7 +239,8 @@ export function BulkTagsConversationsDialog({
                       key={tag.id}
                       type="button"
                       onClick={() => toggleTag(tag.id)}
-                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-accent"
+                      aria-pressed={selected}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
                     >
                       <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: tag.color }} />
                       <span className="min-w-0 flex-1 truncate">{tag.name}</span>

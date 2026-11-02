@@ -30,18 +30,28 @@ function ResetPasswordForm() {
   const [isLoading, setIsLoading] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
   const [error, setError] = useState("")
+  // Campos a los que se refiere el error actual (validación local o errores del backend)
+  const [errorFields, setErrorFields] = useState<string[]>([])
+
+  const fieldErrorProps = (field: string) =>
+    error && errorFields.includes(field)
+      ? { "aria-invalid": true as const, "aria-describedby": "reset-password-error" }
+      : {}
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setErrorFields([])
 
     if (password !== confirmPassword) {
       setError("Las contraseñas no coinciden")
+      setErrorFields(["confirmPassword"])
       return
     }
 
     if (password.length < 8) {
       setError("La contraseña debe tener al menos 8 caracteres")
+      setErrorFields(["password"])
       return
     }
 
@@ -62,6 +72,12 @@ function ResetPasswordForm() {
       const data = await res.json()
 
       if (!res.ok) {
+        // Laravel devuelve `errors` por campo en 422: marcamos esos inputs como inválidos
+        setErrorFields(
+          Object.keys(data.errors ?? {}).map((key) =>
+            key === "password_confirmation" ? "confirmPassword" : key
+          )
+        )
         throw new Error(data.message || "Error al restablecer la contraseña")
       }
 
@@ -75,10 +91,10 @@ function ResetPasswordForm() {
 
   if (!token || !email) {
     return (
-      <Card className="border-border/50 shadow-xl">
+      <Card>
         <CardHeader className="text-center space-y-4">
           <div className="mx-auto w-12 h-12 bg-destructive/10 rounded-xl flex items-center justify-center">
-            <MessageSquare className="w-6 h-6 text-destructive" />
+            <MessageSquare className="w-6 h-6 text-destructive" aria-hidden="true" />
           </div>
           <div>
             <CardTitle className="text-2xl font-bold">Enlace inválido</CardTitle>
@@ -93,7 +109,7 @@ function ResetPasswordForm() {
           </Link>
           <Link href="/login" className="w-full">
             <Button variant="ghost" className="w-full">
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
               Volver al login
             </Button>
           </Link>
@@ -104,12 +120,12 @@ function ResetPasswordForm() {
 
   if (isSuccess) {
     return (
-      <Card className="border-border/50 shadow-xl">
+      <Card>
         <CardHeader className="text-center space-y-4">
-          <div className="mx-auto w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center">
-            <CheckCircle className="w-6 h-6 text-green-500" />
+          <div className="mx-auto w-12 h-12 bg-success/10 rounded-xl flex items-center justify-center">
+            <CheckCircle className="w-6 h-6 text-success" aria-hidden="true" />
           </div>
-          <div>
+          <div role="status">
             <CardTitle className="text-2xl font-bold">¡Contraseña restablecida!</CardTitle>
             <CardDescription className="mt-2">
               Tu contraseña ha sido actualizada correctamente.
@@ -126,15 +142,15 @@ function ResetPasswordForm() {
   }
 
   return (
-    <Card className="border-border/50 shadow-xl">
+    <Card>
       <CardHeader className="text-center space-y-4">
         <div className="mx-auto w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
-          <MessageSquare className="w-6 h-6 text-primary" />
+          <MessageSquare className="w-6 h-6 text-primary" aria-hidden="true" />
         </div>
         <div>
           <CardTitle className="text-2xl font-bold">Nueva contraseña</CardTitle>
           <CardDescription className="mt-2">
-            Ingresa tu nueva contraseña para {email}
+            Ingresá tu nueva contraseña para {email}
           </CardDescription>
         </div>
       </CardHeader>
@@ -142,7 +158,11 @@ function ResetPasswordForm() {
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
           {error && (
-            <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg">
+            <div
+              id="reset-password-error"
+              role="alert"
+              className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg"
+            >
               {error}
             </div>
           )}
@@ -159,18 +179,21 @@ function ResetPasswordForm() {
                 required
                 autoComplete="new-password"
                 disabled={isLoading}
+                {...fieldErrorProps("password")}
                 className="pr-10"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                tabIndex={-1}
+                className="absolute right-1 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                aria-pressed={showPassword}
+                aria-controls="password"
               >
                 {showPassword ? (
-                  <EyeOff className="w-4 h-4" />
+                  <EyeOff className="w-4 h-4" aria-hidden="true" />
                 ) : (
-                  <Eye className="w-4 h-4" />
+                  <Eye className="w-4 h-4" aria-hidden="true" />
                 )}
               </button>
             </div>
@@ -182,24 +205,27 @@ function ResetPasswordForm() {
               <Input
                 id="confirmPassword"
                 type={showConfirmPassword ? "text" : "password"}
-                placeholder="Repite tu contraseña"
+                placeholder="Repetí tu contraseña"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
                 autoComplete="new-password"
                 disabled={isLoading}
+                {...fieldErrorProps("confirmPassword")}
                 className="pr-10"
               />
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                tabIndex={-1}
+                className="absolute right-1 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={showConfirmPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                aria-pressed={showConfirmPassword}
+                aria-controls="confirmPassword"
               >
                 {showConfirmPassword ? (
-                  <EyeOff className="w-4 h-4" />
+                  <EyeOff className="w-4 h-4" aria-hidden="true" />
                 ) : (
-                  <Eye className="w-4 h-4" />
+                  <Eye className="w-4 h-4" aria-hidden="true" />
                 )}
               </button>
             </div>
@@ -210,7 +236,7 @@ function ResetPasswordForm() {
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
                 Guardando...
               </>
             ) : (
@@ -220,7 +246,7 @@ function ResetPasswordForm() {
           
           <Link href="/login" className="w-full">
             <Button variant="ghost" className="w-full">
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
               Volver al login
             </Button>
           </Link>
@@ -233,9 +259,10 @@ function ResetPasswordForm() {
 export default function ResetPasswordPage() {
   return (
     <Suspense fallback={
-      <Card className="border-border/50 shadow-xl">
-        <CardContent className="p-8 flex items-center justify-center">
-          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      <Card>
+        <CardContent className="p-8 flex items-center justify-center" role="status">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" aria-hidden="true" />
+          <span className="sr-only">Cargando...</span>
         </CardContent>
       </Card>
     }>

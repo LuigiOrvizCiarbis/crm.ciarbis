@@ -78,6 +78,22 @@ class BroadcastCampaignTest extends TestCase
             ->assertJsonPath('data.estimated_cost_usd', 0.07);
     }
 
+    public function test_estimate_reports_configured_rate_and_uses_it_for_cost(): void
+    {
+        config(['broadcasts.cost_per_message_usd' => 0.1]);
+        [$user, $channel, $template] = $this->createSetup();
+        $this->createConversation($user, $channel);
+        $this->createConversation($user, $channel);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/broadcasts/estimate', $this->payload($channel, $template))
+            ->assertOk()
+            ->assertJsonPath('data.audience_count', 2)
+            ->assertJsonPath('data.cost_per_message_usd', 0.1)
+            ->assertJsonPath('data.estimated_cost_usd', 0.2);
+    }
+
     public function test_between_filters_date_field_within_inclusive_range(): void
     {
         [$user, $channel, $template] = $this->createSetup();

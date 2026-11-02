@@ -36,12 +36,16 @@ import {
   GripVertical,
 } from "lucide-react"
 import type { Task } from "@/lib/types/task"
+import type { TaskPayload } from "@/lib/api/tasks"
 import { format } from "date-fns"
-import { toast } from "sonner"
+import { useToast } from "@/components/Toast"
+import { useDndAccessibility } from "@/hooks/useDndAccessibility"
 import { useRouter } from "next/navigation"
 import { useTaskStore } from "@/store/useTaskStore"
 import { CalendarSyncBadge } from "./CalendarSyncBadge"
 import { AiBookingApprovalBadge } from "./AiBookingApprovalBadge"
+import { TaskDetailSheet } from "./TaskDetailSheet"
+import { priorityLabels, statusLabels, typeLabels } from "./task-labels"
 import {
   DndContext,
   closestCenter,
@@ -71,30 +75,20 @@ const taskTypeIcons = {
 }
 
 const statusColors = {
-  nuevo: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  "en-curso": "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-  "en-espera": "bg-orange-500/20 text-orange-400 border-orange-500/30",
-  reprogramado: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  bloqueado: "bg-red-500/20 text-red-400 border-red-500/30",
-  hecho: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  cancelado: "bg-gray-500/20 text-gray-400 border-gray-500/30",
-}
-
-const statusLabels: Record<Task["status"], string> = {
-  nuevo: "Nuevo",
-  "en-curso": "En curso",
-  "en-espera": "En espera",
-  reprogramado: "Reprogramado",
-  bloqueado: "Bloqueado",
-  hecho: "Hecho",
-  cancelado: "Cancelado",
+  nuevo: "bg-blue-500/10 text-blue-700 border-blue-500/30 dark:bg-blue-500/20 dark:text-blue-400",
+  "en-curso": "bg-yellow-500/10 text-yellow-700 border-yellow-500/30 dark:bg-yellow-500/20 dark:text-yellow-400",
+  "en-espera": "bg-orange-500/10 text-orange-700 border-orange-500/30 dark:bg-orange-500/20 dark:text-orange-400",
+  reprogramado: "bg-purple-500/10 text-purple-700 border-purple-500/30 dark:bg-purple-500/20 dark:text-purple-400",
+  bloqueado: "bg-red-500/10 text-red-700 border-red-500/30 dark:bg-red-500/20 dark:text-red-400",
+  hecho: "bg-emerald-500/10 text-emerald-700 border-emerald-500/30 dark:bg-emerald-500/20 dark:text-emerald-400",
+  cancelado: "bg-gray-500/10 text-gray-700 border-gray-500/30 dark:bg-gray-500/20 dark:text-gray-400",
 }
 
 const priorityColors = {
-  baja: "bg-gray-500/20 text-gray-300",
-  media: "bg-blue-500/20 text-blue-300",
-  alta: "bg-orange-500/20 text-orange-300",
-  critica: "bg-red-500/20 text-red-300",
+  baja: "bg-gray-500/10 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300",
+  media: "bg-blue-500/10 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
+  alta: "bg-orange-500/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300",
+  critica: "bg-red-500/10 text-red-700 dark:bg-red-500/20 dark:text-red-300",
 }
 
 type TaskColumnKey =
@@ -223,18 +217,18 @@ function SortableTaskHeader({
           <button
             type="button"
             aria-label={`Mover columna ${column.label}`}
-            className="cursor-grab touch-none text-muted-foreground/60 hover:text-foreground active:cursor-grabbing"
+            className="cursor-grab touch-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
             {...attributes}
             {...listeners}
           >
-            <GripVertical className="h-3.5 w-3.5" />
+            <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         )}
         <div className="truncate">{children ?? column.label}</div>
       </div>
       <button
         type="button"
-        aria-label={`Redimensionar columna ${column.label || "seleccion"}`}
+        aria-label={`Redimensionar columna ${column.label || "de selección"}`}
         className="absolute right-0 top-0 h-full w-2 cursor-col-resize border-r border-transparent transition-colors hover:border-primary/70 group-hover:border-border"
         onMouseDown={(event) => onResizeStart(column.key, event)}
       />
@@ -245,6 +239,10 @@ function SortableTaskHeader({
 export function TaskListView({ tasks }: { tasks: Task[] }) {
   const updateTask = useTaskStore((state) => state.updateTask)
   const deleteTask = useTaskStore((state) => state.deleteTask)
+  const undoDelete = useTaskStore((state) => state.undoDelete)
+  const commitDelete = useTaskStore((state) => state.commitDelete)
+  const fetchTasks = useTaskStore((state) => state.fetchTasks)
+  const { addToast, removeToast } = useToast()
   const [editingCell, setEditingCell] = useState<{ taskId: string; field: string } | null>(null)
   const [editValue, setEditValue] = useState("")
   const [localTasks, setLocalTasks] = useState(tasks)
@@ -255,6 +253,7 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
   const [bulkValue, setBulkValue] = useState("")
   const [columnWidths, setColumnWidths] = useState<Record<TaskColumnKey, number>>(getInitialColumnWidths)
   const [columns, setColumns] = useState<TaskColumn[]>(defaultTaskColumns)
+  const [detailTask, setDetailTask] = useState<Task | null>(null)
 
   useEffect(() => {
     setColumns(loadColumnOrder())
@@ -268,6 +267,10 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
+  const dndAccessibility = useDndAccessibility((id) => {
+    const label = columns.find((column) => column.key === id)?.label
+    return label ? `la columna ${label}` : undefined
+  })
 
   const handleColumnDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return
@@ -327,8 +330,8 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
 
     setEditingCell(null)
     updateTask(taskId, { [field]: editValue }).then(
-      () => toast.success("Tarea actualizada"),
-      (error) => toast.error(error instanceof Error ? error.message : "No se pudo actualizar la tarea"),
+      () => addToast({ type: "success", title: "Tarea actualizada" }),
+      (error) => addToast({ type: "error", title: error instanceof Error ? error.message : "No se pudo actualizar la tarea" }),
     )
   }
 
@@ -362,8 +365,8 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
       status: newStatus,
       completed_at: newStatus === "hecho" ? new Date().toISOString() : null,
     }).then(
-      () => toast.success(`Estado cambiado a "${newStatus}"`),
-      (error) => toast.error(error instanceof Error ? error.message : "No se pudo actualizar el estado"),
+      () => addToast({ type: "success", title: `Estado cambiado a "${statusLabels[newStatus]}"` }),
+      (error) => addToast({ type: "error", title: error instanceof Error ? error.message : "No se pudo actualizar el estado" }),
     )
   }
 
@@ -408,46 +411,70 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
     return new Date(deadline) < new Date()
   }
 
-  const handleBulkEdit = () => {
+  const handleBulkEdit = async () => {
     if (selectedTasks.size === 0) return
 
+    const field = bulkField
+    const payload: TaskPayload =
+      field === "status" ? { status: bulkValue as Task["status"] } : { priority: bulkValue as Task["priority"] }
+    // Valores previos capturados antes de editar: "Deshacer" los vuelve a mandar al servidor.
+    const previousTasks = localTasks.filter((task) => selectedTasks.has(task.id))
+    const previousById = new Map(previousTasks.map((task) => [task.id, task]))
+    const revertLocal = () => setLocalTasks((prev) => prev.map((task) => previousById.get(task.id) ?? task))
+    const revertOnServer = (targets: Task[]) =>
+      Promise.all(
+        targets.map((task) =>
+          updateTask(
+            task.id,
+            field === "status"
+              ? { status: task.status, completed_at: task.completedAt ?? null }
+              : { priority: task.priority },
+          ),
+        ),
+      )
+
     setLocalTasks((prev) =>
-      prev.map((task) => {
-        if (selectedTasks.has(task.id)) {
-          return {
-            ...task,
-            [bulkField]: bulkValue,
-            updatedAt: new Date().toISOString(),
-          }
-        }
-        return task
-      }),
-    )
-
-    Promise.all(
-      Array.from(selectedTasks).map((taskId) =>
-        updateTask(taskId, {
-          [bulkField]: bulkValue,
-        }),
+      prev.map((task) =>
+        previousById.has(task.id) ? { ...task, [field]: bulkValue, updatedAt: new Date().toISOString() } : task,
       ),
-    ).then(
-      () => undefined,
-      (error) => toast.error(error instanceof Error ? error.message : "No se pudieron actualizar las tareas"),
     )
+    setShowBulkEdit(false)
+    setSelectedTasks(new Set())
 
-    toast.success(`${selectedTasks.size} tarea(s) actualizadas`, {
+    const results = await Promise.allSettled(previousTasks.map((task) => updateTask(task.id, payload)))
+    const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
+
+    if (failure) {
+      revertLocal()
+      addToast({
+        type: "error",
+        title: failure.reason instanceof Error ? failure.reason.message : "No se pudieron actualizar las tareas",
+      })
+      // Las que sí se guardaron vuelven atrás para no dejar la edición a medias.
+      const applied = previousTasks.filter((_, index) => results[index].status === "fulfilled")
+      if (applied.length > 0) revertOnServer(applied).catch(() => void fetchTasks())
+      return
+    }
+
+    addToast({
+      type: "success",
+      title: `${previousTasks.length} tarea(s) actualizadas`,
       action: {
         label: "Deshacer",
         onClick: () => {
-          setLocalTasks(tasks)
-          toast.success("Cambios revertidos")
+          revertOnServer(previousTasks).then(
+            () => {
+              revertLocal()
+              addToast({ type: "success", title: "Cambios revertidos" })
+            },
+            (error) => {
+              addToast({ type: "error", title: error instanceof Error ? error.message : "No se pudieron revertir los cambios" })
+              void fetchTasks()
+            },
+          )
         },
       },
-      duration: 5000,
     })
-
-    setShowBulkEdit(false)
-    setSelectedTasks(new Set())
   }
 
   const handleBulkMarkDone = () => {
@@ -474,17 +501,30 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
           completed_at: new Date().toISOString(),
         }),
       ),
-    ).catch((error) => toast.error(error instanceof Error ? error.message : "No se pudieron completar las tareas"))
+    ).catch((error) => addToast({ type: "error", title: error instanceof Error ? error.message : "No se pudieron completar las tareas" }))
 
-    toast.success(`${selectedTasks.size} tarea(s) marcadas como completadas`)
+    addToast({ type: "success", title: `${selectedTasks.size} tarea(s) marcadas como completadas` })
     setSelectedTasks(new Set())
   }
 
   const handleDelete = (taskId: string) => {
+    const toastId = `task-delete-${taskId}`
+    // El borrado real ocurre cuando el toast vence sin "Deshacer" (o al salir de la página).
     deleteTask(taskId).then(
-      () => toast.success("Tarea eliminada"),
-      (error) => toast.error(error instanceof Error ? error.message : "No se pudo eliminar la tarea"),
+      () => removeToast(toastId),
+      (error) => {
+        removeToast(toastId)
+        addToast({ type: "error", title: error instanceof Error ? error.message : "No se pudo eliminar la tarea" })
+      },
     )
+    addToast({
+      id: toastId,
+      type: "success",
+      title: "Tarea eliminada",
+      duration: 6000,
+      action: { label: "Deshacer", onClick: () => undoDelete(taskId) },
+      onExpire: () => void commitDelete(taskId),
+    })
   }
 
   const handleColumnResizeStart = (columnKey: TaskColumnKey, event: React.MouseEvent<HTMLButtonElement>) => {
@@ -529,13 +569,30 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
     </SortableTaskHeader>
   )
 
+  const renderStatusSelect = (task: Task, sizeClassName: string) => (
+    <Select value={task.status} onValueChange={(value) => handleStatusChange(task.id, value as Task["status"])}>
+      <SelectTrigger className={`${sizeClassName} justify-between text-xs font-semibold ${statusColors[task.status]}`}>
+        <SelectValue>{statusLabels[task.status]}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="nuevo">Nuevo</SelectItem>
+        <SelectItem value="en-curso">En curso</SelectItem>
+        <SelectItem value="en-espera">En espera</SelectItem>
+        <SelectItem value="reprogramado">Reprogramado</SelectItem>
+        <SelectItem value="bloqueado">Bloqueado</SelectItem>
+        <SelectItem value="hecho">Hecho</SelectItem>
+        <SelectItem value="cancelado">Cancelado</SelectItem>
+      </SelectContent>
+    </Select>
+  )
+
   const renderTaskCell = (task: Task, columnKey: TaskColumnKey) => {
     const TypeIcon = taskTypeIcons[task.type]
     const isEditing = editingCell?.taskId === task.id
 
     switch (columnKey) {
       case "selection":
-        return <Checkbox checked={selectedTasks.has(task.id)} onCheckedChange={() => toggleSelection(task.id)} />
+        return <Checkbox checked={selectedTasks.has(task.id)} onCheckedChange={() => toggleSelection(task.id)} aria-label={`Seleccionar ${task.name}`} />
       case "name":
         return isEditing && editingCell.field === "name" ? (
           <div className="flex items-center gap-1">
@@ -544,13 +601,14 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
               onChange={(event) => setEditValue(event.target.value)}
               onKeyDown={handleKeyDown}
               className="h-8 text-sm"
+              aria-label="Nombre de la tarea"
               autoFocus
             />
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSave}>
-              <Check className="h-4 w-4 text-emerald-500" />
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleSave} aria-label="Guardar nombre">
+              <Check className="h-4 w-4 text-success" aria-hidden="true" />
             </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleCancel}>
-              <X className="h-4 w-4 text-red-500" />
+            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleCancel} aria-label="Cancelar edición">
+              <X className="h-4 w-4 text-destructive" aria-hidden="true" />
             </Button>
           </div>
         ) : (
@@ -563,10 +621,11 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
               <Button
                 size="icon"
                 variant="ghost"
-                className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                className="h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                 onClick={() => handleEdit(task.id, "name", task.name)}
+                aria-label={`Editar nombre de ${task.name}`}
               >
-                <Edit2 className="h-3 w-3" />
+                <Edit2 className="h-3 w-3" aria-hidden="true" />
               </Button>
             </div>
             {task.type === "reunion" && <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />}
@@ -607,40 +666,25 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
         )
       case "deadline":
         return task.deadline ? (
-          <div className={isOverdue(task.deadline) && task.status !== "hecho" ? "text-sm font-semibold text-red-400" : "text-sm text-muted-foreground"}>
+          <div className={isOverdue(task.deadline) && task.status !== "hecho" ? "text-sm font-semibold text-destructive" : "text-sm text-muted-foreground"}>
             <div className="font-medium tabular-nums">{format(new Date(task.deadline), "dd/MM/yyyy")}</div>
-            <div className="text-xs tabular-nums opacity-80">{format(new Date(task.deadline), "HH:mm")} hs</div>
+            <div className="text-xs tabular-nums">{format(new Date(task.deadline), "HH:mm")} hs</div>
           </div>
         ) : (
           <span className="text-xs text-muted-foreground">Sin fecha</span>
         )
       case "status":
-        return (
-          <Select value={task.status} onValueChange={(value) => handleStatusChange(task.id, value as Task["status"])}>
-            <SelectTrigger className={`h-8 min-w-[130px] justify-between text-xs font-semibold ${statusColors[task.status]}`}>
-              <SelectValue>{statusLabels[task.status]}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="nuevo">Nuevo</SelectItem>
-              <SelectItem value="en-curso">En curso</SelectItem>
-              <SelectItem value="en-espera">En espera</SelectItem>
-              <SelectItem value="reprogramado">Reprogramado</SelectItem>
-              <SelectItem value="bloqueado">Bloqueado</SelectItem>
-              <SelectItem value="hecho">Hecho</SelectItem>
-              <SelectItem value="cancelado">Cancelado</SelectItem>
-            </SelectContent>
-          </Select>
-        )
+        return renderStatusSelect(task, "h-8 min-w-[130px]")
       case "priority":
         return (
           <Badge variant="outline" className={`text-xs ${priorityColors[task.priority]}`}>
-            {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+            {priorityLabels[task.priority]}
           </Badge>
         )
       case "type":
         return (
           <Badge variant="outline" className="bg-muted/50 text-xs">
-            {task.type.charAt(0).toUpperCase() + task.type.slice(1)}
+            {typeLabels[task.type]}
           </Badge>
         )
       case "actions":
@@ -648,24 +692,24 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
           <div className="flex items-center gap-1">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleMarkDone(task.id)} disabled={task.status === "hecho"}>
-                  <Check className="h-4 w-4 text-emerald-500" />
+                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleMarkDone(task.id)} disabled={task.status === "hecho"} aria-label={`Marcar ${task.name} como hecha`}>
+                  <Check className="h-4 w-4 text-success" aria-hidden="true" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Marcar como Hecho</TooltipContent>
+              <TooltipContent>Marcar como hecha</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-7 w-7">
-                  <Eye className="h-4 w-4 text-blue-400" />
+                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setDetailTask(task)} aria-label={`Ver detalles de ${task.name}`}>
+                  <Eye className="h-4 w-4 text-info" aria-hidden="true" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Ver detalles</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleDelete(task.id)}>
-                  <Trash2 className="h-4 w-4 text-red-400" />
+                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleDelete(task.id)} aria-label={`Eliminar ${task.name}`}>
+                  <Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Eliminar</TooltipContent>
@@ -677,8 +721,89 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
 
   return (
     <TooltipProvider>
-      <div className="rounded-lg border border-border bg-card">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
+      {/* Teléfonos: tarjetas con lo esencial; la tabla configurable queda para md en adelante. */}
+      <ul className="space-y-3 md:hidden">
+        {localTasks.map((task) => {
+          const TypeIcon = taskTypeIcons[task.type]
+          const overdue = isOverdue(task.deadline) && task.status !== "hecho"
+          return (
+            <li key={task.id} className="rounded-xl border border-border bg-card p-3">
+              <div className="flex items-start gap-3">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                  <TypeIcon className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => setDetailTask(task)}
+                    className="rounded-sm text-left text-sm font-medium text-foreground outline-none [overflow-wrap:anywhere] focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  >
+                    {task.name}
+                  </button>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <span className={overdue ? "inline-flex items-center gap-1 font-semibold text-destructive" : "inline-flex items-center gap-1"}>
+                      <CalendarIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                      {task.deadline ? (
+                        <span className="tabular-nums">{format(new Date(task.deadline), "dd/MM/yyyy HH:mm")} hs</span>
+                      ) : (
+                        "Sin fecha"
+                      )}
+                      {overdue && <span className="sr-only">(vencida)</span>}
+                    </span>
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <Avatar className="h-5 w-5">
+                        <AvatarFallback className="bg-primary/20 text-[10px] text-primary">
+                          {task.assignee.split(" ").map((part) => part[0]).join("").slice(0, 2)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="truncate">{task.assignee}</span>
+                    </span>
+                  </div>
+                </div>
+                <Badge variant="outline" className={`text-xs ${priorityColors[task.priority]}`}>
+                  {priorityLabels[task.priority]}
+                </Badge>
+              </div>
+
+              {(task.type === "reunion" || task.relatedTo) && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 pl-11">
+                  {task.type === "reunion" && <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />}
+                  {task.relatedTo && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-10 max-w-full gap-1 px-2 hover:bg-primary/10"
+                      onClick={() => handleRelatedClick(task.relatedTo)}
+                    >
+                      <span className="truncate">{task.relatedTo.label}</span>
+                      <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
+                    </Button>
+                  )}
+                </div>
+              )}
+              <div className="mt-2 pl-11 empty:hidden">
+                <AiBookingApprovalBadge task={task} />
+              </div>
+
+              <div className="mt-3 flex items-center gap-1">
+                <div className="min-w-0 flex-1">{renderStatusSelect(task, "h-10 w-full")}</div>
+                <Button size="icon" variant="ghost" className="size-10" onClick={() => handleMarkDone(task.id)} disabled={task.status === "hecho"} aria-label={`Marcar ${task.name} como hecha`}>
+                  <Check className="h-4 w-4 text-success" aria-hidden="true" />
+                </Button>
+                <Button size="icon" variant="ghost" className="size-10" onClick={() => setDetailTask(task)} aria-label={`Ver detalles de ${task.name}`}>
+                  <Eye className="h-4 w-4 text-info" aria-hidden="true" />
+                </Button>
+                <Button size="icon" variant="ghost" className="size-10" onClick={() => handleDelete(task.id)} aria-label={`Eliminar ${task.name}`}>
+                  <Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" />
+                </Button>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+
+      <div className="hidden overflow-x-auto rounded-lg border border-border bg-card md:block">
+        <DndContext sensors={sensors} accessibility={dndAccessibility} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
           <Table className="table-fixed" style={{ width: tableWidth }}>
             <colgroup>
               {columns.map((column) => (
@@ -695,6 +820,7 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
                         <Checkbox
                           checked={selectedTasks.size === localTasks.length && localTasks.length > 0}
                           onCheckedChange={toggleSelectAll}
+                          aria-label="Seleccionar todas las tareas"
                         />
                       ) : undefined,
                     ),
@@ -722,7 +848,7 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
                 Editar en lote
               </Button>
               <Button size="sm" variant="outline" onClick={handleBulkMarkDone}>
-                Marcar Hecho
+                Marcar como hechas
               </Button>
               <Button size="sm" variant="outline" onClick={() => setSelectedTasks(new Set())}>
                 Cancelar
@@ -797,6 +923,13 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <TaskDetailSheet
+        task={detailTask}
+        onOpenChange={(open) => !open && setDetailTask(null)}
+        onSaved={(taskId, changes) =>
+          setLocalTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...changes } : t)))
+        }
+      />
     </TooltipProvider>
   )
 }

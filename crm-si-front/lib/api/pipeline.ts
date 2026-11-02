@@ -32,7 +32,7 @@ export async function getPipelines(): Promise<Pipeline[]> {
   const token = getAuthToken()
   if (!token) return []
   const res = await fetch("/api/pipelines", { headers: authHeaders(token), cache: "no-store" })
-  if (!res.ok) throw new Error("No se pudieron cargar los pipelines")
+  if (!res.ok) throw new Error("No se pudieron cargar los embudos")
   return res.json()
 }
 
@@ -45,7 +45,7 @@ export async function createPipeline(name: string, stages?: { name: string; colo
     body: JSON.stringify(stages?.length ? { name, stages } : { name }),
   })
   const payload = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(apiErrorMessage(payload, "No se pudo crear el pipeline"))
+  if (!res.ok) throw new Error(apiErrorMessage(payload, "No se pudo crear el embudo"))
   return payload
 }
 
@@ -54,7 +54,7 @@ export async function updatePipeline(id: number, data: { name?: string; is_defau
   if (!token) throw new Error("No autenticado")
   const res = await fetch(`/api/pipelines/${id}`, { method: "PUT", headers: authHeaders(token), body: JSON.stringify(data) })
   const payload = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(apiErrorMessage(payload, "No se pudo actualizar el pipeline"))
+  if (!res.ok) throw new Error(apiErrorMessage(payload, "No se pudo actualizar el embudo"))
   return payload
 }
 
@@ -62,22 +62,27 @@ export async function deletePipeline(id: number): Promise<void> {
   const token = getAuthToken()
   if (!token) throw new Error("No autenticado")
   const res = await fetch(`/api/pipelines/${id}`, { method: "DELETE", headers: authHeaders(token) })
-  if (!res.ok) throw new Error(apiErrorMessage(await res.json().catch(() => ({})), "No se pudo eliminar el pipeline"))
+  if (!res.ok) throw new Error(apiErrorMessage(await res.json().catch(() => ({})), "No se pudo eliminar el embudo"))
 }
 
-export async function getPipelineStages(pipelineId?: number): Promise<PipelineStage[]> {
+/** Igual que getPipelineStages pero lanza si falla, para las pantallas que distinguen "error" de "sin etapas". */
+export async function fetchPipelineStages(pipelineId?: number): Promise<PipelineStage[]> {
   const token = getAuthToken();
 
   if (!token) return [];
 
-  try {
-    const query = pipelineId ? `?pipeline_id=${pipelineId}` : ""
-    const res = await fetch(`/api/pipeline-stages${query}`, {
-      headers: authHeaders(token),
-    });
+  const query = pipelineId ? `?pipeline_id=${pipelineId}` : ""
+  const res = await fetch(`/api/pipeline-stages${query}`, {
+    headers: authHeaders(token),
+  });
 
-    if (!res.ok) return [];
-    return await res.json();
+  if (!res.ok) throw new Error(apiErrorMessage(await res.json().catch(() => ({})), "No se pudieron cargar las etapas"))
+  return await res.json();
+}
+
+export async function getPipelineStages(pipelineId?: number): Promise<PipelineStage[]> {
+  try {
+    return await fetchPipelineStages(pipelineId);
   } catch (error) {
     console.error("Error fetching pipeline stages:", error);
     return [];

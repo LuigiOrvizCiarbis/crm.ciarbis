@@ -46,6 +46,8 @@ export function TagPicker({
   const [query, setQuery] = useState("")
   const [tags, setTags] = useState<Tag[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [savingId, setSavingId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
 
@@ -61,11 +63,14 @@ export function TagPicker({
 
     let cancelled = false
     setLoading(true)
+    setLoadFailed(false)
     getTags()
       .then((loadedTags) => {
         if (!cancelled) setTags(loadedTags)
       })
       .catch((error) => {
+        if (cancelled) return
+        setLoadFailed(true)
         addToast({
           type: "error",
           title: "No se pudieron cargar las etiquetas",
@@ -79,7 +84,7 @@ export function TagPicker({
     return () => {
       cancelled = true
     }
-  }, [shouldLoad, addToast])
+  }, [shouldLoad, reloadKey, addToast])
 
   const attachTag = async (tag: Tag) => {
     if (selectedIds.has(tag.id)) return
@@ -154,8 +159,24 @@ export function TagPicker({
             isInline ? "text-[#9AA4B2]" : "text-muted-foreground",
           )}
         >
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           Cargando etiquetas
+        </div>
+      )
+    }
+
+    if (loadFailed) {
+      return (
+        <div
+          className={cn(
+            "flex flex-col items-start gap-2 px-2 py-4 text-sm",
+            isInline ? "text-[#9AA4B2]" : "text-muted-foreground",
+          )}
+        >
+          <span>No se pudieron cargar las etiquetas.</span>
+          <Button type="button" variant="outline" size="sm" onClick={() => setReloadKey((key) => key + 1)}>
+            Reintentar
+          </Button>
         </div>
       )
     }
@@ -170,15 +191,16 @@ export function TagPicker({
               key={tag.id}
               type="button"
               className={cn(
-                "flex w-full items-center gap-3 rounded-md px-2 text-left text-sm disabled:cursor-wait disabled:opacity-60",
+                "flex w-full items-center gap-3 rounded-md px-2 text-left text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-wait disabled:opacity-60",
                 isInline
                   ? "py-2.5 text-[#D8DEE9] active:bg-[#1A1F2B] hover:bg-[#1A1F2B]"
                   : "py-2 hover:bg-accent",
               )}
               disabled={saving}
+              aria-pressed={selected}
               onClick={() => (selected ? removeTag(tag) : attachTag(tag))}
             >
-              <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: tag.color }} />
+              <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: tag.color }} aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate">{tag.name}</span>
               {saving ? (
                 <Loader2 className={cn("h-4 w-4 animate-spin", isInline ? "text-[#9AA4B2]" : "text-muted-foreground")} />
@@ -192,7 +214,7 @@ export function TagPicker({
           <button
             type="button"
             className={cn(
-              "mt-1 flex w-full items-center gap-3 rounded-md border border-dashed px-2 text-left text-sm disabled:cursor-wait disabled:opacity-60",
+              "mt-1 flex w-full items-center gap-3 rounded-md border border-dashed px-2 text-left text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-wait disabled:opacity-60",
               isInline
                 ? "border-[#2A3344] py-2.5 text-[#9AA4B2] active:bg-[#1A1F2B] hover:bg-[#1A1F2B] hover:text-[#D8DEE9]"
                 : "py-2 text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -200,7 +222,7 @@ export function TagPicker({
             disabled={creating}
             onClick={handleCreate}
           >
-            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            {creating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
             Crear "{query.trim()}"
           </button>
         )}
@@ -250,8 +272,9 @@ export function TagPicker({
             variant="outline"
             size="sm"
             className={cn("h-8 gap-2 bg-transparent", compact && "h-7 px-2 text-xs")}
+            aria-label={buttonLabel ? undefined : "Gestionar etiquetas"}
           >
-            <TagIcon className="h-3.5 w-3.5" />
+            <TagIcon className="h-3.5 w-3.5" aria-hidden="true" />
             {buttonLabel}
           </Button>
         </PopoverTrigger>

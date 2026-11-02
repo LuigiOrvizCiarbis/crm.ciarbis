@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ArrowDownToLine, Building2, Check, ChevronDown, CircleAlert, Clock3, FileCheck2, FileText, MessageCircle, Plus, RefreshCw, Repeat2, Search, Settings2, Wallet, X } from "lucide-react"
+import { ArrowDownToLine, Building2, Check, ChevronDown, CircleAlert, Clock3, FileCheck2, FileText, MessageCircle, Plus, RefreshCw, Repeat2, Search, Settings2, X } from "lucide-react"
 import { SidebarLayout } from "@/components/SidebarLayout"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { StatStrip } from "@/components/ui/stat-strip"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -33,12 +34,10 @@ const collectionStatusLabels: Record<InvoiceCollectionStatus, string> = {
 }
 const collectionStatusLabel = (status?: InvoiceCollectionStatus | null) => status ? collectionStatusLabels[status] : "—"
 const collectionStatusTone = (status: InvoiceCollectionStatus) => status === "paid"
-  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300"
+  ? "border-success/30 bg-success/10 text-success hover:bg-success/15"
   : status === "overdue" || status === "partial_overdue"
-    ? "border-red-500/40 bg-red-500/10 text-red-700 hover:bg-red-500/15 dark:text-red-300"
-    : status === "partial"
-      ? "border-orange-500/40 bg-orange-500/10 text-orange-700 hover:bg-orange-500/15 dark:text-orange-300"
-      : "border-amber-500/40 bg-amber-500/10 text-amber-800 hover:bg-amber-500/15 dark:text-amber-300"
+    ? "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15"
+    : "border-warning/30 bg-warning/10 text-warning hover:bg-warning/15"
 const deliveryStatusLabel = (status: string) => status === "delivered" ? "WhatsApp entregado" : status === "accepted" ? "WhatsApp enviado" : status === "failed" ? "Falló el envío" : status === "unknown" ? "Entrega sin confirmar" : "Envío pendiente de confirmación"
 const recurrenceFrequency = (unit: string, count: number) => {
   const labels: Record<string, [string, string]> = {
@@ -150,7 +149,7 @@ export default function InvoicesPage() {
       setChannels(channelRows.filter((channel) => channel.type === ChannelType.WHATSAPP) as typeof channelRows)
     } catch (error) {
       if (sequence !== loadSequence.current) return
-      addToast({ type: "error", title: "No se pudo cargar Invoices", description: error instanceof Error ? error.message : "Intentá de nuevo." })
+      addToast({ type: "error", title: "No se pudieron cargar las facturas", description: error instanceof Error ? error.message : "Intentá de nuevo." })
     } finally { if (sequence === loadSequence.current) setLoading(false) }
   }, [addToast, collectionStatusFilter, invoicePage, invoiceSearch, recurrenceFilter?.id])
 
@@ -305,7 +304,7 @@ export default function InvoicesPage() {
     try {
       const amount_cents = Math.round(Number(editForm.amount.replace(",", ".")) * 100)
       await updateInvoice(selectedInvoice.id, { concept: editForm.concept, amount_cents, ...(selectedInvoice.status === "scheduled" ? { scheduled_at: new Date(editForm.scheduled_at).toISOString() } : {}) })
-      addToast({ type: "success", title: "Invoice actualizado" }); setEditingInvoice(false); await refreshSelected()
+      addToast({ type: "success", title: "Factura actualizada" }); setEditingInvoice(false); await refreshSelected()
     } catch (error) { addToast({ type: "error", title: "No se pudo actualizar", description: error instanceof Error ? error.message : "Revisá los datos." }) }
     finally { setBusy(false) }
   }
@@ -333,10 +332,10 @@ export default function InvoicesPage() {
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="pending" disabled={hasPayments}><span className="mr-2 inline-block size-2 rounded-full bg-amber-500" />Pendiente</SelectItem>
-          <SelectItem value="paid"><span className="mr-2 inline-block size-2 rounded-full bg-emerald-500" />Pagado</SelectItem>
-          <SelectItem value="overdue" disabled={hasPayments}><span className="mr-2 inline-block size-2 rounded-full bg-red-500" />Impago</SelectItem>
-          {isPartial && <SelectItem value={status} disabled><span className={`mr-2 inline-block size-2 rounded-full ${status === "partial_overdue" ? "bg-red-500" : "bg-orange-500"}`} />{collectionStatusLabel(status)}</SelectItem>}
+          <SelectItem value="pending" disabled={hasPayments}><span className="mr-2 inline-block size-2 rounded-full bg-warning" />Pendiente</SelectItem>
+          <SelectItem value="paid"><span className="mr-2 inline-block size-2 rounded-full bg-success" />Pagado</SelectItem>
+          <SelectItem value="overdue" disabled={hasPayments}><span className="mr-2 inline-block size-2 rounded-full bg-destructive" />Impago</SelectItem>
+          {isPartial && <SelectItem value={status} disabled><span className={`mr-2 inline-block size-2 rounded-full ${status === "partial_overdue" ? "bg-destructive" : "bg-warning"}`} />{collectionStatusLabel(status)}</SelectItem>}
         </SelectContent>
       </Select> : <Badge variant="outline" className={collectionStatusTone(status)}>{collectionStatusLabel(status)}</Badge>}
       {invoice.status === "issued" ? <span className={`text-xs ${invoice.delivery_status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>{deliveryStatusLabel(invoice.delivery_status)}</span> : <span className="text-xs text-muted-foreground">{invoice.status === "scheduled" ? "Programado" : "Borrador"}</span>}
@@ -350,9 +349,9 @@ export default function InvoicesPage() {
       if (action === "issue") await issueInvoice(selectedInvoice.id)
       else if (action === "resend") await resendInvoice(selectedInvoice.id)
       else await voidInvoice(selectedInvoice.id, correctionReason)
-      addToast({ type: "success", title: action === "issue" ? "Invoice emitido" : action === "resend" ? "Invoice reenviado" : "Invoice anulado" })
+      addToast({ type: "success", title: action === "issue" ? "Factura emitida" : action === "resend" ? "Factura reenviada" : "Factura anulada" })
       await refreshSelected(); setCorrectionReason("")
-    } catch (error) { addToast({ type: "error", title: "No se pudo completar la acción", description: error instanceof Error ? error.message : "Revisá el estado del invoice." }) }
+    } catch (error) { addToast({ type: "error", title: "No se pudo completar la acción", description: error instanceof Error ? error.message : "Revisá el estado de la factura." }) }
     finally { setBusy(false) }
   }
 
@@ -366,12 +365,12 @@ export default function InvoicesPage() {
 
   const templatesForChannel = templates
   return <SidebarLayout>
-    <main className="min-h-full bg-gradient-to-b from-muted/35 via-background to-background">
+    <main className="min-h-full">
       <div className="mx-auto max-w-7xl space-y-7 px-4 py-7 md:px-8 md:py-10">
         <header className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
           <div className="max-w-2xl space-y-2">
             <div className="flex items-center gap-2 text-sm font-medium text-primary"><span className="grid size-8 place-items-center rounded-xl bg-primary/10"><FileText className="size-4" /></span>Gestión de cobros</div>
-            <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Invoices</h1>
+            <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Facturas</h1>
             <p className="text-sm text-muted-foreground md:text-base">Enviá solicitudes de pago y seguí cada saldo desde el CRM.</p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -380,7 +379,7 @@ export default function InvoicesPage() {
           </div>
         </header>
 
-        {settings && !settings.enabled && <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-sm"><CircleAlert className="mt-0.5 size-5 shrink-0 text-amber-600" /><div><p className="font-medium">Configurá WhatsApp para habilitar los envíos automáticos</p><p className="mt-1 text-muted-foreground">Podés guardar borradores ahora; la emisión queda deshabilitada hasta elegir plantillas aprobadas.</p></div></div>}
+        {settings && !settings.enabled && <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm"><CircleAlert className="mt-0.5 size-5 shrink-0 text-warning" /><div><p className="font-medium">Configurá WhatsApp para habilitar los envíos automáticos</p><p className="mt-1 text-muted-foreground">Podés guardar borradores ahora; la emisión queda deshabilitada hasta elegir plantillas aprobadas.</p></div></div>}
 
         {canConfigure && showSettings && settings && <Card className="overflow-hidden border-border/70 shadow-sm">
           <CardHeader className="flex flex-row items-start gap-4 border-b bg-muted/20 px-5 py-5 sm:px-7">
@@ -392,7 +391,7 @@ export default function InvoicesPage() {
           </CardHeader>
           <CardContent className="px-5 py-5 sm:px-7 sm:py-6">
             <form onSubmit={updateSettings} noValidate className="space-y-6">
-              {settingsFormError && <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><CircleAlert className="mt-0.5 size-4 shrink-0" /><p>{settingsFormError}</p></div>}
+              {settingsFormError && <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"><CircleAlert className="mt-0.5 size-4 shrink-0" /><p>{settingsFormError}</p></div>}
               <section aria-labelledby="invoice-business-heading" className="space-y-4">
                 <div className="flex items-center gap-3">
                   <span className="grid size-9 place-items-center rounded-lg bg-muted text-muted-foreground"><Building2 className="size-4" /></span>
@@ -438,7 +437,7 @@ export default function InvoicesPage() {
                   <span className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg ${settings.enabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}><MessageCircle className="size-4" /></span>
                   <div><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">Envíos automáticos</p><Badge variant={settings.enabled ? "secondary" : "outline"}>{settings.enabled ? "Activos" : "Pausados"}</Badge></div><p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">Al activar, los cobros emitidos se enviarán por WhatsApp según estas plantillas y horarios.</p></div>
                 </div>
-                <div className="flex items-center gap-3 self-end sm:self-center"><span className="text-xs text-muted-foreground">{settings.enabled ? "Activado" : "Desactivado"}</span><Switch checked={settings.enabled} onCheckedChange={(enabled) => updateSettingsDraft({ enabled })} aria-label="Activar Invoices y sus envíos automáticos" /></div>
+                <div className="flex items-center gap-3 self-end sm:self-center"><span className="text-xs text-muted-foreground">{settings.enabled ? "Activado" : "Desactivado"}</span><Switch checked={settings.enabled} onCheckedChange={(enabled) => updateSettingsDraft({ enabled })} aria-label="Activar la facturación y sus envíos automáticos" /></div>
               </div>
 
               <div className="flex flex-col-reverse gap-2 border-t pt-5 sm:flex-row sm:justify-end">
@@ -449,7 +448,12 @@ export default function InvoicesPage() {
           </CardContent>
         </Card>}
 
-        <div className="grid gap-3 sm:grid-cols-3"><Card><CardContent className="flex items-center gap-4 p-5"><span className="grid size-10 place-items-center rounded-xl bg-amber-500/10 text-amber-600"><Wallet className="size-5" /></span><div><p className="text-xs text-muted-foreground">Saldo pendiente</p><p className="mt-1 text-xl font-semibold">{money(invoiceSummary.outstanding_cents)}</p></div></CardContent></Card><Card><CardContent className="flex items-center gap-4 p-5"><span className="grid size-10 place-items-center rounded-xl bg-red-500/10 text-red-600"><Clock3 className="size-5" /></span><div><p className="text-xs text-muted-foreground">Saldo vencido</p><p className="mt-1 text-xl font-semibold">{money(invoiceSummary.overdue_balance_cents)}</p><p className="mt-1 text-xs text-muted-foreground">{invoiceSummary.overdue_count} cobros</p></div></CardContent></Card><Card><CardContent className="flex items-center gap-4 p-5"><span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><Repeat2 className="size-5" /></span><div><p className="text-xs text-muted-foreground">Recurrencias activas</p><p className="mt-1 text-xl font-semibold">{recurrences.filter((item) => item.status === "active").length}</p></div></CardContent></Card></div>
+        {/* Sólo el saldo vencido lleva ícono y color, y únicamente cuando hay algo vencido. */}
+        <StatStrip stats={[
+          { label: "Saldo pendiente", value: money(invoiceSummary.outstanding_cents) },
+          { label: "Saldo vencido", value: money(invoiceSummary.overdue_balance_cents), detail: `${invoiceSummary.overdue_count} ${invoiceSummary.overdue_count === 1 ? "cobro" : "cobros"}`, ...(invoiceSummary.overdue_count > 0 ? { icon: Clock3, tone: "destructive" as const } : {}) },
+          { label: "Recurrencias activas", value: recurrences.filter((item) => item.status === "active").length },
+        ]} />
 
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "invoices" | "recurrences")} className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><TabsList><TabsTrigger value="invoices">Cobros</TabsTrigger><TabsTrigger value="recurrences">Recurrentes</TabsTrigger></TabsList><Button variant="ghost" size="sm" onClick={() => void reload()} aria-label="Actualizar lista"><RefreshCw className="mr-2 size-4" /> Actualizar</Button></div>
           <TabsContent value="invoices" className="space-y-4">
@@ -484,15 +488,15 @@ export default function InvoicesPage() {
                 <label htmlFor="invoice-collection-filter" className="text-xs font-medium text-muted-foreground">Estado de pago</label>
                 <Select value={collectionStatusFilter} onValueChange={(value) => { setCollectionStatusFilter(value as InvoiceCollectionStatus | "all"); setInvoicePage(1) }}>
                   <SelectTrigger id="invoice-collection-filter" className="h-10 w-full"><SelectValue placeholder="Todos los estados" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">Todos los estados</SelectItem><SelectItem value="pending"><span className="mr-2 inline-block size-2 rounded-full bg-amber-500" />Pendiente</SelectItem><SelectItem value="overdue"><span className="mr-2 inline-block size-2 rounded-full bg-red-500" />Impago</SelectItem><SelectItem value="partial"><span className="mr-2 inline-block size-2 rounded-full bg-orange-500" />Pago parcial</SelectItem><SelectItem value="partial_overdue"><span className="mr-2 inline-block size-2 rounded-full bg-red-500" />Pago parcial · vencido</SelectItem><SelectItem value="paid"><span className="mr-2 inline-block size-2 rounded-full bg-emerald-500" />Pagado</SelectItem></SelectContent>
+                  <SelectContent><SelectItem value="all">Todos los estados</SelectItem><SelectItem value="pending"><span className="mr-2 inline-block size-2 rounded-full bg-warning" />Pendiente</SelectItem><SelectItem value="overdue"><span className="mr-2 inline-block size-2 rounded-full bg-destructive" />Impago</SelectItem><SelectItem value="partial"><span className="mr-2 inline-block size-2 rounded-full bg-warning" />Pago parcial</SelectItem><SelectItem value="partial_overdue"><span className="mr-2 inline-block size-2 rounded-full bg-destructive" />Pago parcial · vencido</SelectItem><SelectItem value="paid"><span className="mr-2 inline-block size-2 rounded-full bg-success" />Pagado</SelectItem></SelectContent>
                 </Select>
               </div>
             </div>
-            <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-muted/45 text-left text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="px-5 py-3">Invoice</th><th className="px-5 py-3">Cliente</th><th className="px-5 py-3">Vencimiento</th><th className="px-5 py-3 text-right">Total</th><th className="px-5 py-3 text-right">Saldo</th><th className="px-5 py-3">Estado</th><th className="px-5 py-3" /></tr></thead><tbody className="divide-y">{loading ? <tr><td className="px-5 py-12 text-center text-muted-foreground" colSpan={7}>Cargando cobros…</td></tr> : visibleInvoices.length === 0 ? <tr><td className="px-5 py-14 text-center text-muted-foreground" colSpan={7}>{collectionStatusFilter !== "all" || invoiceSearch ? "No hay cobros que coincidan con la búsqueda o el filtro." : "Todavía no hay cobros. Creá uno para empezar."}</td></tr> : visibleInvoices.map((invoice) => <tr key={invoice.id} className="hover:bg-muted/25"><td className="px-5 py-4"><button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => void openInvoice(invoice.id)}>{invoice.number}</button><p className="max-w-56 truncate text-xs text-muted-foreground">{invoice.concept}</p></td><td className="px-5 py-4">{invoice.contact?.name ?? "Contacto"}</td><td className="px-5 py-4">{date(invoice.due_on)}</td><td className="px-5 py-4 text-right font-medium">{money(invoice.amount_cents)}</td><td className="px-5 py-4 text-right">{money(invoice.balance_cents ?? invoice.amount_cents - (invoice.paid_cents ?? 0))}</td><td className="px-5 py-4">{collectionStatusControl(invoice)}</td><td className="px-5 py-4 text-right">{invoice.status === "issued" && <Button variant="ghost" size="icon" aria-label={`Descargar ${invoice.number}`} onClick={() => void downloadPdf(invoice.id)}><ArrowDownToLine className="size-4" /></Button>}</td></tr>)}</tbody></table></div></Card>
+            <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-muted/45 text-left text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="px-5 py-3">Factura</th><th className="px-5 py-3">Cliente</th><th className="px-5 py-3">Vencimiento</th><th className="px-5 py-3 text-right">Total</th><th className="px-5 py-3 text-right">Saldo</th><th className="px-5 py-3">Estado</th><th className="px-5 py-3" /></tr></thead><tbody className="divide-y">{loading ? <tr><td className="px-5 py-12 text-center text-muted-foreground" colSpan={7}>Cargando cobros…</td></tr> : visibleInvoices.length === 0 ? <tr><td className="px-5 py-14 text-center text-muted-foreground" colSpan={7}>{collectionStatusFilter !== "all" || invoiceSearch ? "No hay cobros que coincidan con la búsqueda o el filtro." : "Todavía no hay cobros. Creá uno para empezar."}</td></tr> : visibleInvoices.map((invoice) => <tr key={invoice.id} className="hover:bg-muted/25"><td className="px-5 py-4"><button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => void openInvoice(invoice.id)}>{invoice.number}</button><p className="max-w-56 truncate text-xs text-muted-foreground">{invoice.concept}</p></td><td className="px-5 py-4">{invoice.contact?.name ?? "Contacto"}</td><td className="px-5 py-4">{date(invoice.due_on)}</td><td className="px-5 py-4 text-right font-medium">{money(invoice.amount_cents)}</td><td className="px-5 py-4 text-right">{money(invoice.balance_cents ?? invoice.amount_cents - (invoice.paid_cents ?? 0))}</td><td className="px-5 py-4">{collectionStatusControl(invoice)}</td><td className="px-5 py-4 text-right">{invoice.status === "issued" && <Button variant="ghost" size="icon" aria-label={`Descargar ${invoice.number}`} onClick={() => void downloadPdf(invoice.id)}><ArrowDownToLine className="size-4" /></Button>}</td></tr>)}</tbody></table></div></Card>
             <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Página {invoicePage} de {invoicePages}</p><div className="flex gap-2"><Button variant="outline" size="sm" disabled={invoicePage <= 1 || loading} onClick={() => setInvoicePage((page) => Math.max(1, page - 1))}>Anterior</Button><Button variant="outline" size="sm" disabled={invoicePage >= invoicePages || loading} onClick={() => setInvoicePage((page) => Math.min(invoicePages, page + 1))}>Siguiente</Button></div></div>
           </TabsContent>
           <TabsContent value="recurrences">
-            {!settings?.enabled && <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">Los cobros recurrentes se generan como borradores para controlar sus pagos. Activá los envíos en Configuración de cobros para mandar los próximos por WhatsApp.</p>}
+            {!settings?.enabled && <p className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">Los cobros recurrentes se generan como borradores para controlar sus pagos. Activá los envíos en Configuración de cobros para mandar los próximos por WhatsApp.</p>}
             <Card className="overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[900px] text-sm">
@@ -500,7 +504,7 @@ export default function InvoicesPage() {
                     <tr><th className="px-5 py-3">Concepto</th><th className="px-5 py-3">Cliente</th><th className="px-5 py-3">Frecuencia</th><th className="px-5 py-3">Próximo cobro</th><th className="px-5 py-3 text-right">Importe</th><th className="px-5 py-3">Recurrencia</th><th className="px-5 py-3">Último período · pago</th><th className="px-5 py-3" /></tr>
                   </thead>
                   <tbody className="divide-y">
-                    {loading ? <tr><td className="px-5 py-12 text-center text-muted-foreground" colSpan={8}>Cargando recurrencias…</td></tr> : recurrences.length === 0 ? <tr><td className="px-5 py-14 text-center" colSpan={8}><Repeat2 className="mx-auto mb-3 size-8 text-muted-foreground/50"/><p className="font-medium">Sin cobros recurrentes</p><p className="mt-1 text-muted-foreground">Las recurrencias generan un invoice separado por cada período.</p></td></tr> : recurrences.map((recurrence) => <tr key={recurrence.id} className="hover:bg-muted/25">
+                    {loading ? <tr><td className="px-5 py-12 text-center text-muted-foreground" colSpan={8}>Cargando recurrencias…</td></tr> : recurrences.length === 0 ? <tr><td className="px-5 py-14 text-center" colSpan={8}><Repeat2 className="mx-auto mb-3 size-8 text-muted-foreground/50"/><p className="font-medium">Sin cobros recurrentes</p><p className="mt-1 text-muted-foreground">Las recurrencias generan una factura separada por cada período.</p></td></tr> : recurrences.map((recurrence) => <tr key={recurrence.id} className="hover:bg-muted/25">
                       <td className="px-5 py-4 font-medium">{recurrence.concept}</td>
                       <td className="px-5 py-4">{recurrence.contact?.name}</td>
                       <td className="px-5 py-4">{recurrenceFrequency(recurrence.interval_unit, recurrence.interval_count)}</td>
@@ -535,8 +539,8 @@ export default function InvoicesPage() {
           {editingInvoice && canManage && <form onSubmit={saveInvoiceEdits} className="mt-4 grid gap-3 rounded-xl border p-4 sm:grid-cols-2"><label className="space-y-1 text-xs sm:col-span-2">Concepto<Input required maxLength={500} value={editForm.concept} onChange={(event) => setEditForm({ ...editForm, concept: event.target.value })} /></label><label className="space-y-1 text-xs">Importe (ARS)<Input required type="number" min="0.01" step="0.01" value={editForm.amount} onChange={(event) => setEditForm({ ...editForm, amount: event.target.value })} /></label>{selectedInvoice.status === "scheduled" && <label className="space-y-1 text-xs">Fecha y hora de emisión<Input required type="datetime-local" value={editForm.scheduled_at} onChange={(event) => setEditForm({ ...editForm, scheduled_at: event.target.value })} /></label>}<div className="flex justify-end sm:col-span-2"><Button disabled={busy}>{busy ? "Guardando…" : "Guardar cambios"}</Button></div></form>}
 
           <div className="mt-6"><h3 className="font-medium">Historial de pagos</h3><div className="mt-2 divide-y rounded-xl border">{(selectedInvoice.payments ?? []).length === 0 ? <p className="p-4 text-sm text-muted-foreground">Todavía no se registraron pagos.</p> : selectedInvoice.payments?.map((payment) => <div key={payment.id} className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm"><div><p className="font-medium">{money(payment.amount_cents)} · {date(payment.paid_on)}</p><p className="text-xs text-muted-foreground">{payment.method || "Medio no indicado"}{payment.reversed_at ? ` · Revertido: ${payment.reversal_reason}` : ""}</p></div>{canPay && !payment.reversed_at && <Button size="sm" variant="ghost" onClick={() => { setPaymentToReverse(payment.id); setCorrectionReason("") }}>Revertir</Button>}</div>)}</div></div>
-          {canPay && paymentToReverse !== null && <div className="mt-3 flex flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3"><p className="text-sm">Vas a revertir el pago de {money(selectedInvoice.payments?.find((payment) => payment.id === paymentToReverse)?.amount_cents ?? 0)}.</p><div className="flex gap-2"><Input aria-label="Motivo de reversión" value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} placeholder="Motivo de reversión" /><Button variant="outline" disabled={busy || correctionReason.trim().length < 3} onClick={() => void reversePayment(paymentToReverse)}>Confirmar reversión</Button><Button variant="ghost" onClick={() => setPaymentToReverse(null)}>Cancelar</Button></div></div>}
-          {canManage && selectedInvoice.status === "issued" && <div className="mt-4 flex gap-2">{(selectedInvoice.payments ?? []).some((payment) => !payment.reversed_at) ? <p className="text-xs text-muted-foreground">Para anular este cobro, primero revertí los pagos registrados.</p> : <><Input aria-label="Motivo de anulación" value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} placeholder="Motivo para anular el invoice" /><Button variant="destructive" disabled={busy || correctionReason.trim().length < 3} onClick={() => void runInvoiceAction("void")}>Anular cobro</Button></>}</div>}
+          {canPay && paymentToReverse !== null && <div className="mt-3 flex flex-col gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3"><p className="text-sm">Vas a revertir el pago de {money(selectedInvoice.payments?.find((payment) => payment.id === paymentToReverse)?.amount_cents ?? 0)}.</p><div className="flex gap-2"><Input aria-label="Motivo de reversión" value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} placeholder="Motivo de reversión" /><Button variant="outline" disabled={busy || correctionReason.trim().length < 3} onClick={() => void reversePayment(paymentToReverse)}>Confirmar reversión</Button><Button variant="ghost" onClick={() => setPaymentToReverse(null)}>Cancelar</Button></div></div>}
+          {canManage && selectedInvoice.status === "issued" && <div className="mt-4 flex gap-2">{(selectedInvoice.payments ?? []).some((payment) => !payment.reversed_at) ? <p className="text-xs text-muted-foreground">Para anular este cobro, primero revertí los pagos registrados.</p> : <><Input aria-label="Motivo de anulación" value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} placeholder="Motivo para anular la factura" /><Button variant="destructive" disabled={busy || correctionReason.trim().length < 3} onClick={() => void runInvoiceAction("void")}>Anular cobro</Button></>}</div>}
           <div className="mt-6"><h3 className="font-medium">Actividad y envíos</h3><div className="mt-2 space-y-2">{(selectedInvoice.events ?? []).length === 0 ? <p className="rounded-lg bg-muted/35 px-3 py-4 text-sm text-muted-foreground">Todavía no hay actividad.</p> : selectedInvoice.events?.map((event) => {
             const detail = invoiceActivityDetail(event, selectedInvoice.payments)
             const failed = ["message_failed", "reminder_failed", "recurrence_issue_failed"].includes(event.type)
@@ -601,7 +605,7 @@ export default function InvoicesPage() {
           <label className="block space-y-1.5 text-sm">Concepto<Input required maxLength={500} value={form.concept} onChange={(event) => setForm({ ...form, concept: event.target.value })} placeholder="Ej. Abono mensual de soporte" /></label>
           <label className="block space-y-1.5 text-sm">Importe en ARS<Input required type="number" min="0.01" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} placeholder="50000,00" /></label>
           {kind === "once" ? <><label className="block space-y-1.5 text-sm">Emisión<select className="h-10 w-full rounded-md border bg-background px-3" value={form.send} onChange={(event) => setForm({ ...form, send: event.target.value })}><option value="draft">Guardar como borrador</option><option value="now">Enviar ahora</option><option value="schedule">Programar envío</option></select></label>{form.send === "schedule" && <label className="block space-y-1.5 text-sm">Fecha y hora<Input required type="datetime-local" value={form.scheduled_at} onChange={(event) => setForm({ ...form, scheduled_at: event.target.value })} /></label>}</> : <><div className="grid grid-cols-2 gap-3"><label className="space-y-1.5 text-sm">Cada<Input type="number" min="1" max="365" value={form.interval_count} onChange={(event) => setForm({ ...form, interval_count: event.target.value })} /></label><label className="space-y-1.5 text-sm">Período<select className="h-10 w-full rounded-md border bg-background px-3" value={form.interval_unit} onChange={(event) => setForm({ ...form, interval_unit: event.target.value })}><option value="days">Días</option><option value="weeks">Semanas</option><option value="months">Meses</option><option value="years">Años</option></select></label></div><div className="grid grid-cols-2 gap-3"><label className="space-y-1.5 text-sm">Primera emisión<Input required type="date" value={form.starts_on} onChange={(event) => setForm({ ...form, starts_on: event.target.value })} /></label><label className="space-y-1.5 text-sm">Última emisión (opcional)<Input type="date" value={form.ends_on} onChange={(event) => setForm({ ...form, ends_on: event.target.value })} /></label></div><label className="block space-y-1.5 text-sm">Días para pagar<Input type="number" min="0" max="365" value={form.payment_term_days} onChange={(event) => setForm({ ...form, payment_term_days: event.target.value })} /></label><p className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">La recurrencia queda en borrador. Revisá su calendario y activala desde la pestaña Recurrentes.</p></>}
-          {kind === "once" && settings?.enabled === false && form.send !== "draft" && <p className="rounded-lg bg-amber-500/10 p-3 text-xs text-amber-800">Activá Invoices y configurá las plantillas para poder emitir y enviar.</p>}
+          {kind === "once" && settings?.enabled === false && form.send !== "draft" && <p className="rounded-lg bg-warning/10 p-3 text-xs text-warning">Activá la facturación y configurá las plantillas para poder emitir y enviar.</p>}
           <div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="ghost" onClick={() => setShowCreate(false)}>Cancelar</Button><Button disabled={busy || (kind === "once" && form.send !== "draft" && !settings?.enabled)}>{busy ? "Guardando…" : kind === "repeat" ? "Guardar borrador" : form.send === "now" ? "Emitir y enviar" : form.send === "schedule" ? "Programar envío" : "Guardar borrador"}</Button></div>
         </form></DialogContent></Dialog>}
       </div>

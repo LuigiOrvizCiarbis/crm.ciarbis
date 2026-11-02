@@ -6,15 +6,16 @@ import {
   Send, 
   Globe, 
   Mail,
-  MessageSquareMore 
+  MessageSquareMore,
+  type LucideProps,
 } from "lucide-react"
+import { channelIconClass } from "@/lib/utils/channelHelpers"
 
-interface PlatformIconProps {
+interface PlatformIconProps extends Omit<LucideProps, "ref"> {
   type: string
-  className?: string
 }
 
-export function PlatformIcon({ type, className = "w-5 h-5" }: PlatformIconProps) {
+export function PlatformIcon({ type, className = "w-5 h-5", ...props }: PlatformIconProps) {
   const icons = {
     whatsapp: MessageCircle,
     instagram: Instagram,
@@ -28,29 +29,5 @@ export function PlatformIcon({ type, className = "w-5 h-5" }: PlatformIconProps)
 
   const Icon = icons[type as keyof typeof icons] || MessageSquareMore
   
-  // ✅ Colores específicos por plataforma
-  const getIconColor = (type: string) => {
-    switch (type) {
-      case 'whatsapp':
-        return 'text-green-600'
-      case 'instagram':
-        return 'text-pink-600'
-      case 'facebook':
-        return 'text-blue-600'
-      case 'linkedin':
-        return 'text-blue-700'
-      case 'telegram':
-        return 'text-blue-500'
-      case 'web':
-        return 'text-purple-600'
-      case 'mail':
-        return 'text-orange-600'
-      case 'manual':
-        return 'text-gray-600'
-      default:
-        return 'text-gray-500'
-    }
-  }
-
-  return <Icon className={`${className} ${getIconColor(type)}`} />
+  return <Icon className={`${className} ${channelIconClass(type)}`} {...props} />
 }

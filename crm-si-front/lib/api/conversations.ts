@@ -222,6 +222,9 @@ export async function getUserConversations(userId: number) {
   return getAllConversations(params);
 }
 
+/** La conversación no existe o el usuario no tiene acceso: reintentar no sirve. */
+export class ConversationUnavailableError extends Error {}
+
 export async function getConversationWithMessages(conversationId: number): Promise<Conversation> {
   const token = requireToken();
 
@@ -233,6 +236,9 @@ export async function getConversationWithMessages(conversationId: number): Promi
   });
 
   const payload = await res.json().catch(() => ({}));
+  if (res.status === 403 || res.status === 404) {
+    throw new ConversationUnavailableError(payload?.message || "Conversación no disponible");
+  }
   if (!res.ok) throwApiError(res.status, payload, "Error al cargar conversación");
 
   return mapConversation(payload.data);

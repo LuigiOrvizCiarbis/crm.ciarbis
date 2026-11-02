@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { SidebarLayout } from "@/components/SidebarLayout"
 import { TasksCompactHeader } from "@/components/tasks-compact-header"
 import { Badge } from "@/components/ui/badge"
@@ -14,9 +14,14 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFo
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { ListTodo, Search, SearchX, X } from "lucide-react"
+import { EmptyState } from "@/components/EmptyState"
+import { Skeleton } from "@/components/ui/skeleton"
+import { statusLabels, typeLabels } from "@/components/tasks/task-labels"
 import { useTaskStore } from "@/store/useTaskStore"
-import { getUsers, type SystemUser } from "@/lib/api/users"
-import type { Task, TaskStatus, TaskType } from "@/lib/types/task"
+import { fetchUsers, type SystemUser } from "@/lib/api/users"
+import type { TaskStatus, TaskType } from "@/lib/types/task"
 import { useIsMobile } from "@/hooks/use-mobile"
 import type { TaskFilters } from "@/lib/types/task-filters"
 import { isSameDay } from "date-fns"
@@ -36,6 +41,7 @@ export default function TareasPage() {
   const isLoading = useTaskStore((state) => state.isLoading)
   const error = useTaskStore((state) => state.error)
   const fetchTasks = useTaskStore((state) => state.fetchTasks)
+  const flushPendingDeletes = useTaskStore((state) => state.flushPendingDeletes)
   const [activeView, setActiveView] = useState("lista")
   const [searchQuery, setSearchQuery] = useState("")
   const [filteredTasks, setFilteredTasks] = useState(tasks)
@@ -44,6 +50,8 @@ export default function TareasPage() {
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0)
   const [showFilters, setShowFilters] = useState(false)
   const [users, setUsers] = useState<SystemUser[]>([])
+  const [usersError, setUsersError] = useState(false)
+  const [usersLoading, setUsersLoading] = useState(true)
   const [filters, setFilters] = useState<TaskFilters>({
     status: [],
     assignees: [],
@@ -56,9 +64,27 @@ export default function TareasPage() {
     fetchTasks()
   }, [fetchTasks])
 
+  // Los borrados en ventana de "Deshacer" se confirman al salir de la página: la intención no se pierde.
   useEffect(() => {
-    getUsers().then(setUsers)
+    window.addEventListener("pagehide", flushPendingDeletes)
+    return () => {
+      window.removeEventListener("pagehide", flushPendingDeletes)
+      flushPendingDeletes()
+    }
+  }, [flushPendingDeletes])
+
+  const loadUsers = useCallback(() => {
+    setUsersLoading(true)
+    setUsersError(false)
+    fetchUsers()
+      .then(setUsers)
+      .catch(() => setUsersError(true))
+      .finally(() => setUsersLoading(false))
   }, [])
+
+  useEffect(() => {
+    loadUsers()
+  }, [loadUsers])
 
   const hasCalendarSyncInFlight = tasks.some((task) => {
     if (task.type !== "reunion") return false
@@ -195,10 +221,6 @@ export default function TareasPage() {
     return () => window.removeEventListener("keydown", handleKeyPress)
   }, [])
 
-  const handleCreateTask = (task: Partial<Task>) => {
-    console.log("[v0] Task created:", task)
-  }
-
   const overdueTasks = tasks.filter((task) => {
     if (!task.deadline) return false
     const deadline = new Date(task.deadline)
@@ -235,45 +257,126 @@ export default function TareasPage() {
   })()
 
   const handleFilterToggle = () => {
-    console.log("[v0] Filter toggle called, current state:", showFilters)
     setShowFilters(!showFilters)
   }
+
+  const hasActiveFilters =
+    Boolean(searchQuery) ||
+    filters.status.length > 0 ||
+    filters.assignees.length > 0 ||
+    filters.types.length > 0 ||
+    filters.deadline !== null
+
+  const clearFilters = () => {
+    setSearchQuery("")
+    setFilters({ status: [], assignees: [], types: [], deadline: null })
+  }
+
+  // El sondeo de sincronización vuelve a llamar fetchTasks: el esqueleto sólo va en la primera carga.
+  const showInitialLoading = isLoading && tasks.length === 0
+  const showViews = !showInitialLoading && !(error && tasks.length === 0)
+  // El calendario sigue útil vacío (eventos de Google, bloquear agenda); las otras vistas no.
+  const showEmpty = showViews && activeView !== "calendario" && filteredTasks.length === 0
 
   return (
     <SidebarLayout>
       <TasksCompactHeader
         activeView={activeView}
         onViewChange={setActiveView}
+        searchValue={searchQuery}
         onSearch={setSearchQuery}
         onNewTask={() => setShowNewTask(true)}
         onFilterClick={handleFilterToggle}
       />
 
-      <div className="flex gap-2 px-6 py-3 border-b border-border/50 bg-card">
-        <Badge variant="outline" className="text-xs gap-1 bg-red-500/10 text-red-400 border-red-500/30">
-          <span className="font-bold">{overdueTasks.length}</span> Vencidas
-        </Badge>
-        <Badge variant="outline" className="text-xs gap-1 bg-orange-500/10 text-orange-400 border-orange-500/30">
-          <span className="font-bold">{todayTasks.length}</span> Para hoy
-        </Badge>
-        <Badge variant="outline" className="text-xs gap-1 bg-blue-500/10 text-blue-400 border-blue-500/30">
-          <span className="font-bold">{weekTasks.length}</span> Esta semana
-        </Badge>
-        <Badge variant="outline" className="text-xs gap-1 bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
-          <span className="font-bold">{completedLast7Days.length}</span> Hechas (últimos 7 días)
-        </Badge>
-        <Badge variant="outline" className="text-xs gap-1 bg-purple-500/10 text-purple-400 border-purple-500/30">
-          <span className="font-bold">{onTimePercentage}%</span> A tiempo
-        </Badge>
+      <div className="border-b border-border/50 bg-card">
+        {/* El buscador del header se oculta bajo md: en teléfonos va a ancho completo acá. */}
+        <div className="px-4 pt-3 md:hidden">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Buscar tareas..."
+              aria-label="Buscar tareas"
+              autoComplete="off"
+              enterKeyHint="search"
+              className="h-11 pl-9 pr-11 text-base"
+            />
+            {searchQuery && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-0.5 top-1/2 size-10 -translate-y-1/2 text-muted-foreground"
+                onClick={() => setSearchQuery("")}
+                aria-label="Limpiar búsqueda"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* En teléfonos los resúmenes son una fila deslizable con snap; el fundido derecho indica que hay más. */}
+        <div className="flex snap-x snap-mandatory scroll-px-4 gap-2 overflow-x-auto py-3 pl-4 pr-6 [mask-image:linear-gradient(to_right,#000_calc(100%-1.5rem),transparent)] [scrollbar-width:none] md:snap-none md:overflow-visible md:pl-6 md:pr-6 md:[mask-image:none]">
+          <Badge variant="outline" className="shrink-0 snap-start text-xs gap-1 bg-destructive/10 text-destructive border-destructive/30 max-md:py-1">
+            <span className="font-bold">{overdueTasks.length}</span> Vencidas
+          </Badge>
+          <Badge variant="outline" className="shrink-0 snap-start text-xs gap-1 bg-warning/10 text-warning border-warning/30 max-md:py-1">
+            <span className="font-bold">{todayTasks.length}</span> Para hoy
+          </Badge>
+          <Badge variant="outline" className="shrink-0 snap-start text-xs gap-1 bg-info/10 text-info border-info/30 max-md:py-1">
+            <span className="font-bold">{weekTasks.length}</span> Esta semana
+          </Badge>
+          <Badge variant="outline" className="shrink-0 snap-start text-xs gap-1 bg-success/10 text-success border-success/30 max-md:py-1">
+            <span className="font-bold">{completedLast7Days.length}</span> Hechas (últimos 7 días)
+          </Badge>
+          <Badge variant="outline" className="shrink-0 snap-start text-xs gap-1 bg-muted text-foreground border-border max-md:py-1">
+            <span className="font-bold">{onTimePercentage}%</span> A tiempo
+          </Badge>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
-        {isLoading && <div className="text-sm text-muted-foreground">Cargando tareas...</div>}
-        {!isLoading && error && <div className="text-sm text-red-500">{error}</div>}
-        {!isLoading && !error && activeView === "lista" && <TaskListView tasks={filteredTasks} />}
-        {!isLoading && !error && activeView === "kanban" && <TaskKanbanView tasks={filteredTasks} />}
-        {!isLoading && !error && activeView === "gantt" && <TaskGanttView tasks={filteredTasks} />}
-        {!isLoading && !error && activeView === "calendario" && (
+      <div className="flex-1 overflow-y-auto p-4 md:p-6">
+        {error && (
+          <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+            <div className="min-w-0 text-sm">
+              <p className="font-medium text-destructive">No se pudieron cargar las tareas.</p>
+              <p className="text-muted-foreground">{error}</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => void fetchTasks()} disabled={isLoading}>
+              {isLoading ? "Reintentando…" : "Reintentar"}
+            </Button>
+          </div>
+        )}
+        {showInitialLoading && (
+          <div role="status" aria-label="Cargando tareas" className="space-y-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Skeleton key={index} className="h-14 w-full rounded-lg" />
+            ))}
+          </div>
+        )}
+        {showEmpty &&
+          (tasks.length > 0 && hasActiveFilters ? (
+            <EmptyState
+              icon={SearchX}
+              title="Ninguna tarea coincide"
+              description="Probá con otra búsqueda o limpiá los filtros para ver todas las tareas."
+              action={{ label: "Limpiar filtros", onClick: clearFilters }}
+            />
+          ) : (
+            <EmptyState
+              icon={ListTodo}
+              title="Todavía no hay tareas"
+              description="Creá la primera para organizar llamados, reuniones y seguimientos."
+              action={{ label: "Nueva tarea", onClick: () => setShowNewTask(true) }}
+            />
+          ))}
+        {showViews && !showEmpty && activeView === "lista" && <TaskListView tasks={filteredTasks} />}
+        {showViews && !showEmpty && activeView === "kanban" && <TaskKanbanView tasks={filteredTasks} />}
+        {showViews && !showEmpty && activeView === "gantt" && <TaskGanttView tasks={filteredTasks} />}
+        {showViews && activeView === "calendario" && (
           <TaskCalendarView
             tasks={filteredTasks}
             onBlockAgenda={(date) => setCalendarBlockDialog({ open: true, initialDate: date })}
@@ -282,8 +385,8 @@ export default function TareasPage() {
         )}
       </div>
 
-      {/* New Task Modal */}
-      <NewTaskModal open={showNewTask} onOpenChange={setShowNewTask} onCreateTask={handleCreateTask} />
+      {/* El store inserta la tarea creada, así que la vista se actualiza sola. */}
+      <NewTaskModal open={showNewTask} onOpenChange={setShowNewTask} onCreateTask={() => undefined} />
       <CalendarAvailabilityBlockDialog
         open={calendarBlockDialog.open}
         onOpenChange={(open) => {
@@ -295,19 +398,20 @@ export default function TareasPage() {
 
       {/* Simple Sheet for Filters */}
       <Sheet open={showFilters} onOpenChange={setShowFilters}>
-        <SheetContent side="right" className="w-[400px] sm:w-[540px]">
+        {/* En teléfonos, hoja inferior: el panel lateral de 400px no entra en 390px. */}
+        <SheetContent side={isMobile ? "bottom" : "right"} className={isMobile ? undefined : "w-[400px] sm:w-[540px]"}>
           <SheetHeader>
             <SheetTitle>Filtros</SheetTitle>
-            <SheetDescription>Filtra tus tareas por estado, responsable, tipo y fecha</SheetDescription>
+            <SheetDescription>Filtrá tus tareas por estado, responsable, tipo y fecha.</SheetDescription>
           </SheetHeader>
 
-          <div className="py-6 space-y-6">
+          <div className="px-4 py-6 space-y-6 max-md:py-2">
             {/* Estado */}
             <div className="space-y-3">
               <Label className="text-sm font-medium">Estado</Label>
               <div className="space-y-2">
                 {STATUS_FILTER_OPTIONS.map((status) => (
-                  <div key={status} className="flex items-center space-x-2">
+                  <div key={status} className="flex items-center space-x-2 max-md:min-h-10">
                     <Checkbox
                       id={`status-${status}`}
                       checked={filters.status.includes(status)}
@@ -319,8 +423,8 @@ export default function TareasPage() {
                         }
                       }}
                     />
-                    <label htmlFor={`status-${status}`} className="text-sm cursor-pointer capitalize">
-                      {status}
+                    <label htmlFor={`status-${status}`} className="text-sm cursor-pointer max-md:flex-1 max-md:py-2.5">
+                      {statusLabels[status]}
                     </label>
                   </div>
                 ))}
@@ -332,7 +436,7 @@ export default function TareasPage() {
               <Label className="text-sm font-medium">Responsable</Label>
               <div className="space-y-2">
                 {users.map((user) => (
-                  <div key={user.id} className="flex items-center space-x-2">
+                  <div key={user.id} className="flex items-center space-x-2 max-md:min-h-10">
                     <Checkbox
                       id={`assignee-${user.id}`}
                       checked={filters.assignees.includes(user.name)}
@@ -344,12 +448,22 @@ export default function TareasPage() {
                         }
                       }}
                     />
-                    <label htmlFor={`assignee-${user.id}`} className="text-sm cursor-pointer">
+                    <label htmlFor={`assignee-${user.id}`} className="text-sm cursor-pointer max-md:flex-1 max-md:py-2.5">
                       {user.name}
                     </label>
                   </div>
                 ))}
-                {users.length === 0 && <p className="text-sm text-muted-foreground">No hay responsables disponibles</p>}
+                {usersError && (
+                  <div role="alert" className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm text-destructive">No se pudieron cargar los responsables.</p>
+                    <Button variant="outline" size="sm" onClick={loadUsers} disabled={usersLoading}>
+                      {usersLoading ? "Reintentando…" : "Reintentar"}
+                    </Button>
+                  </div>
+                )}
+                {!usersError && !usersLoading && users.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No hay responsables disponibles</p>
+                )}
               </div>
             </div>
 
@@ -358,7 +472,7 @@ export default function TareasPage() {
               <Label className="text-sm font-medium">Tipo</Label>
               <div className="space-y-2">
                 {TYPE_FILTER_OPTIONS.map((type) => (
-                  <div key={type} className="flex items-center space-x-2">
+                  <div key={type} className="flex items-center space-x-2 max-md:min-h-10">
                     <Checkbox
                       id={`type-${type}`}
                       checked={filters.types.includes(type)}
@@ -370,8 +484,8 @@ export default function TareasPage() {
                         }
                       }}
                     />
-                    <label htmlFor={`type-${type}`} className="text-sm cursor-pointer capitalize">
-                      {type}
+                    <label htmlFor={`type-${type}`} className="text-sm cursor-pointer max-md:flex-1 max-md:py-2.5">
+                      {typeLabels[type]}
                     </label>
                   </div>
                 ))}
@@ -383,7 +497,7 @@ export default function TareasPage() {
               <Label className="text-sm font-medium">Fecha</Label>
               <div className="space-y-2">
                 {DEADLINE_FILTER_OPTIONS.map((deadline) => (
-                  <div key={deadline.value} className="flex items-center space-x-2">
+                  <div key={deadline.value} className="flex items-center space-x-2 max-md:min-h-10">
                     <Checkbox
                       id={`deadline-${deadline.value}`}
                       checked={filters.deadline === deadline.value}
@@ -391,7 +505,7 @@ export default function TareasPage() {
                         setFilters({ ...filters, deadline: checked ? deadline.value : null })
                       }}
                     />
-                    <label htmlFor={`deadline-${deadline.value}`} className="text-sm cursor-pointer">
+                    <label htmlFor={`deadline-${deadline.value}`} className="text-sm cursor-pointer max-md:flex-1 max-md:py-2.5">
                       {deadline.label}
                     </label>
                   </div>

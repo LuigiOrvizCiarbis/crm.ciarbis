@@ -87,7 +87,7 @@ export function getChannelDisplayName(type: ChannelType): string {
     case ChannelType.TELEGRAM:
       return 'Telegram'
     case ChannelType.WEB:
-      return 'Chat Web'
+      return 'Chat web'
     case ChannelType.MAIL:
       return 'Email'
     case ChannelType.MANUAL:

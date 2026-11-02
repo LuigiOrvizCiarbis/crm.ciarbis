@@ -303,6 +303,7 @@ interface HotkeySectionProps {
 }
 
 function HotkeySection({ title, hotkeys, onEdit, onDelete, canManage }: HotkeySectionProps) {
+  const { t } = useTranslation()
   return (
     <div className="space-y-2">
       <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -329,11 +330,11 @@ function HotkeySection({ title, hotkeys, onEdit, onDelete, canManage }: HotkeySe
             </div>
             {canManage(hotkey) && (
               <div className="flex shrink-0 gap-1">
-                <Button variant="ghost" size="icon" className="size-8" onClick={() => onEdit(hotkey)}>
-                  <Pencil className="size-4" />
+                <Button variant="ghost" size="icon" className="size-8" onClick={() => onEdit(hotkey)} aria-label={t("settings.hotkeys.editAria", { trigger: hotkey.trigger })}>
+                  <Pencil className="size-4" aria-hidden="true" />
                 </Button>
-                <Button variant="ghost" size="icon" className="size-8" onClick={() => onDelete(hotkey)}>
-                  <Trash2 className="size-4" />
+                <Button variant="ghost" size="icon" className="size-8" onClick={() => onDelete(hotkey)} aria-label={t("settings.hotkeys.deleteAria", { trigger: hotkey.trigger })}>
+                  <Trash2 className="size-4" aria-hidden="true" />
                 </Button>
               </div>
             )}

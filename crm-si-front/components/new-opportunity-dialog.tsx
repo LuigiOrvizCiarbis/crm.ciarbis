@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { getContacts, type Contact } from "@/lib/api/contacts"
 import { createOpportunity } from "@/lib/api/opportunities"
-import { getPipelineStages, type Pipeline, type PipelineStage } from "@/lib/api/pipeline"
+import { fetchPipelineStages, type Pipeline, type PipelineStage } from "@/lib/api/pipeline"
 
 export function NewOpportunityDialog({
   open,
@@ -31,25 +31,35 @@ export function NewOpportunityDialog({
   const [value, setValue] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (!open) return
     setPipelineId(initialPipelineId)
-    getContacts({ per_page: 100 }).then(setContacts).catch(() => setContacts([]))
-  }, [open, initialPipelineId])
+    getContacts({ per_page: 100 }).then(setContacts).catch(() => {
+      setContacts([])
+      setLoadFailed(true)
+      setError("No se pudieron cargar los contactos.")
+    })
+  }, [open, initialPipelineId, reloadKey])
 
   useEffect(() => {
     if (!open || !pipelineId) return
-    getPipelineStages(pipelineId).then((items) => {
+    fetchPipelineStages(pipelineId).then((items) => {
       const sorted = [...items].sort((a, b) => a.sort_order - b.sort_order)
       setStages(sorted)
       setStageId(String(sorted.find((stage) => stage.is_default)?.id ?? sorted[0]?.id ?? ""))
-    }).catch(() => setStages([]))
-  }, [open, pipelineId])
+    }).catch(() => {
+      setStages([])
+      setLoadFailed(true)
+      setError("No se pudieron cargar las etapas del embudo.")
+    })
+  }, [open, pipelineId, reloadKey])
 
   const submit = async () => {
     if (!contactId || !pipelineId || !stageId) {
-      setError("Elegí un contacto, un pipeline y una etapa.")
+      setError("Elegí un contacto, un embudo y una etapa.")
       return
     }
     setSaving(true)
@@ -89,9 +99,9 @@ export function NewOpportunityDialog({
               <SelectContent>{contacts.map((contact) => <SelectItem key={contact.id} value={String(contact.id)}>{contact.name}</SelectItem>)}</SelectContent>
             </Select>
           </label>
-          <label className="block space-y-1.5 text-sm">Pipeline
+          <label className="block space-y-1.5 text-sm">Embudo
             <Select value={String(pipelineId)} onValueChange={(next) => setPipelineId(Number(next))}>
-              <SelectTrigger><SelectValue placeholder="Seleccionar pipeline" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Seleccionar embudo" /></SelectTrigger>
               <SelectContent>{pipelines.map((pipeline) => <SelectItem key={pipeline.id} value={String(pipeline.id)}>{pipeline.name}</SelectItem>)}</SelectContent>
             </Select>
           </label>
@@ -107,7 +117,12 @@ export function NewOpportunityDialog({
           <label className="block space-y-1.5 text-sm">Importe
             <Input type="number" min="0" step="0.01" value={value} onChange={(event) => setValue(event.target.value)} placeholder="0,00" />
           </label>
-          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          {error && (
+            <div role="alert" className="flex items-center justify-between gap-3 text-sm text-destructive">
+              <p>{error}</p>
+              {loadFailed && <Button variant="outline" size="sm" onClick={() => { setError(""); setLoadFailed(false); setReloadKey((key) => key + 1) }}>Reintentar</Button>}
+            </div>
+          )}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
             <Button onClick={submit} disabled={saving || !pipelines.length || !stages.length}>{saving ? "Guardando…" : "Guardar oportunidad"}</Button>

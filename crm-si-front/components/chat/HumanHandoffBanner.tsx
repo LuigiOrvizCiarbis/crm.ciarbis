@@ -44,10 +44,10 @@ export function HumanHandoffBanner({ conversation, onUpdated }: { conversation: 
   }
 
   return (
-    <div className="mx-4 my-2 flex items-center justify-between gap-3 rounded-lg border border-amber-300/50 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+    <div className="mx-4 my-2 flex items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
       <div className="min-w-0">
         <strong>{t("chats.handoff.title")}</strong>
-        <div className="text-xs opacity-80">{handoff.summary || t("chats.handoff.defaultSummary")}</div>
+        <div className="text-xs text-foreground">{handoff.summary || t("chats.handoff.defaultSummary")}</div>
       </div>
       {handoff.status === "pending" && canTake && (
         <Button size="sm" onClick={() => void take()} disabled={loading}>
@@ -56,7 +56,7 @@ export function HumanHandoffBanner({ conversation, onUpdated }: { conversation: 
         </Button>
       )}
       {handoff.status === "acknowledged" && (
-        <span className="shrink-0 text-xs font-medium opacity-80">{t("chats.handoff.taken")}</span>
+        <span className="shrink-0 text-xs font-medium">{t("chats.handoff.taken")}</span>
       )}
     </div>
   )

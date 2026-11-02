@@ -1,7 +1,7 @@
 "use client"
 
 import { type FormEvent, useEffect, useMemo, useState } from "react"
-import { ArrowRight, Building2, Check, ChevronsUpDown, Loader2, Plus } from "lucide-react"
+import { Check, ChevronsUpDown, Loader2, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -97,25 +97,15 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
         <DropdownMenuItem onSelect={() => setCreateOpen(true)}><Plus className="size-4" />Crear workspace</DropdownMenuItem>
       </DropdownMenuContent>
       <Dialog open={createOpen} onOpenChange={handleCreateOpenChange}>
-        <DialogContent className="overflow-hidden border-border/70 p-0 sm:max-w-md">
-          <div className="relative overflow-hidden bg-linear-to-br from-primary via-primary to-secondary px-6 pb-8 pt-7 text-primary-foreground">
-            <div className="absolute -right-8 -top-10 size-36 rounded-full border-[18px] border-white/10" />
-            <div className="absolute -bottom-10 left-14 size-28 rounded-full bg-white/8 blur-2xl" />
-            <div className="relative flex items-start justify-between gap-5">
-              <div className="flex size-11 items-center justify-center rounded-2xl border border-white/20 bg-white/12 shadow-lg shadow-black/10">
-                <Building2 className="size-5" />
-              </div>
-              <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]">Nuevo espacio</span>
-            </div>
-            <DialogHeader className="relative mt-7 space-y-2 text-left">
-              <DialogTitle className="text-2xl font-semibold tracking-tight text-white">Creá tu workspace</DialogTitle>
-              <DialogDescription className="max-w-sm text-sm leading-6 text-white/75">Vas a empezar con un espacio independiente para tu equipo, conversaciones y configuración.</DialogDescription>
-            </DialogHeader>
-          </div>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Creá tu workspace</DialogTitle>
+            <DialogDescription>Vas a empezar con un espacio independiente para tu equipo, conversaciones y configuración.</DialogDescription>
+          </DialogHeader>
 
-          <form className="space-y-5 px-6 pb-6 pt-5" onSubmit={create}>
+          <form className="space-y-4" onSubmit={create}>
             <div className="space-y-2">
-              <label className="text-sm font-semibold" htmlFor="workspace-name">Nombre del workspace</label>
+              <label className="text-sm font-medium" htmlFor="workspace-name">Nombre del workspace</label>
               <Input
                 autoFocus
                 id="workspace-name"
@@ -128,24 +118,18 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
                 value={workspaceName}
                 aria-describedby={createError ? "workspace-name-error" : "workspace-name-hint"}
                 aria-invalid={Boolean(createError)}
-                className="h-11 rounded-xl px-3.5"
               />
               {createError ? (
                 <p id="workspace-name-error" role="alert" className="text-sm text-destructive">{createError}</p>
               ) : (
-                <p id="workspace-name-hint" className="text-xs leading-5 text-muted-foreground">Podés invitar personas y configurar canales después.</p>
+                <p id="workspace-name-hint" className="text-xs text-muted-foreground">Va a quedar como tu espacio activo. Podés invitar personas y configurar canales después.</p>
               )}
             </div>
 
-            <div className="flex items-center gap-3 rounded-xl border border-primary/10 bg-primary/5 px-3.5 py-3">
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">{workspaceName.trim().slice(0, 2).toUpperCase() || "SI"}</span>
-              <span className="min-w-0 text-sm text-muted-foreground">{workspaceName.trim() ? <><span className="font-medium text-foreground">{workspaceName.trim()}</span> será tu espacio activo.</> : "Tu nuevo espacio aparecerá acá."}</span>
-            </div>
-
-            <DialogFooter className="gap-2 sm:gap-2">
+            <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => handleCreateOpenChange(false)} disabled={loading}>Cancelar</Button>
-              <Button type="submit" disabled={loading || workspaceName.trim().length < 2} className="min-w-[9.5rem] rounded-xl">
-                {loading ? <Loader2 className="animate-spin" /> : <ArrowRight />}
+              <Button type="submit" disabled={loading || workspaceName.trim().length < 2}>
+                {loading && <Loader2 className="animate-spin" aria-hidden="true" />}
                 {loading ? "Creando..." : "Crear workspace"}
               </Button>
             </DialogFooter>

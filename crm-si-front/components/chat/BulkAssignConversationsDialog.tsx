@@ -50,13 +50,20 @@ export function BulkAssignConversationsDialog({
     setQuery("")
   }, [open])
 
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
+
   useEffect(() => {
     if (!open) return
     let cancelled = false
     setLoadingUsers(true)
+    setLoadFailed(false)
     getUsers()
       .then((loaded) => {
         if (!cancelled) setUsers(loaded)
+      })
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true)
       })
       .finally(() => {
         if (!cancelled) setLoadingUsers(false)
@@ -64,7 +71,7 @@ export function BulkAssignConversationsDialog({
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, reloadKey])
 
   const filteredUsers = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -130,19 +137,27 @@ export function BulkAssignConversationsDialog({
             {t("chats.bulk.dialog.userLabel")}
           </Label>
           <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("chats.bulk.dialog.searchUsers")}
+              aria-label={t("chats.bulk.dialog.searchUsers")}
               className="pl-8"
             />
           </div>
           <div className="max-h-72 overflow-y-auto rounded-md border">
             {loadingUsers ? (
-              <div className="flex items-center gap-2 px-3 py-6 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
+              <div role="status" className="flex items-center gap-2 px-3 py-6 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 {t("chats.bulk.dialog.loadingUsers")}
+              </div>
+            ) : loadFailed ? (
+              <div className="flex flex-col items-center gap-3 px-3 py-6 text-center text-sm text-muted-foreground">
+                <p>{t("chats.usersLoadError")}</p>
+                <Button variant="outline" size="sm" onClick={() => setReloadKey((key) => key + 1)}>
+                  {t("chats.retry")}
+                </Button>
               </div>
             ) : filteredUsers.length === 0 ? (
               <div className="px-3 py-6 text-center text-sm text-muted-foreground">
@@ -156,8 +171,9 @@ export function BulkAssignConversationsDialog({
                     key={u.id}
                     type="button"
                     onClick={() => setSelectedUserId(u.id)}
+                    aria-pressed={selected}
                     className={cn(
-                      "flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-accent",
+                      "flex w-full items-center gap-3 px-3 py-2 text-left text-sm outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50",
                       selected && "bg-primary/10",
                     )}
                   >

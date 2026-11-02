@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { EmojiPicker } from "./EmojiPicker"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTranslation } from "@/hooks/useTranslation"
+import { useToast } from "@/components/Toast"
 import { Paperclip, Smile, Send, X, Pencil, Check, Music2, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound, CalendarClock } from "lucide-react"
 import { KeyboardEvent, SyntheticEvent, useMemo, useRef, useState, useEffect } from "react"
 import dynamic from "next/dynamic"
@@ -20,6 +21,7 @@ import type { ManualAiDraft } from "@/lib/api/manual-ai-drafts"
 import { VoiceRecorder } from "./VoiceRecorder"
 import { ContactShareDialog } from "./ContactShareDialog"
 import { ScheduleMessagePicker } from "./ScheduleMessagePicker"
+import { useComposerStore } from "@/store/useComposerStore"
 
 const TemplatePicker = dynamic(
   () => import("./TemplatePicker").then(m => m.TemplatePicker),
@@ -27,14 +29,12 @@ const TemplatePicker = dynamic(
 )
 
 interface MessageInputProps {
-  value: string
-  onChange: (value: string) => void
   onSend: (content: string, media?: File, voice?: boolean) => void | Promise<void>
   disabled?: boolean
   placeholder?: string
   channelId?: number | null
   conversationId?: number | null
-  onSendTemplate?: (content: string) => void
+  onSendTemplate?: (content: string) => (() => void) | void
   /** Las plantillas son exclusivas de WhatsApp. En Instagram se oculta el picker. */
   supportsTemplates?: boolean
   editingMessage?: Message | null
@@ -62,8 +62,6 @@ interface SlashState {
 }
 
 export function MessageInput({
-  value,
-  onChange,
   onSend,
   disabled = false,
   placeholder,
@@ -88,6 +86,10 @@ export function MessageInput({
   windowExpiresAt,
 }: MessageInputProps) {
   const { t } = useTranslation()
+  const { addToast } = useToast()
+  // El borrador vive en el store del composer: escribir no re-renderiza la página.
+  const value = useComposerStore((state) => state.draft)
+  const onChange = useComposerStore((state) => state.setDraft)
   const resolvedPlaceholder = placeholder ?? t("chats.messagePlaceholder")
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -302,12 +304,12 @@ export function MessageInput({
 
   const acceptMediaFile = (file: File) => {
     if (file.size > 10 * 1024 * 1024) {
-      alert(t("chats.fileTooLarge") || "El archivo es demasiado grande (máx. 10MB)")
+      addToast({ type: "error", title: t("chats.fileTooLarge") || "El archivo es demasiado grande (máx. 10MB)" })
       return false
     }
 
     if (!file.type.startsWith("image/") && !file.type.startsWith("audio/")) {
-      alert(t("chats.onlyImagesOrAudio") || "Solo se permiten imágenes o audios")
+      addToast({ type: "error", title: t("chats.onlyImagesOrAudio") || "Solo se permiten imágenes o audios" })
       return false
     }
 
@@ -524,8 +526,9 @@ export function MessageInput({
           <button
             onClick={onCancelEdit}
             className="shrink-0 hover:text-foreground transition-colors"
+            aria-label={t("chats.cancelEditing")}
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
       )}
@@ -553,8 +556,9 @@ export function MessageInput({
             <button
               onClick={() => setSelectedMedia(null)}
               className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80"
+              aria-label={t("chats.removeAttachment")}
             >
-              <X className="w-3 h-3" />
+              <X className="w-3 h-3" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -781,7 +785,7 @@ export function MessageInput({
                   ? t("chats.editingMessage")
                   : isAudio
                     ? (t("chats.audioPlaceholder") || "Audio listo para enviar")
-                    : (selectedMedia ? (t("chats.captionPlaceholder") || "Agregar caption...") : resolvedPlaceholder)
+                    : (selectedMedia ? (t("chats.captionPlaceholder") || "Agregar descripción...") : resolvedPlaceholder)
               }
               className="w-full min-h-9 max-h-32 resize-none py-2 [field-sizing:content]"
               value={value}

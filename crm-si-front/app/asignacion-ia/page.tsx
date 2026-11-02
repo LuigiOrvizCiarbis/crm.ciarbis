@@ -19,7 +19,7 @@ export default function AsignacionIAPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
             <CardHeader>
-              <CardTitle>Configuración de Asignación</CardTitle>
+              <CardTitle>Configuración de asignación</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-3">
@@ -38,14 +38,14 @@ export default function AsignacionIAPage() {
               </div>
               <Button className="w-full gap-2">
                 <Settings className="w-4 h-4" />
-                Configurar Reglas
+                Configurar reglas
               </Button>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Rendimiento del Equipo</CardTitle>
+              <CardTitle>Rendimiento del equipo</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">

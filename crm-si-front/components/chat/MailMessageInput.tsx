@@ -19,10 +19,9 @@ import {
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import type { ManualAiDraft } from "@/lib/api/manual-ai-drafts"
+import { useComposerStore } from "@/store/useComposerStore"
 
 interface MailMessageInputProps {
-  value: string
-  onChange: (value: string) => void
   onSend: (input: SendMailMessageInput) => void | Promise<void>
   disabled?: boolean
   subject?: string | null
@@ -40,8 +39,6 @@ function parseAddresses(value: string): string[] {
 }
 
 export function MailMessageInput({
-  value,
-  onChange,
   onSend,
   disabled = false,
   subject,
@@ -51,6 +48,8 @@ export function MailMessageInput({
   onUseAiDraft,
 }: MailMessageInputProps) {
   const { t } = useTranslation()
+  const value = useComposerStore((state) => state.draft)
+  const onChange = useComposerStore((state) => state.setDraft)
   const editorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showRecipients, setShowRecipients] = useState(false)
@@ -119,7 +118,7 @@ export function MailMessageInput({
 
   return (
     <section className="sticky bottom-0 border-t border-border bg-card px-3 py-3 md:relative md:px-4" aria-label={t("chats.mailReplyComposer")}>
-      <div className="overflow-hidden rounded-lg border border-border bg-background shadow-sm focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30 dark:shadow-none">
+      <div className="overflow-hidden rounded-lg border border-border bg-background shadow-sm focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30">
         <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-1.5 text-xs">
           <div className="min-w-0">
             <span className="font-medium text-foreground">{t("chats.mailReply")}</span>

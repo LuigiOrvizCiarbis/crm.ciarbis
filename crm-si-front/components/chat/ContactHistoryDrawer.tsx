@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
 import { Loader2, Search, MessageCircle, Calendar, User } from "lucide-react"
+import { PlatformIcon } from "@/components/chat/PlatformIcon"
 import { getAuthToken, workspaceHeaders } from "@/lib/api/auth-token"
 import { format } from "date-fns"
 import { es as esLocale, enUS } from "date-fns/locale"
@@ -99,19 +100,6 @@ export function ContactHistoryDrawer({
     }
   }
 
-  const getChannelIcon = (channelType: string) => {
-    switch (channelType) {
-      case "WHATSAPP":
-        return "📱"
-      case "INSTAGRAM":
-        return "📸"
-      case "FACEBOOK":
-        return "👍"
-      default:
-        return "💬"
-    }
-  }
-
   const filteredHistory = historyData?.history_by_channel.map((channel) => ({
     ...channel,
     messages: channel.messages.filter((msg) =>
@@ -185,7 +173,7 @@ export function ContactHistoryDrawer({
                   <div key={channel.channel_id} className="space-y-3">
                     {/* Header del canal */}
                     <div className="flex items-center gap-2 sticky top-0 bg-background py-2 border-b z-10">
-                      <span className="text-2xl">{getChannelIcon(channel.channel_type)}</span>
+                      <PlatformIcon type={channel.channel_type.toLowerCase()} className="size-5 shrink-0" aria-hidden="true" />
                       <div className="flex-1">
                         <h3 className="font-semibold">{channel.channel_name}</h3>
                         <p className="text-xs text-muted-foreground">

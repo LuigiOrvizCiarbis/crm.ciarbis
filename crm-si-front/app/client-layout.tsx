@@ -8,23 +8,12 @@ import { usePathname } from "next/navigation"
 import { ThemeProvider } from "@/components/theme-provider"
 import { CommandPalette } from "@/components/CommandPalette"
 import { MobileBottomNav } from "@/components/MobileBottomNav"
-import { useToast } from "@/components/Toast"
+import { Toaster } from "@/components/Toast"
 import { AuthGuard } from "@/components/AuthGuard"
 import { AppShell } from "@/components/AppShell"
 import { isRouteMatch, routesWithoutAppShell } from "@/lib/routes"
 import { SectionAccessGuard } from "@/components/auth/SectionAccessGuard"
 import "./globals.css"
-
-function ToastProvider({ children }: { children: React.ReactNode }) {
-  const { ToastContainer } = useToast()
-
-  return (
-    <>
-      {children}
-      <ToastContainer />
-    </>
-  )
-}
 
 export default function ClientLayout({
   children,
@@ -44,21 +33,20 @@ export default function ClientLayout({
       </head>
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-          <ToastProvider>
-            <AuthGuard>
-              <AppShell>
-                <SectionAccessGuard>
-                  <Suspense fallback={null}>{children}</Suspense>
-                </SectionAccessGuard>
-              </AppShell>
-              {!shouldSkipShell ? (
-                <>
-                  <CommandPalette />
-                  <MobileBottomNav />
-                </>
-              ) : null}
-            </AuthGuard>
-          </ToastProvider>
+          <AuthGuard>
+            <AppShell>
+              <SectionAccessGuard>
+                <Suspense fallback={null}>{children}</Suspense>
+              </SectionAccessGuard>
+            </AppShell>
+            {!shouldSkipShell ? (
+              <>
+                <CommandPalette />
+                <MobileBottomNav />
+              </>
+            ) : null}
+          </AuthGuard>
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>

@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Check, Loader2, Sparkles, X } from "lucide-react"
-import { toast } from "sonner"
+import { useToast } from "@/components/Toast"
 import type { Task } from "@/lib/types/task"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useTaskStore } from "@/store/useTaskStore"
@@ -17,6 +17,7 @@ type PendingAction = "approve" | "reject" | null
 
 export function AiBookingApprovalBadge({ task }: AiBookingApprovalBadgeProps) {
   const { t, language } = useTranslation()
+  const { addToast } = useToast()
   const tr = (key: string, params?: Record<string, string | number>) => t(`chats.aiBooking.${key}`, params)
   const approveAiBooking = useTaskStore((state) => state.approveAiBooking)
   const rejectAiBooking = useTaskStore((state) => state.rejectAiBooking)
@@ -40,18 +41,16 @@ export function AiBookingApprovalBadge({ task }: AiBookingApprovalBadgeProps) {
         : action === "approve"
           ? await approveAiBooking(task.id)
           : await rejectAiBooking(task.id)
-      toast.success(
-        isReschedule
+      addToast({ type: "success", title: isReschedule
           ? action === "approve"
             ? tr("rescheduleApproved")
             : tr("rescheduleRejected")
           : action === "approve"
             ? tr("approved")
-            : tr("rejected"),
-      )
-      if (!contactNotified) toast.warning(tr("notNotified"))
+            : tr("rejected") })
+      if (!contactNotified) addToast({ type: "warning", title: tr("notNotified") })
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : tr("resolveError"))
+      addToast({ type: "error", title: error instanceof Error ? error.message : tr("resolveError") })
     } finally {
       setPendingAction(null)
     }
@@ -73,7 +72,7 @@ export function AiBookingApprovalBadge({ task }: AiBookingApprovalBadgeProps) {
     <div className="flex flex-wrap items-center gap-1.5" onClick={stop} onPointerDown={stop}>
       <Badge
         variant="outline"
-        className="gap-1 text-xs font-medium bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"
+        className="gap-1 text-xs font-medium bg-warning/10 text-warning border-warning/30"
       >
         <Sparkles className="size-3" />
         {label}

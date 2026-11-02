@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Drawer, DrawerContent, DrawerFooter, DrawerTitle } from "@/components/ui/drawer"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { getPipelines, getPipelineStages, type Pipeline, type PipelineStage } from "@/lib/api/pipeline"
+import { fetchPipelineStages, getPipelines, type Pipeline, type PipelineStage } from "@/lib/api/pipeline"
 import { useTranslation } from "@/hooks/useTranslation"
 import { cn } from "@/lib/utils"
 
@@ -37,24 +37,27 @@ export function StageFilterMenu({ selected, onChange, counts, resultCount, onSho
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
   const [groups, setGroups] = useState<PipelineGroup[] | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
 
   // Se cargan al abrir por primera vez; los chips necesitan nombres y colores.
   useEffect(() => {
-    if ((!open && selected.length === 0) || groups) return
+    if ((!open && selected.length === 0) || groups || loadFailed) return
     let cancelled = false
     getPipelines()
       .then((pipelines) => Promise.all(pipelines.map(async (pipeline) => ({
         pipeline,
-        stages: [...await getPipelineStages(pipeline.id)].sort((a, b) => a.sort_order - b.sort_order),
+        stages: [...await fetchPipelineStages(pipeline.id)].sort((a, b) => a.sort_order - b.sort_order),
       }))))
-      .catch(() => [])
       .then((loaded) => {
         if (!cancelled) setGroups(loaded.filter((group) => group.stages.length > 0))
+      })
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true)
       })
     return () => {
       cancelled = true
     }
-  }, [open, selected.length, groups])
+  }, [open, selected.length, groups, loadFailed])
 
   const selectedSet = useMemo(() => new Set(selected), [selected])
   const stageById = useMemo(() => {
@@ -83,6 +86,8 @@ export function StageFilterMenu({ selected, onChange, counts, resultCount, onSho
   const panel = (
     <StagePanel
       groups={groups}
+      loadFailed={loadFailed}
+      onRetry={() => setLoadFailed(false)}
       selectedSet={selectedSet}
       counts={counts}
       onChange={onChange}
@@ -135,7 +140,7 @@ export function StageFilterMenu({ selected, onChange, counts, resultCount, onSho
                   type="button"
                   onClick={() => onChange(selected.filter((item) => item !== key))}
                   aria-label={t("chats.stageFilter.remove", { stage: label })}
-                  className="group flex max-w-[220px] items-center gap-1.5 rounded-full border border-border bg-background/60 py-0.5 pl-2 pr-1 text-xs transition-colors hover:border-foreground/30"
+                  className="group flex max-w-[220px] items-center gap-1.5 rounded-full border border-border bg-background/60 py-0.5 pl-2 pr-1 text-xs outline-none transition-colors hover:border-foreground/30 focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
                   <StageDot color={entry?.stage.color} />
                   <span className="truncate">
@@ -144,7 +149,7 @@ export function StageFilterMenu({ selected, onChange, counts, resultCount, onSho
                     )}
                     {label}
                   </span>
-                  <X className="h-3 w-3 shrink-0 text-muted-foreground group-hover:text-foreground" />
+                  <X className="h-3 w-3 shrink-0 text-muted-foreground group-hover:text-foreground" aria-hidden="true" />
                 </button>
               </li>
             )
@@ -154,7 +159,7 @@ export function StageFilterMenu({ selected, onChange, counts, resultCount, onSho
               <button
                 type="button"
                 onClick={() => onChange([])}
-                className="rounded-full px-2 py-0.5 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                className="rounded-full px-2 py-0.5 text-xs text-muted-foreground underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
               >
                 {t("chats.stageFilter.clear")}
               </button>
@@ -168,6 +173,8 @@ export function StageFilterMenu({ selected, onChange, counts, resultCount, onSho
 
 function StagePanel({
   groups,
+  loadFailed,
+  onRetry,
   selected,
   selectedSet,
   counts,
@@ -175,6 +182,8 @@ function StagePanel({
   touch,
 }: {
   groups: PipelineGroup[] | null
+  loadFailed: boolean
+  onRetry: () => void
   selected: string[]
   selectedSet: Set<string>
   counts?: Map<string, number>
@@ -184,10 +193,21 @@ function StagePanel({
   const { t } = useTranslation()
   const [activeId, setActiveId] = useState<number | null>(null)
 
+  if (loadFailed) {
+    return (
+      <div className="flex flex-col items-center gap-3 px-4 py-8 text-center text-sm text-muted-foreground">
+        <p>{t("chats.stagesLoadError")}</p>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          {t("chats.retry")}
+        </Button>
+      </div>
+    )
+  }
+
   if (groups === null) {
     return (
-      <div className="flex items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
+      <div role="status" className="flex items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
         {t("chats.stageFilter.loading")}
       </div>
     )

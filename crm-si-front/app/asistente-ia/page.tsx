@@ -22,7 +22,7 @@ export default function AsistenteIAPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <MessageSquare className="w-5 h-5" />
-                  Chat con Asistente
+                  Chat con el asistente
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col h-full">
@@ -32,9 +32,9 @@ export default function AsistenteIAPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Input placeholder="Escribe tu pregunta..." className="flex-1" />
-                  <Button size="sm">
-                    <Send className="w-4 h-4" />
+                  <Input placeholder="Escribí tu pregunta..." className="flex-1" aria-label="Pregunta para el asistente" />
+                  <Button size="sm" aria-label="Enviar pregunta">
+                    <Send className="w-4 h-4" aria-hidden="true" />
                   </Button>
                 </div>
               </CardContent>
@@ -46,7 +46,7 @@ export default function AsistenteIAPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Lightbulb className="w-5 h-5" />
-                  Sugerencias Rápidas
+                  Sugerencias rápidas
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
@@ -67,7 +67,7 @@ export default function AsistenteIAPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Estadísticas de Uso</CardTitle>
+                <CardTitle>Estadísticas de uso</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex justify-between">

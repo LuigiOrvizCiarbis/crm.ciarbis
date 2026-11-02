@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, GripVertical, Loader2 } from "lucide-r
 
 import { cn } from "@/lib/utils"
 import { Checkbox } from "@/components/ui/checkbox"
+import { useDndAccessibility } from "@/hooks/useDndAccessibility"
 import {
   Table,
   TableBody,
@@ -117,7 +118,7 @@ function HeaderCell<T>({
   reorderable?: boolean
 }) {
   const draggable = Boolean(reorderable && column.draggable)
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: column.id,
     disabled: !draggable,
   })
@@ -141,8 +142,10 @@ function HeaderCell<T>({
     })
   }
 
-  const dragProps = draggable ? { ...attributes, ...listeners } : {}
+  const headerLabel = typeof column.header === "string" ? column.header : column.id
 
+  // El <th> conserva su rol de encabezado: el mouse arrastra desde toda la celda y el
+  // control accesible (rol, foco, teclado) es el botón del asa.
   return (
     <TableHead
       ref={setNodeRef}
@@ -152,10 +155,21 @@ function HeaderCell<T>({
         draggable && "select-none cursor-grab active:cursor-grabbing",
         column.headerClassName,
       )}
-      {...dragProps}
+      aria-sort={isSorted ? (direction === "asc" ? "ascending" : "descending") : undefined}
+      {...(draggable ? listeners : {})}
     >
       <div className={cn("flex items-center gap-2", column.align === "right" && "justify-end")}>
-        {draggable && <GripVertical className="h-3.5 w-3.5 text-muted-foreground/60" />}
+        {draggable && (
+          <button
+            type="button"
+            ref={setActivatorNodeRef}
+            {...attributes}
+            aria-label={`Mover columna ${headerLabel}`}
+            className="-m-1 rounded-sm p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        )}
         {column.sortable && onSortChange ? (
           <button
             type="button"
@@ -204,6 +218,11 @@ export function DataTable<T>({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
+  const dndAccessibility = useDndAccessibility((id) => {
+    const column = columns.find((item) => item.id === id)
+    if (!column) return undefined
+    return `la columna ${typeof column.header === "string" ? column.header : column.id}`
+  })
 
   const selected = selectedIds ?? new Set<string | number>()
   const totalColumns = columns.length + (selectable ? 1 : 0)
@@ -320,7 +339,7 @@ export function DataTable<T>({
     <div className={cn("border rounded-lg overflow-hidden", className)}>
       <div className="overflow-x-auto">
         {reorderable ? (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
+          <DndContext sensors={sensors} accessibility={dndAccessibility} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
             <Table className={minTableWidth}>
               <TableHeader className={cn(stickyHeader && "sticky top-0 z-10 bg-background", "border-b")}>
                 {headerRow}

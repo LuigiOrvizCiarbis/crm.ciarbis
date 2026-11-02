@@ -143,7 +143,7 @@ const content = {
               <li>Request correction of inaccurate data</li>
               <li>Request deletion of your data</li>
               <li>Object to or restrict processing of your data</li>
-              <li>Data portability — receive your data in a structured format</li>
+              <li>Data portability: receive your data in a structured format</li>
               <li>Withdraw consent at any time where processing is based on consent</li>
             </ul>
             <p className="mt-2">To exercise any of these rights, please contact us at the email address below.</p>
@@ -193,9 +193,9 @@ const content = {
             <p>
               Social Impulse CRM offers separate artificial intelligence features for CRM
               conversations and other content provided directly through the CRM. Raw, aggregated,
-              anonymized, or derived data obtained from Google Workspace APIs—including connected
+              anonymized, or derived data obtained from Google Workspace APIs (including connected
               account information, OAuth credentials, event data, synchronization metadata, and
-              Google Calendar or Google Meet links—is not transmitted to OpenAI, Anthropic, or any
+              Google Calendar or Google Meet links) is not transmitted to OpenAI, Anthropic, or any
               other AI/ML service. It is not used to develop, train, fine-tune, or improve
               generalized or personalized AI/ML models and is not transferred to third parties for
               those purposes.
@@ -400,7 +400,7 @@ const content = {
               <li>Solicitar la corrección de datos inexactos</li>
               <li>Solicitar la eliminación de sus datos</li>
               <li>Oponerse o restringir el procesamiento de sus datos</li>
-              <li>Portabilidad de datos — recibir sus datos en un formato estructurado</li>
+              <li>Portabilidad de datos: recibir sus datos en un formato estructurado</li>
               <li>Retirar el consentimiento en cualquier momento cuando el procesamiento se base en el consentimiento</li>
             </ul>
             <p className="mt-2">Para ejercer cualquiera de estos derechos, contáctenos en la dirección de correo electrónico a continuación.</p>
@@ -451,9 +451,9 @@ const content = {
             <p>
               Social Impulse CRM ofrece funciones independientes de inteligencia artificial para conversaciones del
               CRM y otros contenidos proporcionados directamente mediante el CRM. Los datos brutos, agregados,
-              anonimizados o derivados obtenidos de las APIs de Google Workspace—incluyendo información de la cuenta
+              anonimizados o derivados obtenidos de las APIs de Google Workspace (incluyendo información de la cuenta
               conectada, credenciales OAuth, datos de eventos, metadatos de sincronización y enlaces de Google
-              Calendar o Google Meet—no se transmiten a OpenAI, Anthropic ni a ningún otro servicio de IA/ML. Estos
+              Calendar o Google Meet) no se transmiten a OpenAI, Anthropic ni a ningún otro servicio de IA/ML. Estos
               datos no se utilizan para desarrollar, entrenar, ajustar o mejorar modelos de IA/ML generales o
               personalizados, ni se transfieren a terceros para esos fines.
             </p>
