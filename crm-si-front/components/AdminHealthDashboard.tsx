@@ -34,7 +34,7 @@ export function AdminHealthDashboard() {
   const healthMetrics: HealthMetric[] = [
     {
       id: "response_time",
-      name: "Tiempo de Respuesta",
+      name: "Tiempo de respuesta",
       value: "245ms",
       status: "healthy",
       trend: "down",
@@ -43,7 +43,7 @@ export function AdminHealthDashboard() {
     },
     {
       id: "error_rate",
-      name: "Tasa de Error",
+      name: "Tasa de error",
       value: "0.12%",
       status: "healthy",
       trend: "stable",
@@ -52,7 +52,7 @@ export function AdminHealthDashboard() {
     },
     {
       id: "active_connections",
-      name: "Conexiones Activas",
+      name: "Conexiones activas",
       value: "1,247",
       status: "healthy",
       trend: "up",
@@ -61,7 +61,7 @@ export function AdminHealthDashboard() {
     },
     {
       id: "queue_size",
-      name: "Cola de Mensajes",
+      name: "Cola de mensajes",
       value: "23",
       status: "warning",
       trend: "up",
@@ -79,7 +79,7 @@ export function AdminHealthDashboard() {
     },
     {
       id: "memory_usage",
-      name: "Uso de Memoria",
+      name: "Uso de memoria",
       value: "68%",
       status: "warning",
       trend: "up",
@@ -88,7 +88,7 @@ export function AdminHealthDashboard() {
     },
     {
       id: "disk_space",
-      name: "Espacio en Disco",
+      name: "Espacio en disco",
       value: "23%",
       status: "healthy",
       trend: "stable",
@@ -109,11 +109,11 @@ export function AdminHealthDashboard() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "healthy":
-        return <CheckCircle className="w-4 h-4 text-green-500" />
+        return <CheckCircle className="w-4 h-4 text-success" />
       case "warning":
-        return <AlertTriangle className="w-4 h-4 text-yellow-500" />
+        return <AlertTriangle className="w-4 h-4 text-warning" />
       case "critical":
-        return <AlertTriangle className="w-4 h-4 text-red-500" />
+        return <AlertTriangle className="w-4 h-4 text-destructive" />
       default:
         return <Clock className="w-4 h-4 text-gray-500" />
     }
@@ -135,9 +135,9 @@ export function AdminHealthDashboard() {
   const getTrendIcon = (trend: string) => {
     switch (trend) {
       case "up":
-        return <TrendingUp className="w-3 h-3 text-green-500" />
+        return <TrendingUp className="w-3 h-3 text-success" />
       case "down":
-        return <TrendingDown className="w-3 h-3 text-red-500" />
+        return <TrendingDown className="w-3 h-3 text-destructive" />
       default:
         return <div className="w-3 h-3 bg-gray-400 rounded-full" />
     }
@@ -184,27 +184,27 @@ export function AdminHealthDashboard() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-950/20 rounded-lg">
-              <CheckCircle className="w-8 h-8 text-green-500" />
+            <div className="flex items-center gap-3 p-4 bg-success/10 rounded-lg">
+              <CheckCircle className="w-8 h-8 text-success" />
               <div>
-                <p className="text-2xl font-bold text-green-700 dark:text-green-400">{healthyCount}</p>
-                <p className="text-sm text-green-600 dark:text-green-500">Servicios Saludables</p>
+                <p className="text-2xl font-bold text-success">{healthyCount}</p>
+                <p className="text-sm text-success">Servicios saludables</p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3 p-4 bg-yellow-50 dark:bg-yellow-950/20 rounded-lg">
-              <AlertTriangle className="w-8 h-8 text-yellow-500" />
+            <div className="flex items-center gap-3 p-4 bg-warning/10 rounded-lg">
+              <AlertTriangle className="w-8 h-8 text-warning" />
               <div>
-                <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-400">{warningCount}</p>
-                <p className="text-sm text-yellow-600 dark:text-yellow-500">Con Advertencias</p>
+                <p className="text-2xl font-bold text-warning">{warningCount}</p>
+                <p className="text-sm text-warning">Con advertencias</p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-950/20 rounded-lg">
-              <AlertTriangle className="w-8 h-8 text-red-500" />
+            <div className="flex items-center gap-3 p-4 bg-destructive/10 rounded-lg">
+              <AlertTriangle className="w-8 h-8 text-destructive" />
               <div>
-                <p className="text-2xl font-bold text-red-700 dark:text-red-400">{criticalCount}</p>
-                <p className="text-sm text-red-600 dark:text-red-500">Estado Crítico</p>
+                <p className="text-2xl font-bold text-destructive">{criticalCount}</p>
+                <p className="text-sm text-destructive">Estado crítico</p>
               </div>
             </div>
           </div>

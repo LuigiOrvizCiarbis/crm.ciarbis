@@ -33,6 +33,7 @@ import { TagPicker } from "@/components/tags/TagPicker"
 import { useToast } from "@/components/Toast"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useTranslation } from "@/hooks/useTranslation"
+import { useDndAccessibility } from "@/hooks/useDndAccessibility"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
@@ -54,6 +55,7 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { formatCurrency } from "@/lib/currency"
+import { channelChipClass } from "@/lib/utils/channelHelpers"
 
 const UniversalImportDialog = dynamic(
   () => import("./import/universal-import-dialog").then((module) => module.UniversalImportDialog),
@@ -69,6 +71,10 @@ const ExtractDocumentDialog = dynamic(
 )
 const DocumentViewerSheet = dynamic(
   () => import("./contacts/DocumentViewerSheet").then((module) => module.DocumentViewerSheet),
+  { ssr: false },
+)
+const NewTaskModal = dynamic(
+  () => import("./tasks/NewTaskModal").then((module) => module.NewTaskModal),
   { ssr: false },
 )
 
@@ -100,13 +106,6 @@ const DEFAULT_FORM: { name: string; phone: string; email: string; source: string
 function capitalize(value: string): string {
   if (!value) return value
   return value.charAt(0).toUpperCase() + value.slice(1)
-}
-
-const sourceColors: Record<string, string> = {
-  whatsapp: "bg-green-500/10 text-green-600 border-green-200 dark:border-green-800",
-  instagram: "bg-pink-500/10 text-pink-600 border-pink-200 dark:border-pink-800",
-  facebook: "bg-blue-500/10 text-blue-600 border-blue-200 dark:border-blue-800",
-  manual: "bg-gray-500/10 text-gray-600 border-gray-200 dark:border-gray-700",
 }
 
 const sourceLabels: Record<string, string> = {
@@ -189,7 +188,7 @@ function formatCustomValue(value: unknown, type: string | undefined, currency?: 
   }
   // Un campo tipo archivo guarda un media_asset_id; mostrar el número crudo no
   // aporta, así que se indica solo que hay un archivo cargado.
-  if (type === "file") return "📎"
+  if (type === "file") return "Archivo"
   return String(value)
 }
 
@@ -264,10 +263,12 @@ function exportContactsCsv(contacts: Contact[]): void {
 
 function ColumnResizeHandle({
   column,
+  label,
   onResize,
   onAutoResize,
 }: {
   column: Column
+  label: string
   onResize: (columnId: ColumnId, delta: number) => void
   onAutoResize: (columnId: ColumnId) => void
 }) {
@@ -304,7 +305,7 @@ function ColumnResizeHandle({
   return (
     <button
       type="button"
-      aria-label={`Ajustar ancho de ${column.labelKey || "columna"}`}
+      aria-label={`Ajustar ancho de ${label || "columna"}`}
       aria-valuemin={widthInPixels(column.minWidth)}
       aria-valuenow={widthInPixels(column.width)}
       aria-valuetext={`${widthInPixels(column.width)} píxeles`}
@@ -342,7 +343,7 @@ function SortableHeader({
   onResize: (columnId: ColumnId, delta: number) => void
   onAutoResize: (columnId: ColumnId) => void
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: column.id,
     disabled: !column.draggable,
   })
@@ -367,6 +368,8 @@ function SortableHeader({
   const isSorted = columnSortField === sortField
   const SortIcon = isSorted ? (sortDirection === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
 
+  // El <th> conserva su rol de encabezado: el arrastre con mouse se inicia desde toda la celda,
+  // pero el control accesible (rol, foco, instrucciones, teclado) es el botón del asa.
   return (
     <TableHead
       ref={setNodeRef}
@@ -375,16 +378,24 @@ function SortableHeader({
         "relative select-none cursor-grab active:cursor-grabbing",
         column.id === "actions" ? "text-right" : "",
       )}
-      {...attributes}
+      aria-sort={isSorted ? (sortDirection === "asc" ? "ascending" : "descending") : undefined}
       {...listeners}
     >
       <div className={cn("flex items-center gap-2", column.id === "actions" ? "justify-end" : "")}>
-        <GripVertical className="w-3.5 h-3.5 text-muted-foreground/60" />
+        <button
+          type="button"
+          ref={setActivatorNodeRef}
+          {...attributes}
+          aria-label={`Mover columna ${label}`}
+          className="-m-1 rounded-sm p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <GripVertical className="w-3.5 h-3.5" aria-hidden="true" />
+        </button>
         {columnSortField ? (
           <button
             type="button"
             className={cn(
-              "inline-flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-muted",
+              "inline-flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50",
               isSorted && "text-primary",
             )}
             onPointerDown={(event) => event.stopPropagation()}
@@ -394,13 +405,13 @@ function SortableHeader({
             }}
           >
             <span className="truncate">{label}</span>
-            <SortIcon className="h-3.5 w-3.5 shrink-0" />
+            <SortIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           </button>
         ) : (
           <span>{label}</span>
         )}
       </div>
-      <ColumnResizeHandle column={column} onResize={onResize} onAutoResize={onAutoResize} />
+      <ColumnResizeHandle column={column} label={label} onResize={onResize} onAutoResize={onAutoResize} />
     </TableHead>
   )
 }
@@ -412,6 +423,8 @@ interface ContactsListProps {
   tagFilterSlugs?: string[]
   customRangeFilter?: Record<string, RangeFilterValue>
   audience?: "all" | "clients"
+  /** Avisa que se crearon, editaron, borraron o importaron contactos (p. ej. para refrescar métricas). */
+  onContactsChanged?: () => void
 }
 
 export function ContactsList({
@@ -421,6 +434,7 @@ export function ContactsList({
   tagFilterSlugs = [],
   customRangeFilter = {},
   audience = "all",
+  onContactsChanged,
 }: ContactsListProps = {}) {
   const { t } = useTranslation()
   const router = useRouter()
@@ -474,6 +488,7 @@ export function ContactsList({
   const [deleteContact, setDeleteContact] = useState<Contact | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [pipelineContact, setPipelineContact] = useState<Contact | null>(null)
+  const [taskContact, setTaskContact] = useState<Contact | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [bulkTagsOpen, setBulkTagsOpen] = useState(false)
   const [bulkFieldsOpen, setBulkFieldsOpen] = useState(false)
@@ -565,6 +580,18 @@ export function ContactsList({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
+  const columnLabel = (column: Column) =>
+    column.id === "tags"
+      ? "Etiquetas"
+      : column.id.startsWith("custom:")
+        ? capitalize(column.labelKey)
+        : column.labelKey
+          ? t(column.labelKey)
+          : ""
+  const dndAccessibility = useDndAccessibility((id) => {
+    const column = columns.find((item) => item.id === id)
+    return column ? `la columna ${columnLabel(column)}` : undefined
+  })
 
   const handleColumnDragEnd = (event: DragEndEvent): void => {
     const { active, over } = event
@@ -710,7 +737,7 @@ export function ContactsList({
         headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
         signal: controller.signal,
       })
-      if (!response.ok) throw new Error("Error al cargar contactos")
+      if (!response.ok) throw new Error("No se pudieron cargar los contactos.")
       const result = await response.json()
       if (controller.signal.aborted) return
       setContacts(result.data || [])
@@ -723,7 +750,7 @@ export function ContactsList({
       })
     } catch (err) {
       if (controller.signal.aborted) return
-      setError(err instanceof Error ? err.message : "Error desconocido")
+      setError(err instanceof Error ? err.message : "No se pudieron cargar los contactos.")
     } finally {
       if (requestControllerRef.current === controller) {
         requestControllerRef.current = null
@@ -731,6 +758,11 @@ export function ContactsList({
       }
     }
   }, [contactsQuery, page])
+
+  const refreshAfterChange = (): void => {
+    void fetchContacts()
+    onContactsChanged?.()
+  }
 
   useEffect(() => {
     setPage(1)
@@ -810,7 +842,7 @@ export function ContactsList({
             )
           )
         } else {
-          setFormErrors({ _general: result.message || (isEdit ? "Error al actualizar contacto" : "Error al crear contacto") })
+          setFormErrors({ _general: result.message || (isEdit ? "No se pudo actualizar el contacto." : "No se pudo crear el contacto.") })
         }
         return
       }
@@ -818,9 +850,9 @@ export function ContactsList({
       setDialogOpen(false)
       setEditingContact(null)
       setFormData({ ...DEFAULT_FORM })
-      fetchContacts()
+      refreshAfterChange()
     } catch {
-      setFormErrors({ _general: "Error de conexión" })
+      setFormErrors({ _general: "Error de conexión. Revisá tu conexión e intentá de nuevo." })
     } finally {
       setSaving(false)
     }
@@ -867,12 +899,11 @@ export function ContactsList({
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
       })
-      if (response.ok) {
-        setDeleteContact(null)
-        fetchContacts()
-      }
+      if (!response.ok) throw new Error(String(response.status))
+      setDeleteContact(null)
+      refreshAfterChange()
     } catch {
-      // silently fail
+      addToast({ type: "error", title: "No se pudo eliminar el contacto", description: "Intentá de nuevo en unos segundos." })
     } finally {
       setDeleting(false)
     }
@@ -908,7 +939,7 @@ export function ContactsList({
 
       setBulkDeleteOpen(false)
       setSelectedIds(new Set())
-      fetchContacts()
+      refreshAfterChange()
     } finally {
       setBulkDeleting(false)
     }
@@ -922,6 +953,13 @@ export function ContactsList({
 
   const filteredContacts = contacts
   const isInitialLoading = loading && contacts.length === 0 && !error
+  // Distingue "no hay resultados para estos filtros" de "todavía no hay contactos".
+  const hasActiveFilters =
+    Boolean(searchTerm) ||
+    sourceFilter !== "all" ||
+    tagFilterSlugs.length > 0 ||
+    Object.values(customRangeFilter).some((range) => Boolean(range.from || range.to)) ||
+    audience === "clients"
 
   const renderCell = (contact: Contact, columnId: ColumnId): React.ReactNode => {
     switch (columnId) {
@@ -930,6 +968,7 @@ export function ContactsList({
           <Checkbox
             checked={selectedIds.has(contact.id)}
             onCheckedChange={() => toggleSelect(contact.id)}
+            aria-label={`Seleccionar ${contact.name}`}
           />
         )
       case "contact":
@@ -1027,7 +1066,7 @@ export function ContactsList({
             onSave={(val) => handleCellSave(contact, "source", val)}
             renderDisplay={(val) => (
               <Badge
-                className={sourceColors[val] || "bg-gray-500/10 text-gray-600 border-gray-200"}
+                className={channelChipClass(val)}
                 variant="outline"
               >
                 {sourceLabels[val] || val}
@@ -1064,8 +1103,9 @@ export function ContactsList({
               disabled={!telHref}
               className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
               title={contact.phone || "Sin teléfono"}
+              aria-label={telHref ? `Llamar a ${contact.name}` : "Sin teléfono"}
             >
-              {telHref ? <a href={telHref}><Phone className="w-3.5 h-3.5" /></a> : <Phone className="w-3.5 h-3.5" />}
+              {telHref ? <a href={telHref}><Phone className="w-3.5 h-3.5" aria-hidden="true" /></a> : <Phone className="w-3.5 h-3.5" aria-hidden="true" />}
             </Button>
             <Button
               asChild={!!mailHref}
@@ -1074,8 +1114,9 @@ export function ContactsList({
               disabled={!mailHref}
               className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
               title={contact.email || "Sin email"}
+              aria-label={mailHref ? `Escribir a ${contact.name}` : "Sin email"}
             >
-              {mailHref ? <a href={mailHref}><Mail className="w-3.5 h-3.5" /></a> : <Mail className="w-3.5 h-3.5" />}
+              {mailHref ? <a href={mailHref} aria-label={`Escribir a ${contact.name}`}><Mail className="w-3.5 h-3.5" aria-hidden="true" /></a> : <Mail className="w-3.5 h-3.5" aria-hidden="true" />}
             </Button>
             <Button
               variant="ghost"
@@ -1084,13 +1125,14 @@ export function ContactsList({
               onClick={() => conversationId && router.push(`/chats?chat=${conversationId}`)}
               className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
               title={conversationId ? "Abrir conversación" : "Sin conversación"}
+              aria-label={conversationId ? `Abrir conversación con ${contact.name}` : "Sin conversación"}
             >
-              <MessageSquare className="w-3.5 h-3.5" />
+              <MessageSquare className="w-3.5 h-3.5" aria-hidden="true" />
             </Button>
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground">
-                  <MoreVertical className="w-3.5 h-3.5" />
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground" aria-label={`Acciones para ${contact.name}`}>
+                  <MoreVertical className="w-3.5 h-3.5" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -1099,9 +1141,9 @@ export function ContactsList({
                 <DropdownMenuItem onSelect={() => setExtractionContact(contact)}>
                   Extraer datos de un PDF
                 </DropdownMenuItem>
-                <DropdownMenuItem>Crear tarea</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setTaskContact(contact)}>Crear tarea</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setPipelineContact(contact)}>
-                  Agregar a pipeline
+                  Agregar a un embudo
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
@@ -1234,7 +1276,8 @@ export function ContactsList({
           return (
             <button
               type="button"
-              className="w-full text-left rounded px-1 py-0.5 hover:bg-muted/60 transition-colors truncate text-sm text-foreground"
+              className="w-full text-left rounded px-1 py-0.5 outline-none hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-ring/50 transition-colors truncate text-sm text-foreground"
+              aria-label={`Editar ${field.label} de ${contact.name}`}
               onClick={() => setEditingCell({ contactId: contact.id, field: columnId })}
             >
               {field.type === "select"
@@ -1285,10 +1328,10 @@ export function ContactsList({
             "Sin contactos para mostrar"
           )}
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground">Por página</span>
           <Select value={String(perPage)} onValueChange={(value) => setPerPage(Number(value))}>
-            <SelectTrigger className="h-8 w-24">
+            <SelectTrigger className="h-8 w-24 max-md:h-10">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1298,35 +1341,38 @@ export function ContactsList({
               <SelectItem value="100">100</SelectItem>
             </SelectContent>
           </Select>
+          {/* Los anchos de columna sólo existen en la tabla de md en adelante. */}
           <Button
             variant="ghost"
             size="sm"
-            className="gap-2"
+            className="hidden gap-2 md:inline-flex"
             onClick={resetColumnWidths}
             title="Restablecer anchos de columnas"
           >
             <RotateCcw className="h-4 w-4" />
             <span className="hidden lg:inline">Restablecer anchos</span>
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={loading || paginationMeta.current_page <= 1}
-            onClick={() => setPage((current) => Math.max(current - 1, 1))}
-          >
-            Anterior
-          </Button>
-          <span className="min-w-20 text-center text-sm text-muted-foreground">
-            {paginationMeta.current_page} / {paginationMeta.last_page}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={loading || paginationMeta.current_page >= paginationMeta.last_page}
-            onClick={() => setPage((current) => Math.min(current + 1, paginationMeta.last_page))}
-          >
-            Siguiente
-          </Button>
+          <div className="flex items-center gap-2 max-sm:w-full max-sm:justify-between">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={loading || paginationMeta.current_page <= 1}
+              onClick={() => setPage((current) => Math.max(current - 1, 1))}
+            >
+              Anterior
+            </Button>
+            <span className="min-w-20 text-center text-sm text-muted-foreground">
+              {paginationMeta.current_page} / {paginationMeta.last_page}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={loading || paginationMeta.current_page >= paginationMeta.last_page}
+              onClick={() => setPage((current) => Math.min(current + 1, paginationMeta.last_page))}
+            >
+              Siguiente
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -1414,7 +1460,7 @@ export function ContactsList({
           selectedIds={Array.from(selectedIds)}
           onSuccess={() => {
             setSelectedIds(new Set())
-            void fetchContacts()
+            refreshAfterChange()
           }}
         />
       ) : null}
@@ -1427,7 +1473,7 @@ export function ContactsList({
         fields={contactFields}
         onSuccess={(failedIds) => {
           setSelectedIds(new Set(failedIds))
-          fetchContacts()
+          refreshAfterChange()
         }}
       />
 
@@ -1493,7 +1539,7 @@ export function ContactsList({
 
                   <div className="mt-4 flex items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-2">
-                      <Badge className={sourceColors[contact.source] || "bg-gray-500/10 text-gray-600 border-gray-200"} variant="outline">
+                      <Badge className={channelChipClass(contact.source)} variant="outline">
                         {sourceLabels[contact.source] || contact.source}
                       </Badge>
                       <span className="truncate text-xs text-muted-foreground">{getLastContact(contact)}</span>
@@ -1511,11 +1557,11 @@ export function ContactsList({
                   </div>
 
                   <div className="mt-3 flex items-center justify-end gap-1 border-t pt-3">
-                    <Button asChild={!!telHref} variant="ghost" size="sm" disabled={!telHref} className="h-10 w-10 p-0">
-                      {telHref ? <a href={telHref} aria-label={`Llamar a ${contact.name}`}><Phone className="h-4 w-4" /></a> : <Phone className="h-4 w-4" />}
+                    <Button asChild={!!telHref} variant="ghost" size="sm" disabled={!telHref} className="h-10 w-10 p-0" aria-label={telHref ? `Llamar a ${contact.name}` : "Sin teléfono"}>
+                      {telHref ? <a href={telHref}><Phone className="h-4 w-4" aria-hidden="true" /></a> : <Phone className="h-4 w-4" aria-hidden="true" />}
                     </Button>
-                    <Button asChild={!!mailHref} variant="ghost" size="sm" disabled={!mailHref} className="h-10 w-10 p-0">
-                      {mailHref ? <a href={mailHref} aria-label={`Enviar email a ${contact.name}`}><Mail className="h-4 w-4" /></a> : <Mail className="h-4 w-4" />}
+                    <Button asChild={!!mailHref} variant="ghost" size="sm" disabled={!mailHref} className="h-10 w-10 p-0" aria-label={mailHref ? `Enviar email a ${contact.name}` : "Sin email"}>
+                      {mailHref ? <a href={mailHref}><Mail className="h-4 w-4" aria-hidden="true" /></a> : <Mail className="h-4 w-4" aria-hidden="true" />}
                     </Button>
                     <Button variant="ghost" size="sm" className="h-10 px-3" onClick={() => openProfileSheet(contact)}>
                       Ver perfil
@@ -1528,7 +1574,7 @@ export function ContactsList({
 
           <div className="hidden border rounded-lg overflow-hidden md:block">
             <div className="overflow-x-auto">
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
+              <DndContext sensors={sensors} accessibility={dndAccessibility} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
                 <Table ref={tableRef} className="min-w-[1100px] table-fixed">
                   <TableHeader className="sticky top-0 z-10 bg-background border-b">
                     <TableRow>
@@ -1537,24 +1583,15 @@ export function ContactsList({
                           if (column.id === "select") {
                             return (
                               <TableHead key={column.id} data-column-id={column.id} style={{ width: column.width, minWidth: column.minWidth }} className="px-4">
-                                <Checkbox checked={allSelected} onCheckedChange={handleSelectAll} />
+                                <Checkbox checked={allSelected} onCheckedChange={handleSelectAll} aria-label="Seleccionar todos los contactos" />
                               </TableHead>
                             )
                           }
-                          const isCustom = typeof column.id === "string" && column.id.startsWith("custom:")
                           return (
                             <SortableHeader
                               key={column.id}
                               column={column}
-                              label={
-                                column.id === "tags"
-                                  ? "Etiquetas"
-                                  : isCustom
-                                    ? capitalize(column.labelKey)
-                                    : column.labelKey
-                                      ? t(column.labelKey)
-                                      : ""
-                              }
+                              label={columnLabel(column)}
                               sortField={sortField}
                               sortDirection={sortDirection}
                               onSort={handleSort}
@@ -1604,10 +1641,27 @@ export function ContactsList({
           {!loading && filteredContacts.length === 0 && (
             <div className="text-center py-12">
               <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-foreground mb-2">No se encontraron contactos</h3>
-              <p className="text-muted-foreground">
-                {searchTerm ? "Intenta con otros términos de búsqueda" : "Comienza agregando tu primer contacto"}
-              </p>
+              {hasActiveFilters ? (
+                <>
+                  <h3 className="text-lg font-medium text-foreground mb-2">No se encontraron contactos</h3>
+                  <p className="text-muted-foreground">
+                    {searchTerm ? "Probá con otros términos de búsqueda o ajustá los filtros." : "Probá ajustando o quitando los filtros."}
+                  </p>
+                  {searchTerm && onSearchTermChange ? (
+                    <Button variant="outline" className="mt-4" onClick={() => onSearchTermChange("")}>
+                      Limpiar búsqueda
+                    </Button>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <h3 className="text-lg font-medium text-foreground mb-2">Todavía no tenés contactos</h3>
+                  <p className="text-muted-foreground">Empezá agregando tu primer contacto o importando un archivo.</p>
+                  <Button className="mt-4" onClick={() => setDialogOpen(true)}>
+                    Nuevo contacto
+                  </Button>
+                </>
+              )}
             </div>
           )}
         </>
@@ -1624,9 +1678,9 @@ export function ContactsList({
       }}>
         <DialogContent className="max-h-[85vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>{editingContact ? "Editar Contacto" : "Nuevo Contacto"}</DialogTitle>
+            <DialogTitle>{editingContact ? "Editar contacto" : "Nuevo contacto"}</DialogTitle>
             <DialogDescription>
-              {editingContact ? "Modifica los datos del contacto" : "Agrega un nuevo contacto a tu base de datos"}
+              {editingContact ? "Modificá los datos del contacto." : "Agregá un nuevo contacto a tu base de datos."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2 flex-1 overflow-y-auto min-h-0 pr-1">
@@ -1703,7 +1757,7 @@ export function ContactsList({
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>Cancelar</Button>
             <Button onClick={handleSaveContact} disabled={saving}>
               {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {editingContact ? "Guardar Cambios" : "Crear Contacto"}
+              {editingContact ? "Guardar cambios" : "Crear contacto"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1713,7 +1767,7 @@ export function ContactsList({
       <Sheet open={profileOpen} onOpenChange={handleProfileOpenChange}>
         <SheetContent>
           <SheetHeader>
-            <SheetTitle>Perfil del Contacto</SheetTitle>
+            <SheetTitle>Perfil del contacto</SheetTitle>
           </SheetHeader>
           {profileContact && (
             <div className="mt-6 space-y-6">
@@ -1726,7 +1780,7 @@ export function ContactsList({
                 />
                 <div>
                   <h3 className="text-lg font-semibold">{profileContact.name}</h3>
-                  <Badge className={sourceColors[profileContact.source] || "bg-gray-500/10 text-gray-600"} variant="outline">
+                  <Badge className={channelChipClass(profileContact.source)} variant="outline">
                     {sourceLabels[profileContact.source] || profileContact.source}
                   </Badge>
                 </div>
@@ -1814,10 +1868,29 @@ export function ContactsList({
         open={Boolean(pipelineContact)}
         onOpenChange={(open) => { if (!open) setPipelineContact(null) }}
         onSaved={() => {
-          addToast({ type: "success", title: "Oportunidad actualizada", description: `${pipelineContact?.name} quedó en el pipeline seleccionado.` })
+          addToast({ type: "success", title: "Oportunidad actualizada", description: `${pipelineContact?.name} quedó en el embudo seleccionado.` })
           setPipelineContact(null)
         }}
       />
+
+      {taskContact ? (
+        <NewTaskModal
+          key={taskContact.id}
+          open
+          onOpenChange={(open) => {
+            if (!open) setTaskContact(null)
+          }}
+          // El modal ya crea la tarea contra la API y muestra el toast "Tarea creada".
+          onCreateTask={() => setTaskContact(null)}
+          prefilledData={{
+            name: `Seguimiento: ${taskContact.name}`,
+            relationType: "contact",
+            relationId: String(taskContact.id),
+            relationLabel: taskContact.name,
+            lockRelation: true,
+          }}
+        />
+      ) : null}
 
       {/* Dialog Importar CSV */}
       {importOpen ? (
@@ -1825,10 +1898,10 @@ export function ContactsList({
           open
           onOpenChange={setImportOpen}
           resource="contacts"
-          title="Importar clientes"
+          title="Importar contactos"
           productFields={contactFields}
           nativeTargets={[{ value: "ignore", label: "Ignorar" }, { value: "name", label: "Nombre" }, { value: "phone", label: "Teléfono" }, { value: "email", label: "Email" }]}
-          onImportComplete={() => void fetchContacts()}
+          onImportComplete={refreshAfterChange}
         />
       ) : null}
 
@@ -1858,7 +1931,7 @@ export function ContactsList({
       </AlertDialog>
 
       {/* AlertDialog Eliminar */}
-      <AlertDialog open={!!deleteContact} onOpenChange={(open) => { if (!open) setDeleteContact(null) }}>
+      <AlertDialog open={!!deleteContact} onOpenChange={(open) => { if (!open && !deleting) setDeleteContact(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar contacto</AlertDialogTitle>
@@ -1870,7 +1943,11 @@ export function ContactsList({
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDeleteContact}
+              onClick={(event) => {
+                // Mantiene el diálogo abierto hasta que termine el borrado.
+                event.preventDefault()
+                void handleDeleteContact()
+              }}
               disabled={deleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >

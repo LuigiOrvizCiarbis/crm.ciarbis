@@ -1,13 +1,12 @@
-import { memo, useEffect, useMemo, useRef } from "react"
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { Card } from "@/components/ui/card"
 import { ContactAvatar } from "@/components/contact-avatar"
 import { Badge } from "@/components/ui/badge"
-import { Checkbox } from "@/components/ui/checkbox"
 import { LeadScoreBadge } from "@/components/Badges"
 import { PlatformIcon } from "@/components/chat/PlatformIcon"
 import { EmptyState } from "@/components/EmptyState"
 import { SkeletonList } from "@/components/Skeleton"
-import { Loader2, MessageSquare, Users } from "lucide-react"
+import { AlertCircle, Check, Loader2, MessageSquare, Users } from "lucide-react"
 import { Conversation, Channel } from "@/data/types"
 import { channelTypeToFilterType } from "@/data/enums"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -19,6 +18,9 @@ interface ConversationCardProps {
   channel?: Channel
   isSelected: boolean
   onClick: (id: number) => void
+  /** Roving tabindex: solo la opción activa del listbox entra en el orden de tabulación. */
+  tabIndex: 0 | -1
+  onFocusOption: (id: number) => void
   selectionMode?: boolean
   isChecked?: boolean
   onToggleSelect?: (id: number) => void
@@ -30,6 +32,8 @@ const ConversationCard = memo(function ConversationCard({
   channel,
   isSelected,
   onClick,
+  tabIndex,
+  onFocusOption,
   selectionMode = false,
   isChecked = false,
   onToggleSelect,
@@ -54,14 +58,11 @@ const ConversationCard = memo(function ConversationCard({
   const leadScore = conversation.leadScore ?? null
   const unreadCount = conversation.unread_count ?? 0
   const isUnread = unreadCount > 0 || Boolean(conversation.unread) || Boolean(conversation.manual_unread)
-  const unreadAriaLabel = isUnread
+  const unreadSrText = isUnread
     ? unreadCount > 0
-      ? t(unreadCount === 1 ? "chats.unreadAriaSingular" : "chats.unreadAriaPlural", {
-          count: unreadCount,
-          name: contactName,
-        })
+      ? t("chats.unreadBadgeAria", { count: unreadCount })
       : t("chats.unreadDotAria")
-    : undefined
+    : null
 
   const formatLastMessageAt = (iso?: string | null) => {
     if (!iso) return "--:--"
@@ -101,22 +102,34 @@ const ConversationCard = memo(function ConversationCard({
     }
   }
 
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return
+    event.preventDefault()
+    handleCardClick()
+  }
+
   return (
     <Card
       ref={cardRef}
-      aria-current={isSelected ? "true" : undefined}
-      className={`${compact ? 'px-3 py-2.5' : 'p-3'} cursor-pointer hover:bg-accent transition-colors ${isSelected ? 'bg-accent border-primary' : ''} ${isChecked ? 'bg-primary/5 border-primary/40' : ''} ${isUnread && !isSelected ? 'border-l-2 border-l-blue-500' : ''}`}
+      role="option"
+      aria-selected={selectionMode ? isChecked : isSelected}
+      tabIndex={tabIndex}
+      data-conversation-id={conversation.id}
+      className={`${compact ? 'px-3 py-2.5' : 'p-3'} cursor-pointer outline-none hover:bg-accent transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 ${isSelected ? 'bg-accent border-primary' : ''} ${isChecked ? 'bg-primary/5 border-primary/40' : ''}`}
       onClick={handleCardClick}
-      aria-label={unreadAriaLabel}
+      onKeyDown={handleKeyDown}
+      onFocus={() => onFocusOption(conversation.id)}
     >
       <div className="flex items-center gap-3">
+        {/* Indicador visual: el estado lo anuncia aria-selected de la opción.
+            Un control interactivo dentro de una opción sería inválido. */}
         {selectionMode && (
-          <Checkbox
-            checked={isChecked}
-            onCheckedChange={() => onToggleSelect?.(conversation.id)}
-            onClick={(e) => e.stopPropagation()}
-            aria-label="Seleccionar conversación"
-          />
+          <span
+            aria-hidden="true"
+            className={`flex size-4 shrink-0 items-center justify-center rounded-[4px] border shadow-xs ${isChecked ? 'border-primary bg-primary text-primary-foreground' : 'border-input dark:bg-input/30'}`}
+          >
+            {isChecked && <Check className="size-3.5" />}
+          </span>
         )}
         <div className="flex items-center gap-2">
           {channel && (
@@ -153,28 +166,26 @@ const ConversationCard = memo(function ConversationCard({
               )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <span className={`text-xs ${isUnread ? 'text-blue-500 font-semibold' : 'text-muted-foreground'}`}>
+              <span className={`text-xs ${isUnread ? 'text-primary font-semibold' : 'text-muted-foreground'}`}>
                 {formatLastMessageAt(conversation.last_message_at)}
               </span>
+              {unreadSrText && <span className="sr-only">{unreadSrText}</span>}
               {isUnread && (
                 unreadCount > 0 ? (
                   <Badge
-                    className="h-5 min-w-5 rounded-full px-1.5 text-[10px] font-semibold bg-blue-500 hover:bg-blue-500 text-white border-0 tabular-nums"
-                    aria-label={t("chats.unreadBadgeAria", { count: unreadCount })}
+                    aria-hidden="true"
+                    className="h-5 min-w-5 rounded-full px-1.5 text-[10px] font-semibold bg-primary hover:bg-primary text-primary-foreground border-0 tabular-nums"
                   >
                     {unreadCount > 99 ? "99+" : unreadCount}
                   </Badge>
                 ) : (
-                  <span
-                    className="h-2 w-2 rounded-full bg-blue-500"
-                    aria-label={t("chats.unreadDotAria")}
-                  />
+                  <span aria-hidden="true" className="h-2 w-2 rounded-full bg-primary" />
                 )
               )}
             </div>
           </div>
           {contactPhone && !compact && (
-            <p className="text-xs text-muted-foreground/80 truncate tabular-nums tracking-tight">
+            <p className="text-xs text-muted-foreground truncate tabular-nums tracking-tight">
               {contactPhone}
             </p>
           )}
@@ -185,7 +196,7 @@ const ConversationCard = memo(function ConversationCard({
             <TagChips tags={conversation.tags} maxVisible={2} className="mt-2" />
           )}
           {channel && !compact && (
-            <p className="text-xs text-muted-foreground/70 truncate">
+            <p className="text-xs text-muted-foreground truncate">
               {channel.name}
             </p>
           )}
@@ -194,6 +205,106 @@ const ConversationCard = memo(function ConversationCard({
     </Card>
   )
 })
+
+interface ConversationListboxProps {
+  label: string
+  conversations: Conversation[]
+  channelMap: Map<number, Channel>
+  selectedConversationId?: number | null
+  onConversationClick: (conversationId: number) => void
+  selectionMode?: boolean
+  selectedIds?: Set<number>
+  onToggleSelect?: (conversationId: number) => void
+  compact: boolean
+  className: string
+}
+
+/**
+ * Listbox de WAI-ARIA con roving tabindex: un solo tab stop para toda la
+ * lista; flechas, Inicio y Fin mueven el foco; Enter o Espacio abren la
+ * conversación (o la marcan en modo selección). Mover el foco no abre el
+ * chat: abrirlo carga el hilo, así que pide una acción explícita.
+ */
+function ConversationListbox({
+  label,
+  conversations,
+  channelMap,
+  selectedConversationId,
+  onConversationClick,
+  selectionMode = false,
+  selectedIds,
+  onToggleSelect,
+  compact,
+  className,
+}: ConversationListboxProps) {
+  const listRef = useRef<HTMLDivElement>(null)
+  const [activeId, setActiveId] = useState<number | null>(null)
+
+  const ids = useMemo(() => conversations.map((conversation) => conversation.id), [conversations])
+  const idSet = useMemo(() => new Set(ids), [ids])
+
+  // La opción tabulable sigue al foco; si esa conversación ya no está en la
+  // lista, cae en la abierta y, si tampoco, en la primera.
+  const tabStopId =
+    activeId !== null && idSet.has(activeId)
+      ? activeId
+      : selectedConversationId != null && idSet.has(selectedConversationId)
+        ? selectedConversationId
+        : ids[0] ?? null
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (ids.length === 0) return
+    const current = tabStopId === null ? -1 : ids.indexOf(tabStopId)
+    let next: number
+    switch (event.key) {
+      case "ArrowDown":
+        next = Math.min(current + 1, ids.length - 1)
+        break
+      case "ArrowUp":
+        next = Math.max(current - 1, 0)
+        break
+      case "Home":
+        next = 0
+        break
+      case "End":
+        next = ids.length - 1
+        break
+      default:
+        return
+    }
+    event.preventDefault()
+    const nextId = ids[next]
+    setActiveId(nextId)
+    listRef.current?.querySelector<HTMLElement>(`[data-conversation-id="${nextId}"]`)?.focus()
+  }
+
+  return (
+    <div
+      ref={listRef}
+      role="listbox"
+      aria-label={label}
+      aria-multiselectable={selectionMode || undefined}
+      onKeyDown={handleKeyDown}
+      className={className}
+    >
+      {conversations.map((conversation) => (
+        <ConversationCard
+          key={conversation.id}
+          conversation={conversation}
+          channel={conversation.channel || channelMap.get(conversation.channelId)}
+          isSelected={selectedConversationId === conversation.id}
+          onClick={onConversationClick}
+          tabIndex={conversation.id === tabStopId ? 0 : -1}
+          onFocusOption={setActiveId}
+          selectionMode={selectionMode}
+          isChecked={selectedIds?.has(conversation.id) ?? false}
+          onToggleSelect={onToggleSelect}
+          compact={compact}
+        />
+      ))}
+    </div>
+  )
+}
 
 interface ConversationListProps {
   conversations: Conversation[]
@@ -204,7 +315,11 @@ interface ConversationListProps {
   emptyState?: {
     title: string
     description: string
+    action?: { label: string; onClick: () => void }
   }
+  /** Falló la carga inicial: se muestra el error con reintento en vez del vacío. */
+  onRetryLoad?: () => void
+  loadFailed?: boolean
   selectionMode?: boolean
   selectedIds?: Set<number>
   onToggleSelect?: (conversationId: number) => void
@@ -224,6 +339,8 @@ export function ConversationList({
   selectedConversationId,
   onConversationClick,
   emptyState,
+  onRetryLoad,
+  loadFailed = false,
   selectionMode = false,
   selectedIds,
   onToggleSelect,
@@ -235,7 +352,7 @@ export function ConversationList({
   compact = false,
 }: ConversationListProps) {
   const { t } = useTranslation()
-  const resolvedEmptyState = emptyState ?? {
+  const resolvedEmptyState: NonNullable<ConversationListProps["emptyState"]> = emptyState ?? {
     title: t("chats.noConversations"),
     description: t("chats.noConversationsDesc"),
   }
@@ -261,12 +378,16 @@ export function ConversationList({
     })
   }, [conversations])
 
+  // Los resultados por mensaje muestran el fragmento encontrado en lugar del
+  // último mensaje.
   const uniqueMessageResults = useMemo(() => {
     const seenIds = new Set<number>()
-    return messageResults.filter((conversation) => {
-      if (seenIds.has(conversation.id)) return false
+    return messageResults.flatMap((conversation) => {
+      if (seenIds.has(conversation.id)) return []
       seenIds.add(conversation.id)
-      return true
+      return conversation.matchedMessageSnippet
+        ? [{ ...conversation, last_message: conversation.matchedMessageSnippet }]
+        : [conversation]
     })
   }, [messageResults])
   const loadMoreRef = useRef<HTMLDivElement>(null)
@@ -291,6 +412,19 @@ export function ConversationList({
 
   const hasMessageResults = uniqueMessageResults.length > 0
 
+  if (loadFailed && uniqueConversations.length === 0) {
+    return (
+      <div className="flex-1 p-4 overflow-y-auto">
+        <EmptyState
+          icon={AlertCircle}
+          title={t("chats.loadConversationsError")}
+          description={t("chats.channelErrorNetwork")}
+          action={onRetryLoad ? { label: t("chats.retry"), onClick: onRetryLoad } : undefined}
+        />
+      </div>
+    )
+  }
+
   if (uniqueConversations.length === 0 && !hasMessageResults && !isSearchingMessages) {
     return (
       <div className="flex-1 p-4 overflow-y-auto">
@@ -298,6 +432,7 @@ export function ConversationList({
           icon={MessageSquare}
           title={resolvedEmptyState.title}
           description={resolvedEmptyState.description}
+          action={resolvedEmptyState.action}
         />
       </div>
     )
@@ -305,21 +440,18 @@ export function ConversationList({
 
   return (
     <div className={`flex-1 overflow-y-auto ${compact ? 'p-2' : 'p-4'}`}>
-      <div className={compact ? 'space-y-1' : 'space-y-2'}>
-        {uniqueConversations.map((conversation) => (
-          <ConversationCard
-            key={conversation.id}
-            conversation={conversation}
-            channel={conversation.channel || channelMap.get(conversation.channelId)}
-            isSelected={selectedConversationId === conversation.id}
-            onClick={onConversationClick}
-            selectionMode={selectionMode}
-            isChecked={selectedIds?.has(conversation.id) ?? false}
-            onToggleSelect={onToggleSelect}
-            compact={compact}
-          />
-        ))}
-      </div>
+      <ConversationListbox
+        label={t("chats.conversationListLabel")}
+        conversations={uniqueConversations}
+        channelMap={channelMap}
+        selectedConversationId={selectedConversationId}
+        onConversationClick={onConversationClick}
+        selectionMode={selectionMode}
+        selectedIds={selectedIds}
+        onToggleSelect={onToggleSelect}
+        compact={compact}
+        className={compact ? 'space-y-1' : 'space-y-2'}
+      />
       {hasMore && (
         <div ref={loadMoreRef} className="flex h-16 items-center justify-center" aria-live="polite">
           {isLoadingMore && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
@@ -333,22 +465,15 @@ export function ConversationList({
             </p>
             {isSearchingMessages && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
           </div>
-          <div className="space-y-2">
-            {uniqueMessageResults.map((conversation) => (
-              <ConversationCard
-                key={`message-result-${conversation.id}`}
-                conversation={
-                  conversation.matchedMessageSnippet
-                    ? { ...conversation, last_message: conversation.matchedMessageSnippet }
-                    : conversation
-                }
-                channel={conversation.channel || channelMap.get(conversation.channelId)}
-                isSelected={selectedConversationId === conversation.id}
-                onClick={onConversationClick}
-                compact={compact}
-              />
-            ))}
-          </div>
+          <ConversationListbox
+            label={t("chats.messageResults")}
+            conversations={uniqueMessageResults}
+            channelMap={channelMap}
+            selectedConversationId={selectedConversationId}
+            onConversationClick={onConversationClick}
+            compact={compact}
+            className="space-y-2"
+          />
         </div>
       )}
     </div>

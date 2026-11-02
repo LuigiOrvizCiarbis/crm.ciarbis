@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { Mail, Loader2, RefreshCw, Edit3, MessageSquare } from "lucide-react"
+import { Mail, Loader2, RefreshCw, Edit3, MessageSquare, Inbox, FolderOpen, Clock } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -140,19 +140,19 @@ function VerifyEmailContent() {
   }
 
   return (
-    <Card className="border-border/50 shadow-xl">
+    <Card>
       <CardHeader className="text-center space-y-4">
         <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
-          <Mail className="w-8 h-8 text-primary" />
+          <Mail className="w-8 h-8 text-primary" aria-hidden="true" />
         </div>
         <div>
           <CardTitle className="text-2xl font-bold">
-            {fromRegister ? "¡Cuenta creada!" : "Verifica tu email"}
+            {fromRegister ? "¡Cuenta creada!" : "Verificá tu email"}
           </CardTitle>
           <CardDescription className="mt-2">
             {fromRegister 
               ? "Te hemos enviado un email de verificación"
-              : "Necesitas verificar tu email para continuar"
+              : "Necesitás verificar tu email para continuar"
             }
           </CardDescription>
         </div>
@@ -169,19 +169,26 @@ function VerifyEmailContent() {
         </div>
 
         <div className="text-sm text-muted-foreground space-y-2">
-          <p>📬 Revisa tu bandeja de entrada</p>
-          <p>📁 Si no lo encuentras, revisa la carpeta de spam</p>
-          <p>⏰ El link expira en 24 horas</p>
+          <p className="flex items-start gap-2"><Inbox className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> Revisá tu bandeja de entrada</p>
+          <p className="flex items-start gap-2"><FolderOpen className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> Si no lo encontrás, revisá la carpeta de spam</p>
+          <p className="flex items-start gap-2"><Clock className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> El link expira en 24 horas</p>
         </div>
 
         {resendSuccess && (
-          <div className="p-3 text-sm text-green-600 bg-green-500/10 border border-green-500/20 rounded-lg text-center">
+          <div
+            role="status"
+            className="p-3 text-sm text-success bg-success/10 border border-success/30 rounded-lg text-center"
+          >
             ¡Email reenviado exitosamente!
           </div>
         )}
 
         {resendError && (
-          <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg text-center">
+          <div
+            id="resend-error"
+            role="alert"
+            className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-lg text-center"
+          >
             {resendError}
           </div>
         )}
@@ -196,17 +203,17 @@ function VerifyEmailContent() {
         >
           {isResending ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
               Enviando...
             </>
           ) : countdown > 0 ? (
             <>
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-4 h-4" aria-hidden="true" />
               Reenviar en {countdown}s
             </>
           ) : (
             <>
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-4 h-4" aria-hidden="true" />
               Reenviar email de verificación
             </>
           )}
@@ -215,7 +222,7 @@ function VerifyEmailContent() {
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button variant="ghost" className="w-full text-muted-foreground">
-              <Edit3 className="w-4 h-4" />
+              <Edit3 className="w-4 h-4" aria-hidden="true" />
               ¿Email incorrecto? Cámbialo aquí
             </Button>
           </DialogTrigger>
@@ -224,13 +231,17 @@ function VerifyEmailContent() {
               <DialogHeader>
                 <DialogTitle>Cambiar email</DialogTitle>
                 <DialogDescription>
-                  Ingresa tu nuevo email y tu contraseña para confirmar
+                  Ingresá tu nuevo email y tu contraseña para confirmar
                 </DialogDescription>
               </DialogHeader>
               
               <div className="space-y-4 py-4">
                 {changeError && (
-                  <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg">
+                  <div
+                    id="change-email-error"
+                    role="alert"
+                    className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-lg"
+                  >
                     {changeError}
                   </div>
                 )}
@@ -245,6 +256,8 @@ function VerifyEmailContent() {
                     onChange={(e) => setNewEmail(e.target.value)}
                     required
                     disabled={isChangingEmail}
+                    aria-invalid={changeError ? true : undefined}
+                    aria-describedby={changeError ? "change-email-error" : undefined}
                   />
                 </div>
                 
@@ -258,6 +271,8 @@ function VerifyEmailContent() {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     disabled={isChangingEmail}
+                    aria-invalid={changeError ? true : undefined}
+                    aria-describedby={changeError ? "change-email-error" : undefined}
                   />
                 </div>
               </div>
@@ -269,7 +284,7 @@ function VerifyEmailContent() {
                 <Button type="submit" disabled={isChangingEmail}>
                   {isChangingEmail ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
                       Cambiando...
                     </>
                   ) : (
@@ -298,9 +313,10 @@ function VerifyEmailContent() {
 export default function VerifyEmailPage() {
   return (
     <Suspense fallback={
-      <Card className="border-border/50 shadow-xl">
-        <CardContent className="p-8 flex items-center justify-center">
-          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      <Card>
+        <CardContent className="p-8 flex items-center justify-center" role="status">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" aria-hidden="true" />
+          <span className="sr-only">Cargando...</span>
         </CardContent>
       </Card>
     }>

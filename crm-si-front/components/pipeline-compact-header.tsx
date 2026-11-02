@@ -1,7 +1,6 @@
 "use client"
 
-import type React from "react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Filter, MessageSquare, Plus, Search, Settings2, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -32,13 +31,44 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useTranslation } from "@/hooks/useTranslation"
+import { useIsMobile } from "@/hooks/use-mobile"
 import type { Pipeline } from "@/lib/api/pipeline"
+import { getUsers, type SystemUser } from "@/lib/api/users"
+
+export interface PipelineFilters {
+  search: string
+  /** Plataforma de origen (whatsapp, instagram, facebook, manual) o "all". */
+  channel: string
+  /** Id del vendedor asignado, "none" (sin asignar) o "all". */
+  assignee: string
+  status: "all" | "open" | "won" | "lost" | "archived"
+  value: "all" | "low" | "medium" | "high"
+  /** Período de la última actividad. */
+  period: "all" | "today" | "week" | "month"
+}
+
+export const EMPTY_PIPELINE_FILTERS: PipelineFilters = {
+  search: "",
+  channel: "all",
+  assignee: "all",
+  status: "all",
+  value: "all",
+  period: "all",
+}
+
+/** Filtros del panel activos (sin contar la búsqueda, que ya está a la vista). */
+export function countActiveFilters(filters: PipelineFilters): number {
+  return (["channel", "assignee", "status", "value", "period"] as const).filter((key) => filters[key] !== "all").length
+}
+
+export function hasActiveFilters(filters: PipelineFilters): boolean {
+  return filters.search.trim() !== "" || countActiveFilters(filters) > 0
+}
 
 interface PipelineCompactHeaderProps {
   onNewOpportunity?: () => void
-  onSearch?: (query: string) => void
-  onFilterChannel?: (channel: string) => void
-  onFilterSalesperson?: (salesperson: string) => void
+  filters: PipelineFilters
+  onFiltersChange: (filters: PipelineFilters) => void
   onStagesChanged?: () => void
   pipelines: Pipeline[]
   selectedPipelineId: number
@@ -53,9 +83,8 @@ const NEW_PIPELINE_VALUE = "__new__"
 
 export function PipelineCompactHeader({
   onNewOpportunity,
-  onSearch,
-  onFilterChannel,
-  onFilterSalesperson,
+  filters,
+  onFiltersChange,
   onStagesChanged,
   pipelines,
   selectedPipelineId,
@@ -66,30 +95,33 @@ export function PipelineCompactHeader({
 }: PipelineCompactHeaderProps) {
   const { t } = useTranslation()
   const canManageStages = usePermission("pipeline_stages.manage")
-  const [searchQuery, setSearchQuery] = useState("")
-  const [selectedChannel, setSelectedChannel] = useState("all")
-  const [selectedSalesperson, setSelectedSalesperson] = useState("all")
+  const isMobile = useIsMobile()
+  // Sin lista de usuarios (p. ej. sin permiso) no se ofrece el filtro por vendedor.
+  const [salespeople, setSalespeople] = useState<SystemUser[]>([])
+  const activeCount = countActiveFilters(filters)
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
-    const value = e.target.value
-    setSearchQuery(value)
-    onSearch?.(value)
-  }
+  useEffect(() => {
+    let cancelled = false
+    getUsers().then((users) => {
+      if (!cancelled) setSalespeople([...users].sort((a, b) => a.name.localeCompare(b.name, "es")))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-  const handleChannelChange = (value: string): void => {
-    setSelectedChannel(value)
-    onFilterChannel?.(value)
-  }
-
-  const handleSalespersonChange = (value: string): void => {
-    setSelectedSalesperson(value)
-    onFilterSalesperson?.(value)
+  const setFilter = <K extends keyof PipelineFilters>(key: K, value: PipelineFilters[K]): void => {
+    onFiltersChange({ ...filters, [key]: value })
   }
 
   return (
-    <header className="sticky top-0 z-40 h-[75px] flex items-center gap-4 px-4 md:px-6 lg:px-8 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
-      <div className="flex items-center gap-2 min-w-fit">
-        <h1 className="text-xl font-semibold tracking-tight">{t("pipeline.title")}</h1>
+    // Hasta xl: dos filas (título + acciones; pipeline, búsqueda y filtros).
+    // Desde xl vuelve a ser una sola fila de 75px, con el orden del DOM.
+    <header className="sticky top-0 z-40 flex flex-wrap items-center gap-x-2 gap-y-1 px-4 py-3 md:gap-x-4 md:px-6 lg:px-8 xl:h-[75px] xl:flex-nowrap xl:gap-4 xl:py-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
+      <div className="contents xl:flex xl:items-center xl:gap-2 xl:min-w-fit">
+        <h1 className="order-1 min-w-0 flex-1 truncate text-base font-semibold tracking-tight md:text-xl xl:order-none xl:flex-none xl:overflow-visible">
+          {t("pipeline.title")}
+        </h1>
         <Select
           value={String(selectedPipelineId)}
           onValueChange={(value) => {
@@ -98,8 +130,8 @@ export function PipelineCompactHeader({
             else onPipelineChange(Number(value))
           }}
         >
-          <SelectTrigger className="h-9 w-[170px]" aria-label="Pipeline">
-            <SelectValue placeholder="Elegir pipeline" />
+          <SelectTrigger className="order-3 h-10 min-w-0 flex-1 text-left text-base md:text-sm xl:order-none xl:h-9 xl:w-[170px] xl:flex-none [&>span]:min-w-0 [&>span]:whitespace-nowrap [&>span]:text-ellipsis" aria-label="Embudo">
+            <SelectValue placeholder="Elegir embudo" />
           </SelectTrigger>
           <SelectContent>
             {pipelines.map((pipeline) => <SelectItem key={pipeline.id} value={String(pipeline.id)}>{pipeline.name}</SelectItem>)}
@@ -118,75 +150,115 @@ export function PipelineCompactHeader({
         </Select>
       </div>
 
-      <div className="flex-1 max-w-md">
+      <div className="order-3 min-w-0 flex-1 xl:order-none xl:max-w-md">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
           <Input
             placeholder={t("pipeline.searchPlaceholder")}
-            value={searchQuery}
-            onChange={handleSearchChange}
-            className="pl-9 h-9"
+            aria-label={t("pipeline.searchPlaceholder")}
+            value={filters.search}
+            onChange={(e) => setFilter("search", e.target.value)}
+            className="pl-9 h-10 xl:h-9"
           />
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <Select value={selectedChannel} onValueChange={handleChannelChange}>
-          <SelectTrigger className="h-9 w-[140px]">
-            <MessageSquare className="h-4 w-4 mr-2" />
+      <div className="order-3 flex items-center gap-2 xl:order-none">
+        {/* Canal y vendedor sólo entran en línea con pantalla ancha; si no, viven en el panel de filtros. */}
+        <Select value={filters.channel} onValueChange={(value) => setFilter("channel", value)}>
+          <SelectTrigger className="hidden h-9 w-[140px] 2xl:flex" aria-label={t("pipeline.filters.channels")}>
+            <MessageSquare className="h-4 w-4 mr-2" aria-hidden="true" />
             <SelectValue placeholder={t("pipeline.filters.channels")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">{t("pipeline.filters.allChannels")}</SelectItem>
-            <SelectItem value="whatsapp">WhatsApp</SelectItem>
-            <SelectItem value="instagram">Instagram</SelectItem>
-            <SelectItem value="facebook">Facebook</SelectItem>
-            <SelectItem value="linkedin">LinkedIn</SelectItem>
-            <SelectItem value="web">Web</SelectItem>
+            <ChannelOptions />
           </SelectContent>
         </Select>
 
-        <Select value={selectedSalesperson} onValueChange={handleSalespersonChange}>
-          <SelectTrigger className="h-9 w-[140px]">
-            <Users className="h-4 w-4 mr-2" />
-            <SelectValue placeholder={t("pipeline.filters.salesperson")} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t("pipeline.filters.allSalespeople")}</SelectItem>
-          </SelectContent>
-        </Select>
+        {salespeople.length > 0 && (
+          <Select value={filters.assignee} onValueChange={(value) => setFilter("assignee", value)}>
+            <SelectTrigger className="hidden h-9 w-[140px] 2xl:flex" aria-label={t("pipeline.filters.salesperson")}>
+              <Users className="h-4 w-4 mr-2" aria-hidden="true" />
+              <SelectValue placeholder={t("pipeline.filters.salesperson")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SalespersonOptions salespeople={salespeople} />
+            </SelectContent>
+          </Select>
+        )}
 
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="outline" size="sm" className="h-9 bg-transparent">
-              <Filter className="h-4 w-4 mr-2" />
-              {t("pipeline.moreFilters")}
+            <Button
+              variant="outline"
+              size="sm"
+              className="relative size-10 bg-transparent md:w-auto xl:h-9"
+              title={t("pipeline.moreFilters")}
+            >
+              <Filter className="h-4 w-4 md:mr-2" aria-hidden="true" />
+              <span className="sr-only md:not-sr-only">{t("pipeline.moreFilters")}</span>
+              {activeCount > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 flex min-w-5 items-center justify-center rounded-full bg-primary px-1 text-xs font-medium tabular-nums text-primary-foreground md:static md:ml-2">
+                  <span aria-hidden="true">{activeCount}</span>
+                  <span className="sr-only">{t("pipeline.filters.activeCount", { count: activeCount })}</span>
+                </span>
+              )}
             </Button>
           </SheetTrigger>
-          <SheetContent>
+          <SheetContent
+            side={isMobile ? "bottom" : "right"}
+            className={isMobile ? "max-h-[85dvh] gap-0 overflow-y-auto rounded-t-2xl pb-[max(env(safe-area-inset-bottom),1.5rem)]" : undefined}
+          >
             <SheetHeader>
               <SheetTitle>{t("pipeline.filters.advancedTitle")}</SheetTitle>
               <SheetDescription>{t("pipeline.filters.advancedDesc")}</SheetDescription>
             </SheetHeader>
-            <div className="mt-6 space-y-4">
+            <div className="mt-6 space-y-4 px-4 max-md:mt-2">
+              <div className="space-y-4 2xl:hidden">
+                <div>
+                  <label htmlFor="pipeline-filter-channel" className="text-sm font-medium mb-2 block">{t("pipeline.filters.channels")}</label>
+                  <Select value={filters.channel} onValueChange={(value) => setFilter("channel", value)}>
+                    <SelectTrigger id="pipeline-filter-channel" className="text-base md:text-sm">
+                      <SelectValue placeholder={t("pipeline.filters.channels")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <ChannelOptions />
+                    </SelectContent>
+                  </Select>
+                </div>
+                {salespeople.length > 0 && (
+                  <div>
+                    <label htmlFor="pipeline-filter-salesperson" className="text-sm font-medium mb-2 block">{t("pipeline.filters.salesperson")}</label>
+                    <Select value={filters.assignee} onValueChange={(value) => setFilter("assignee", value)}>
+                      <SelectTrigger id="pipeline-filter-salesperson" className="text-base md:text-sm">
+                        <SelectValue placeholder={t("pipeline.filters.salesperson")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SalespersonOptions salespeople={salespeople} />
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
               <div>
-                <label className="text-sm font-medium mb-2 block">{t("pipeline.filters.status")}</label>
-                <Select>
-                  <SelectTrigger>
+                <label htmlFor="pipeline-filter-status" className="text-sm font-medium mb-2 block">{t("pipeline.filters.status")}</label>
+                <Select value={filters.status} onValueChange={(value) => setFilter("status", value as PipelineFilters["status"])}>
+                  <SelectTrigger id="pipeline-filter-status" className="text-base md:text-sm">
                     <SelectValue placeholder={t("pipeline.filters.selectStatus")} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{t("pipeline.filters.statusAll")}</SelectItem>
-                    <SelectItem value="new">{t("pipeline.filters.statusNew")}</SelectItem>
-                    <SelectItem value="contacted">{t("pipeline.filters.statusContacted")}</SelectItem>
-                    <SelectItem value="qualified">{t("pipeline.filters.statusQualified")}</SelectItem>
+                    <SelectItem value="open">{t("pipeline.filters.statusOpen")}</SelectItem>
+                    <SelectItem value="won">{t("pipeline.filters.statusWon")}</SelectItem>
+                    <SelectItem value="lost">{t("pipeline.filters.statusLost")}</SelectItem>
+                    <SelectItem value="archived">{t("pipeline.filters.statusArchived")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <label className="text-sm font-medium mb-2 block">{t("pipeline.filters.valueRange")}</label>
-                <Select>
-                  <SelectTrigger>
+                <label htmlFor="pipeline-filter-value" className="text-sm font-medium mb-2 block">{t("pipeline.filters.valueRange")}</label>
+                <Select value={filters.value} onValueChange={(value) => setFilter("value", value as PipelineFilters["value"])}>
+                  <SelectTrigger id="pipeline-filter-value" className="text-base md:text-sm">
                     <SelectValue placeholder={t("pipeline.filters.selectValue")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -198,9 +270,9 @@ export function PipelineCompactHeader({
                 </Select>
               </div>
               <div>
-                <label className="text-sm font-medium mb-2 block">{t("pipeline.filters.date")}</label>
-                <Select>
-                  <SelectTrigger>
+                <label htmlFor="pipeline-filter-date" className="text-sm font-medium mb-2 block">{t("pipeline.filters.date")}</label>
+                <Select value={filters.period} onValueChange={(value) => setFilter("period", value as PipelineFilters["period"])}>
+                  <SelectTrigger id="pipeline-filter-date" className="text-base md:text-sm">
                     <SelectValue placeholder={t("pipeline.filters.datePeriod")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -211,18 +283,31 @@ export function PipelineCompactHeader({
                   </SelectContent>
                 </Select>
               </div>
+              <Button
+                variant="outline"
+                className="w-full"
+                disabled={!hasActiveFilters(filters)}
+                onClick={() => onFiltersChange(EMPTY_PIPELINE_FILTERS)}
+              >
+                {t("pipeline.filters.clear")}
+              </Button>
             </div>
           </SheetContent>
         </Sheet>
       </div>
 
-      <div className="flex items-center gap-2 ml-auto">
+      <div className="order-2 flex items-center gap-2 xl:order-none xl:ml-auto">
         {canManageStages && (
           <Dialog open={stagesDialogOpen} onOpenChange={onStagesDialogOpenChange}>
             <DialogTrigger asChild>
-              <Button variant="outline" size="sm" className="h-9 bg-transparent">
-                <Settings2 className="h-4 w-4 mr-2" />
-                {t("pipeline.stages.manage")}
+              <Button
+                variant="outline"
+                size="sm"
+                className="size-10 bg-transparent xl:size-9 2xl:w-auto"
+                title={t("pipeline.stages.manage")}
+              >
+                <Settings2 className="h-4 w-4 2xl:mr-2" aria-hidden="true" />
+                <span className="sr-only 2xl:not-sr-only">{t("pipeline.stages.manage")}</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-lg">
@@ -234,11 +319,40 @@ export function PipelineCompactHeader({
             </DialogContent>
           </Dialog>
         )}
-        <Button onClick={onNewOpportunity} size="sm" className="h-9">
-          <Plus className="h-4 w-4 mr-2" />
-          {t("pipeline.newOpportunity")}
+        <Button onClick={onNewOpportunity} size="sm" className="h-10 xl:h-9" aria-label={t("pipeline.newOpportunity")}>
+          <Plus className="h-4 w-4 md:mr-2" aria-hidden="true" />
+          <span className="md:hidden">{t("pipeline.newOpportunityShort")}</span>
+          <span className="max-md:hidden">{t("pipeline.newOpportunity")}</span>
         </Button>
       </div>
+      {/* Corte de línea: en pantallas angostas pasa pipeline, búsqueda y filtros a la segunda fila. */}
+      <div aria-hidden="true" className="order-2 h-0 basis-full xl:hidden" />
     </header>
+  )
+}
+
+function ChannelOptions() {
+  const { t } = useTranslation()
+  return (
+    <>
+      <SelectItem value="all">{t("pipeline.filters.allChannels")}</SelectItem>
+      <SelectItem value="whatsapp">WhatsApp</SelectItem>
+      <SelectItem value="instagram">Instagram</SelectItem>
+      <SelectItem value="facebook">Facebook</SelectItem>
+      <SelectItem value="manual">{t("pipeline.filters.channelManual")}</SelectItem>
+    </>
+  )
+}
+
+function SalespersonOptions({ salespeople }: { salespeople: SystemUser[] }) {
+  const { t } = useTranslation()
+  return (
+    <>
+      <SelectItem value="all">{t("pipeline.filters.allSalespeople")}</SelectItem>
+      <SelectItem value="none">{t("pipeline.filters.unassigned")}</SelectItem>
+      {salespeople.map((user) => (
+        <SelectItem key={user.id} value={String(user.id)}>{user.name}</SelectItem>
+      ))}
+    </>
   )
 }

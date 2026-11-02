@@ -75,7 +75,7 @@ export function CommandPalette() {
           addToast({
             type: "success",
             title: "Nuevo lead creado",
-            description: "Lead agregado al pipeline",
+            description: "Lead agregado al embudo",
           })
         }
       }
@@ -137,7 +137,7 @@ export function CommandPalette() {
                     addToast({
                       type: "success",
                       title: "Nuevo lead creado",
-                      description: "Lead agregado al pipeline",
+                      description: "Lead agregado al embudo",
                     })
                   })
                 }

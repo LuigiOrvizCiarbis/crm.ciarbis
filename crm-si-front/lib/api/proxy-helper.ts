@@ -216,7 +216,7 @@ export async function proxyToLaravel(
 
   // Todos los backends fallaron o devolvieron 5xx: mensaje genérico
   return {
-    data: { message: "Ocurrió un error interno. Inténtalo de nuevo más tarde." },
+    data: { message: "Ocurrió un error interno. Intentá de nuevo más tarde." },
     status: 502,
     contentType: null,
     contentDisposition: null,

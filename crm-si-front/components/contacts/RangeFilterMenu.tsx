@@ -104,10 +104,11 @@ export function RangeFilterMenu({ fields, value, onChange, align = "end" }: Rang
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">
+                <label htmlFor="range-filter-from" className="text-xs text-muted-foreground">
                   {t("contactsPage.filters.range.from")}
                 </label>
                 <Input
+                  id="range-filter-from"
                   type={selectedField.type === "date" ? "date" : "number"}
                   value={value[selectedField.key]?.from ?? ""}
                   onChange={(e) =>
@@ -120,10 +121,11 @@ export function RangeFilterMenu({ fields, value, onChange, align = "end" }: Rang
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">
+                <label htmlFor="range-filter-to" className="text-xs text-muted-foreground">
                   {t("contactsPage.filters.range.to")}
                 </label>
                 <Input
+                  id="range-filter-to"
                   type={selectedField.type === "date" ? "date" : "number"}
                   value={value[selectedField.key]?.to ?? ""}
                   onChange={(e) =>
@@ -146,8 +148,9 @@ export function RangeFilterMenu({ fields, value, onChange, align = "end" }: Rang
           size="sm"
           className="h-8 px-2 text-muted-foreground"
           onClick={clearAll}
+          aria-label={t("contactsPage.filters.range.clear")}
         >
-          <X className="h-4 w-4" />
+          <X className="h-4 w-4" aria-hidden="true" />
         </Button>
       )}
     </div>

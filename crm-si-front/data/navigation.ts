@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react"
 import {
   BarChart3,
   CheckSquare,
+  Instagram,
   Megaphone,
   MessageSquare,
   ReceiptText,
@@ -30,22 +31,21 @@ export type NavigationLabels = Partial<Record<NavigationKey, string>>
 export interface NavigationItem {
   key: NavigationKey
   href: string
-  emoji: string
   icon: LucideIcon
   labelKey: string
 }
 
 export const NAVIGATION_ITEMS: readonly NavigationItem[] = [
-  { key: "dashboard", href: "/dashboard", emoji: "📊", icon: BarChart3, labelKey: "nav.panel" },
-  { key: "chats", href: "/chats", emoji: "💬", icon: MessageSquare, labelKey: "nav.chats" },
-  { key: "instagram_comments", href: "/comentarios-instagram", emoji: "📸", icon: MessageSquare, labelKey: "nav.instagramComments" },
-  { key: "contacts", href: "/contactos", emoji: "👥", icon: Users, labelKey: "nav.contacts" },
-  { key: "catalog", href: "/catalogo", emoji: "📦", icon: Package, labelKey: "nav.catalog" },
-  { key: "pipeline", href: "/oportunidades", emoji: "🎯", icon: Target, labelKey: "nav.pipeline" },
-  { key: "tasks", href: "/tareas", emoji: "✅", icon: CheckSquare, labelKey: "nav.tasks" },
-  { key: "broadcasts", href: "/difusiones", emoji: "📣", icon: Megaphone, labelKey: "nav.broadcasts" },
-  { key: "invoices", href: "/invoices", emoji: "🧾", icon: ReceiptText, labelKey: "nav.invoices" },
-  { key: "settings", href: "/configuracion", emoji: "⚙️", icon: Settings, labelKey: "nav.settings" },
+  { key: "dashboard", href: "/dashboard", icon: BarChart3, labelKey: "nav.panel" },
+  { key: "chats", href: "/chats", icon: MessageSquare, labelKey: "nav.chats" },
+  { key: "instagram_comments", href: "/comentarios-instagram", icon: Instagram, labelKey: "nav.instagramComments" },
+  { key: "contacts", href: "/contactos", icon: Users, labelKey: "nav.contacts" },
+  { key: "catalog", href: "/catalogo", icon: Package, labelKey: "nav.catalog" },
+  { key: "pipeline", href: "/oportunidades", icon: Target, labelKey: "nav.pipeline" },
+  { key: "tasks", href: "/tareas", icon: CheckSquare, labelKey: "nav.tasks" },
+  { key: "broadcasts", href: "/difusiones", icon: Megaphone, labelKey: "nav.broadcasts" },
+  { key: "invoices", href: "/invoices", icon: ReceiptText, labelKey: "nav.invoices" },
+  { key: "settings", href: "/configuracion", icon: Settings, labelKey: "nav.settings" },
 ]
 
 export function resolveNavigationLabel(

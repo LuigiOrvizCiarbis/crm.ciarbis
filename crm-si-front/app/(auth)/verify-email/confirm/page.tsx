@@ -59,7 +59,7 @@ export default function VerifyEmailConfirmPage() {
         }
       } catch {
         setStatus('error')
-        setErrorMessage('Error de conexión. Por favor intenta de nuevo.')
+        setErrorMessage('Error de conexión. Intentá de nuevo.')
       }
     }
 
@@ -67,17 +67,17 @@ export default function VerifyEmailConfirmPage() {
   }, [searchParams, setEmailVerified])
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
+    <Card className="w-full max-w-md">
+        {/* Región viva persistente: el resultado llega async y se anuncia al cambiar */}
+        <CardHeader className="text-center" aria-live="polite" aria-atomic="true">
           {status === 'loading' && (
             <>
               <div className="mx-auto mb-4">
-                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                <Loader2 className="h-12 w-12 animate-spin text-primary" aria-hidden="true" />
               </div>
               <CardTitle>Verificando tu email...</CardTitle>
               <CardDescription>
-                Por favor espera mientras confirmamos tu dirección de correo.
+                Esperá mientras confirmamos tu dirección de correo.
               </CardDescription>
             </>
           )}
@@ -85,11 +85,11 @@ export default function VerifyEmailConfirmPage() {
           {status === 'success' && (
             <>
               <div className="mx-auto mb-4">
-                <CheckCircle className="h-12 w-12 text-green-500" />
+                <CheckCircle className="h-12 w-12 text-success" aria-hidden="true" />
               </div>
-              <CardTitle className="text-green-600">¡Email verificado!</CardTitle>
+              <CardTitle className="text-success">¡Email verificado!</CardTitle>
               <CardDescription>
-                Tu cuenta ha sido verificada exitosamente. Ya puedes acceder a todas las funcionalidades.
+                Tu cuenta fue verificada correctamente. Ya podés acceder a todas las funcionalidades.
               </CardDescription>
             </>
           )}
@@ -97,9 +97,9 @@ export default function VerifyEmailConfirmPage() {
           {status === 'already' && (
             <>
               <div className="mx-auto mb-4">
-                <AlertCircle className="h-12 w-12 text-blue-500" />
+                <AlertCircle className="h-12 w-12 text-info" aria-hidden="true" />
               </div>
-              <CardTitle className="text-blue-600">Email ya verificado</CardTitle>
+              <CardTitle className="text-info">Email ya verificado</CardTitle>
               <CardDescription>
                 Tu dirección de correo ya había sido verificada anteriormente.
               </CardDescription>
@@ -109,10 +109,10 @@ export default function VerifyEmailConfirmPage() {
           {status === 'error' && (
             <>
               <div className="mx-auto mb-4">
-                <XCircle className="h-12 w-12 text-red-500" />
+                <XCircle className="h-12 w-12 text-destructive" aria-hidden="true" />
               </div>
-              <CardTitle className="text-red-600">Error de verificación</CardTitle>
-              <CardDescription className="text-red-500">
+              <CardTitle className="text-destructive">Error de verificación</CardTitle>
+              <CardDescription className="text-destructive" role="alert">
                 {errorMessage}
               </CardDescription>
             </>
@@ -141,7 +141,6 @@ export default function VerifyEmailConfirmPage() {
             </div>
           )}
         </CardContent>
-      </Card>
-    </div>
+    </Card>
   )
 }

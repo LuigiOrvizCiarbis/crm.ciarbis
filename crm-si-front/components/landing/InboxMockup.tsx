@@ -10,7 +10,7 @@ type MockConversation = {
 }
 
 /**
- * Réplica estática de la bandeja real (ver components/chat-conversation-list.tsx).
+ * Réplica estática de la bandeja real (ver components/chat/ConversationList.tsx).
  * Es decorativa: el texto del hero comunica lo mismo para lectores de pantalla.
  */
 const conversations: MockConversation[] = [

@@ -76,7 +76,7 @@ function AcceptInvitationContent() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-background via-background to-muted/30">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <Card className="w-full max-w-md mx-4">
           <CardContent className="pt-8 pb-6 text-center space-y-4">
             <AlertCircle className="w-12 h-12 text-destructive mx-auto" />
@@ -95,14 +95,8 @@ function AcceptInvitationContent() {
   const emailMatch = isAuthenticated && user?.email === invitation.email
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-background via-background to-muted/30">
-      <div className="absolute inset-0 bg-grid-pattern opacity-[0.02] pointer-events-none" />
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary/10 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-secondary/10 rounded-full blur-3xl" />
-      </div>
-
-      <Card className="relative z-10 w-full max-w-md mx-4 border-border/50 shadow-xl">
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <Card className="w-full max-w-md mx-4">
         <CardHeader className="text-center space-y-4">
           <div className="mx-auto w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
             <Users className="w-6 h-6 text-primary" />

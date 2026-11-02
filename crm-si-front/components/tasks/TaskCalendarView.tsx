@@ -9,6 +9,7 @@ import type { Task } from "@/lib/types/task"
 import { CalendarSyncBadge } from "./CalendarSyncBadge"
 import { useTranslation } from "@/hooks/useTranslation"
 import { AiBookingApprovalBadge } from "./AiBookingApprovalBadge"
+import { typeLabels } from "./task-labels"
 import { GoogleCalendarEventDialog } from "@/components/calendar/GoogleCalendarEventDialog"
 import { CalendarBlockApiError } from "@/lib/api/calendar-availability-blocks"
 import { listGoogleCalendarEvents, type GoogleCalendarEvent } from "@/lib/api/google-calendar-events"
@@ -38,11 +39,13 @@ type GoogleStatus = "loading" | "ready" | "not_connected" | "error"
 // RFC 3339 with a numeric offset; the API rejects the "Z" shorthand formatISO emits in UTC.
 const RFC3339 = "yyyy-MM-dd'T'HH:mm:ssxxx"
 
+// Tinte + texto del mismo tono: legible en ambos temas. El relleno sólido con
+// texto blanco no llegaba a 4.5:1 (naranja) y en oscuro la barra se perdía.
 const priorityColors = {
-  baja: "bg-gray-500/80",
-  media: "bg-blue-500/80",
-  alta: "bg-orange-500/80",
-  critica: "bg-red-500/80",
+  baja: "border border-gray-500/40 bg-gray-500/15 text-gray-800 dark:bg-gray-500/25 dark:text-gray-200",
+  media: "border border-blue-500/40 bg-blue-500/15 text-blue-800 dark:bg-blue-500/25 dark:text-blue-200",
+  alta: "border border-orange-500/40 bg-orange-500/15 text-orange-800 dark:bg-orange-500/25 dark:text-orange-200",
+  critica: "border border-red-500/40 bg-red-500/15 text-red-800 dark:bg-red-500/25 dark:text-red-200",
 }
 
 export function TaskCalendarView({
@@ -148,9 +151,9 @@ export function TaskCalendarView({
         type="button"
         onClick={() => setSelectedEvent(event)}
         title={label}
-        className={`flex w-full items-center gap-1 truncate border border-sky-500/40 bg-sky-500/10 text-left text-foreground hover:bg-sky-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${box}`}
+        className={`flex w-full items-center gap-1 truncate border text-left border-sky-500/40 bg-sky-500/15 text-sky-800 hover:bg-sky-500/25 dark:bg-sky-500/25 dark:text-sky-200 dark:hover:bg-sky-500/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${box}`}
       >
-        <Icon className="size-3 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+        <Icon className="size-3 shrink-0" aria-hidden="true" />
         <span className="truncate">{label}</span>
       </button>
     )
@@ -162,14 +165,14 @@ export function TaskCalendarView({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" className="h-11 w-11" onClick={handlePrevious}>
-              <ChevronLeft className="w-4 h-4" />
+            <Button variant="outline" size="icon" className="h-11 w-11" onClick={handlePrevious} aria-label={tr(view === "month" ? "previousMonth" : view === "week" ? "previousWeek" : "previousDay")}>
+              <ChevronLeft className="w-4 h-4" aria-hidden="true" />
             </Button>
             <Button variant="outline" size="sm" className="min-h-11" onClick={handleToday}>
               Hoy
             </Button>
-            <Button variant="outline" size="icon" className="h-11 w-11" onClick={handleNext}>
-              <ChevronRight className="w-4 h-4" />
+            <Button variant="outline" size="icon" className="h-11 w-11" onClick={handleNext} aria-label={tr(view === "month" ? "nextMonth" : view === "week" ? "nextWeek" : "nextDay")}>
+              <ChevronRight className="w-4 h-4" aria-hidden="true" />
             </Button>
           </div>
 
@@ -205,8 +208,8 @@ export function TaskCalendarView({
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <span className="inline-flex items-center gap-1.5 rounded border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-xs text-foreground">
-          <CalendarIcon className="size-3 text-sky-600 dark:text-sky-400" aria-hidden="true" />
+        <span className="inline-flex items-center gap-1.5 rounded border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-xs text-sky-700 dark:bg-sky-500/20 dark:text-sky-400">
+          <CalendarIcon className="size-3" aria-hidden="true" />
           {tr("legend")}
         </span>
         {googleStatus === "loading" && <span role="status" className="text-muted-foreground">{tr("loading")}</span>}
@@ -262,7 +265,7 @@ export function TaskCalendarView({
                       {dayTasks.slice(0, 3).map((task) => (
                         <div
                           key={task.id}
-                          className={`text-xs p-1 rounded ${priorityColors[task.priority]} text-white truncate`}
+                          className={`text-xs p-1 rounded ${priorityColors[task.priority]} truncate`}
                           title={`${format(new Date(task.deadline!), "HH:mm")} hs · ${task.name}`}
                         >
                           <span className="mr-1 font-semibold tabular-nums">{format(new Date(task.deadline!), "HH:mm")}</span>
@@ -270,7 +273,13 @@ export function TaskCalendarView({
                         </div>
                       ))}
                       {dayTasks.length > 3 && (
-                        <div className="text-xs text-muted-foreground">+{dayTasks.length - 3} más</div>
+                        <button
+                          type="button"
+                          className="rounded-sm text-xs text-muted-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                          onClick={() => { setView("day"); setCurrentDate(day) }}
+                        >
+                          +{dayTasks.length - 3} más
+                        </button>
                       )}
                       {dayEvents.slice(0, 2).map((event) => renderGoogleEvent(event, "month"))}
                       {dayEvents.length > 2 && (
@@ -315,13 +324,13 @@ export function TaskCalendarView({
                       {dayTasks.map((task) => (
                         <div
                           key={task.id}
-                          className={`p-2 rounded ${priorityColors[task.priority]} text-white`}
+                          className={`p-2 rounded ${priorityColors[task.priority]}`}
                         >
                           <div className="mb-1 text-xs font-medium">
                             <span className="mr-1 tabular-nums">{format(new Date(task.deadline!), "HH:mm")} hs</span>
                             {task.name}
                           </div>
-                          <div className="text-xs opacity-80">{task.assignee}</div>
+                          <div className="text-xs opacity-90">{task.assignee}</div>
                         </div>
                       ))}
                       {getGoogleEventsForDay(day).map((event) => renderGoogleEvent(event, "week"))}
@@ -337,7 +346,7 @@ export function TaskCalendarView({
           <div className="p-4">
             <div className="space-y-3">
               {getTasksForDay(currentDate).map((task) => (
-                <div key={task.id} className={`p-4 rounded-lg ${priorityColors[task.priority]} text-white`}>
+                <div key={task.id} className={`p-4 rounded-lg ${priorityColors[task.priority]}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
                       <h4 className="font-semibold mb-1">{task.name}</h4>
@@ -345,8 +354,8 @@ export function TaskCalendarView({
                         {format(new Date(task.deadline!), "HH:mm")} hs
                       </p>
                       <p className="text-sm opacity-90">Responsable: {task.assignee}</p>
-                      <p className="text-sm opacity-90">Tipo: {task.type}</p>
-                      {task.description && <p className="text-sm mt-2 opacity-80">{task.description}</p>}
+                      <p className="text-sm opacity-90">Tipo: {typeLabels[task.type]}</p>
+                      {task.description && <p className="text-sm mt-2 opacity-90">{task.description}</p>}
                     </div>
                     {task.type === "reunion" && (
                       <div className="shrink-0 space-y-1.5 rounded-md bg-background/90 p-1.5">
@@ -363,7 +372,7 @@ export function TaskCalendarView({
               {getTasksForDay(currentDate).length === 0 && getGoogleEventsForDay(currentDate).length === 0 && (
                 <div className="text-center py-12 text-muted-foreground">
                   <CalendarIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                  <p>No hay tareas para este día</p>
+                  <p>No hay tareas ni eventos para este día.</p>
                 </div>
               )}
             </div>

@@ -5,16 +5,16 @@ import ClientLayout from "./client-layout"
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://sicrmapp.com"),
-  title: "Social Impulse CRM — CRM IA Omnicanal",
+  title: "Social Impulse CRM | CRM omnicanal con IA",
   description:
-    "CRM Conversacional con IA para WhatsApp, Instagram y más canales. Automatiza ventas y mejora conversiones.",
+    "CRM conversacional con IA para WhatsApp, Instagram y más canales. Automatizá ventas y mejorá conversiones.",
   keywords: "CRM, WhatsApp Business, Instagram, IA, automatización, ventas, conversaciones",
   authors: [{ name: "Social Impulse" }],
   creator: "Social Impulse",
   publisher: "Social Impulse",
   openGraph: {
-    title: "Social Impulse CRM — CRM IA Omnicanal",
-    description: "CRM Conversacional con IA para WhatsApp, Instagram y más canales",
+    title: "Social Impulse CRM | CRM omnicanal con IA",
+    description: "CRM conversacional con IA para WhatsApp, Instagram y más canales",
     url: "https://sicrmapp.com",
     siteName: "Social Impulse CRM",
     images: [
@@ -30,8 +30,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Social Impulse CRM — CRM IA Omnicanal",
-    description: "CRM Conversacional con IA para WhatsApp, Instagram y más canales",
+    title: "Social Impulse CRM | CRM omnicanal con IA",
+    description: "CRM conversacional con IA para WhatsApp, Instagram y más canales",
     images: ["/og-image.png"],
   },
   robots: {

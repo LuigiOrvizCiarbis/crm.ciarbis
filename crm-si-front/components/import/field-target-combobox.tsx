@@ -26,19 +26,27 @@ export function FieldTargetCombobox({ value, options, onChange, className }: Pro
   const choose = (nextValue: string) => { onChange(nextValue); setQuery(""); setOpen(false) }
 
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && open) {
+          event.stopPropagation()
+          setOpen(false)
+        }
+      }}
+    >
       <Button type="button" variant="outline" role="combobox" aria-expanded={open} onClick={() => setOpen((current) => !current)} className={cn("h-8 w-52 justify-between font-normal", className)}>
         <span className={cn("truncate", !selected && "text-muted-foreground")}>{selected?.label || "Seleccionar destino"}</span>
-        <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+        <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" aria-hidden="true" />
       </Button>
       {open && <div className="absolute left-0 top-full z-[100] mt-1 w-64 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
         <Input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar campo…" className="mb-1 h-8" />
         <div className="max-h-56 overflow-y-auto">
           <p className="px-2 py-1 text-xs font-medium text-muted-foreground">Campos</p>
-          {filtered.length === 0 ? <p className="px-2 py-4 text-center text-sm text-muted-foreground">No se encontraron campos</p> : filtered.map((option) => <button key={option.value} type="button" onClick={() => choose(option.value)} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"><Check className={cn("h-4 w-4", value === option.value ? "opacity-100" : "opacity-0")} /><span className="truncate">{option.label}</span></button>)}
+          {filtered.length === 0 ? <p className="px-2 py-4 text-center text-sm text-muted-foreground">No se encontraron campos</p> : filtered.map((option) => <button key={option.value} type="button" onClick={() => choose(option.value)} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50"><Check className={cn("h-4 w-4", value === option.value ? "opacity-100" : "opacity-0")} aria-hidden="true" /><span className="truncate">{option.label}</span></button>)}
           <p className="mt-1 px-2 py-1 text-xs font-medium text-muted-foreground">Acciones</p>
-          <button type="button" onClick={() => choose("ignore")} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"><Check className={cn("h-4 w-4", value === "ignore" ? "opacity-100" : "opacity-0")} />Ignorar</button>
-          <button type="button" onClick={() => choose("create")} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-primary hover:bg-accent"><PlusCircle className="h-4 w-4" />Crear campo</button>
+          <button type="button" onClick={() => choose("ignore")} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50"><Check className={cn("h-4 w-4", value === "ignore" ? "opacity-100" : "opacity-0")} aria-hidden="true" />Ignorar</button>
+          <button type="button" onClick={() => choose("create")} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-primary outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50"><PlusCircle className="h-4 w-4" aria-hidden="true" />Crear campo</button>
         </div>
       </div>}
     </div>

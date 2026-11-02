@@ -27,7 +27,7 @@ export const ChatFilters = ({
     {
       key: "no-leidos" as FilterType,
       label: t("chats.unread"),
-      icon: <div className="w-3 h-3 bg-blue-500 rounded-full" />
+      icon: <div className="w-3 h-3 bg-primary rounded-full" />
     },
     {
       key: "whatsapp" as FilterType,

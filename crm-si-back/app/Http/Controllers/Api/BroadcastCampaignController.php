@@ -172,6 +172,9 @@ class BroadcastCampaignController extends Controller
                     'pipeline_stage_restricts_to_existing_conversations' => ! empty($filters['pipeline_stage_id']),
                 ],
                 'estimated_cost_usd' => round($count * (float) config('broadcasts.cost_per_message_usd'), 2),
+                // El front muestra la tarifa usada; si viviera hardcodeada allá,
+                // se desincroniza al cambiar BROADCAST_COST_PER_MESSAGE_USD.
+                'cost_per_message_usd' => (float) config('broadcasts.cost_per_message_usd'),
                 'capped' => $count >= (int) config('broadcasts.max_recipients'),
                 // Techo de Meta para envíos fuera de ventana en 24h. Compartido
                 // por toda la cartera, así que otros números pueden haber

@@ -7,28 +7,28 @@ import { Bot, MessageSquare, Users, TrendingUp, Clock, Star } from "lucide-react
 export function BotAnalytics() {
   const stats = [
     {
-      title: "Conversaciones Hoy",
+      title: "Conversaciones de hoy",
       value: "47",
       change: "+12%",
       icon: MessageSquare,
       color: "text-blue-500",
     },
     {
-      title: "Leads Calificados",
+      title: "Leads calificados",
       value: "23",
       change: "+8%",
       icon: Users,
       color: "text-green-500",
     },
     {
-      title: "Tasa de Conversión",
+      title: "Tasa de conversión",
       value: "48.9%",
       change: "+5.2%",
       icon: TrendingUp,
       color: "text-purple-500",
     },
     {
-      title: "Tiempo Respuesta",
+      title: "Tiempo de respuesta",
       value: "1.2s",
       change: "-0.3s",
       icon: Clock,
@@ -67,7 +67,7 @@ export function BotAnalytics() {
                 <div>
                   <p className="text-sm text-muted-foreground">{stat.title}</p>
                   <p className="text-2xl font-bold">{stat.value}</p>
-                  <p className="text-xs text-green-600">{stat.change}</p>
+                  <p className="text-xs text-success">{stat.change}</p>
                 </div>
                 <stat.icon className={`h-8 w-8 ${stat.color}`} />
               </div>
@@ -115,30 +115,30 @@ export function BotAnalytics() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span>Precisión de Respuestas</span>
+                  <span>Precisión de respuestas</span>
                   <span className="font-medium">94.2%</span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="w-full bg-muted rounded-full h-2">
                   <div className="bg-green-500 h-2 rounded-full" style={{ width: "94.2%" }}></div>
                 </div>
               </div>
 
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span>Satisfacción del Usuario</span>
+                  <span>Satisfacción del usuario</span>
                   <span className="font-medium">4.7/5</span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="w-full bg-muted rounded-full h-2">
                   <div className="bg-blue-500 h-2 rounded-full" style={{ width: "94%" }}></div>
                 </div>
               </div>
 
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span>Leads Calificados</span>
+                  <span>Leads calificados</span>
                   <span className="font-medium">48.9%</span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="w-full bg-muted rounded-full h-2">
                   <div className="bg-purple-500 h-2 rounded-full" style={{ width: "48.9%" }}></div>
                 </div>
               </div>

@@ -164,16 +164,16 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete, pro
     {step === "review" && preview && <div className="space-y-3 py-5">
       <div className="grid grid-cols-4 gap-3">
         <div className="rounded-lg border p-4"><b className="text-2xl">{preview.total_rows}</b><p className="text-sm text-muted-foreground">filas detectadas</p></div>
-        <div className="rounded-lg border p-4"><b className="text-2xl text-green-600">{preview.importable_rows ?? preview.total_rows}</b><p className="text-sm text-muted-foreground">se importarán</p></div>
+        <div className="rounded-lg border p-4"><b className="text-2xl text-success">{preview.importable_rows ?? preview.total_rows}</b><p className="text-sm text-muted-foreground">se importarán</p></div>
         <div className="rounded-lg border p-4"><b className="text-2xl">{fields.length}</b><p className="text-sm text-muted-foreground">campos a crear</p></div>
-        <div className="rounded-lg border p-4"><b className="text-2xl text-amber-600">{preview.duplicate_count ?? preview.duplicate_rows.length}</b><p className="text-sm text-muted-foreground">duplicados en archivo</p></div>
+        <div className="rounded-lg border p-4"><b className="text-2xl text-warning">{preview.duplicate_count ?? preview.duplicate_rows.length}</b><p className="text-sm text-muted-foreground">duplicados en archivo</p></div>
       </div>
-      {preview.warnings.length > 0 && <div className="space-y-2">{preview.warnings.map((warning) => <p key={warning} className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />{warning}</p>)}</div>}
+      {preview.warnings.length > 0 && <div className="space-y-2">{preview.warnings.map((warning) => <p key={warning} className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{warning}</p>)}</div>}
     </div>}
     {step === "queued" && <div className="py-12 text-center"><Loader2 className="mx-auto mb-3 h-7 w-7 animate-spin text-primary" /><p>{run?.status === "queued" ? "Esperando worker…" : isContactImport ? "Importando contactos…" : "Importando productos…"}</p></div>}
     {step === "results" && <div className="space-y-4 py-4">{run?.status === "completed" ? <>
       <div className="grid grid-cols-4 gap-3">{[["Creados", run.result?.created ?? run.result?.imported], ["Actualizados", run.result?.updated], ["Omitidos", run.result?.duplicates], ["Errores", run.result?.errors]].map(([label, value]) => <div key={String(label)} className="rounded-lg border p-3 text-center"><b className="text-2xl">{value || 0}</b><p className="text-xs">{label}</p></div>)}</div>
-      {(run.result?.without_identifier ?? 0) > 0 && <p className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm">{run.result?.without_identifier} fila(s) se importaron sin el identificador elegido, así que no se comprobó si ya existían.</p>}
+      {(run.result?.without_identifier ?? 0) > 0 && <p className="rounded-lg border border-info/30 bg-info/10 p-3 text-sm text-info">{run.result?.without_identifier} fila(s) se importaron sin el identificador elegido, así que no se comprobó si ya existían.</p>}
       {(run.result?.error_summary?.length ?? 0) > 0 && <div className="space-y-2">
         <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium">Errores por motivo</p><Button variant="outline" size="sm" disabled={downloading} onClick={() => void downloadErrors()}><Download className="mr-1 h-3 w-3" />Descargar CSV</Button></div>
         {run.result?.error_summary?.map((item) => <div key={item.reason} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-xs"><span className="text-muted-foreground">{item.reason}</span><b className="shrink-0 tabular-nums">{item.count}</b></div>)}

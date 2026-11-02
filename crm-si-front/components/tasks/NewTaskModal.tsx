@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,14 +8,14 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Plus, X, CalendarIcon, Bell, Paperclip } from "lucide-react"
+import { Plus, X, CalendarIcon } from "lucide-react"
 import type { Task, TaskStatus, TaskPriority, TaskType } from "@/lib/types/task"
 import { format } from "date-fns"
 import { fromZonedTime, toZonedTime } from "date-fns-tz"
 import { es } from "date-fns/locale"
-import { toast } from "sonner"
+import { useToast } from "@/components/Toast"
 import { useTaskStore } from "@/store/useTaskStore"
-import { getUsers, type SystemUser } from "@/lib/api/users"
+import { fetchUsers, type SystemUser } from "@/lib/api/users"
 import { getContacts, type Contact } from "@/lib/api/contacts"
 import { getOpportunities } from "@/lib/api/opportunities"
 import { getConversations } from "@/lib/api/conversations"
@@ -97,6 +97,7 @@ const numericIdOrNull = (id: string) => {
 
 export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }: NewTaskModalProps) {
   const addTask = useTaskStore((state) => state.addTask)
+  const { addToast } = useToast()
 
   const [name, setName] = useState("")
   const [status, setStatus] = useState<TaskStatus>("nuevo")
@@ -104,6 +105,8 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
   const [type, setType] = useState<TaskType>("seguimiento")
   const [assigneeId, setAssigneeId] = useState("none")
   const [users, setUsers] = useState<SystemUser[]>([])
+  const [usersError, setUsersError] = useState(false)
+  const [usersLoading, setUsersLoading] = useState(false)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [opportunities, setOpportunities] = useState<any[]>([])
   const [conversations, setConversations] = useState<any[]>([])
@@ -122,14 +125,23 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
   const [meetingTimezone, setMeetingTimezone] = useState<string>(detectBrowserTimezone())
   const [meetingGuestEmail, setMeetingGuestEmail] = useState<string>("")
 
+  const loadUsers = useCallback(() => {
+    setUsersLoading(true)
+    setUsersError(false)
+    fetchUsers()
+      .then(setUsers)
+      .catch(() => setUsersError(true))
+      .finally(() => setUsersLoading(false))
+  }, [])
+
   useEffect(() => {
     if (!open) return
 
-    getUsers().then(setUsers)
+    loadUsers()
     getContacts().then(setContacts).catch(() => setContacts([]))
     getOpportunities().then(setOpportunities).catch(() => setOpportunities([]))
     getConversations().then(setConversations).catch(() => setConversations([]))
-  }, [open])
+  }, [open, loadUsers])
 
   // Apply prefilled data when modal opens
   useEffect(() => {
@@ -185,46 +197,46 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
 
   const handleCreate = async () => {
     if (!name.trim()) {
-      toast.error("El nombre de la tarea es requerido")
+      addToast({ type: "error", title: "El nombre de la tarea es requerido" })
       return
     }
 
     if (!type) {
-      toast.error("El tipo de tarea es requerido")
+      addToast({ type: "error", title: "El tipo de tarea es requerido" })
       return
     }
 
     if (!status) {
-      toast.error("El estado es requerido")
+      addToast({ type: "error", title: "El estado es requerido" })
       return
     }
 
     const isMeeting = type === "reunion"
 
     if (!isMeeting && !deadline) {
-      toast.error("La fecha y hora son requeridas")
+      addToast({ type: "error", title: "La fecha y hora son requeridas" })
       return
     }
 
     if (isMeeting) {
       if (assigneeId === "none") {
-        toast.error("La reunión necesita un responsable")
+        addToast({ type: "error", title: "La reunión necesita un responsable" })
         return
       }
       if (!meetingStartsAt || !meetingEndsAt) {
-        toast.error("La reunión necesita inicio y fin")
+        addToast({ type: "error", title: "La reunión necesita inicio y fin" })
         return
       }
       if (!meetingTimezone) {
-        toast.error("La reunión necesita una zona horaria")
+        addToast({ type: "error", title: "La reunión necesita una zona horaria" })
         return
       }
       if (meetingEndsAt <= meetingStartsAt) {
-        toast.error("El fin de la reunión debe ser posterior al inicio")
+        addToast({ type: "error", title: "El fin de la reunión debe ser posterior al inicio" })
         return
       }
       if (meetingGuestEmail.trim() && !isValidEmail(meetingGuestEmail.trim())) {
-        toast.error("El email del invitado no es válido")
+        addToast({ type: "error", title: "El email del invitado no es válido" })
         return
       }
     }
@@ -268,11 +280,11 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
       setIsSaving(true)
       const createdTask = await addTask(payload)
       onCreateTask(createdTask)
-      toast.success("Tarea creada exitosamente")
+      addToast({ type: "success", title: "Tarea creada" })
       handleReset()
       onOpenChange(false)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo crear la tarea")
+      addToast({ type: "error", title: error instanceof Error ? error.message : "No se pudo crear la tarea" })
     } finally {
       setIsSaving(false)
     }
@@ -321,14 +333,14 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Nueva Tarea</DialogTitle>
+          <DialogTitle>Nueva tarea</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
           {/* Name */}
           <div className="space-y-2">
             <Label htmlFor="name">
-              Nombre <span className="text-red-500">*</span>
+              Nombre <span className="text-destructive">*</span>
             </Label>
             <Input
               id="name"
@@ -341,11 +353,11 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
           {/* Type, Status, Priority */}
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label>
-                Tipo <span className="text-red-500">*</span>
+              <Label htmlFor="new-task-type">
+                Tipo <span className="text-destructive">*</span>
               </Label>
               <Select value={type} onValueChange={(val) => setType(val as TaskType)}>
-                <SelectTrigger>
+                <SelectTrigger id="new-task-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -360,11 +372,11 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
             </div>
 
             <div className="space-y-2">
-              <Label>
-                Estado <span className="text-red-500">*</span>
+              <Label htmlFor="new-task-status">
+                Estado <span className="text-destructive">*</span>
               </Label>
               <Select value={status} onValueChange={(val) => setStatus(val as TaskStatus)}>
-                <SelectTrigger>
+                <SelectTrigger id="new-task-status">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -380,9 +392,9 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
             </div>
 
             <div className="space-y-2">
-              <Label>Prioridad</Label>
+              <Label htmlFor="new-task-priority">Prioridad</Label>
               <Select value={priority} onValueChange={(val) => setPriority(val as TaskPriority)}>
-                <SelectTrigger>
+                <SelectTrigger id="new-task-priority">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -399,10 +411,10 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="assignee">
-                Responsable {type === "reunion" && <span className="text-red-500">*</span>}
+                Responsable {type === "reunion" && <span className="text-destructive">*</span>}
               </Label>
               <Select value={assigneeId} onValueChange={setAssigneeId}>
-                <SelectTrigger>
+                <SelectTrigger id="assignee">
                   <SelectValue placeholder="Seleccionar..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -414,16 +426,25 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
                   ))}
                 </SelectContent>
               </Select>
+              {usersError && (
+                <div role="alert" className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-destructive">No se pudieron cargar los responsables.</span>
+                  <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={loadUsers} disabled={usersLoading}>
+                    {usersLoading ? "Reintentando…" : "Reintentar"}
+                  </Button>
+                </div>
+              )}
             </div>
 
             {type !== "reunion" && (
               <div className="space-y-2">
-                <Label>
-                  Fecha y hora <span className="text-red-500">*</span>
+                <Label htmlFor="new-task-deadline">
+                  Fecha y hora <span className="text-destructive">*</span>
                 </Label>
                 <div className="relative">
                   <CalendarIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
+                    id="new-task-deadline"
                     type="datetime-local"
                     value={deadline ? format(deadline, "yyyy-MM-dd'T'HH:mm") : ""}
                     onChange={(event) => {
@@ -446,10 +467,11 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
             <div className="space-y-4 rounded-md border border-border p-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>
-                    Inicio <span className="text-red-500">*</span>
+                  <Label htmlFor="new-task-starts">
+                    Inicio <span className="text-destructive">*</span>
                   </Label>
                   <Input
+                    id="new-task-starts"
                     type="datetime-local"
                     value={meetingStartsAt}
                     onChange={(event) => {
@@ -464,10 +486,11 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
                 </div>
 
                 <div className="space-y-2">
-                  <Label>
-                    Fin <span className="text-red-500">*</span>
+                  <Label htmlFor="new-task-ends">
+                    Fin <span className="text-destructive">*</span>
                   </Label>
                   <Input
+                    id="new-task-ends"
                     type="datetime-local"
                     value={meetingEndsAt}
                     onChange={(event) => setMeetingEndsAt(event.target.value)}
@@ -477,11 +500,11 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>
-                    Zona horaria <span className="text-red-500">*</span>
+                  <Label htmlFor="new-task-timezone">
+                    Zona horaria <span className="text-destructive">*</span>
                   </Label>
                   <Select value={meetingTimezone} onValueChange={setMeetingTimezone}>
-                    <SelectTrigger>
+                    <SelectTrigger id="new-task-timezone">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -590,8 +613,9 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
                     variant="ghost"
                     className="h-6 w-6"
                     onClick={() => handleRemoveChecklistItem(idx)}
+                    aria-label={`Quitar "${item}" del checklist`}
                   >
-                    <X className="h-3 w-3" />
+                    <X className="h-3 w-3" aria-hidden="true" />
                   </Button>
                 </div>
               ))}
@@ -599,12 +623,13 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
               <div className="flex gap-2">
                 <Input
                   placeholder="Agregar ítem..."
+                  aria-label="Nuevo ítem del checklist"
                   value={newChecklistItem}
                   onChange={(e) => setNewChecklistItem(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleAddChecklistItem()}
                 />
-                <Button size="icon" onClick={handleAddChecklistItem}>
-                  <Plus className="h-4 w-4" />
+                <Button size="icon" onClick={handleAddChecklistItem} aria-label="Agregar ítem al checklist">
+                  <Plus className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </div>
             </div>
@@ -625,22 +650,10 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
               </SelectContent>
             </Select>
           </div>
-
-          {/* Secondary actions */}
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-              <Bell className="w-4 h-4" />
-              Recordatorios
-            </Button>
-            <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-              <Paperclip className="w-4 h-4" />
-              Adjuntar
-            </Button>
-          </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
             Cancelar
           </Button>
           <Button onClick={handleCreate} disabled={isSaving}>

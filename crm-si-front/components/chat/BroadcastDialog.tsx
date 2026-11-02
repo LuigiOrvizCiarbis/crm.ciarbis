@@ -216,8 +216,9 @@ export function BroadcastDialog({
                 size="sm"
                 className="h-6 w-6 p-0"
                 onClick={() => setSelected(null)}
+                aria-label={t("chats.broadcast.dialog.backToTemplates")}
               >
-                <ArrowLeft className="w-4 h-4" />
+                <ArrowLeft className="w-4 h-4" aria-hidden="true" />
               </Button>
             )}
             {selected ? selected.name : t("chats.broadcast.dialog.title")}
@@ -289,7 +290,7 @@ export function BroadcastDialog({
                         <div className="mt-1 text-xs text-muted-foreground">
                           {template.language}
                           {bodyText && (
-                            <span className="ml-2">— {bodyText.substring(0, 60)}...</span>
+                            <span className="ml-2">· {bodyText.substring(0, 60)}…</span>
                           )}
                           {unsupported && (
                             <span className="ml-2 italic">

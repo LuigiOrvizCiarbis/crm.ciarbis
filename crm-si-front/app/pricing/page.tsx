@@ -168,7 +168,7 @@ export default function PricingPage() {
                       <ul className="space-y-2 flex-1">
                         {plan.features.map((feature) => (
                           <li key={feature.key} className="flex items-start gap-2 text-sm">
-                            <Check className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 shrink-0" aria-hidden />
+                            <Check className="w-4 h-4 text-success mt-0.5 shrink-0" aria-hidden />
                             <span>{featureLabel(feature.key, feature.label)}</span>
                           </li>
                         ))}
@@ -219,7 +219,7 @@ export default function PricingPage() {
                             return (
                               <td key={plan.id} className="p-4 text-center align-middle">
                                 {rendered === "check" ? (
-                                  <Check className="w-4 h-4 text-green-600 dark:text-green-400 mx-auto" aria-hidden />
+                                  <Check className="w-4 h-4 text-success mx-auto" aria-hidden />
                                 ) : rendered === null ? (
                                   <span className="text-muted-foreground" aria-hidden>
                                     —

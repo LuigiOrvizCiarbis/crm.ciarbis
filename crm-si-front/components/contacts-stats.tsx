@@ -1,9 +1,9 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Card, CardContent } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
-import { AlertTriangle, CalendarClock, CircleCheck, TrendingUp, UserCheck, UserPlus, Users, type LucideIcon } from "lucide-react"
+import { AlertTriangle, CalendarClock, CircleCheck } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { StatStrip } from "@/components/ui/stat-strip"
 import { useTranslation } from "@/hooks/useTranslation"
 import { getContactsSummary, type ContactsSummary } from "@/lib/api/contacts"
 
@@ -18,16 +18,6 @@ interface ContactsStatsProps {
   onBillingAvailabilityChange?: (available: boolean) => void
 }
 
-interface StatCardProps {
-  title: string
-  value: string
-  icon: LucideIcon
-  iconBg: string
-  iconColor: string
-  gradientFrom: string
-  gradientTo: string
-}
-
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("es-AR").format(Math.round(value))
 }
@@ -36,45 +26,17 @@ function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`
 }
 
-function StatCard({ title, value, icon: Icon, iconBg, iconColor, gradientFrom, gradientTo }: StatCardProps) {
-  return (
-    <Card className="relative overflow-hidden border-border/50 hover:border-border transition-colors">
-      <div className={`absolute inset-0 bg-gradient-to-br ${gradientFrom} ${gradientTo} opacity-5 pointer-events-none`} />
-      <CardContent className="p-5 relative">
-        <div className="flex items-center gap-3 mb-3">
-          <div className={`flex items-center justify-center w-10 h-10 rounded-full ${iconBg}`}>
-            <Icon className={`w-5 h-5 ${iconColor}`} />
-          </div>
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
-        </div>
-        <p className="text-3xl font-bold tabular-nums">{value}</p>
-      </CardContent>
-    </Card>
-  )
-}
-
-function LoadingStat() {
-  return (
-    <Card className="border-border/50">
-      <CardContent className="p-5 space-y-3">
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-10 w-10 rounded-full" />
-          <Skeleton className="h-4 w-32" />
-        </div>
-        <Skeleton className="h-9 w-24" />
-      </CardContent>
-    </Card>
-  )
-}
-
 export function ContactsStats({ refreshKey = 0, onBillingAvailabilityChange }: ContactsStatsProps) {
   const { t } = useTranslation()
   const [data, setData] = useState<ContactsSummary | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     setIsLoading(true)
+    setFailed(false)
     getContactsSummary()
       .then((summary) => {
         if (cancelled) return
@@ -84,6 +46,7 @@ export function ContactsStats({ refreshKey = 0, onBillingAvailabilityChange }: C
       .catch(() => {
         if (cancelled) return
         setData(null)
+        setFailed(true)
         onBillingAvailabilityChange?.(false)
       })
       .finally(() => {
@@ -93,96 +56,46 @@ export function ContactsStats({ refreshKey = 0, onBillingAvailabilityChange }: C
     return () => {
       cancelled = true
     }
-  }, [refreshKey, onBillingAvailabilityChange])
-
-  if (isLoading || !data) {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <LoadingStat />
-        <LoadingStat />
-        <LoadingStat />
-        <LoadingStat />
-      </div>
-    )
-  }
+  }, [refreshKey, retryKey, onBillingAvailabilityChange])
 
   // El backend omite las claves de cobranzas cuando el módulo está apagado
-  // para ese tenant: sin config no se muestran tarjetas en vez de mostrarlas
+  // para ese tenant: sin config no se muestra la fila en vez de mostrarla
   // en 0, que se leería como "todos al día" en vez de "no configurado".
-  const hasBilling = data.billing_al_dia !== undefined
+  const hasBilling = data?.billing_al_dia !== undefined
+  const pending = isLoading || (!data && !failed)
+  const fallback = failed ? "—" : null
 
   return (
-    <div className="space-y-4">
-      {hasBilling && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <StatCard
-            title={t("contactsPage.stats.billingAlDia")}
-            value={formatNumber(data.billing_al_dia ?? 0)}
-            icon={CircleCheck}
-            iconBg="bg-emerald-500/15"
-            iconColor="text-emerald-400"
-            gradientFrom="from-emerald-500"
-            gradientTo="to-teal-500"
-          />
-          <StatCard
-            title={t("contactsPage.stats.billingPorVencer")}
-            value={formatNumber(data.billing_por_vencer ?? 0)}
-            icon={CalendarClock}
-            iconBg="bg-amber-500/15"
-            iconColor="text-amber-400"
-            gradientFrom="from-amber-500"
-            gradientTo="to-yellow-500"
-          />
-          <StatCard
-            title={t("contactsPage.stats.billingVencido")}
-            value={formatNumber(data.billing_vencido ?? 0)}
-            icon={AlertTriangle}
-            iconBg="bg-red-500/15"
-            iconColor="text-red-400"
-            gradientFrom="from-red-500"
-            gradientTo="to-rose-500"
-          />
-        </div>
+    <div className="space-y-3 md:space-y-4">
+      {data && hasBilling && (
+        <StatStrip
+          stats={[
+            { label: t("contactsPage.stats.billingAlDia"), value: formatNumber(data.billing_al_dia ?? 0), icon: CircleCheck, tone: "success" },
+            { label: t("contactsPage.stats.billingPorVencer"), value: formatNumber(data.billing_por_vencer ?? 0), icon: CalendarClock, tone: "warning" },
+            { label: t("contactsPage.stats.billingVencido"), value: formatNumber(data.billing_vencido ?? 0), icon: AlertTriangle, tone: "destructive" },
+          ]}
+        />
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <StatCard
-        title={t("contactsPage.stats.total")}
-        value={formatNumber(data.total_contacts)}
-        icon={Users}
-        iconBg="bg-cyan-500/15"
-        iconColor="text-cyan-400"
-        gradientFrom="from-cyan-500"
-        gradientTo="to-blue-500"
+      <StatStrip
+        loading={pending}
+        stats={[
+          { label: t("contactsPage.stats.total"), value: data ? formatNumber(data.total_contacts) : fallback },
+          { label: t("contactsPage.stats.activeLeads"), value: data ? formatNumber(data.active_leads) : fallback },
+          { label: t("contactsPage.stats.qualified"), value: data ? formatNumber(data.qualified) : fallback },
+          { label: t("contactsPage.stats.conversionRate"), value: data ? formatPercent(data.conversion_rate) : fallback },
+        ]}
       />
-      <StatCard
-        title={t("contactsPage.stats.activeLeads")}
-        value={formatNumber(data.active_leads)}
-        icon={UserPlus}
-        iconBg="bg-emerald-500/15"
-        iconColor="text-emerald-400"
-        gradientFrom="from-emerald-500"
-        gradientTo="to-green-500"
-      />
-      <StatCard
-        title={t("contactsPage.stats.qualified")}
-        value={formatNumber(data.qualified)}
-        icon={UserCheck}
-        iconBg="bg-violet-500/15"
-        iconColor="text-violet-400"
-        gradientFrom="from-violet-500"
-        gradientTo="to-purple-500"
-      />
-      <StatCard
-        title={t("contactsPage.stats.conversionRate")}
-        value={formatPercent(data.conversion_rate)}
-        icon={TrendingUp}
-        iconBg="bg-orange-500/15"
-        iconColor="text-orange-400"
-        gradientFrom="from-orange-500"
-        gradientTo="to-amber-500"
-      />
-      </div>
+
+      {failed && !isLoading && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground" role="alert">
+          <AlertTriangle className="size-4 shrink-0 text-destructive" aria-hidden="true" />
+          <span>No se pudieron cargar las métricas.</span>
+          <Button variant="link" size="sm" className="h-auto p-0" onClick={() => setRetryKey((key) => key + 1)}>
+            Reintentar
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

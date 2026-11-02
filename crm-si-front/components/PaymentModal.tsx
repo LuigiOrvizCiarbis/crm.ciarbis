@@ -26,7 +26,7 @@ const plans = [
       "Hasta 1,000 mensajes/mes",
       "2 canales conectados",
       "Soporte por email",
-      "Dashboard básico",
+      "Panel básico",
       "Integraciones básicas",
     ],
     popular: false,
@@ -60,7 +60,7 @@ const plans = [
       "Mensajes ilimitados",
       "Canales ilimitados",
       "Soporte 24/7",
-      "Dashboard personalizado",
+      "Panel personalizado",
       "IA personalizada",
       "SSO y seguridad avanzada",
       "Manager dedicado",
@@ -131,14 +131,14 @@ export function PaymentModal({ open, onOpenChange }: PaymentModalProps) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Zap className="w-5 h-5 text-primary" />
-            {step === "plans" ? "Selecciona tu Plan" : "Información de Pago"}
+            {step === "plans" ? "Seleccioná tu plan" : "Información de pago"}
           </DialogTitle>
         </DialogHeader>
 
         {step === "plans" && (
           <div className="space-y-6">
             <div className="text-center">
-              <p className="text-muted-foreground">Elige el plan que mejor se adapte a las necesidades de tu equipo</p>
+              <p className="text-muted-foreground">Elegí el plan que mejor se adapte a las necesidades de tu equipo</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -181,7 +181,7 @@ export function PaymentModal({ open, onOpenChange }: PaymentModalProps) {
                     <div className="space-y-3">
                       {plan.features.map((feature, index) => (
                         <div key={index} className="flex items-center gap-2">
-                          <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                          <Check className="w-4 h-4 text-success flex-shrink-0" />
                           <span className="text-sm">{feature}</span>
                         </div>
                       ))}
@@ -218,11 +218,11 @@ export function PaymentModal({ open, onOpenChange }: PaymentModalProps) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Payment Form */}
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Información de Pago</h3>
+                <h3 className="text-lg font-semibold">Información de pago</h3>
 
                 <div className="space-y-4">
                   <div>
-                    <Label htmlFor="cardNumber">Número de Tarjeta</Label>
+                    <Label htmlFor="cardNumber">Número de tarjeta</Label>
                     <Input
                       id="cardNumber"
                       placeholder="1234 5678 9012 3456"
@@ -233,7 +233,7 @@ export function PaymentModal({ open, onOpenChange }: PaymentModalProps) {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="expiryDate">Fecha de Vencimiento</Label>
+                      <Label htmlFor="expiryDate">Fecha de vencimiento</Label>
                       <Input
                         id="expiryDate"
                         placeholder="MM/YY"
@@ -253,7 +253,7 @@ export function PaymentModal({ open, onOpenChange }: PaymentModalProps) {
                   </div>
 
                   <div>
-                    <Label htmlFor="name">Nombre del Titular</Label>
+                    <Label htmlFor="name">Nombre del titular</Label>
                     <Input
                       id="name"
                       placeholder="Juan Pérez"
@@ -287,7 +287,7 @@ export function PaymentModal({ open, onOpenChange }: PaymentModalProps) {
 
               {/* Order Summary */}
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Resumen del Pedido</h3>
+                <h3 className="text-lg font-semibold">Resumen del pedido</h3>
 
                 <Card>
                   <CardContent className="p-4">
@@ -320,14 +320,14 @@ export function PaymentModal({ open, onOpenChange }: PaymentModalProps) {
                   <h4 className="font-medium">Incluye:</h4>
                   {selectedPlanData.features.map((feature, index) => (
                     <div key={index} className="flex items-center gap-2">
-                      <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                      <Check className="w-4 h-4 text-success flex-shrink-0" />
                       <span className="text-sm">{feature}</span>
                     </div>
                   ))}
                 </div>
 
                 <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
-                  <Lock className="w-4 h-4 text-green-500" />
+                  <Lock className="w-4 h-4 text-success" />
                   <span className="text-sm">Pago seguro con encriptación SSL</span>
                 </div>
               </div>

@@ -61,6 +61,8 @@ export function GroupPanel({ groupId, isOpen, onClose, onDeleted, className }: G
   const [isEditingSubject, setIsEditingSubject] = useState(false)
   const [subjectDraft, setSubjectDraft] = useState("")
   const [isSavingSubject, setIsSavingSubject] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [removingWaId, setRemovingWaId] = useState<string | null>(null)
 
   const load = useCallback(() => {
     if (!isOpen || !groupId) return
@@ -91,8 +93,12 @@ export function GroupPanel({ groupId, isOpen, onClose, onDeleted, className }: G
 
   const copyInviteLink = async () => {
     if (!group?.invite_link) return
-    await navigator.clipboard.writeText(group.invite_link)
-    addToast({ type: "success", title: "Link copiado" })
+    try {
+      await navigator.clipboard.writeText(group.invite_link)
+      addToast({ type: "success", title: "Enlace copiado" })
+    } catch {
+      addToast({ type: "error", title: "No se pudo copiar el enlace" })
+    }
   }
 
   const handleResetLink = async () => {
@@ -101,9 +107,9 @@ export function GroupPanel({ groupId, isOpen, onClose, onDeleted, className }: G
       setIsResettingLink(true)
       await resetGroupInviteLink(group.id)
       load()
-      addToast({ type: "success", title: "Link de invitación reseteado" })
+      addToast({ type: "success", title: "Enlace de invitación restablecido" })
     } catch (err) {
-      addToast({ type: "error", title: err instanceof Error ? err.message : "No se pudo resetear el link" })
+      addToast({ type: "error", title: err instanceof Error ? err.message : "No se pudo restablecer el enlace" })
     } finally {
       setIsResettingLink(false)
     }
@@ -112,23 +118,29 @@ export function GroupPanel({ groupId, isOpen, onClose, onDeleted, className }: G
   const handleDelete = async () => {
     if (!group) return
     try {
+      setIsDeleting(true)
       await deleteWhatsAppGroup(group.id)
       addToast({ type: "success", title: "Grupo eliminado" })
       onDeleted?.()
       onClose()
     } catch (err) {
       addToast({ type: "error", title: err instanceof Error ? err.message : "No se pudo eliminar el grupo" })
+    } finally {
+      setIsDeleting(false)
     }
   }
 
   const handleRemoveParticipant = async (waId: string | null) => {
     if (!group || !waId) return
     try {
+      setRemovingWaId(waId)
       await removeGroupParticipants(group.id, [waId])
       load()
       addToast({ type: "success", title: "Participante eliminado" })
     } catch (err) {
       addToast({ type: "error", title: err instanceof Error ? err.message : "No se pudo quitar al participante" })
+    } finally {
+      setRemovingWaId(null)
     }
   }
 
@@ -169,19 +181,26 @@ export function GroupPanel({ groupId, isOpen, onClose, onDeleted, className }: G
     >
       <div className="p-4 border-b border-border flex items-center justify-between sticky top-0 bg-card z-10">
         <h2 className="font-semibold text-lg">Grupo de WhatsApp</h2>
-        <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0">
-          <X className="w-4 h-4" />
+        <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0" aria-label="Cerrar panel del grupo">
+          <X className="w-4 h-4" aria-hidden="true" />
         </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         {isLoading && (
-          <div className="flex items-center justify-center py-12 text-muted-foreground">
-            <Loader2 className="w-5 h-5 animate-spin" />
+          <div role="status" aria-label="Cargando grupo" className="flex items-center justify-center py-12 text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
           </div>
         )}
 
-        {error && !isLoading && <p className="text-sm text-destructive text-center py-8">{error}</p>}
+        {error && !isLoading && (
+          <div className="flex flex-col items-center gap-3 py-8 text-center">
+            <p className="text-sm text-destructive">{error}</p>
+            <Button size="sm" variant="outline" onClick={() => load()}>
+              Reintentar
+            </Button>
+          </div>
+        )}
 
         {group && !isLoading && (
           <>
@@ -195,21 +214,27 @@ export function GroupPanel({ groupId, isOpen, onClose, onDeleted, className }: G
                     <Input
                       value={subjectDraft}
                       onChange={(e) => setSubjectDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void saveSubject()
+                        if (e.key === "Escape") setIsEditingSubject(false)
+                      }}
                       maxLength={128}
                       className="h-8 max-w-[220px] text-center text-sm"
                       disabled={isSavingSubject}
+                      aria-label="Nombre del grupo"
                       autoFocus
                     />
-                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => void saveSubject()} disabled={isSavingSubject}>
-                      <Check className="h-4 w-4" />
+                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => void saveSubject()} disabled={isSavingSubject} aria-label="Guardar nombre del grupo">
+                      {isSavingSubject ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
                     </Button>
                   </div>
                 ) : (
                   <button
                     type="button"
-                    className="text-xl font-semibold hover:underline disabled:no-underline disabled:cursor-default"
+                    className="rounded-sm text-xl font-semibold outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:no-underline disabled:cursor-default"
                     onClick={canUpdate ? startEditingSubject : undefined}
                     disabled={!canUpdate}
+                    title={canUpdate ? "Renombrar grupo" : undefined}
                   >
                     {group.subject}
                   </button>
@@ -234,11 +259,11 @@ export function GroupPanel({ groupId, isOpen, onClose, onDeleted, className }: G
 
             {group.invite_link && (
               <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">Link de invitación</p>
+                <p className="text-xs text-muted-foreground">Enlace de invitación</p>
                 <div className="flex items-center gap-2">
                   <Input value={group.invite_link} readOnly className="text-xs" />
-                  <Button size="sm" variant="outline" className="shrink-0" onClick={() => void copyInviteLink()} title="Copiar">
-                    <Copy className="h-4 w-4" />
+                  <Button size="sm" variant="outline" className="shrink-0" onClick={() => void copyInviteLink()} title="Copiar enlace" aria-label="Copiar enlace de invitación">
+                    <Copy className="h-4 w-4" aria-hidden="true" />
                   </Button>
                   {canUpdate && (
                     <Button
@@ -247,9 +272,10 @@ export function GroupPanel({ groupId, isOpen, onClose, onDeleted, className }: G
                       className="shrink-0"
                       onClick={() => void handleResetLink()}
                       disabled={isResettingLink}
-                      title="Resetear link"
+                      title="Restablecer enlace"
+                      aria-label="Restablecer enlace de invitación"
                     >
-                      {isResettingLink ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                      {isResettingLink ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
                     </Button>
                   )}
                 </div>
@@ -283,9 +309,11 @@ export function GroupPanel({ groupId, isOpen, onClose, onDeleted, className }: G
                         variant="ghost"
                         className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-destructive"
                         onClick={() => void handleRemoveParticipant(participant.wa_id)}
+                        disabled={removingWaId !== null}
                         title="Quitar del grupo"
+                        aria-label={`Quitar a ${participant.display_name || participant.wa_id} del grupo`}
                       >
-                        <UserMinus className="h-3.5 w-3.5" />
+                        {removingWaId === participant.wa_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <UserMinus className="h-3.5 w-3.5" aria-hidden="true" />}
                       </Button>
                     )}
                   </div>
@@ -302,8 +330,8 @@ export function GroupPanel({ groupId, isOpen, onClose, onDeleted, className }: G
             {canDelete && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button variant="outline" className="w-full text-destructive hover:text-destructive">
-                    <Trash2 className="mr-2 h-4 w-4" />
+                  <Button variant="outline" className="w-full text-destructive hover:text-destructive" disabled={isDeleting}>
+                    {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />}
                     Eliminar grupo
                   </Button>
                 </AlertDialogTrigger>

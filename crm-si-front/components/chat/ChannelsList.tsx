@@ -26,7 +26,7 @@ import {
   getChannelConversationsCount,
   canSendMessages,
 } from '@/lib/utils/channelHelpers'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from '@/hooks/useTranslation'
 
 interface ChannelsListProps {
@@ -63,6 +63,18 @@ export function ChannelsList({
   const [disconnectTarget, setDisconnectTarget] = useState<Channel | null>(null)
   const [disconnecting, setDisconnecting] = useState(false)
   const [handoffTarget, setHandoffTarget] = useState<Channel | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  // Al cerrar la edición el input se desmonta y el foco caería en <body>:
+  // lo devolvemos al botón del canal para no perder la posición del teclado.
+  const restoreFocusIdRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (editingId !== null || restoreFocusIdRef.current === null) return
+    listRef.current
+      ?.querySelector<HTMLElement>(`[data-channel-id="${restoreFocusIdRef.current}"]`)
+      ?.focus()
+    restoreFocusIdRef.current = null
+  }, [editingId])
 
   const handleSync = async (channelId: number) => {
     if (!onSyncMailChannel || syncingId !== null) return
@@ -80,6 +92,7 @@ export function ChannelsList({
   }
 
   const cancelEditing = () => {
+    restoreFocusIdRef.current = editingId
     setEditingId(null)
     setDraftName("")
   }
@@ -133,7 +146,7 @@ export function ChannelsList({
   }
 
   return (
-    <div className="p-4">
+    <div ref={listRef} className="p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-medium text-muted-foreground">
           {t("chats.channels")} ({channels.length})
@@ -149,8 +162,8 @@ export function ChannelsList({
       {connected.length > 0 && (
         <div className="space-y-2 mb-4">
           <div className="flex items-center gap-2 mb-2">
-            <Wifi className="w-3 h-3 text-green-600" />
-            <p className="text-xs font-medium text-green-600">
+            <Wifi className="w-3 h-3 text-success" />
+            <p className="text-xs font-medium text-success">
               {t("chats.connected")} ({connected.length})
             </p>
           </div>
@@ -158,12 +171,23 @@ export function ChannelsList({
           {connected.map((channel) => {
             const count = getChannelConversationsCount(channel)
             const isEditing = editingId === channel.id
+            const isSelected = selectedChannel === channel.id
+            const identifier = getChannelIdentifier(channel)
+            const subtitle = (
+              <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>{getChannelDisplayName(channel.type)}</span>
+                {identifier && (
+                  <>
+                    <span aria-hidden="true">•</span>
+                    <span className="truncate tabular-nums tracking-tight">{identifier}</span>
+                  </>
+                )}
+              </span>
+            )
             return (
             <Card
               key={channel.id}
-              className={`group p-3 transition-colors ${isEditing ? '' : 'cursor-pointer hover:bg-accent'} ${selectedChannel === channel.id ? 'bg-accent border-primary' : ''
-                }`}
-              onClick={() => !isEditing && onChannelSelect(channel.id)}
+              className={`group relative p-3 transition-colors ${isEditing ? '' : 'hover:bg-accent'} ${isSelected ? 'bg-accent border-primary' : ''}`}
             >
               <div className="flex items-center gap-2 sm:gap-3">
                 <PlatformIcon
@@ -171,13 +195,13 @@ export function ChannelsList({
                   className="w-4 h-4 shrink-0"
                 />
 
-                <div className="flex-1 min-w-0">
-                  {isEditing ? (
+                {isEditing ? (
+                  <div className="flex-1 min-w-0">
                     <Input
                       autoFocus
+                      aria-label={t("chats.renameChannel")}
                       value={draftName}
                       onChange={(e) => setDraftName(e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault()
@@ -189,33 +213,37 @@ export function ChannelsList({
                       }}
                       className="h-9 w-full text-base sm:h-8 sm:text-sm"
                     />
-                  ) : (
-                    <p className="font-medium text-sm truncate">
+                    {subtitle}
+                  </div>
+                ) : (
+                  /* El ::after estira el botón sobre toda la tarjeta: se puede
+                     tocar en cualquier parte y el anillo de foco la rodea
+                     entera. Las acciones quedan por encima (z-10). */
+                  <button
+                    type="button"
+                    data-channel-id={channel.id}
+                    aria-current={isSelected ? "true" : undefined}
+                    onClick={() => onChannelSelect(channel.id)}
+                    className="flex-1 min-w-0 cursor-pointer text-left outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-[3px] focus-visible:after:ring-ring/50"
+                  >
+                    <span className="block font-medium text-sm truncate">
                       {channel.name}
                       {count > 0 && (
                         <span className="ml-1 text-muted-foreground font-normal">({count})</span>
                       )}
-                    </p>
-                  )}
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{getChannelDisplayName(channel.type)}</span>
-                    {getChannelIdentifier(channel) && (
-                      <>
-                        <span>•</span>
-                         <span className="truncate tabular-nums tracking-tight">{getChannelIdentifier(channel)}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
+                    </span>
+                    {subtitle}
+                  </button>
+                )}
 
-                <div className="flex shrink-0 items-center gap-0.5">
+                <div className="relative z-10 flex shrink-0 items-center gap-0.5">
                   {isEditing ? (
                     <>
                       <button
                         type="button"
                         aria-label={t("chats.save")}
-                        className="flex h-9 w-9 items-center justify-center rounded-md text-green-600 hover:bg-accent sm:h-8 sm:w-8"
-                        onClick={(e) => { e.stopPropagation(); void submitEditing(channel.id) }}
+                        className="flex h-9 w-9 items-center justify-center rounded-md text-success hover:bg-accent sm:h-8 sm:w-8"
+                        onClick={() => void submitEditing(channel.id)}
                       >
                         <Check className="h-4 w-4" />
                       </button>
@@ -223,7 +251,7 @@ export function ChannelsList({
                         type="button"
                         aria-label={t("chats.cancel")}
                         className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent sm:h-8 sm:w-8"
-                        onClick={(e) => { e.stopPropagation(); cancelEditing() }}
+                        onClick={cancelEditing}
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -244,7 +272,7 @@ export function ChannelsList({
                           title={t("chats.mailSyncNow")}
                           disabled={syncingId === channel.id}
                           className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary transition-colors hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:opacity-50 sm:h-8 sm:w-8"
-                          onClick={(e) => { e.stopPropagation(); void handleSync(channel.id) }}
+                          onClick={() => void handleSync(channel.id)}
                         >
                           <RefreshCw className={`h-4 w-4 ${syncingId === channel.id ? 'animate-spin' : ''}`} />
                         </button>
@@ -254,7 +282,7 @@ export function ChannelsList({
                           type="button"
                           aria-label={t("chats.renameChannel")}
                           className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground sm:h-8 sm:w-8 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:focus-visible:opacity-100"
-                          onClick={(e) => { e.stopPropagation(); startEditing(channel) }}
+                          onClick={() => startEditing(channel)}
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
@@ -265,7 +293,7 @@ export function ChannelsList({
                           aria-label={t("chats.handoffSettings.open")}
                           title={t("chats.handoffSettings.open")}
                           className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground sm:h-8 sm:w-8 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:focus-visible:opacity-100"
-                          onClick={(e) => { e.stopPropagation(); setHandoffTarget(channel) }}
+                          onClick={() => setHandoffTarget(channel)}
                         >
                           <UserCog className="h-4 w-4" />
                         </button>
@@ -275,7 +303,7 @@ export function ChannelsList({
                           type="button"
                           aria-label={t("chats.disconnectChannel")}
                           className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-destructive/10 hover:text-destructive sm:h-8 sm:w-8 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:focus-visible:opacity-100"
-                          onClick={(e) => { e.stopPropagation(); setDisconnectTarget(channel) }}
+                          onClick={() => setDisconnectTarget(channel)}
                         >
                           <Unplug className="h-4 w-4" />
                         </button>
@@ -293,8 +321,8 @@ export function ChannelsList({
       {disconnected.length > 0 && (
         <div className="space-y-2 mb-4">
           <div className="flex items-center gap-2 mb-2">
-            <WifiOff className="w-3 h-3 text-red-600" />
-            <p className="text-xs font-medium text-red-600">
+            <WifiOff className="w-3 h-3 text-destructive" />
+            <p className="text-xs font-medium text-destructive">
               {t("chats.disconnected")} ({disconnected.length})
             </p>
           </div>

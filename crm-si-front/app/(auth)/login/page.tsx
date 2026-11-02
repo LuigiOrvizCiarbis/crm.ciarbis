@@ -76,10 +76,10 @@ export default function LoginPage() {
   }
 
   return (
-    <Card className="w-full max-w-full overflow-hidden border-border/50 shadow-xl">
+    <Card className="w-full max-w-full overflow-hidden">
       <CardHeader className="text-center space-y-4">
         <div className="mx-auto w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
-          <MessageSquare className="w-6 h-6 text-primary" />
+          <MessageSquare className="w-6 h-6 text-primary" aria-hidden="true" />
         </div>
         <div>
           <CardTitle className="text-2xl font-bold">{t("auth.title")}</CardTitle>
@@ -95,7 +95,11 @@ export default function LoginPage() {
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
           {error && (
-            <div className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg">
+            <div
+              id="login-error"
+              role="alert"
+              className="p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg"
+            >
               {error}
             </div>
           )}
@@ -111,6 +115,8 @@ export default function LoginPage() {
               required
               autoComplete="email"
               disabled={isLoading}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? "login-error" : undefined}
             />
           </div>
 
@@ -126,18 +132,22 @@ export default function LoginPage() {
                 required
                 autoComplete="current-password"
                 disabled={isLoading}
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? "login-error" : undefined}
                 className="pr-10"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                tabIndex={-1}
+                className="absolute right-1 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
+                aria-pressed={showPassword}
+                aria-controls="password"
               >
                 {showPassword ? (
-                  <EyeOff className="w-4 h-4" />
+                  <EyeOff className="w-4 h-4" aria-hidden="true" />
                 ) : (
-                  <Eye className="w-4 h-4" />
+                  <Eye className="w-4 h-4" aria-hidden="true" />
                 )}
               </button>
             </div>
@@ -168,7 +178,7 @@ export default function LoginPage() {
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
                 {t("auth.submitting")}
               </>
             ) : (

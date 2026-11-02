@@ -11,23 +11,39 @@
   --card-foreground: oklch(0.345 0.007 258.338);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.345 0.007 258.338);
-  --primary: oklch(0.631 0.206 221.275);
+  /* Signal Cyan se separa por tema: en claro baja a L 0.50 para que el texto
+     blanco encima (5.19:1) y el cian como texto sobre blanco o sobre su propio
+     tinte /10 (4.51:1) pasen WCAG AA. En oscuro conserva L 0.631 y el texto
+     encima pasa a ser tinta navy (6.65:1). */
+  --primary: oklch(0.5 0.17 221.275);
   --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.631 0.206 264.376);
   --secondary-foreground: oklch(1 0 0);
   --muted: oklch(0.96 0.006 106.423);
-  --muted-foreground: oklch(0.545 0.007 258.338);
-  --accent: oklch(0.631 0.206 264.376);
-  --accent-foreground: oklch(1 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  /* L 0.535: 4.6:1 sobre muted/accent (antes 4.41) y 5.17:1 sobre blanco. */
+  --muted-foreground: oklch(0.535 0.007 258.338);
+  /* accent es una superficie neutra (hover, selección, foco de menú), no un
+     color: el índigo saturado dejaba el texto encima en 1.4–3.5:1. */
+  --accent: oklch(0.96 0.006 106.423);
+  --accent-foreground: oklch(0.345 0.007 258.338);
+  /* Estados semánticos (éxito, advertencia, info, error). Como color de texto pasan AA
+     sobre fondo, superficie muted y su propio tinte /10; `-foreground` es el texto
+     sobre el color sólido. Los tonos categóricos (estado de tarea, canal, etapa) no
+     usan estos tokens. */
+  --destructive: oklch(0.53 0.22 27.325);
   --destructive-foreground: oklch(1 0 0);
-  /* Estados de mensaje: roles semánticos medidos contra su superficie. */
-  --success: oklch(0.532 0.135 155);
+  --success: oklch(0.5 0.13 155);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.54 0.14 62);
+  --warning-foreground: oklch(1 0 0);
+  --info: oklch(0.5 0.15 255);
+  --info-foreground: oklch(1 0 0);
   --message-status-on-primary: oklch(0.988 0.003 279);
-  --message-read-on-primary: oklch(0.32 0.1 155);
+  --message-read-on-primary: oklch(0.9 0.15 150);
   --border: oklch(0.922 0.013 106.423);
   --input: oklch(0.976 0.006 106.423);
-  --ring: oklch(0.631 0.206 221.275 / 0.5);
+  /* Opaco: la transparencia la pone cada uso (ring-ring/50). Con alfa acá el halo quedaba al 25%. */
+  --ring: oklch(0.5 0.17 221.275);
   --chart-1: oklch(0.631 0.206 264.376);
   --chart-2: oklch(0.345 0.007 258.338);
   --chart-3: oklch(0.631 0.206 221.275);
@@ -38,14 +54,21 @@
   --sidebar-foreground: oklch(0.345 0.007 258.338);
   --sidebar-primary: oklch(0.96 0.006 106.423);
   --sidebar-primary-foreground: oklch(0.345 0.007 258.338);
-  --sidebar-accent: oklch(0.631 0.206 264.376);
-  --sidebar-accent-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.96 0.006 106.423);
+  --sidebar-accent-foreground: oklch(0.345 0.007 258.338);
   --sidebar-border: oklch(0.922 0.013 106.423);
-  --sidebar-ring: oklch(0.631 0.206 221.275 / 0.5);
-  /* Added shadow variables for light theme */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --sidebar-ring: oklch(0.5 0.17 221.275);
+  /* Elevación: las utilidades shadow-* leen estos valores (ver @theme). En oscuro
+     valen 0 (regla tonal: las superficies se separan por luminosidad). */
+  --elevation-2xs: 0 1px rgb(0 0 0 / 0.05);
+  --elevation-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --elevation-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --elevation-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --elevation-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --elevation-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --elevation-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+  /* Único velo detrás de diálogos, hojas y el sidebar móvil. */
+  --overlay: oklch(0 0 0 / 0.5);
 }
 
 .dark {
@@ -56,21 +79,26 @@
   --popover: oklch(0.205 0.015 258.338);
   --popover-foreground: oklch(0.985 0.002 106.423);
   --primary: oklch(0.631 0.206 221.275);
-  --primary-foreground: oklch(1 0 0);
+  --primary-foreground: oklch(0.145 0.015 258.338);
   --secondary: oklch(0.269 0.015 258.338);
   --secondary-foreground: oklch(0.985 0.002 106.423);
   --muted: oklch(0.269 0.015 258.338);
   --muted-foreground: oklch(0.708 0.008 258.338);
-  --accent: oklch(0.631 0.206 264.376);
-  --accent-foreground: oklch(1 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(1 0 0);
-  --success: oklch(0.69 0.12 155);
-  --message-status-on-primary: oklch(0.965 0.004 279);
-  --message-read-on-primary: oklch(0.32 0.1 155);
+  --accent: oklch(0.269 0.015 258.338);
+  --accent-foreground: oklch(0.985 0.002 106.423);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.145 0.015 258.338);
+  --success: oklch(0.74 0.15 155);
+  --success-foreground: oklch(0.145 0.015 258.338);
+  --warning: oklch(0.8 0.15 78);
+  --warning-foreground: oklch(0.145 0.015 258.338);
+  --info: oklch(0.74 0.12 250);
+  --info-foreground: oklch(0.145 0.015 258.338);
+  --message-status-on-primary: oklch(0.145 0.015 258.338 / 0.7);
+  --message-read-on-primary: oklch(0.27 0.11 155);
   --border: oklch(0.269 0.015 258.338);
   --input: oklch(0.269 0.015 258.338);
-  --ring: oklch(0.631 0.206 221.275 / 0.5);
+  --ring: oklch(0.631 0.206 221.275);
   --chart-1: oklch(0.631 0.206 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.631 0.206 221.275);
@@ -83,11 +111,15 @@
   --sidebar-accent: oklch(0.269 0.015 258.338);
   --sidebar-accent-foreground: oklch(0.985 0.002 106.423);
   --sidebar-border: oklch(0.269 0.015 258.338);
-  --sidebar-ring: oklch(0.631 0.206 221.275 / 0.5);
-  /* No shadows in dark theme */
-  --shadow-sm: none;
-  --shadow-md: none;
-  --shadow-lg: none;
+  --sidebar-ring: oklch(0.631 0.206 221.275);
+  --elevation-2xs: 0 0 #0000;
+  --elevation-xs: 0 0 #0000;
+  --elevation-sm: 0 0 #0000;
+  --elevation-md: 0 0 #0000;
+  --elevation-lg: 0 0 #0000;
+  --elevation-xl: 0 0 #0000;
+  --elevation-2xl: 0 0 #0000;
+  --overlay: oklch(0 0 0 / 0.5);
 }
 
 @theme inline {
@@ -110,6 +142,19 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --shadow-2xs: var(--elevation-2xs);
+  --shadow-xs: var(--elevation-xs);
+  --shadow-sm: var(--elevation-sm);
+  --shadow-md: var(--elevation-md);
+  --shadow-lg: var(--elevation-lg);
+  --shadow-xl: var(--elevation-xl);
+  --shadow-2xl: var(--elevation-2xl);
+  --color-overlay: var(--overlay);
   --color-message-status-on-primary: var(--message-status-on-primary);
   --color-message-read-on-primary: var(--message-read-on-primary);
   --color-border: var(--border);
@@ -140,19 +185,6 @@
   }
   body {
     @apply bg-background text-foreground;
-  }
-
-  /* Added card shadows for light theme only */
-  .card:not(.dark *) {
-    box-shadow: var(--shadow-md);
-  }
-
-  .card-sm:not(.dark *) {
-    box-shadow: var(--shadow-sm);
-  }
-
-  .card-lg:not(.dark *) {
-    box-shadow: var(--shadow-lg);
   }
 }
 

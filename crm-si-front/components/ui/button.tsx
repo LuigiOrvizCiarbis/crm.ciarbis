@@ -35,6 +35,16 @@ const buttonVariants = cva(
   },
 )
 
+// En pantallas táctiles el blanco mínimo es 40px (DESIGN.md). Sólo se aplica cuando el
+// llamador no fijó el alto: los botones compactos con `h-*`/`size-*` propios deciden su caso.
+const coarsePointerSize = {
+  default: 'pointer-coarse:h-10',
+  sm: 'pointer-coarse:h-10',
+  lg: 'pointer-coarse:h-11',
+  icon: 'pointer-coarse:size-10',
+} as const
+const callerSetsHeight = /(?:^|\s)(?:h|size|min-h)-/
+
 function Button({
   className,
   variant,
@@ -46,11 +56,12 @@ function Button({
     asChild?: boolean
   }) {
   const Comp = asChild ? Slot : 'button'
+  const touchSize = className && callerSetsHeight.test(className) ? undefined : coarsePointerSize[size ?? 'default']
 
   return (
     <Comp
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(buttonVariants({ variant, size }), touchSize, className)}
       {...props}
     />
   )

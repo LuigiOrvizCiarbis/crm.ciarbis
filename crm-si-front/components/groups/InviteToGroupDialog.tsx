@@ -30,18 +30,28 @@ export function InviteToGroupDialog({ open, onOpenChange, groupId, availableSlot
   const [templateId, setTemplateId] = useState<number | null>(null)
   const [invitees, setInvitees] = useState<InviteeDraft[]>([{ phone: "", name: "" }])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // Un fallo al traer plantillas no es lo mismo que no tener ninguna aprobada.
+  const [templatesLoadFailed, setTemplatesLoadFailed] = useState(false)
+  const [templatesReloadKey, setTemplatesReloadKey] = useState(0)
 
   useEffect(() => {
     if (!open) return
     setIsLoadingTemplates(true)
+    setTemplatesLoadFailed(false)
     getGroupInviteTemplates(groupId)
       .then((data) => {
         setTemplates(data)
         setTemplateId(data[0]?.id ?? null)
       })
-      .catch(() => setTemplates([]))
+      .catch(() => {
+        setTemplates([])
+        setTemplatesLoadFailed(true)
+      })
       .finally(() => setIsLoadingTemplates(false))
-    setInvitees([{ phone: "", name: "" }])
+  }, [open, groupId, templatesReloadKey])
+
+  useEffect(() => {
+    if (open) setInvitees([{ phone: "", name: "" }])
   }, [open, groupId])
 
   const updateInvitee = (index: number, patch: Partial<InviteeDraft>) => {
@@ -86,19 +96,26 @@ export function InviteToGroupDialog({ open, onOpenChange, groupId, availableSlot
             Invitar al grupo
           </DialogTitle>
           <DialogDescription>
-            Cada invitado recibe el link de ingreso por un mensaje de plantilla. Quedan {availableSlots} lugares disponibles.
+            Cada invitado recibe el enlace de ingreso por un mensaje de plantilla. Quedan {availableSlots} lugares disponibles.
           </DialogDescription>
         </DialogHeader>
 
         {isLoadingTemplates ? (
-          <div className="flex items-center justify-center py-8 text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" />
+          <div role="status" aria-label="Cargando plantillas" className="flex items-center justify-center py-8 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+          </div>
+        ) : templatesLoadFailed ? (
+          <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            <p>No se pudieron cargar las plantillas de invitación.</p>
+            <Button size="sm" variant="outline" className="shrink-0" onClick={() => setTemplatesReloadKey((key) => key + 1)}>
+              Reintentar
+            </Button>
           </div>
         ) : templates.length === 0 ? (
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+          <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
-              Todavía no tenés una plantilla de &quot;Group invite link&quot; aprobada. Creala desde la Template Library en el
+              Todavía no tenés una plantilla de &quot;Group invite link&quot; aprobada. Creala desde la biblioteca de plantillas del
               Business Manager de Meta y sincronizá las plantillas del canal.
             </p>
           </div>
@@ -128,12 +145,14 @@ export function InviteToGroupDialog({ open, onOpenChange, groupId, availableSlot
                     value={invitee.phone}
                     onChange={(e) => updateInvitee(index, { phone: e.target.value })}
                     placeholder="+54 9 11 0000-0000"
+                    aria-label={`Teléfono del invitado ${index + 1}`}
                     className="flex-1"
                   />
                   <Input
                     value={invitee.name}
                     onChange={(e) => updateInvitee(index, { name: e.target.value })}
                     placeholder="Nombre (opcional)"
+                    aria-label={`Nombre del invitado ${index + 1}`}
                     className="flex-1"
                   />
                   {invitees.length > 1 && (
@@ -142,8 +161,9 @@ export function InviteToGroupDialog({ open, onOpenChange, groupId, availableSlot
                       size="sm"
                       className="h-8 w-8 shrink-0 p-0 text-muted-foreground"
                       onClick={() => removeInviteeRow(index)}
+                      aria-label={`Quitar invitado ${index + 1}`}
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-4 w-4" aria-hidden="true" />
                     </Button>
                   )}
                 </div>

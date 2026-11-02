@@ -39,6 +39,8 @@ export function BulkTagsDialog({ open, onOpenChange, selectedIds, onSuccess }: B
   const [selectedTagIds, setSelectedTagIds] = useState<Set<number>>(new Set())
   const [query, setQuery] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [loadTagsFailed, setLoadTagsFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   const count = selectedIds.length
 
@@ -53,11 +55,14 @@ export function BulkTagsDialog({ open, onOpenChange, selectedIds, onSuccess }: B
     if (!open) return
     let cancelled = false
     setLoadingTags(true)
+    setLoadTagsFailed(false)
     getTags()
       .then((loaded) => {
         if (!cancelled) setTags(loaded)
       })
       .catch((err) => {
+        if (cancelled) return
+        setLoadTagsFailed(true)
         addToast({
           type: "error",
           title: t("contactsPage.bulk.errors.loadTags"),
@@ -70,7 +75,7 @@ export function BulkTagsDialog({ open, onOpenChange, selectedIds, onSuccess }: B
     return () => {
       cancelled = true
     }
-  }, [open, addToast, t])
+  }, [open, reloadKey, addToast, t])
 
   const filteredTags = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -140,7 +145,7 @@ export function BulkTagsDialog({ open, onOpenChange, selectedIds, onSuccess }: B
         : t("contactsPage.bulk.dialog.hintReplace")
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(next) => !submitting && onOpenChange(next)}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t("contactsPage.bulk.dialog.title")}</DialogTitle>
@@ -164,7 +169,7 @@ export function BulkTagsDialog({ open, onOpenChange, selectedIds, onSuccess }: B
                   key={opt}
                   htmlFor={`bulk-action-${opt}`}
                   className={cn(
-                    "flex cursor-pointer items-center justify-center rounded-md border px-3 py-2 text-sm transition",
+                    "flex cursor-pointer items-center justify-center rounded-md border px-3 py-2 text-sm transition has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50",
                     action === opt
                       ? "border-primary bg-primary/10 font-medium"
                       : "border-input hover:bg-accent",
@@ -178,7 +183,7 @@ export function BulkTagsDialog({ open, onOpenChange, selectedIds, onSuccess }: B
             <p
               className={cn(
                 "flex items-start gap-2 text-xs",
-                action === "replace" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
+                action === "replace" ? "text-warning" : "text-muted-foreground",
               )}
             >
               {action === "replace" && <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
@@ -210,6 +215,13 @@ export function BulkTagsDialog({ open, onOpenChange, selectedIds, onSuccess }: B
                   <Loader2 className="h-4 w-4 animate-spin" />
                   {t("contactsPage.bulk.dialog.loadingTags")}
                 </div>
+              ) : loadTagsFailed ? (
+                <div className="flex flex-col items-center gap-2 px-3 py-6 text-center text-sm text-muted-foreground">
+                  <span>No se pudieron cargar las etiquetas.</span>
+                  <Button variant="outline" size="sm" onClick={() => setReloadKey((key) => key + 1)}>
+                    Reintentar
+                  </Button>
+                </div>
               ) : filteredTags.length === 0 ? (
                 <div className="px-3 py-6 text-center text-sm text-muted-foreground">
                   {t("contactsPage.bulk.dialog.noTags")}
@@ -222,11 +234,12 @@ export function BulkTagsDialog({ open, onOpenChange, selectedIds, onSuccess }: B
                       key={tag.id}
                       type="button"
                       onClick={() => toggleTag(tag.id)}
-                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-accent"
+                      aria-pressed={selected}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
                     >
-                      <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: tag.color }} />
+                      <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: tag.color }} aria-hidden="true" />
                       <span className="min-w-0 flex-1 truncate">{tag.name}</span>
-                      {selected && <Check className="h-4 w-4 text-primary" />}
+                      {selected && <Check className="h-4 w-4 text-primary" aria-hidden="true" />}
                     </button>
                   )
                 })
