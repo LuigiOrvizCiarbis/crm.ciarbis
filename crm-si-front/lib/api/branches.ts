@@ -139,22 +139,6 @@ export async function getBranchStats(
   return { data: json.data }
 }
 
-export async function getBranchesDashboard(
-  rango: 7 | 30 | 90 = 30,
-): Promise<{ data: BranchStats[]; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { data: [], error: "No auth" }
-
-  const res = await fetch(`/api/dashboard/branches?rango=${rango}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-    cache: "no-store",
-  })
-
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) return { data: [], error: json.message || "Error" }
-  return { data: json.data || [] }
-}
-
 export async function assignUserBranch(
   userId: number,
   branchId: number | null,

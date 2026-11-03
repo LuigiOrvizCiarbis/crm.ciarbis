@@ -63,7 +63,7 @@ export function showBrowserNotification(
     const browserNotification = new Notification(text.title, {
       body: text.body,
       tag: notification.group_key ?? `notification-${notification.id}`,
-      icon: "/icon-192x192.png",
+      icon: "/brand/icon-192.png",
     })
     browserNotification.onclick = () => {
       window.focus()

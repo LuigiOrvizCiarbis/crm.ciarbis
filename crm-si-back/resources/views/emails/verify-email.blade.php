@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verifica tu email - Social Impulse</title>
+    <title>Verificá tu email de BIMS</title>
     <!--[if mso]>
     <noscript>
         <xml>
@@ -31,7 +31,7 @@
                                 </tr>
                             </table>
                             <h1 style="color: #ffffff; font-size: 28px; font-weight: 700; margin: 16px 0 0 0; letter-spacing: -0.5px;">
-                                Social Impulse
+                                BIMS
                             </h1>
                         </td>
                     </tr>
@@ -65,7 +65,7 @@
                                         </h2>
 
                                         <p style="color: #94a3b8; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0; text-align: center;">
-                                            Gracias por unirte a <strong style="color: #0ea5e9;">Social Impulse</strong>
+                                            Gracias por unirte a <strong style="color: #0ea5e9;">BIMS</strong>
                                         </p>
 
                                         <!-- Mensaje Principal -->
@@ -136,7 +136,7 @@
                                                 <td>
                                                     <p style="color: #94a3b8; font-size: 13px; line-height: 1.6; margin: 0;">
                                                         <strong style="color: #e2e8f0;">¿No creaste esta cuenta?</strong><br>
-                                                        Si no te registraste en Social Impulse, puedes ignorar este correo de forma segura.
+                                                        Si no te registraste en BIMS, podés ignorar este correo de forma segura.
                                                     </p>
                                                 </td>
                                             </tr>

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56">
+  <!-- Isotipo provisorio de BIMS, redibujado de public/logo_bims_hor.jpg con sus colores medidos
+       (barras #07c5c5 a #06b0c5, B #5a31d5). Fuente única: lo usan BimsLogo, el favicon y los
+       íconos de la PWA (generados desde este archivo). Reemplazar por el vectorial original. -->
+  <defs>
+    <linearGradient id="bars" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#0dcad0"/>
+      <stop offset="1" stop-color="#06b0c5"/>
+    </linearGradient>
+    <linearGradient id="b" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#4b2bc9"/>
+      <stop offset="1" stop-color="#8a46e6"/>
+    </linearGradient>
+    <mask id="cut">
+      <rect width="56" height="56" fill="#fff"/>
+      <polygon points="28.5,35.5 47,21.5 47,25.8 28.5,39.8" fill="#000"/>
+    </mask>
+  </defs>
+  <g fill="url(#bars)">
+    <rect x="0" y="32" width="7" height="18" rx="1.6"/>
+    <rect x="9.5" y="26" width="7" height="24" rx="1.6"/>
+    <rect x="19" y="19" width="7" height="31" rx="1.6"/>
+  </g>
+  <path mask="url(#cut)" fill="url(#b)" d="M28.5 8H42c7 0 11 4 11 9.5 0 4-2 7-5.5 8.5 5 1.5 8 5.5 8 11 0 7.5-5.5 13-13.5 13H28.5Z"/>
+</svg>

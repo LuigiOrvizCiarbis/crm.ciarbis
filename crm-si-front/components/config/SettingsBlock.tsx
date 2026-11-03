@@ -6,6 +6,8 @@ import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 interface SettingsBlockProps {
+  /** Ancla para enlazar al bloque desde otra pantalla. */
+  id?: string
   title: string
   description?: string
   icon?: LucideIcon
@@ -26,6 +28,7 @@ interface SettingsBlockProps {
  * anidaba contenedores. La separación se resuelve con espacio y un divisor.
  */
 export function SettingsBlock({
+  id,
   title,
   description,
   icon: Icon,
@@ -35,7 +38,7 @@ export function SettingsBlock({
   children,
 }: SettingsBlockProps) {
   return (
-    <section className={cn("min-w-0", className)}>
+    <section id={id} className={cn("min-w-0", className)}>
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0 space-y-1">
           <h3 className="flex items-center gap-2 text-[0.9375rem] font-semibold text-foreground">

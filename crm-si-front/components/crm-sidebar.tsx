@@ -28,6 +28,7 @@ import { LanguageSwitcher } from "@/components/LanguageSwitcher"
 import { resolveNavigationLabel } from "@/data/navigation"
 import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher"
 import { NotificationsBell } from "@/components/notifications-bell"
+import { BimsLogo } from "@/components/brand/BimsLogo"
 import { accessibleNavigationItems, canAccessSection } from "@/lib/section-access"
 
 interface SidebarProps {
@@ -137,9 +138,11 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
               alt="BIMS"
               width={160}
               height={48}
-              className="h-8 w-auto object-contain"
+              className="h-8 w-auto object-contain brand:hidden"
               priority
             />
+            {/* Piloto de identidad: logo vectorial que funciona en claro y en oscuro. */}
+            <BimsLogo className="hidden brand:inline-flex" />
           </div>
         )}
         {!isCollapsed && <NotificationsBell />}

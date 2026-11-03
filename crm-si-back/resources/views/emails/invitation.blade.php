@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invitación - Social Impulse</title>
+    <title>Invitación a BIMS</title>
     <!--[if mso]>
     <noscript>
         <xml>
@@ -31,7 +31,7 @@
                                 </tr>
                             </table>
                             <h1 style="color: #ffffff; font-size: 28px; font-weight: 700; margin: 16px 0 0 0; letter-spacing: -0.5px;">
-                                Social Impulse
+                                BIMS
                             </h1>
                         </td>
                     </tr>
@@ -76,7 +76,7 @@
                                                         {{ $tenantName }}
                                                     </p>
                                                     <p style="color: #94a3b8; font-size: 14px; line-height: 1.5; margin: 8px 0 0 0; text-align: center;">
-                                                        en Social Impulse CRM
+                                                        en BIMS
                                                     </p>
                                                 </td>
                                             </tr>

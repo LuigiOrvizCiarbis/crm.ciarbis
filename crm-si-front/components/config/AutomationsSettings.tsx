@@ -389,6 +389,8 @@ export function AutomationsSettings() {
 
   return (
     <SettingsBlock
+      id="panel-automations"
+      className="scroll-mt-28"
       title={t("settings.automations.title")}
       description={t("settings.automations.description")}
       icon={Workflow}

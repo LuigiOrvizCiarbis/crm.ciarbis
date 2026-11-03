@@ -30,6 +30,7 @@ class Opportunity extends Model
         'value',
         'notes',
         'last_activity_at',
+        'closed_at',
     ];
 
     protected static function booted(): void
@@ -51,6 +52,20 @@ class Opportunity extends Model
         // creating (no saving): corre después de que BelongsToTenant asigna tenant_id.
         static::creating($syncPipeline);
         static::updating($syncPipeline);
+
+        // Sella el cierre al pasar a ganada/perdida; reabrir lo limpia y
+        // archivar conserva el cierre previo (si lo hubo).
+        static::saving(function (Opportunity $opportunity): void {
+            if (! $opportunity->isDirty('status') || $opportunity->isDirty('closed_at')) {
+                return;
+            }
+
+            if (in_array($opportunity->status, ['won', 'lost'], true)) {
+                $opportunity->closed_at = now();
+            } elseif ($opportunity->status === 'open') {
+                $opportunity->closed_at = null;
+            }
+        });
 
         // La etapa del chat refleja la de su oportunidad en el pipeline
         // predeterminado (con varias, la última movida). Se actualiza vía
@@ -86,6 +101,7 @@ class Opportunity extends Model
         return [
             'value' => 'decimal:2',
             'last_activity_at' => 'datetime',
+            'closed_at' => 'datetime',
         ];
     }
 

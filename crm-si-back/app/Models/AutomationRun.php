@@ -41,10 +41,13 @@ class AutomationRun extends Model
         return $this->hasMany(AutomationActionRun::class)->orderBy('position');
     }
 
+    /** El Panel lo usa para no mostrar como completo un período que ya se podó. */
+    public const RETENTION_DAYS = 90;
+
     public function prunable()
     {
         // created_at es timestamptz: comparar en UTC, no en hora local. Ver
         // HasTimezoneAwareDates.
-        return static::where('created_at', '<=', now()->utc()->subDays(90));
+        return static::where('created_at', '<=', now()->utc()->subDays(self::RETENTION_DAYS));
     }
 }
