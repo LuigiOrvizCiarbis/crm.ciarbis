@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Restablece tu contraseña - Social Impulse</title>
+    <title>Restablecé tu contraseña de BIMS</title>
     <!--[if mso]>
     <noscript>
         <xml>
@@ -31,7 +31,7 @@
                                 </tr>
                             </table>
                             <h1 style="color: #ffffff; font-size: 28px; font-weight: 700; margin: 16px 0 0 0; letter-spacing: -0.5px;">
-                                Social Impulse
+                                BIMS
                             </h1>
                         </td>
                     </tr>
@@ -73,7 +73,7 @@
                                             <tr>
                                                 <td style="padding: 24px;">
                                                     <p style="color: #e2e8f0; font-size: 15px; line-height: 1.7; margin: 0; text-align: center;">
-                                                        Recibimos una solicitud para restablecer la contraseña de tu cuenta en <strong style="color: #0ea5e9;">Social Impulse</strong>. Haz clic en el botón para crear una nueva contraseña.
+                                                        Recibimos una solicitud para restablecer la contraseña de tu cuenta en <strong style="color: #0ea5e9;">BIMS</strong>. Hacé clic en el botón para crear una nueva contraseña.
                                                     </p>
                                                 </td>
                                             </tr>

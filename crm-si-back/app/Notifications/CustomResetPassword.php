@@ -26,7 +26,7 @@ class CustomResetPassword extends Notification
         $resetUrl = $this->resetUrl($notifiable);
 
         return (new MailMessage)
-            ->subject('🔐 Restablece tu contraseña - Social Impulse')
+            ->subject('🔐 Restablecé tu contraseña de BIMS')
             ->view('emails.reset-password', [
                 'userName' => $notifiable->name,
                 'resetUrl' => $resetUrl,

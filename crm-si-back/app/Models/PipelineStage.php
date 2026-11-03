@@ -21,6 +21,11 @@ class PipelineStage extends Model
         'color',
         'sort_order',
         'is_default',
+        'win_probability',
+    ];
+
+    protected $casts = [
+        'win_probability' => 'integer',
     ];
 
     public const NEXT_MONTH_PLACEHOLDER = '{mes_siguiente}';

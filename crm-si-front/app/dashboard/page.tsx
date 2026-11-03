@@ -4,29 +4,35 @@ import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuthStore } from "@/store/useAuthStore"
 import { SidebarLayout } from "@/components/SidebarLayout"
-import { DashboardCompactHeader } from "@/components/dashboard-compact-header"
+import { BrandPilot } from "@/components/brand/BrandPilot"
+import { ALL, DEFAULT_PIPELINE, DashboardCompactHeader } from "@/components/dashboard-compact-header"
 import { MetricsCards } from "@/components/metrics-cards"
+import { StalledStages } from "@/components/dashboard/StalledStages"
+import { NewOpportunitiesTrend } from "@/components/dashboard/NewOpportunitiesTrend"
+import { ChannelBreakdown } from "@/components/dashboard/ChannelBreakdown"
 import { BranchComparisonSection } from "@/components/dashboard/BranchComparisonSection"
-import { SalesFunnel } from "@/components/sales-funnel"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent } from "@/components/ui/card"
+import { TeamEfficiency } from "@/components/dashboard/TeamEfficiency"
+import { AiImpact } from "@/components/dashboard/AiImpact"
+import { RevenueSection } from "@/components/dashboard/RevenueSection"
 import { Button } from "@/components/ui/button"
 import { useDashboardMetrics } from "@/hooks/useDashboardMetrics"
 import { useTranslation } from "@/hooks/useTranslation"
+import { useIsOwner, usePermission } from "@/hooks/usePermission"
 import type { DashboardFilters, DashboardPeriodo } from "@/lib/api/dashboard"
-
-const TAB_KEYS = ["general", "channels", "salespeople", "tasks", "finance"] as const
-type TabKey = (typeof TAB_KEYS)[number]
 
 export default function Dashboard() {
   const router = useRouter()
   const { isAuthenticated } = useAuthStore()
   const { t } = useTranslation()
+  const canViewTeamAnalytics = usePermission("analytics.view_team")
+  const isOwner = useIsOwner()
+  const canManageStages = usePermission("pipeline_stages.manage")
 
-  const [activeTab, setActiveTab] = useState<TabKey>("general")
-  const [vista, setVista] = useState("dueno")
   const [periodo, setPeriodo] = useState<DashboardPeriodo>("este-mes")
-  const [canal, setCanal] = useState("todos")
+  const [canal, setCanal] = useState(ALL)
+  const [owner, setOwner] = useState(ALL)
+  const [pipeline, setPipeline] = useState(DEFAULT_PIPELINE)
+  const [sucursal, setSucursal] = useState(ALL)
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -34,13 +40,20 @@ export default function Dashboard() {
     }
   }, [isAuthenticated, router])
 
-  const filters = useMemo<DashboardFilters>(
+  // Sin sucursal: la comparativa no se vuelve a pedir al cambiarla, porque siempre muestra todas.
+  const comparisonFilters = useMemo<DashboardFilters>(
     () => ({
       periodo,
-      canal: canal === "todos" ? null : canal,
-      owner: vista === "dueno" ? null : vista,
+      canal: canal === ALL ? null : canal,
+      owner: owner === ALL ? null : owner,
+      // "todos" y "default" los entiende el backend tal cual.
+      pipeline,
     }),
-    [periodo, canal, vista]
+    [periodo, canal, owner, pipeline]
+  )
+  const filters = useMemo<DashboardFilters>(
+    () => ({ ...comparisonFilters, sucursal: sucursal === ALL ? null : sucursal }),
+    [comparisonFilters, sucursal]
   )
 
   const { data, isLoading, error, refresh } = useDashboardMetrics(filters)
@@ -51,75 +64,72 @@ export default function Dashboard() {
 
   return (
     <SidebarLayout>
+      <BrandPilot />
       <DashboardCompactHeader
-        vista={vista}
-        onVistaChange={setVista}
         periodo={periodo}
         onPeriodoChange={setPeriodo}
         canal={canal}
         onCanalChange={setCanal}
+        owner={owner}
+        onOwnerChange={setOwner}
+        pipeline={pipeline}
+        onPipelineChange={setPipeline}
+        sucursal={sucursal}
+        onSucursalChange={setSucursal}
       />
 
-      <div className="px-4 md:px-6 lg:px-8 py-6 space-y-6">
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabKey)}>
-          <div className="overflow-x-auto pb-1">
-            <TabsList className="h-11 min-w-full w-max p-1 gap-1 bg-muted/40">
-              <TabsTrigger value="general" className="shrink-0 text-sm font-medium px-4 sm:px-6 py-2 h-9">
-                {t("dashboard.tabs.general")}
-              </TabsTrigger>
-              <TabsTrigger value="channels" className="shrink-0 text-sm font-medium px-4 sm:px-6 py-2 h-9">
-                {t("dashboard.tabs.channels")}
-              </TabsTrigger>
-              <TabsTrigger value="salespeople" className="shrink-0 text-sm font-medium px-4 sm:px-6 py-2 h-9">
-                {t("dashboard.tabs.salespeople")}
-              </TabsTrigger>
-              <TabsTrigger value="tasks" className="shrink-0 text-sm font-medium px-4 sm:px-6 py-2 h-9">
-                {t("dashboard.tabs.tasks")}
-              </TabsTrigger>
-              <TabsTrigger value="finance" className="shrink-0 text-sm font-medium px-4 sm:px-6 py-2 h-9">
-                {t("dashboard.tabs.finance")}
-              </TabsTrigger>
-            </TabsList>
+      {/* Una sola vista que responde "cómo viene el negocio y dónde actuar". Los módulos
+          dependen de la misma consulta de métricas; sucursales carga aparte. */}
+      <div className="mx-auto w-full max-w-[1400px] space-y-6 px-4 py-6 md:px-6 lg:px-8 lg:py-8">
+        {error ? (
+          <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-5 py-4 text-sm">
+            <span className="font-medium text-destructive">{t("dashboard.errors.loadFailed")}</span>
+            <span className="text-foreground">{error}</span>
+            <Button variant="outline" size="sm" className="ml-auto" onClick={refresh}>
+              {t("dashboard.errors.retry")}
+            </Button>
           </div>
-
-          <TabsContent value="general" className="space-y-6 mt-6">
-            {error ? (
-              <Card>
-                <CardContent className="py-8 flex flex-col items-center gap-3">
-                  <p className="text-sm text-destructive">{t("dashboard.errors.loadFailed")}</p>
-                  <p className="text-xs text-muted-foreground">{error}</p>
-                  <Button variant="outline" size="sm" onClick={refresh}>
-                    {t("dashboard.errors.retry")}
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <>
-                <MetricsCards
-                  kpis={data?.kpis}
-                  previous={data?.previous}
-                  trends={data?.trends as Record<string, number> | undefined}
-                  isLoading={isLoading}
-                />
-                <SalesFunnel stages={data?.stages} isLoading={isLoading} />
-                <BranchComparisonSection />
-              </>
+        ) : (
+          <>
+            <MetricsCards
+              kpis={data?.kpis}
+              previous={data?.previous}
+              trends={data?.trends as Record<string, number> | undefined}
+              isLoading={isLoading}
+            />
+            <div className="grid items-start gap-6 xl:grid-cols-12">
+              <StalledStages
+                className="xl:col-span-7"
+                stages={data?.stages}
+                staleAfterDays={data?.stale_after_days}
+                isLoading={isLoading}
+              />
+              <div className="space-y-6 xl:col-span-5">
+                <NewOpportunitiesTrend series={data?.daily_series} isLoading={isLoading} />
+                <ChannelBreakdown channels={data?.omnichannel} isLoading={isLoading} />
+              </div>
+            </div>
+            <RevenueSection
+              revenue={data?.revenue}
+              isLoading={isLoading}
+              goalApplies={periodo === "este-mes" || periodo === "este-trimestre" || periodo === "este-ano"}
+              narrowed={canal !== ALL || owner !== ALL || sucursal !== ALL}
+              collectionsIgnoreFilters={canal !== ALL || owner !== ALL || pipeline !== DEFAULT_PIPELINE}
+              canSetGoal={isOwner || canViewTeamAnalytics}
+              canSetProbabilities={isOwner || canManageStages}
+            />
+            <TeamEfficiency efficiency={data?.efficiency} isLoading={isLoading} canEditGoals={isOwner || canViewTeamAnalytics} />
+            {/* El backend sólo manda el bloque a quien ve todo el equipo. */}
+            {(data?.ai || (isLoading && (isOwner || canViewTeamAnalytics))) && (
+              <AiImpact
+                ai={data?.ai}
+                isLoading={isLoading}
+                ignoresFilters={owner !== ALL || pipeline !== DEFAULT_PIPELINE}
+              />
             )}
-          </TabsContent>
-
-          {(["channels", "salespeople", "tasks", "finance"] as const).map((tab) => (
-            <TabsContent key={tab} value={tab} className="mt-6">
-              <Card>
-                <CardContent className="py-12 text-center space-y-2">
-                  <p className="text-base font-medium">{t("dashboard.placeholders.comingSoon")}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {t("dashboard.placeholders.tabComingSoonDesc")}
-                  </p>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          ))}
-        </Tabs>
+          </>
+        )}
+        <BranchComparisonSection filters={comparisonFilters} selectedBranchId={sucursal === ALL ? null : Number(sucursal)} />
       </div>
     </SidebarLayout>
   )

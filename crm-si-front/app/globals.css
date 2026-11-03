@@ -2,6 +2,8 @@
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
+/* Activo sólo mientras el piloto de identidad BIMS está encendido (ver BrandPilot). */
+@custom-variant brand (&:where(.brand-bims, .brand-bims *));
 
 :root {
   /* Updated light theme to use pure white background and add shadow support */
@@ -122,8 +124,99 @@
   --overlay: oklch(0 0 0 / 0.5);
 }
 
+/* Fuente de la interfaz: las variables de next/font viven en <html>, así que se resuelven acá. */
+:root {
+  --font-app-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  /* La IA comparte el color de acción en la identidad actual; BIMS le da el violeta propio. */
+  --ai: var(--primary);
+  --ai-foreground: var(--primary-foreground);
+}
+
+/*
+ * Piloto de identidad BIMS. Se activa con la clase `brand-bims` en <html> (sólo en /dashboard por
+ * ahora) y redefine los tokens semánticos: el resto de los componentes cambia sin tocarlos.
+ * - Neutros teñidos hacia el marino del wordmark (tono 257).
+ * - Turquesa de las barras del isotipo = acción y "en vivo". En claro baja a L 0.50 para llevar
+ *   texto blanco (5.5:1) y leerse sobre su tinte /10 (4.9:1).
+ * - Violeta de la B = IA, y nada más. Los gráficos no lo usan.
+ * Contrastes verificados: texto 16:1 o más; texto secundario 5.2:1 o más sobre fondo y muted.
+ */
+html.brand-bims {
+  --font-app-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+}
+
+html.brand-bims:not(.dark) {
+  --background: oklch(0.975 0.005 257);
+  --foreground: oklch(0.22 0.028 257);
+  --card: oklch(0.995 0.002 257);
+  --card-foreground: oklch(0.22 0.028 257);
+  --popover: oklch(0.995 0.002 257);
+  --popover-foreground: oklch(0.22 0.028 257);
+  --primary: oklch(0.5 0.085 198);
+  --primary-foreground: oklch(0.99 0.004 198);
+  --secondary: oklch(0.95 0.008 257);
+  --secondary-foreground: oklch(0.22 0.028 257);
+  --muted: oklch(0.95 0.008 257);
+  --muted-foreground: oklch(0.5 0.022 257);
+  --accent: oklch(0.95 0.008 257);
+  --accent-foreground: oklch(0.22 0.028 257);
+  --border: oklch(0.905 0.01 257);
+  --input: oklch(0.88 0.012 257);
+  --ring: oklch(0.5 0.085 198);
+  --ai: oklch(0.477 0.23 285);
+  --ai-foreground: oklch(0.99 0.004 285);
+  --chart-1: oklch(0.5 0.085 198);
+  --chart-2: oklch(0.38 0.06 257);
+  --chart-3: oklch(0.72 0.11 195);
+  --chart-4: oklch(0.7 0.02 257);
+  --chart-5: oklch(0.6 0.04 257);
+  --sidebar: oklch(0.995 0.002 257);
+  --sidebar-foreground: oklch(0.22 0.028 257);
+  --sidebar-primary: oklch(0.95 0.008 257);
+  --sidebar-primary-foreground: oklch(0.22 0.028 257);
+  --sidebar-accent: oklch(0.95 0.008 257);
+  --sidebar-accent-foreground: oklch(0.22 0.028 257);
+  --sidebar-border: oklch(0.905 0.01 257);
+  --sidebar-ring: oklch(0.5 0.085 198);
+}
+
+html.brand-bims.dark {
+  --background: oklch(0.17 0.02 257);
+  --foreground: oklch(0.965 0.006 257);
+  --card: oklch(0.215 0.022 257);
+  --card-foreground: oklch(0.965 0.006 257);
+  --popover: oklch(0.215 0.022 257);
+  --popover-foreground: oklch(0.965 0.006 257);
+  --primary: oklch(0.746 0.127 195);
+  --primary-foreground: oklch(0.17 0.02 257);
+  --secondary: oklch(0.265 0.022 257);
+  --secondary-foreground: oklch(0.965 0.006 257);
+  --muted: oklch(0.265 0.022 257);
+  --muted-foreground: oklch(0.72 0.016 257);
+  --accent: oklch(0.265 0.022 257);
+  --accent-foreground: oklch(0.965 0.006 257);
+  --border: oklch(0.3 0.02 257);
+  --input: oklch(0.3 0.02 257);
+  --ring: oklch(0.746 0.127 195);
+  --ai: oklch(0.72 0.14 285);
+  --ai-foreground: oklch(0.17 0.02 257);
+  --chart-1: oklch(0.746 0.127 195);
+  --chart-2: oklch(0.62 0.05 257);
+  --chart-3: oklch(0.55 0.09 200);
+  --chart-4: oklch(0.45 0.02 257);
+  --chart-5: oklch(0.8 0.03 257);
+  --sidebar: oklch(0.215 0.022 257);
+  --sidebar-foreground: oklch(0.965 0.006 257);
+  --sidebar-primary: oklch(0.265 0.022 257);
+  --sidebar-primary-foreground: oklch(0.965 0.006 257);
+  --sidebar-accent: oklch(0.265 0.022 257);
+  --sidebar-accent-foreground: oklch(0.965 0.006 257);
+  --sidebar-border: oklch(0.3 0.02 257);
+  --sidebar-ring: oklch(0.746 0.127 195);
+}
+
 @theme inline {
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-app-sans);
   --font-mono: var(--font-geist-mono);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -133,6 +226,8 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-ai: var(--ai);
+  --color-ai-foreground: var(--ai-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);

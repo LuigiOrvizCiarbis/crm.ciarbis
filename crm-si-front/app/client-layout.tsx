@@ -3,6 +3,7 @@
 import type React from "react"
 import { GeistSans } from "geist/font/sans"
 import { GeistMono } from "geist/font/mono"
+import { Manrope } from "next/font/google"
 import { Suspense } from "react"
 import { usePathname } from "next/navigation"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -15,6 +16,10 @@ import { isRouteMatch, routesWithoutAppShell } from "@/lib/routes"
 import { SectionAccessGuard } from "@/components/auth/SectionAccessGuard"
 import "./globals.css"
 
+// Tipografía de la identidad BIMS. Se carga siempre (una variable, swap) y sólo se aplica donde
+// el piloto la activa; ver --font-app-sans en globals.css.
+const manrope = Manrope({ subsets: ["latin"], variable: "--font-manrope", display: "swap" })
+
 export default function ClientLayout({
   children,
 }: Readonly<{
@@ -24,15 +29,14 @@ export default function ClientLayout({
   const shouldSkipShell = isRouteMatch(pathname, routesWithoutAppShell)
 
   return (
-    <html lang="es" suppressHydrationWarning>
+    <html lang="es" suppressHydrationWarning className={`${GeistSans.variable} ${GeistMono.variable} ${manrope.variable}`}>
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#0F1117" />
-        <link rel="apple-touch-icon" href="/icon-192x192.png" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       </head>
-      <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+      <body className="font-sans">
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <AuthGuard>
             <AppShell>
               <SectionAccessGuard>
