@@ -15,6 +15,7 @@ import { PipelineStagesCard } from "@/components/config/PipelineStagesCard"
 import { RolesCard } from "@/components/config/RolesCard"
 import { SucursalesCard } from "@/components/config/SucursalesCard"
 import { TeamInvitationsCard } from "@/components/config/TeamInvitationsCard"
+import { TagsCard } from "@/components/config/TagsCard"
 import { WorkspaceCard } from "@/components/config/WorkspaceCard"
 import { AutomationsSettings } from "@/components/config/AutomationsSettings"
 import { BillingTemplatesCard } from "@/components/config/BillingTemplatesCard"
@@ -55,6 +56,7 @@ export default function ConfiguracionPage() {
   const canViewAutomations = usePermission("automations.view")
   const canManageBilling = usePermission("billing.manage")
   const canManageNavigationLabels = usePermission("navigation_labels.manage")
+  const canManageTags = usePermission("tags.manage")
   const sections = useMemo<SettingsSection<SettingsSectionId>[]>(
     () => [
       {
@@ -129,6 +131,7 @@ export default function ConfiguracionPage() {
                   {canManageNavigationLabels && <NavigationLabelsCard />}
                   <MessageHotkeysCard />
                   {canViewPipeline && <PipelineStagesCard />}
+                  {canManageTags && <TagsCard />}
                   {canViewFields && <FieldsCard />}
                   {canManageBilling && <BillingTemplatesCard />}
                   {canViewAutomations && <AutomationsSettings />}

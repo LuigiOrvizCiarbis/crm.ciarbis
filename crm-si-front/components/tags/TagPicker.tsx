@@ -6,9 +6,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useToast } from "@/components/Toast"
-import { attachContactTags, attachConversationTags, createTag, detachContactTag, detachConversationTag, getTags, type Tag } from "@/lib/api/tags"
+import { usePermission } from "@/hooks/usePermission"
+import { useTranslation } from "@/hooks/useTranslation"
+import { attachContactTags, attachConversationTags, createTag, detachContactTag, detachConversationTag, getTags, updateTag, type Tag } from "@/lib/api/tags"
 import { cn } from "@/lib/utils"
+import { useTagColorsStore } from "@/store/useTagColorsStore"
 import { TagChips } from "./TagChips"
+import { TagColorPalette } from "./TagColorPalette"
+import { nextTagColor } from "./tag-colors"
 
 type TagTarget = "contact" | "conversation"
 
@@ -23,12 +28,10 @@ interface TagPickerProps {
   /**
    * "popover": botón que abre un popover (default).
    * "inline": busqueda + lista renderizadas directamente, pensado para sheets/drawers
-   * mobile donde un popover anidado no funciona bien. Usa la paleta oscura del chat.
+   * mobile donde un popover anidado no funciona bien.
    */
   variant?: "popover" | "inline"
 }
-
-const DEFAULT_COLORS = ["#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#64748b"]
 
 export function TagPicker({
   target,
@@ -41,6 +44,10 @@ export function TagPicker({
   variant = "popover",
 }: TagPickerProps) {
   const { addToast } = useToast()
+  const { t } = useTranslation()
+  const canManage = usePermission("tags.manage")
+  const colorOverrides = useTagColorsStore((state) => state.colors)
+  const setStoredColor = useTagColorsStore((state) => state.setColor)
   const isInline = variant === "inline"
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -50,11 +57,15 @@ export function TagPicker({
   const [reloadKey, setReloadKey] = useState(0)
   const [savingId, setSavingId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
+  // Paleta desplegada debajo de la fila: el selector ya vive en un popover o
+  // en una hoja, y otro popover adentro rompe el foco en las hojas.
+  const [colorOpenId, setColorOpenId] = useState<number | null>(null)
 
   const selectedIds = useMemo(() => new Set(value.map((tag) => tag.id)), [value])
   const normalizedQuery = query.trim().toLowerCase()
   const filteredTags = tags.filter((tag) => tag.name.toLowerCase().includes(normalizedQuery))
   const canCreate = normalizedQuery.length > 0 && !tags.some((tag) => tag.name.toLowerCase() === normalizedQuery)
+  const colorOf = (tag: Tag) => colorOverrides[tag.id] ?? tag.color
 
   const shouldLoad = isInline || open
 
@@ -134,8 +145,7 @@ export function TagPicker({
 
     setCreating(true)
     try {
-      const color = DEFAULT_COLORS[tags.length % DEFAULT_COLORS.length]
-      const tag = await createTag({ name, color })
+      const tag = await createTag({ name, color: nextTagColor(tags.length) })
       setTags((current) => [...current, tag].sort((a, b) => a.name.localeCompare(b.name)))
       setQuery("")
       await attachTag(tag)
@@ -150,15 +160,29 @@ export function TagPicker({
     }
   }
 
+  // Optimista: el chip cambia en toda la pantalla al elegir; si falla, vuelve.
+  const changeColor = async (tag: Tag, color: string) => {
+    const previous = colorOf(tag)
+    setStoredColor(tag.id, color)
+    setColorOpenId(null)
+    try {
+      await updateTag(tag.id, { color })
+    } catch (error) {
+      setStoredColor(tag.id, previous)
+      addToast({
+        type: "error",
+        title: t("settings.tags.colorSaveError"),
+        description: error instanceof Error ? error.message : undefined,
+      })
+    }
+  }
+
+  const mutedText = "text-muted-foreground"
+
   const renderList = () => {
     if (loading) {
       return (
-        <div
-          className={cn(
-            "flex items-center gap-2 px-2 py-6 text-sm",
-            isInline ? "text-[#9AA4B2]" : "text-muted-foreground",
-          )}
-        >
+        <div role="status" className={cn("flex items-center gap-2 px-2 py-6 text-sm", mutedText)}>
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           Cargando etiquetas
         </div>
@@ -167,12 +191,7 @@ export function TagPicker({
 
     if (loadFailed) {
       return (
-        <div
-          className={cn(
-            "flex flex-col items-start gap-2 px-2 py-4 text-sm",
-            isInline ? "text-[#9AA4B2]" : "text-muted-foreground",
-          )}
-        >
+        <div className={cn("flex flex-col items-start gap-2 px-2 py-4 text-sm", mutedText)}>
           <span>No se pudieron cargar las etiquetas.</span>
           <Button type="button" variant="outline" size="sm" onClick={() => setReloadKey((key) => key + 1)}>
             Reintentar
@@ -186,38 +205,63 @@ export function TagPicker({
         {filteredTags.map((tag) => {
           const selected = selectedIds.has(tag.id)
           const saving = savingId === tag.id
+          const color = colorOf(tag)
+          const paletteOpen = colorOpenId === tag.id
           return (
-            <button
-              key={tag.id}
-              type="button"
-              className={cn(
-                "flex w-full items-center gap-3 rounded-md px-2 text-left text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-wait disabled:opacity-60",
-                isInline
-                  ? "py-2.5 text-[#D8DEE9] active:bg-[#1A1F2B] hover:bg-[#1A1F2B]"
-                  : "py-2 hover:bg-accent",
+            <div key={tag.id}>
+              <div className="flex items-center gap-1">
+                {canManage ? (
+                  <button
+                    type="button"
+                    className="grid size-8 shrink-0 place-items-center rounded-md outline-none transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 pointer-coarse:size-10"
+                    aria-label={t("settings.tags.changeColor", { name: tag.name })}
+                    aria-expanded={paletteOpen}
+                    onClick={() => setColorOpenId(paletteOpen ? null : tag.id)}
+                  >
+                    <span className="size-3 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+                  </button>
+                ) : (
+                  <span className="grid size-8 shrink-0 place-items-center" aria-hidden="true">
+                    <span className="size-3 rounded-full" style={{ backgroundColor: color }} />
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className={cn(
+                    "flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 text-left text-sm outline-none transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-wait disabled:opacity-60",
+                    isInline ? "py-2.5" : "py-2",
+                  )}
+                  disabled={saving}
+                  aria-pressed={selected}
+                  onClick={() => (selected ? removeTag(tag) : attachTag(tag))}
+                >
+                  <span className="min-w-0 flex-1 truncate">{tag.name}</span>
+                  {saving ? (
+                    <Loader2 className={cn("h-4 w-4 animate-spin", mutedText)} aria-hidden="true" />
+                  ) : selected ? (
+                    <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                  ) : null}
+                </button>
+              </div>
+              {paletteOpen && (
+                <TagColorPalette
+                  className="px-2 pb-3 pt-1.5"
+                  size="sm"
+                  value={color}
+                  label={t("settings.tags.colorLabel", { name: tag.name })}
+                  onChange={(hex) => void changeColor(tag, hex)}
+                />
               )}
-              disabled={saving}
-              aria-pressed={selected}
-              onClick={() => (selected ? removeTag(tag) : attachTag(tag))}
-            >
-              <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: tag.color }} aria-hidden="true" />
-              <span className="min-w-0 flex-1 truncate">{tag.name}</span>
-              {saving ? (
-                <Loader2 className={cn("h-4 w-4 animate-spin", isInline ? "text-[#9AA4B2]" : "text-muted-foreground")} />
-              ) : selected ? (
-                <Check className={cn("h-4 w-4", isInline ? "text-[#00E18C]" : "text-primary")} />
-              ) : null}
-            </button>
+            </div>
           )
         })}
         {canCreate && (
           <button
             type="button"
             className={cn(
-              "mt-1 flex w-full items-center gap-3 rounded-md border border-dashed px-2 text-left text-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-wait disabled:opacity-60",
-              isInline
-                ? "border-[#2A3344] py-2.5 text-[#9AA4B2] active:bg-[#1A1F2B] hover:bg-[#1A1F2B] hover:text-[#D8DEE9]"
-                : "py-2 text-muted-foreground hover:bg-accent hover:text-foreground",
+              "mt-1 flex w-full items-center gap-3 rounded-md border border-dashed border-border px-2 text-left text-sm outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-wait disabled:opacity-60",
+              mutedText,
+              isInline ? "py-2.5" : "py-2",
             )}
             disabled={creating}
             onClick={handleCreate}
@@ -227,7 +271,7 @@ export function TagPicker({
           </button>
         )}
         {!filteredTags.length && !canCreate && (
-          <div className={cn("px-2 py-6 text-sm", isInline ? "text-[#9AA4B2]" : "text-muted-foreground")}>
+          <div className={cn("px-2 py-6 text-sm", mutedText)}>
             No hay etiquetas.
           </div>
         )}
@@ -245,15 +289,16 @@ export function TagPicker({
           emptyLabel="Sin etiquetas"
         />
         <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9AA4B2]" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar o crear etiqueta"
-            className="h-10 border-[#1e2533] bg-[#0F1117] pl-9 text-[#D8DEE9] placeholder:text-[#9AA4B2]/70 focus-visible:border-[#00F7FF]/60 focus-visible:ring-[#00F7FF]/20"
+            aria-label="Buscar o crear etiqueta"
+            className="h-10 pl-9"
           />
         </div>
-        <div className="max-h-48 overflow-y-auto rounded-lg border border-[#1e2533] bg-[#0F1117] p-1.5">
+        <div className="max-h-64 overflow-y-auto rounded-lg border border-border bg-background p-1.5">
           {renderList()}
         </div>
       </div>
@@ -265,7 +310,7 @@ export function TagPicker({
       {!compact && (
         <TagChips tags={value} removable onRemove={removeTag} emptyLabel="Sin etiquetas" />
       )}
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={(next) => { setOpen(next); if (!next) setColorOpenId(null) }}>
         <PopoverTrigger asChild>
           <Button
             type="button"
@@ -284,6 +329,7 @@ export function TagPicker({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Buscar o crear etiqueta"
+              aria-label="Buscar o crear etiqueta"
               className="h-9"
             />
           </div>
