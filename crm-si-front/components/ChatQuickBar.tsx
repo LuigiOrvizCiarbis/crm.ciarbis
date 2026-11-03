@@ -537,16 +537,18 @@ export function ChatQuickBar({
           )}
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex min-w-0 max-w-[280px] items-center gap-2 rounded-xl border border-border bg-muted px-3 py-1.5">
-          <TagChips tags={tags} maxVisible={2} />
+        {/* Etiquetas: una sola línea (un chip + "+N") y el selector como ícono, para que la
+            barra no se desborde en laptops; la lista completa está en el selector. */}
+        <div className="flex min-w-0 max-w-[280px] items-center gap-1.5 rounded-xl border border-border bg-muted px-2 py-1.5">
+          <TagChips tags={tags} maxVisible={1} className="min-w-0 flex-nowrap overflow-hidden" />
           <TagPicker
             target="conversation"
             targetId={chatId}
             value={tags}
             onChange={onTagsChange}
-            buttonLabel="Tags"
+            buttonLabel=""
             compact
+            className="shrink-0"
           />
         </div>
 

@@ -19,7 +19,9 @@ class TagPolicy
 
     public function create(User $user): bool
     {
-        return $user->can('tags.manage');
+        // Los vendedores crean etiquetas al vuelo al etiquetar; editarlas o
+        // borrarlas sigue siendo de gestión.
+        return $user->can('tags.attach');
     }
 
     public function update(User $user, Tag $tag): bool

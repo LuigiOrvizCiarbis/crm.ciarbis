@@ -11,6 +11,30 @@ export interface Tag {
   is_system: boolean;
   created_at?: string;
   updated_at?: string;
+  /** Sólo con getTags({ withCounts: true }). */
+  contacts_count?: number;
+  conversations_count?: number;
+  opportunities_count?: number;
+}
+
+export interface TagBlockingReferences {
+  automations: { id: number; name: string }[];
+  broadcasts: { id: number; name: string; status: string }[];
+}
+
+export interface TagUsage {
+  contacts_count: number;
+  conversations_count: number;
+  opportunities_count: number;
+  blocking: TagBlockingReferences;
+}
+
+/** El backend responde 409 cuando una automatización activa o una difusión pendiente usa la etiqueta. */
+export class TagInUseError extends Error {
+  constructor(message: string, public blocking: TagBlockingReferences) {
+    super(message);
+    this.name = "TagInUseError";
+  }
 }
 
 export interface TagInput {
@@ -47,13 +71,19 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return payload as T;
 }
 
-export async function getTags(params: { search?: string; type?: string } = {}): Promise<Tag[]> {
+export async function getTags(params: { search?: string; type?: string; withCounts?: boolean } = {}): Promise<Tag[]> {
   const query = new URLSearchParams();
   if (params.search) query.set("search", params.search);
   if (params.type) query.set("type", params.type);
+  if (params.withCounts) query.set("with_counts", "1");
 
   const payload = await request<{ data: Tag[] }>(`/api/tags${query.toString() ? `?${query}` : ""}`);
 
+  return payload.data;
+}
+
+export async function getTagUsage(tagId: number): Promise<TagUsage> {
+  const payload = await request<{ data: TagUsage }>(`/api/tags/${tagId}/usage`);
   return payload.data;
 }
 
@@ -76,7 +106,16 @@ export async function updateTag(tagId: number, input: Partial<TagInput>): Promis
 }
 
 export async function deleteTag(tagId: number): Promise<void> {
-  await request(`/api/tags/${tagId}`, { method: "DELETE" });
+  const response = await fetch(`/api/tags/${tagId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${requireToken()}`, Accept: "application/json", ...workspaceHeaders() },
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (response.status === 409 && payload?.blocking) {
+    throw new TagInUseError(payload.message ?? "La etiqueta está en uso", payload.blocking);
+  }
+  if (!response.ok) throwApiError(response.status, payload, "No se pudo eliminar la etiqueta");
 }
 
 export async function attachContactTags(contactId: number, tagIds: number[]) {
