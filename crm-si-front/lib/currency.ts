@@ -51,6 +51,19 @@ export function currencySymbol(currency: unknown): string {
 }
 
 /**
+ * Monto corto para métricas y totales de columna: "$4.3k", "$48k", "$950", "$4.8M". Es una
+ * lectura de tablero, no un importe exacto; para el valor preciso usar formatCurrency. Sin
+ * divisa se asume la del tenant (ARS); con USD se antepone "US$" como en formatCurrency.
+ */
+export function formatCompactCurrency(value: number, currency?: unknown): string {
+  const symbol = currency === undefined ? "$" : currencySymbol(currency)
+  const abs = Math.abs(value)
+  if (abs >= 1_000_000) return `${symbol}${(value / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1)}M`
+  if (abs >= 1000) return `${symbol}${(value / 1000).toFixed(abs >= 10000 ? 0 : 1)}k`
+  return `${symbol}${new Intl.NumberFormat("es-AR").format(Math.round(value))}`
+}
+
+/**
  * Convierte lo tipeado a número. Acepta lo que una persona escribe de verdad
  * ("$ 1.250.000,50", "1250000.5") aplicando el mismo criterio que el
  * importador del backend: gana como decimal el separador más a la derecha, y

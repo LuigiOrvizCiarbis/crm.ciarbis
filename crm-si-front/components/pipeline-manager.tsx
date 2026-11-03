@@ -80,7 +80,7 @@ export function PipelineManager() {
   }
 
   return (
-    <SettingsBlock title="Embudos" description="Organizá procesos comerciales y sus etapas." icon={GitBranch} measure="prose">
+    <SettingsBlock id="panel-stages" className="scroll-mt-28" title="Embudos" description="Organizá procesos comerciales y sus etapas." icon={GitBranch} measure="prose">
       {loadError ? (
         <div className="space-y-3 py-4 text-center">
           <p className="text-sm text-destructive">No se pudieron cargar los embudos.</p>

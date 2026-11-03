@@ -4,6 +4,7 @@ import { TrendingDown, TrendingUp } from "lucide-react"
 import { StatStrip, type Stat } from "@/components/ui/stat-strip"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { DashboardKpis } from "@/lib/api/dashboard"
+import { formatCompactCurrency } from "@/lib/currency"
 
 interface MetricsCardsProps {
   kpis?: DashboardKpis
@@ -14,13 +15,6 @@ interface MetricsCardsProps {
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("es-AR").format(Math.round(value))
-}
-
-function formatCurrency(value: number): string {
-  if (value >= 1000) {
-    return `$${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`
-  }
-  return `$${formatNumber(value)}`
 }
 
 function formatPercent(value: number): string {
@@ -67,14 +61,10 @@ export function MetricsCards({ kpis, previous, trends, isLoading }: MetricsCards
 
   const stats: Stat[] = [
     metric(t("dashboard.kpis.totalConversations"), formatNumber, (k) => k.total_conversations, (tr) => tr.total_conversations),
-    metric(
-      t("dashboard.kpis.totalRevenue"),
-      formatCurrency,
-      (k) => k.won_value || k.pipeline_value,
-      (tr) => tr.won_value ?? tr.pipeline_value,
-    ),
+    // Lo ganado por fecha de cierre; sin ventas en el período es $0, no el valor del embudo.
+    metric(t("dashboard.kpis.totalRevenue"), formatCompactCurrency, (k) => k.won_value, (tr) => tr.won_value),
     metric(t("dashboard.kpis.globalConversion"), formatPercent, (k) => k.global_conversion_rate, (tr) => tr.global_conversion_rate),
-    metric(t("dashboard.kpis.avgRoi"), formatPercent, (k) => k.avg_roi, (tr) => tr.avg_roi),
+    metric(t("dashboard.kpis.avgTicket"), formatCompactCurrency, (k) => k.avg_ticket, (tr) => tr.avg_ticket),
   ]
 
   return <StatStrip stats={stats} loading={loading} />

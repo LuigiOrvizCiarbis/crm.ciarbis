@@ -32,7 +32,7 @@ export function AIChatbot() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
-      content: "¡Hola! Soy el asistente de Social Impulse. ¿En qué puedo ayudarte hoy?",
+      content: "¡Hola! Soy el asistente de BIMS. ¿En qué te puedo ayudar hoy?",
       sender: "bot",
       timestamp: new Date(),
     },
@@ -171,7 +171,7 @@ export function AIChatbot() {
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Bot className="h-5 w-5 text-blue-500" />
-              Chatbot IA - Social Impulse
+              Chatbot IA de BIMS
             </CardTitle>
             {leadData.score > 0 && (
               <Badge className={`${getScoreColor(leadData.score)} text-white`}>

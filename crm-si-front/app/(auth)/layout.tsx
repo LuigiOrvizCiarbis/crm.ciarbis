@@ -1,8 +1,8 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Social Impulse | Iniciar sesión",
-  description: "Accedé a tu cuenta de Social Impulse CRM",
+  title: "Iniciar sesión",
+  description: "Accedé a tu cuenta de BIMS",
 }
 
 export default function AuthLayout({

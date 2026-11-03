@@ -51,11 +51,18 @@ interface PipelineStagesManagerProps {
 
 const DEFAULT_NEW_COLOR = "#3B82F6"
 
+/** "" deja la etapa sin probabilidad; cualquier otro valor se acota a 0..100. */
+function parseProbability(raw: string): number | null {
+  const digits = raw.replace(/\D/g, "")
+  return digits === "" ? null : Math.min(100, Number(digits))
+}
+
 function SortableStageRow({
   stage,
   canManage,
   onNameChange,
   onColorChange,
+  onProbabilityChange,
   onCommit,
   onDelete,
   saving,
@@ -64,6 +71,7 @@ function SortableStageRow({
   canManage: boolean
   onNameChange: (id: number, name: string) => void
   onColorChange: (id: number, color: string) => void
+  onProbabilityChange: (id: number, probability: number | null) => void
   onCommit: (stage: PipelineStage) => void
   onDelete: (stage: PipelineStage) => void
   saving: boolean
@@ -117,6 +125,20 @@ function SortableStageRow({
         aria-label={t("pipeline.stages.nameAria")}
       />
 
+      <div className="relative w-[4.5rem] shrink-0">
+        <Input
+          inputMode="numeric"
+          value={stage.win_probability ?? ""}
+          placeholder="—"
+          disabled={!canManage || saving}
+          onChange={(e) => onProbabilityChange(stage.id, parseProbability(e.target.value))}
+          onBlur={() => onCommit(stage)}
+          className="h-8 pr-6 text-right tabular-nums"
+          aria-label={t("pipeline.stages.probabilityAria", { name: stage.name })}
+        />
+        <span aria-hidden="true" className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+      </div>
+
       {canManage && (
         <Button
           variant="ghost"
@@ -147,7 +169,7 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
   const [stageToDelete, setStageToDelete] = useState<PipelineStage | null>(null)
 
   // Snapshot del valor guardado en backend, para evitar persistir si no hubo cambios.
-  const savedValues = useRef<Map<number, { name: string; color: string }>>(new Map())
+  const savedValues = useRef<Map<number, Pick<PipelineStage, "name" | "color" | "win_probability">>>(new Map())
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -164,7 +186,7 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
     try {
       const data = await fetchPipelineStages(pipelineId)
       const sorted = [...data].sort((a, b) => a.sort_order - b.sort_order)
-      savedValues.current = new Map(sorted.map((s) => [s.id, { name: s.name, color: s.color }]))
+      savedValues.current = new Map(sorted.map((s) => [s.id, { name: s.name, color: s.color, win_probability: s.win_probability }]))
       setStages(sorted)
     } catch {
       setLoadError(true)
@@ -185,6 +207,10 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
     setStages((prev) => prev.map((s) => (s.id === id ? { ...s, color } : s)))
   }
 
+  const handleProbabilityChangeLocal = (id: number, probability: number | null) => {
+    setStages((prev) => prev.map((s) => (s.id === id ? { ...s, win_probability: probability } : s)))
+  }
+
   const persistStage = async (stage: PipelineStage) => {
     const saved = savedValues.current.get(stage.id)
     const name = stage.name.trim()
@@ -192,22 +218,23 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
       fetchStages()
       return
     }
-    if (saved && saved.name === name && saved.color === stage.color) {
+    if (saved && saved.name === name && saved.color === stage.color && saved.win_probability === stage.win_probability) {
       return
     }
 
     // Solo los campos que cambiaron: el snapshot puede tener un nombre viejo (p.ej.
     // el backend renombró "Contactar <mes>") y mandarlo cortaría la plantilla.
-    const changes: { name?: string; color?: string } = {}
+    const changes: { name?: string; color?: string; win_probability?: number | null } = {}
     if (!saved || saved.name !== name) changes.name = name
     if (!saved || saved.color !== stage.color) changes.color = stage.color
+    if (!saved || saved.win_probability !== stage.win_probability) changes.win_probability = stage.win_probability
 
     setSaving(true)
     try {
       const updated = await updatePipelineStage(stage.id, changes)
-      savedValues.current.set(stage.id, { name: updated.name, color: updated.color })
+      savedValues.current.set(stage.id, { name: updated.name, color: updated.color, win_probability: updated.win_probability })
       setStages((prev) =>
-        prev.map((s) => (s.id === updated.id ? { ...s, name: updated.name, color: updated.color } : s))
+        prev.map((s) => (s.id === updated.id ? { ...s, name: updated.name, color: updated.color, win_probability: updated.win_probability } : s))
       )
       onStagesChanged?.()
     } catch {
@@ -337,6 +364,7 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
                 saving={saving}
                 onNameChange={handleNameChangeLocal}
                 onColorChange={handleColorChangeLocal}
+                onProbabilityChange={handleProbabilityChangeLocal}
                 onCommit={persistStage}
                 onDelete={setStageToDelete}
               />
@@ -378,7 +406,10 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
       )}
 
       {canManage && stages.length > 0 && (
-        <p className="text-xs text-muted-foreground">{t("pipeline.stages.editHint")}</p>
+        <div className="space-y-1 text-xs text-muted-foreground">
+          <p>{t("pipeline.stages.editHint")}</p>
+          <p>{t("pipeline.stages.probabilityHint")}</p>
+        </div>
       )}
 
       <AlertDialog open={stageToDelete !== null} onOpenChange={(open) => !open && setStageToDelete(null)}>

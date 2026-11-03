@@ -32,7 +32,7 @@ class InvitationNotification extends Notification
         $tenantName = $this->invitation->tenant->name ?? 'a team';
 
         return (new MailMessage)
-            ->subject("Te invitaron a unirte a {$tenantName} - Social Impulse")
+            ->subject("Te invitaron a unirte a {$tenantName} en BIMS")
             ->view('emails.invitation', [
                 'inviterName' => $inviterName,
                 'tenantName' => $tenantName,

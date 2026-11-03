@@ -30,7 +30,7 @@ class CustomVerifyEmail extends Notification
         $verificationUrl = $this->verificationUrl($notifiable);
 
         return (new MailMessage)
-            ->subject('✉️ Verifica tu cuenta - Social Impulse')
+            ->subject('✉️ Verificá tu cuenta de BIMS')
             ->view('emails.verify-email', [
                 'userName' => $notifiable->name,
                 'verificationUrl' => $verificationUrl,

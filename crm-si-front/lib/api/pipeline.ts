@@ -7,6 +7,8 @@ export interface PipelineStage {
   color: string
   sort_order: number
   is_default: boolean
+  /** Probabilidad de cierre (0 a 100) para proyectar ingresos; null si no se definió. */
+  win_probability: number | null
 }
 
 export interface Pipeline {
@@ -109,7 +111,7 @@ export async function createPipelineStage(data: {
 
 export async function updatePipelineStage(
   id: number,
-  data: { name?: string; color?: string; sort_order?: number }
+  data: { name?: string; color?: string; sort_order?: number; win_probability?: number | null }
 ): Promise<PipelineStage> {
   const token = getAuthToken();
   if (!token) throw new Error("No autenticado");

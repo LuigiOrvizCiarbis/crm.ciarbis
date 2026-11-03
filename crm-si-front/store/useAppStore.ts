@@ -34,21 +34,10 @@ export interface Cliente {
   arr: number
 }
 
-export interface AppFilters {
-  rango: 7 | 30 | 90
-  canal: string
-  owner: string
-  sucursal_id?: number | null
-}
-
 interface AppStore {
   // User state
   usuario: { nombre: string; email: string } | null
   setUsuario: (usuario: { nombre: string; email: string } | null) => void
-
-  // Filters
-  filters: AppFilters
-  setFilters: (filters: Partial<AppFilters>) => void
 
   // Leads/Pipeline
   leads: Lead[]
@@ -84,13 +73,6 @@ export const useAppStore = create<AppStore>()(
       // User state
       usuario: { nombre: "Juan Pérez", email: "juan@empresa.com" },
       setUsuario: (usuario) => set({ usuario }),
-
-      // Filters
-      filters: { rango: 30, canal: "todos", owner: "todos" },
-      setFilters: (newFilters) =>
-        set((state) => ({
-          filters: { ...state.filters, ...newFilters },
-        })),
 
       // Leads/Pipeline
       leads: [
@@ -204,7 +186,6 @@ export const useAppStore = create<AppStore>()(
       name: "social-impulse-store",
       partialize: (state) => ({
         usuario: state.usuario,
-        filters: state.filters,
         sidebarCollapsed: state.sidebarCollapsed,
         whatsappConnected: state.whatsappConnected,
       }),

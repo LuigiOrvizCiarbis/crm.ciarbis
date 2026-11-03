@@ -20,6 +20,9 @@ class Tenant extends Model
         'status',
         'deletion_scheduled_at',
         'deactivated_at',
+        'response_time_goal_minutes',
+        'cycle_time_goal_days',
+        'revenue_goal_monthly',
     ];
 
     protected $casts = [
@@ -29,6 +32,9 @@ class Tenant extends Model
         'navigation_labels' => 'array',
         'deletion_scheduled_at' => 'datetime',
         'deactivated_at' => 'datetime',
+        'response_time_goal_minutes' => 'integer',
+        'cycle_time_goal_days' => 'integer',
+        'revenue_goal_monthly' => 'decimal:2',
     ];
 
     protected static function booted(): void

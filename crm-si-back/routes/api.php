@@ -433,6 +433,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('navigation-labels', [NavigationLabelController::class, 'update']);
 
     Route::get('dashboard/metrics', [DashboardController::class, 'metrics']);
+    Route::get('dashboard/goals', [DashboardController::class, 'goals']);
+    Route::put('dashboard/goals', [DashboardController::class, 'updateGoals']);
     Route::get('dashboard/branches', [DashboardController::class, 'branches']);
 
     Route::get('tags/{tag}/usage', [TagController::class, 'usage']);

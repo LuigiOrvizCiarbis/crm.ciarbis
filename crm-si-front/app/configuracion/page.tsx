@@ -16,6 +16,7 @@ import { RolesCard } from "@/components/config/RolesCard"
 import { SucursalesCard } from "@/components/config/SucursalesCard"
 import { TeamInvitationsCard } from "@/components/config/TeamInvitationsCard"
 import { TagsCard } from "@/components/config/TagsCard"
+import { DashboardGoalsCard } from "@/components/config/DashboardGoalsCard"
 import { WorkspaceCard } from "@/components/config/WorkspaceCard"
 import { AutomationsSettings } from "@/components/config/AutomationsSettings"
 import { BillingTemplatesCard } from "@/components/config/BillingTemplatesCard"
@@ -24,7 +25,7 @@ import { BusinessVerificationCard } from "@/components/config/BusinessVerificati
 import { ChannelsCard } from "@/components/config/ChannelsCard"
 import { NavigationLabelsCard } from "@/components/config/NavigationLabelsCard"
 import { SettingsSectionHeading, SettingsTabs, useSettingsNav, type SettingsSection } from "@/components/config/SettingsNav"
-import { usePermission } from "@/hooks/usePermission"
+import { useIsOwner, usePermission } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
 
 type SettingsSectionId = "organization" | "operation" | "integrations"
@@ -57,6 +58,10 @@ export default function ConfiguracionPage() {
   const canManageBilling = usePermission("billing.manage")
   const canManageNavigationLabels = usePermission("navigation_labels.manage")
   const canManageTags = usePermission("tags.manage")
+  // Mismo criterio que el backend: el dueño o quien ve las métricas de todo el equipo.
+  const canViewTeamAnalytics = usePermission("analytics.view_team")
+  const isOwner = useIsOwner()
+  const canManageGoals = isOwner || canViewTeamAnalytics
   const sections = useMemo<SettingsSection<SettingsSectionId>[]>(
     () => [
       {
@@ -131,6 +136,7 @@ export default function ConfiguracionPage() {
                   {canManageNavigationLabels && <NavigationLabelsCard />}
                   <MessageHotkeysCard />
                   {canViewPipeline && <PipelineStagesCard />}
+                  {canManageGoals && <DashboardGoalsCard />}
                   {canManageTags && <TagsCard />}
                   {canViewFields && <FieldsCard />}
                   {canManageBilling && <BillingTemplatesCard />}

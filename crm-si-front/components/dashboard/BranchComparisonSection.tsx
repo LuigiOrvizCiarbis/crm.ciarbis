@@ -1,95 +1,111 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Building2, Loader2 } from "lucide-react"
+import { PanelSection } from "@/components/dashboard/PanelSection"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useIsOwner, usePermission } from "@/hooks/usePermission"
 import { useBranchesStore } from "@/store/useBranchesStore"
-import { useAppStore } from "@/store/useAppStore"
-import { BranchStats, getBranchesDashboard } from "@/lib/api/branches"
+import { getBranchComparison, type BranchComparisonRow, type DashboardFilters } from "@/lib/api/dashboard"
+import { formatCompactCurrency } from "@/lib/currency"
+import { cn } from "@/lib/utils"
 
-export function BranchComparisonSection() {
+interface BranchComparisonSectionProps {
+  /** Los filtros del encabezado salvo la sucursal: la tabla siempre muestra todas. */
+  filters: DashboardFilters
+  /** Sucursal elegida en el encabezado, para marcar su fila. */
+  selectedBranchId: number | null
+}
+
+export function BranchComparisonSection({ filters, selectedBranchId }: BranchComparisonSectionProps) {
   const { t } = useTranslation()
   const isOwner = useIsOwner()
-  const canViewAll = usePermission("branches.view_all")
+  const canViewAllPermission = usePermission("branches.view_all")
+  const canManage = usePermission("branches.manage")
+  // Los mismos permisos que exige el backend para la comparativa.
+  const canViewAll = isOwner || canViewAllPermission || canManage
   const { branches, loaded, fetch } = useBranchesStore()
-  const { filters } = useAppStore()
-  const [stats, setStats] = useState<BranchStats[]>([])
+  const [stats, setStats] = useState<BranchComparisonRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (!loaded) fetch()
   }, [loaded, fetch])
 
   useEffect(() => {
-    if (!isOwner && !canViewAll) return
+    if (!canViewAll) return
     if (loaded && branches.length === 0) return
 
     let cancelled = false
     setLoading(true)
-    getBranchesDashboard(filters.rango).then(({ data }) => {
-      if (cancelled) return
-      setStats(data)
-      setLoading(false)
-    })
+    setFailed(false)
+    getBranchComparison(filters)
+      .then((rows) => { if (!cancelled) setStats(rows) })
+      .catch(() => { if (!cancelled) setFailed(true) })
+      .finally(() => { if (!cancelled) setLoading(false) })
     return () => {
       cancelled = true
     }
-  }, [filters.rango, isOwner, canViewAll, branches.length, loaded])
+  }, [filters, canViewAll, branches.length, loaded, reloadKey])
 
-  if (!isOwner && !canViewAll) return null
+  // Sin sucursales la comparación no tiene sentido: la sección no aparece.
+  if (!canViewAll) return null
   if (loaded && branches.length === 0) return null
 
+  const numeric = "px-3 py-2.5 text-right tabular-nums"
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Building2 className="w-5 h-5" />
-          {t("sucursales.dashboard.title")}
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">{t("sucursales.dashboard.subtitle")}</p>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="flex justify-center p-8">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-muted-foreground border-b">
-                  <th className="py-2 px-3">{t("sucursales.fields.name")}</th>
-                  <th className="py-2 px-3 text-right">{t("sucursales.dashboard.contacts")}</th>
-                  <th className="py-2 px-3 text-right">{t("sucursales.dashboard.conversations")}</th>
-                  <th className="py-2 px-3 text-right">{t("sucursales.dashboard.opportunities")}</th>
-                  <th className="py-2 px-3 text-right">{t("sucursales.dashboard.value")}</th>
-                  <th className="py-2 px-3 text-right">{t("sucursales.dashboard.won")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.map((row) => (
-                  <tr key={row.id} className="border-b last:border-0">
-                    <td className="py-2 px-3 font-medium">{row.name}</td>
-                    <td className="py-2 px-3 text-right">{row.contacts_total}</td>
-                    <td className="py-2 px-3 text-right">{row.conversations_open}</td>
-                    <td className="py-2 px-3 text-right">{row.opportunities_count}</td>
-                    <td className="py-2 px-3 text-right">
-                      {row.opportunities_value.toLocaleString(undefined, {
-                        style: "currency",
-                        currency: "USD",
-                        maximumFractionDigits: 0,
-                      })}
-                    </td>
-                    <td className="py-2 px-3 text-right">{row.opportunities_won}</td>
+    <PanelSection
+      id="panel-branches"
+      title={t("sucursales.dashboard.title")}
+      description={t("sucursales.dashboard.subtitle")}
+      busy={loading}
+    >
+      {failed ? (
+        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+          {t("dashboard.errors.branchesFailed")}
+          <Button variant="outline" size="sm" onClick={() => setReloadKey((key) => key + 1)}>
+            {t("dashboard.errors.retry")}
+          </Button>
+        </div>
+      ) : loading && stats.length === 0 ? (
+        <div className="space-y-3">
+          {[0, 1, 2].map((row) => <Skeleton key={row} className="h-6 w-full" />)}
+        </div>
+      ) : (
+        <div className="-mx-3 overflow-x-auto">
+          <table className="w-full min-w-[36rem] text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                <th scope="col" className="px-3 py-2 font-medium">{t("sucursales.fields.name")}</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">{t("sucursales.dashboard.contacts")}</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">{t("sucursales.dashboard.conversations")}</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">{t("sucursales.dashboard.opportunities")}</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">{t("sucursales.dashboard.value")}</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">{t("sucursales.dashboard.won")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.map((row) => {
+                const selected = row.id === selectedBranchId
+                return (
+                  <tr key={row.id} aria-current={selected ? "true" : undefined} className={cn("border-b border-border last:border-0", selected && "bg-muted")}>
+                    <th scope="row" className={cn("px-3 py-2.5 text-left", selected ? "font-semibold" : "font-medium")}>{row.name}</th>
+                    <td className={numeric}>{row.contacts_new.toLocaleString("es-AR")}</td>
+                    <td className={numeric}>{row.conversations.toLocaleString("es-AR")}</td>
+                    <td className={numeric}>{row.opportunities_count.toLocaleString("es-AR")}</td>
+                    <td className={numeric}>{formatCompactCurrency(row.opportunities_value)}</td>
+                    <td className={numeric}>{row.opportunities_won.toLocaleString("es-AR")}</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </PanelSection>
   )
 }

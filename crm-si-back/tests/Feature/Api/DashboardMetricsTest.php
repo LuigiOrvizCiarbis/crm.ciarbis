@@ -39,7 +39,8 @@ class DashboardMetricsTest extends TestCase
 
         $response->assertOk()
             ->assertJsonStructure([
-                'stages',
+                'pipeline' => ['id', 'name', 'is_default'],
+                'stages' => ['*' => ['id', 'name', 'sort_order', 'pipeline_id', 'pipeline_name', 'count', 'value']],
                 'kpis' => [
                     'total_opportunities',
                     'pipeline_value',
@@ -49,13 +50,28 @@ class DashboardMetricsTest extends TestCase
                     'total_contacts',
                     'won_count',
                     'won_value',
+                    'avg_ticket',
                     'global_conversion_rate',
-                    'avg_roi',
                 ],
                 'previous',
                 'trends',
                 'daily_series',
                 'omnichannel',
+                'efficiency' => [
+                    'response_time' => ['avg_minutes', 'previous_avg_minutes', 'samples', 'goal_minutes'],
+                    'cycle_time' => ['avg_days', 'previous_avg_days', 'samples', 'goal_days'],
+                    'tasks' => ['completed', 'total', 'previous_completed', 'previous_total'],
+                ],
+                'revenue' => [
+                    'won_value',
+                    'won_count',
+                    'open_weighted_value',
+                    'projected_value',
+                    'stages_without_probability',
+                    'goal',
+                    'by_channel',
+                    'collections',
+                ],
                 'range' => ['start', 'end', 'periodo'],
             ]);
     }

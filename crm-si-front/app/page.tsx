@@ -5,7 +5,8 @@ import { InboxMockup } from "@/components/landing/InboxMockup"
 import { MessageSquare, Users, KanbanSquare, CalendarDays } from "lucide-react"
 
 export const metadata: Metadata = {
-  title: "Social Impulse CRM | CRM conversacional con IA para WhatsApp e Instagram",
+  // Absoluto: la plantilla "| BIMS" no aplica a la landing, cuyo copy está fijado por la verificación de Google.
+  title: { absolute: "Social Impulse CRM | CRM conversacional con IA para WhatsApp e Instagram" },
   description:
     "Social Impulse CRM centraliza las conversaciones de WhatsApp, Instagram y Facebook en una bandeja única, con gestión de contactos, embudo de ventas y agendamiento de reuniones en Google Calendar.",
   alternates: {

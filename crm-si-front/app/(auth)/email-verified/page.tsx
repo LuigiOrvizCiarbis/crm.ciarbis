@@ -69,14 +69,14 @@ function EmailVerifiedContent() {
         
         <CardContent>
           <p className="text-sm text-muted-foreground text-center">
-            Ahora podés acceder a todas las funcionalidades de Social Impulse.
+            Ahora podés acceder a todas las funcionalidades de BIMS.
           </p>
         </CardContent>
         
         <CardFooter>
           <Link href="/chats" className="w-full">
             <Button className="w-full">
-              Comenzar a usar Social Impulse
+              Empezar a usar BIMS
             </Button>
           </Link>
         </CardFooter>

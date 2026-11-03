@@ -1,9 +1,10 @@
 "use client"
 
-import { createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useState } from "react"
+import { createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { EmptyState } from "@/components/EmptyState"
+import { formatCompactCurrency } from "@/lib/currency"
 import { StatStrip } from "@/components/ui/stat-strip"
 import { Badge, LeadScoreBadge } from "@/components/Badges"
 import { ContactAvatar } from "@/components/contact-avatar"
@@ -210,7 +211,7 @@ function OpportunityCard({
 
   const { label: sourceLabel, className: sourceClassName, platform: sourcePlatform } = getOpportunitySource(opportunity)
   const valueFormatted = opportunity.value
-    ? formatColumnCurrency(Number(opportunity.value))
+    ? formatCompactCurrency(Number(opportunity.value))
     : "—"
   const probability = getOpportunityProbability(opportunity)
   const score = getOpportunityScore(opportunity)
@@ -429,13 +430,6 @@ function SortableOpportunityCard({
   )
 }
 
-function formatColumnCurrency(value: number): string {
-  if (value >= 1000) {
-    return `$${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`
-  }
-  return `$${new Intl.NumberFormat("es-AR").format(Math.round(value))}`
-}
-
 const COLUMN_COLOR_MAP: Record<string, string> = {
   "bg-blue-500": "#3B82F6",
   "bg-cyan-500": "#06B6D4",
@@ -459,6 +453,10 @@ function resolveColumnColor(color: string | null | undefined): string {
   return COLUMN_COLOR_MAP[color] ?? "#3B82F6"
 }
 
+function getStageHeadingId(stageId: number): string {
+  return `kanban-stage-${stageId}-title`
+}
+
 function KanbanColumn({
   column,
   opportunities,
@@ -480,20 +478,30 @@ function KanbanColumn({
   return (
     // Teléfono: columna casi a pantalla completa con un asomo de la siguiente, imantada al deslizar;
     // la cabecera queda fija y las tarjetas scrollean dentro de la columna.
-    <div className="flex-1 min-w-80 max-md:flex max-md:w-[min(20rem,calc(100vw-3.5rem))] max-md:min-w-0 max-md:flex-none max-md:snap-start max-md:flex-col">
+    <div
+      data-stage-id={column.id}
+      className="flex-1 min-w-80 max-md:flex max-md:w-[min(20rem,calc(100vw-3.5rem))] max-md:min-w-0 max-md:flex-none max-md:snap-start max-md:flex-col"
+    >
       <Card className={`bg-muted/20 overflow-hidden transition-colors max-md:min-h-0 max-md:flex-1 max-md:gap-0 max-md:py-0 ${isOver ? "ring-2 ring-primary/30 bg-primary/5" : ""}`}>
         <div className="h-1.5 w-full shrink-0" style={{ backgroundColor: stripeColor }} />
         <CardContent className="p-4 max-md:flex max-md:min-h-0 max-md:flex-1 max-md:flex-col max-md:p-2">
           <div className="flex items-center gap-2 mb-2 max-md:px-1 max-md:pt-1">
             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stripeColor }} />
-            <h3 className="font-semibold flex-1 truncate">{column.title}</h3>
+            <h3
+              id={getStageHeadingId(column.id)}
+              tabIndex={-1}
+              aria-label={`Etapa ${column.title}`}
+              className="font-semibold flex-1 truncate rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            >
+              {column.title}
+            </h3>
             <Badge variant="default" className="ml-1 shrink-0">
               {opportunities.length}
             </Badge>
           </div>
 
           <div className="space-y-1 mb-4 max-md:mb-3 max-md:px-1">
-            <p className="text-sm font-medium">{formatColumnCurrency(totalValue)}</p>
+            <p className="text-sm font-medium">{formatCompactCurrency(totalValue)}</p>
             <p className="text-xs text-muted-foreground">Prob. promedio: {avgProb}%</p>
           </div>
 
@@ -532,6 +540,10 @@ interface KanbanBoardProps {
   onClearFilters?: () => void
   /** Abre el gestor de etapas; sin él el estado vacío no ofrece acción (falta permiso). */
   onManageStages?: () => void
+  /** Etapa a mostrar y enfocar al cargar (deep link `?etapa=`); se atiende una sola vez por valor. */
+  focusStageId?: number | null
+  /** Se llama tras atender `focusStageId`, exista o no la etapa, para que la página limpie la URL. */
+  onStageFocusHandled?: () => void
 }
 
 // Saca la oportunidad de su columna y la pone al final de otra; sirve para mover y para deshacer.
@@ -600,8 +612,18 @@ function createOpportunityMatcher(filters: PipelineFilters): ((opportunity: Oppo
   }
 }
 
-export function KanbanBoard({ refreshKey = 0, pipelineId, filters = EMPTY_PIPELINE_FILTERS, onClearFilters, onManageStages }: KanbanBoardProps) {
+export function KanbanBoard({
+  refreshKey = 0,
+  pipelineId,
+  filters = EMPTY_PIPELINE_FILTERS,
+  onClearFilters,
+  onManageStages,
+  focusStageId = null,
+  onStageFocusHandled,
+}: KanbanBoardProps) {
   const [columns, setColumns] = useState<Column[]>([])
+  // Embudo al que pertenecen las columnas cargadas; `columns` queda desfasado mientras llega el siguiente.
+  const [loadedPipelineId, setLoadedPipelineId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeOpportunityId, setActiveOpportunityId] = useState<number | null>(null)
@@ -685,6 +707,7 @@ export function KanbanBoard({ refreshKey = 0, pipelineId, filters = EMPTY_PIPELI
       }
 
       setColumns(columnsData)
+      setLoadedPipelineId(pipelineId)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Revisá tu conexión e intentá de nuevo.")
     } finally {
@@ -695,6 +718,28 @@ export function KanbanBoard({ refreshKey = 0, pipelineId, filters = EMPTY_PIPELI
   useEffect(() => {
     fetchPipelineData()
   }, [fetchPipelineData, refreshKey])
+
+  // Recuerda la última etapa atendida para no volver a desplazar el tablero en cada recarga de datos.
+  const handledFocusStageIdRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!focusStageId) {
+      handledFocusStageIdRef.current = null
+      return
+    }
+    // Hasta que lleguen las columnas de este embudo, las del anterior siguen en pantalla.
+    if (loading || loadedPipelineId !== pipelineId || handledFocusStageIdRef.current === focusStageId) return
+    handledFocusStageIdRef.current = focusStageId
+
+    const heading = document.getElementById(getStageHeadingId(focusStageId))
+    const column = heading?.closest<HTMLElement>("[data-stage-id]")
+    if (heading && column) {
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      column.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", inline: "center", block: "nearest" })
+      // preventScroll: el foco no debe pisar el desplazamiento suave ya iniciado.
+      heading.focus({ preventScroll: true })
+    }
+    onStageFocusHandled?.()
+  }, [loading, loadedPipelineId, pipelineId, focusStageId, onStageFocusHandled])
 
   const deferredSearch = useDeferredValue(filters.search)
   const { channel, assignee, status, value, period } = filters
@@ -858,7 +903,7 @@ export function KanbanBoard({ refreshKey = 0, pipelineId, filters = EMPTY_PIPELI
   // Sin "Etapas del pipeline": las columnas ya están a la vista.
   const kpis = [
     { value: totalOpportunities, label: "Total de oportunidades" },
-    { value: formatColumnCurrency(avgValue), label: "Valor promedio" },
+    { value: formatCompactCurrency(avgValue), label: "Valor promedio" },
   ]
 
   return (

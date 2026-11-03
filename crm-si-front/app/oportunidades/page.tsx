@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { GitBranch, Loader2 } from "lucide-react"
 import { KanbanBoard } from "@/components/kanban-board"
 import { SidebarLayout } from "@/components/SidebarLayout"
@@ -26,6 +27,24 @@ export default function OportunidadesPage() {
   const [newPipelineOpen, setNewPipelineOpen] = useState(false)
   const [stagesDialogOpen, setStagesDialogOpen] = useState(false)
   const [filters, setFilters] = useState<PipelineFilters>(EMPTY_PIPELINE_FILTERS)
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  // Deep link desde el Panel ("Ver en el embudo"): ?etapa={id}&embudo={id}. Sin `embudo` (enlaces
+  // viejos) la etapa se busca en el embudo predeterminado.
+  const etapaParam = searchParams.get("etapa")
+  const embudoParam = searchParams.get("embudo")
+  const focusStageId = etapaParam && /^\d+$/.test(etapaParam) ? Number(etapaParam) : null
+  const defaultPipelineId = pipelines.find((item) => item.is_default)?.id ?? 0
+  const linkedPipelineId = embudoParam && /^\d+$/.test(embudoParam) && pipelines.some((item) => item.id === Number(embudoParam))
+    ? Number(embudoParam)
+    : defaultPipelineId
+  // Ajuste durante el render (no en un efecto) para que el tablero arranque ya en el embudo correcto.
+  const [syncedFocusStageId, setSyncedFocusStageId] = useState<number | null>(null)
+  if (linkedPipelineId && focusStageId !== syncedFocusStageId) {
+    setSyncedFocusStageId(focusStageId)
+    if (focusStageId && selectedPipelineId !== linkedPipelineId) setSelectedPipelineId(linkedPipelineId)
+  }
 
   const loadPipelines = useCallback(() => {
     setPipelinesStatus("loading")
@@ -56,6 +75,14 @@ export default function OportunidadesPage() {
   const handleStagesChanged = (): void => {
     setRefreshKey((prev) => prev + 1)
   }
+
+  const handleStageFocusHandled = useCallback((): void => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete("etapa")
+    params.delete("embudo")
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+  }, [pathname, router, searchParams])
 
   return (
     <SidebarLayout>
@@ -92,6 +119,9 @@ export default function OportunidadesPage() {
               filters={filters}
               onClearFilters={() => setFilters(EMPTY_PIPELINE_FILTERS)}
               onManageStages={canManageStages ? () => setStagesDialogOpen(true) : undefined}
+              // Con otro embudo elegido la etapa no está en el tablero: no se intenta enfocar.
+              focusStageId={selectedPipelineId === linkedPipelineId ? focusStageId : null}
+              onStageFocusHandled={handleStageFocusHandled}
             />
           ) : (
             <EmptyState

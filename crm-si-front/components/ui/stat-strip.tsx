@@ -34,6 +34,8 @@ interface StatStripProps {
   /** Muestra las etiquetas con el valor en esqueleto, para que el layout no salte al cargar. */
   loading?: boolean
   className?: string
+  /** Reemplaza la grilla por defecto cuando el detalle es largo (p. ej. apilar en el teléfono). */
+  gridClassName?: string
 }
 
 /**
@@ -41,11 +43,11 @@ interface StatStripProps {
  * tarjetas sueltas de ícono + número gigante: el número es Headline (2xl/700)
  * y sólo los estados semánticos llevan color.
  */
-export function StatStrip({ stats, loading = false, className }: StatStripProps) {
+export function StatStrip({ stats, loading = false, className, gridClassName }: StatStripProps) {
   return (
     <div className={cn("overflow-hidden rounded-xl border border-border bg-card shadow-xs", className)} aria-busy={loading || undefined}>
       {/* El -ml/-mt esconde bajo el borde exterior las líneas de la primera fila y columna. */}
-      <dl className={cn("-ml-px -mt-px grid", columnsClass[stats.length] ?? "grid-cols-2 lg:grid-cols-4")}>
+      <dl className={cn("-ml-px -mt-px grid", gridClassName ?? columnsClass[stats.length] ?? "grid-cols-2 lg:grid-cols-4")}>
         {stats.map(({ label, value, detail, icon: Icon, tone }) => (
           <div key={label} className="min-w-0 border-l border-t border-border px-3 py-3 md:px-5 md:py-4">
             <dt className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
