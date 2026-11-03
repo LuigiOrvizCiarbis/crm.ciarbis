@@ -435,6 +435,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('dashboard/metrics', [DashboardController::class, 'metrics']);
     Route::get('dashboard/branches', [DashboardController::class, 'branches']);
 
+    Route::get('tags/{tag}/usage', [TagController::class, 'usage']);
     Route::apiResource('tags', TagController::class);
     Route::post('products/import', [ProductController::class, 'import']);
     Route::post('products/import/preview', [ProductImportController::class, 'preview']);
