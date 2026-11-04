@@ -105,15 +105,19 @@ class HumanHandoffService
 
     /**
      * Aplica un estado de Meta (webhook del número de alertas) al intento de
-     * notificación que corresponda.
+     * notificación que corresponda. Devuelve false si el estado no es de una
+     * alerta: el número de alertas también puede ser un canal de un tenant.
      *
      * @param  array<string, mixed>  $status
      */
-    public function recordAlertStatus(array $status): void
+    public function recordAlertStatus(array $status): bool
     {
-        $attempt = HandoffNotificationAttempt::where('external_id', $status['id'] ?? null)->first();
+        $externalId = $status['id'] ?? null;
+        $attempt = is_string($externalId) && $externalId !== ''
+            ? HandoffNotificationAttempt::where('external_id', $externalId)->first()
+            : null;
         if (! $attempt) {
-            return;
+            return false;
         }
 
         $state = (string) ($status['status'] ?? '');
@@ -126,12 +130,12 @@ class HumanHandoffService
                 ]);
             }
 
-            return;
+            return true;
         }
 
         $rank = self::ALERT_STATUS_RANK[$state] ?? null;
         if ($rank === null) {
-            return;
+            return true;
         }
 
         $updates = [];
@@ -151,5 +155,7 @@ class HumanHandoffService
         if ($updates !== []) {
             $attempt->update($updates);
         }
+
+        return true;
     }
 }

@@ -179,6 +179,18 @@ class HumanHandoffFlowTest extends TestCase
         $this->assertStringContainsString('template not found', $attempt->error);
     }
 
+    public function test_alert_is_not_sent_to_the_alerts_number_itself(): void
+    {
+        $this->connectWhatsApp(isOnBizApp: true, phoneNumberId: self::ALERTS_PHONE_ID);
+        Http::fake();
+
+        $handoff = $this->createHandoffWithoutJob();
+        (new SendHumanHandoffNotificationJob($handoff->id))->handle();
+
+        Http::assertNothingSent();
+        $this->assertSame('failed', HandoffNotificationAttempt::sole()->status);
+    }
+
     // --- Webhook del número de alertas ------------------------------------------
 
     public function test_alert_statuses_arrive_through_main_webhook_with_precedence(): void
@@ -221,6 +233,41 @@ class HumanHandoffFlowTest extends TestCase
         $this->postWebhook('TENANT_PHONE_1', signature: 'sha256=forged')->assertOk();
 
         $this->assertSame(1, WhatsAppWebhookReceipt::count());
+    }
+
+    public function test_alerts_number_connected_as_channel_keeps_its_own_traffic(): void
+    {
+        Queue::fake();
+        $this->connectWhatsApp(isOnBizApp: true, phoneNumberId: self::ALERTS_PHONE_ID);
+        $handoff = HumanHandoff::create([
+            'tenant_id' => $this->tenant->id, 'conversation_id' => $this->conversation->id,
+            'channel_id' => $this->conversation->channel_id, 'status' => 'pending',
+        ]);
+        $attempt = HandoffNotificationAttempt::create([
+            'human_handoff_id' => $handoff->id, 'destination_type' => 'channel', 'phone' => '541100001111',
+            'status' => 'sent', 'external_id' => 'wamid.ALERT1',
+        ]);
+        $tenantMessage = $this->createMessage(SenderType::USER, MessageDirection::OUTBOUND);
+        $tenantMessage->update(['external_id' => 'wamid.TENANT1']);
+
+        app(WhatsAppController::class)->processQueuedWebhookChange('WABA_TEST', [
+            'field' => 'messages',
+            'value' => [
+                'messaging_product' => 'whatsapp',
+                'metadata' => ['phone_number_id' => self::ALERTS_PHONE_ID],
+                'contacts' => [['wa_id' => '5491122223333', 'profile' => ['name' => 'Cliente']]],
+                'messages' => [['id' => 'wamid.IN1', 'from' => '5491122223333', 'timestamp' => (string) now()->timestamp,
+                    'type' => 'text', 'text' => ['body' => 'Hola, sigo esperando']]],
+                'statuses' => [
+                    ['id' => 'wamid.ALERT1', 'status' => 'delivered', 'timestamp' => (string) now()->timestamp],
+                    ['id' => 'wamid.TENANT1', 'status' => 'delivered', 'timestamp' => (string) now()->timestamp],
+                ],
+            ],
+        ]);
+
+        $this->assertSame('delivered', $attempt->fresh()->status);
+        $this->assertTrue($tenantMessage->fresh()->isDelivered());
+        $this->assertTrue(Message::withoutGlobalScopes()->where('external_id', 'wamid.IN1')->exists());
     }
 
     // --- Tomar ------------------------------------------------------------------
@@ -388,10 +435,10 @@ class HumanHandoffFlowTest extends TestCase
 
     // --- Helpers ----------------------------------------------------------------
 
-    private function connectWhatsApp(bool $isOnBizApp): void
+    private function connectWhatsApp(bool $isOnBizApp, string $phoneNumberId = 'TENANT_PHONE_1'): void
     {
         $config = WhatsAppConfig::create([
-            'phone_number_id' => 'TENANT_PHONE_1',
+            'phone_number_id' => $phoneNumberId,
             'display_phone_number' => '+54 9 11 9999-8888',
             'waba_id' => 'WABA_TEST',
             'bussines_token' => Crypt::encryptString('token-test'),
