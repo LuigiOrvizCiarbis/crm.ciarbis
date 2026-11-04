@@ -156,6 +156,34 @@ class HumanHandoffFlowTest extends TestCase
         $this->assertSame(0, HandoffNotificationAttempt::count());
     }
 
+    public function test_unknown_business_app_state_is_checked_with_meta_before_alerting(): void
+    {
+        $this->connectWhatsApp(isOnBizApp: null);
+        Http::fake([
+            'graph.facebook.com/*/'.self::ALERTS_PHONE_ID.'/messages' => Http::response(['messages' => [['id' => 'wamid.ALERT1']]]),
+            'graph.facebook.com/*/TENANT_PHONE_1*' => Http::response(['is_on_biz_app' => true, 'is_official_business_account' => false]),
+        ]);
+
+        $handoff = $this->createHandoffWithoutJob();
+        (new SendHumanHandoffNotificationJob($handoff->id))->handle();
+
+        $this->assertTrue($this->conversation->channel->whatsappConfig->fresh()->is_on_biz_app);
+        $this->assertSame('sent', HandoffNotificationAttempt::sole()->status);
+    }
+
+    public function test_unknown_business_app_state_stays_unknown_when_meta_fails(): void
+    {
+        $this->connectWhatsApp(isOnBizApp: null);
+        Http::fake(['graph.facebook.com/*' => Http::response(['error' => ['message' => 'boom']], 500)]);
+
+        $handoff = $this->createHandoffWithoutJob();
+        (new SendHumanHandoffNotificationJob($handoff->id))->handle();
+
+        $this->assertNull($this->conversation->channel->whatsappConfig->fresh()->is_on_biz_app);
+        Http::assertSentCount(1);
+        $this->assertSame(0, HandoffNotificationAttempt::count());
+    }
+
     public function test_alert_is_skipped_when_channel_switch_is_off(): void
     {
         $this->connectWhatsApp(isOnBizApp: true);
@@ -464,7 +492,7 @@ class HumanHandoffFlowTest extends TestCase
 
     // --- Helpers ----------------------------------------------------------------
 
-    private function connectWhatsApp(bool $isOnBizApp, string $phoneNumberId = 'TENANT_PHONE_1'): void
+    private function connectWhatsApp(?bool $isOnBizApp, string $phoneNumberId = 'TENANT_PHONE_1'): void
     {
         $config = WhatsAppConfig::create([
             'phone_number_id' => $phoneNumberId,
