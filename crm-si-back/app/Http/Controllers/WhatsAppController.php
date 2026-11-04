@@ -1299,15 +1299,26 @@ class WhatsAppController extends Controller
         $value = $change['value'] ?? [];
 
         // El número central de alertas vive en la misma app de Meta, así que
-        // sus eventos llegan por este webhook. No es un canal de ningún
-        // tenant: sólo interesan los estados de las alertas enviadas.
-        $alertsPhoneId = config('services.si_crm_alerts.phone_number_id');
-        if ($alertsPhoneId && ($value['metadata']['phone_number_id'] ?? null) === (string) $alertsPhoneId) {
-            foreach ($value['statuses'] ?? [] as $status) {
-                app(HumanHandoffService::class)->recordAlertStatus($status);
+        // sus eventos llegan por este webhook. Sus estados de alertas se
+        // consumen acá; si además está conectado como canal de un tenant, el
+        // resto (mensajes, estados propios, ecos, historial) sigue el flujo
+        // normal de ese canal.
+        $alertsPhoneId = (string) config('services.si_crm_alerts.phone_number_id');
+        $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
+        if ($alertsPhoneId !== '' && $phoneNumberId === $alertsPhoneId) {
+            $handoffs = app(HumanHandoffService::class);
+            $remaining = array_values(array_filter(
+                $value['statuses'] ?? [],
+                fn (array $status) => ! $handoffs->recordAlertStatus($status),
+            ));
+            if (! WhatsAppConfig::where('phone_number_id', $alertsPhoneId)->exists()) {
+                return;
             }
-
-            return;
+            if ($remaining === []) {
+                unset($value['statuses']);
+            } else {
+                $value['statuses'] = $remaining;
+            }
         }
 
         if ($field === 'messages' && isset($value['statuses'])) {

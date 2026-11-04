@@ -1738,9 +1738,6 @@ class WhatsAppMessageService
         }
 
         $from = $historyMessage['from'] ?? null;
-        if ($this->isSiCrmAlertsPhone($from) || $this->isSiCrmAlertsPhone($historyMessage['to'] ?? null)) {
-            return 'skipped';
-        }
         $fromNormalized = $from ? $this->normalizePhoneForWhatsApp(preg_replace('/\D/', '', $from)) : null;
         $isOutbound = $fromNormalized && in_array($fromNormalized, $businessNumbers, true);
 
@@ -1748,6 +1745,11 @@ class WhatsAppMessageService
         $customerPhone = $isOutbound
             ? ($threadPhone ?? $historyMessage['to'] ?? null)
             : ($from ?? $threadPhone);
+        // Las alertas de SI CRM no son clientes. Sólo cuenta el otro extremo:
+        // el número de alertas puede ser también el negocio de este canal.
+        if ($this->isSiCrmAlertsPhone($customerPhone)) {
+            return 'skipped';
+        }
 
         if (! $customerPhone) {
             return 'skipped';

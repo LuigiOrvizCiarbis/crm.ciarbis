@@ -57,6 +57,14 @@ class SendHumanHandoffNotificationJob implements ShouldQueue
             return;
         }
 
+        // El número de alertas puede ser a la vez un canal: no se avisa a sí
+        // mismo (Meta no envía a su propio número).
+        if ((string) $config->phone_number_id === (string) $cfg['phone_number_id']) {
+            $this->recordFailure($handoff, $destination, 'El canal usa el número de alertas de SI CRM.');
+
+            return;
+        }
+
         $attempt = HandoffNotificationAttempt::firstOrCreate([
             'human_handoff_id' => $handoff->id,
             'destination_type' => self::DESTINATION_CHANNEL,
