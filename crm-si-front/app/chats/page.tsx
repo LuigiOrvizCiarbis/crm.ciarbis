@@ -92,7 +92,7 @@ import { useConversationFilters } from "@/hooks/useConversationFilters"
 import { TagFilterMenu } from "@/components/tags/TagFilterMenu"
 import { StageFilterMenu, matchesStageFilter, stageKeysOf } from "@/components/chat/StageFilterMenu"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
-import { useSSEMessages, type MessageStatusUpdate, type MessageReactionUpdate } from "@/hooks/useSSEMessages"
+import { useSSEMessages, type MessageStatusUpdate, type MessageReactionUpdate, type HumanHandoffUpdate } from "@/hooks/useSSEMessages"
 import { useTenantSSE } from "@/hooks/useTenantSSE"
 import { getPusher } from "@/lib/pusher"
 import { cancelManualAiDraft, getManualAiDraft, requestManualAiDraft, type ManualAiDraft } from "@/lib/api/manual-ai-drafts"
@@ -716,6 +716,20 @@ export default function ChatsPage() {
     );
   }, []);
 
+  // La derivación cambia por otros (la IA la crea, otro agente la toma, un
+  // mensaje humano la resuelve): el evento trae el estado completo y se pisa
+  // en la conversación abierta y en la lista.
+  const handleRealTimeHumanHandoff = useCallback((data: HumanHandoffUpdate) => {
+    const patch = (c: Conversation): Conversation => ({
+      ...c,
+      humanHandoff: data.human_handoff ?? null,
+      assigneeId: data.assigned_to ?? undefined,
+      ...(data.ai_autoreply_enabled !== undefined ? { aiAutoreplyEnabled: data.ai_autoreply_enabled } : {}),
+    });
+    setCurrentConversation((prev) => (prev && prev.id === data.conversation_id ? patch(prev) : prev));
+    setConversations((prev) => prev.map((c) => (c.id === data.conversation_id ? patch(c) : c)));
+  }, []);
+
   const scheduledMessages = useScheduledMessages(selectedConversationId);
 
   useSSEMessages({
@@ -726,6 +740,7 @@ export default function ChatsPage() {
     onStatus: handleRealTimeStatus,
     onReaction: handleRealTimeReaction,
     onScheduledMessage: scheduledMessages.upsert,
+    onHumanHandoff: handleRealTimeHumanHandoff,
   });
 
   const selectedChannelIdRef = useRef(selectedChannelId);

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Message, MessageReaction, ScheduledMessage } from "@/data/types";
+import { Conversation, Message, MessageReaction, ScheduledMessage } from "@/data/types";
 import { getPusher } from "@/lib/pusher";
 
 export interface MessageStatusUpdate {
@@ -18,6 +18,14 @@ export interface MessageReactionUpdate {
   reactions: MessageReaction[];
 }
 
+/** Estado completo de la derivación; `ai_autoreply_enabled` sólo viene al crearla. */
+export interface HumanHandoffUpdate {
+  conversation_id: number;
+  assigned_to: number | null;
+  human_handoff: Conversation["humanHandoff"] | null;
+  ai_autoreply_enabled?: boolean;
+}
+
 interface UseReverbMessagesProps {
   conversationId: string | number | null;
   onMessage: (message: Message) => void;
@@ -26,6 +34,7 @@ interface UseReverbMessagesProps {
   onStatus?: (status: MessageStatusUpdate) => void;
   onReaction?: (data: MessageReactionUpdate) => void;
   onScheduledMessage?: (data: ScheduledMessage) => void;
+  onHumanHandoff?: (data: HumanHandoffUpdate) => void;
 }
 
 export function useSSEMessages({
@@ -36,6 +45,7 @@ export function useSSEMessages({
   onStatus,
   onReaction,
   onScheduledMessage,
+  onHumanHandoff,
 }: UseReverbMessagesProps) {
   const onMessageRef = useRef(onMessage);
   const onEditedRef = useRef(onEdited);
@@ -43,6 +53,7 @@ export function useSSEMessages({
   const onStatusRef = useRef(onStatus);
   const onReactionRef = useRef(onReaction);
   const onScheduledMessageRef = useRef(onScheduledMessage);
+  const onHumanHandoffRef = useRef(onHumanHandoff);
 
   useEffect(() => {
     onMessageRef.current = onMessage;
@@ -67,6 +78,10 @@ export function useSSEMessages({
   useEffect(() => {
     onScheduledMessageRef.current = onScheduledMessage;
   }, [onScheduledMessage]);
+
+  useEffect(() => {
+    onHumanHandoffRef.current = onHumanHandoff;
+  }, [onHumanHandoff]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -96,6 +111,10 @@ export function useSSEMessages({
 
     channel.bind("scheduled-message.updated", (data: ScheduledMessage) => {
       onScheduledMessageRef.current?.(data);
+    });
+
+    channel.bind("human-handoff.updated", (data: HumanHandoffUpdate) => {
+      onHumanHandoffRef.current?.(data);
     });
 
     return () => {

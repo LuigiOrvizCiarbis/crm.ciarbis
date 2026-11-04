@@ -7,6 +7,7 @@ use App\Enums\MessageDirection;
 use App\Enums\MessageType;
 use App\Enums\NotificationType;
 use App\Enums\SenderType;
+use App\Events\HumanHandoffUpdated;
 use App\Http\Controllers\WhatsAppController;
 use App\Jobs\SendHumanHandoffNotificationJob;
 use App\Models\AiConfig;
@@ -26,6 +27,7 @@ use App\Services\HumanHandoffService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
@@ -311,6 +313,33 @@ class HumanHandoffFlowTest extends TestCase
 
         $this->assertSame('resolved', $handoff->fresh()->status);
         $this->assertNotNull($handoff->fresh()->resolved_at);
+    }
+
+    public function test_every_handoff_change_is_broadcast_to_the_open_conversation(): void
+    {
+        Queue::fake();
+        Event::fake([HumanHandoffUpdated::class]);
+        $service = app(HumanHandoffService::class);
+
+        $handoff = $service->create($this->conversation);
+        Event::assertDispatched(HumanHandoffUpdated::class, fn (HumanHandoffUpdated $e) => $e->broadcastOn()[0]->name === 'private-conversations.'.$this->conversation->id
+            && $e->broadcastWith()['human_handoff']?->id === $handoff->id
+            && $e->broadcastWith()['ai_autoreply_enabled'] === false);
+
+        $agent = $this->addMember($this->tenant);
+        $service->acknowledge($handoff, $agent);
+        Event::assertDispatched(HumanHandoffUpdated::class, fn (HumanHandoffUpdated $e) => $e->broadcastWith()['human_handoff']?->status === 'acknowledged'
+            && $e->broadcastWith()['assigned_to'] === $agent->id
+            && ! array_key_exists('ai_autoreply_enabled', $e->broadcastWith()));
+
+        $this->createMessage(SenderType::USER, MessageDirection::OUTBOUND);
+        Event::assertDispatched(HumanHandoffUpdated::class, fn (HumanHandoffUpdated $e) => $e->broadcastWith()['human_handoff'] === null);
+        Event::assertDispatchedTimes(HumanHandoffUpdated::class, 3);
+
+        // Sin derivación activa no hay nada que avisar.
+        $service->cancelActive($this->conversation);
+        $this->createMessage(SenderType::USER, MessageDirection::OUTBOUND);
+        Event::assertDispatchedTimes(HumanHandoffUpdated::class, 3);
     }
 
     public function test_bot_and_customer_messages_do_not_resolve_handoff(): void
