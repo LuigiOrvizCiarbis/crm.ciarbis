@@ -7,6 +7,7 @@ use App\Enums\MessageDirection;
 use App\Enums\MessageType;
 use App\Enums\NotificationType;
 use App\Enums\SenderType;
+use App\Events\HumanHandoffUpdated;
 use App\Http\Controllers\WhatsAppController;
 use App\Jobs\SendHumanHandoffNotificationJob;
 use App\Models\AiConfig;
@@ -26,6 +27,7 @@ use App\Services\HumanHandoffService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
@@ -151,6 +153,34 @@ class HumanHandoffFlowTest extends TestCase
         (new SendHumanHandoffNotificationJob($handoff->id))->handle();
 
         Http::assertNothingSent();
+        $this->assertSame(0, HandoffNotificationAttempt::count());
+    }
+
+    public function test_unknown_business_app_state_is_checked_with_meta_before_alerting(): void
+    {
+        $this->connectWhatsApp(isOnBizApp: null);
+        Http::fake([
+            'graph.facebook.com/*/'.self::ALERTS_PHONE_ID.'/messages' => Http::response(['messages' => [['id' => 'wamid.ALERT1']]]),
+            'graph.facebook.com/*/TENANT_PHONE_1*' => Http::response(['is_on_biz_app' => true, 'is_official_business_account' => false]),
+        ]);
+
+        $handoff = $this->createHandoffWithoutJob();
+        (new SendHumanHandoffNotificationJob($handoff->id))->handle();
+
+        $this->assertTrue($this->conversation->channel->whatsappConfig->fresh()->is_on_biz_app);
+        $this->assertSame('sent', HandoffNotificationAttempt::sole()->status);
+    }
+
+    public function test_unknown_business_app_state_stays_unknown_when_meta_fails(): void
+    {
+        $this->connectWhatsApp(isOnBizApp: null);
+        Http::fake(['graph.facebook.com/*' => Http::response(['error' => ['message' => 'boom']], 500)]);
+
+        $handoff = $this->createHandoffWithoutJob();
+        (new SendHumanHandoffNotificationJob($handoff->id))->handle();
+
+        $this->assertNull($this->conversation->channel->whatsappConfig->fresh()->is_on_biz_app);
+        Http::assertSentCount(1);
         $this->assertSame(0, HandoffNotificationAttempt::count());
     }
 
@@ -313,6 +343,33 @@ class HumanHandoffFlowTest extends TestCase
         $this->assertNotNull($handoff->fresh()->resolved_at);
     }
 
+    public function test_every_handoff_change_is_broadcast_to_the_open_conversation(): void
+    {
+        Queue::fake();
+        Event::fake([HumanHandoffUpdated::class]);
+        $service = app(HumanHandoffService::class);
+
+        $handoff = $service->create($this->conversation);
+        Event::assertDispatched(HumanHandoffUpdated::class, fn (HumanHandoffUpdated $e) => $e->broadcastOn()[0]->name === 'private-conversations.'.$this->conversation->id
+            && $e->broadcastWith()['human_handoff']?->id === $handoff->id
+            && $e->broadcastWith()['ai_autoreply_enabled'] === false);
+
+        $agent = $this->addMember($this->tenant);
+        $service->acknowledge($handoff, $agent);
+        Event::assertDispatched(HumanHandoffUpdated::class, fn (HumanHandoffUpdated $e) => $e->broadcastWith()['human_handoff']?->status === 'acknowledged'
+            && $e->broadcastWith()['assigned_to'] === $agent->id
+            && ! array_key_exists('ai_autoreply_enabled', $e->broadcastWith()));
+
+        $this->createMessage(SenderType::USER, MessageDirection::OUTBOUND);
+        Event::assertDispatched(HumanHandoffUpdated::class, fn (HumanHandoffUpdated $e) => $e->broadcastWith()['human_handoff'] === null);
+        Event::assertDispatchedTimes(HumanHandoffUpdated::class, 3);
+
+        // Sin derivación activa no hay nada que avisar.
+        $service->cancelActive($this->conversation);
+        $this->createMessage(SenderType::USER, MessageDirection::OUTBOUND);
+        Event::assertDispatchedTimes(HumanHandoffUpdated::class, 3);
+    }
+
     public function test_bot_and_customer_messages_do_not_resolve_handoff(): void
     {
         Queue::fake();
@@ -435,7 +492,7 @@ class HumanHandoffFlowTest extends TestCase
 
     // --- Helpers ----------------------------------------------------------------
 
-    private function connectWhatsApp(bool $isOnBizApp, string $phoneNumberId = 'TENANT_PHONE_1'): void
+    private function connectWhatsApp(?bool $isOnBizApp, string $phoneNumberId = 'TENANT_PHONE_1'): void
     {
         $config = WhatsAppConfig::create([
             'phone_number_id' => $phoneNumberId,

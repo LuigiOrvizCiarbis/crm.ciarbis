@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\ChannelType;
 use App\Models\HandoffNotificationAttempt;
 use App\Models\HumanHandoff;
+use App\Services\WhatsAppGroupEligibilityService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Http;
@@ -36,7 +37,17 @@ class SendHumanHandoffNotificationJob implements ShouldQueue
 
         $channel = $handoff->channel;
         $config = $channel?->whatsappConfig;
-        if ($channel?->type !== ChannelType::WHATSAPP || ! $channel->handoff_whatsapp_alert_enabled || ! $config?->is_on_biz_app) {
+        if ($channel?->type !== ChannelType::WHATSAPP || ! $channel->handoff_whatsapp_alert_enabled || ! $config) {
+            return;
+        }
+
+        // Si el onboarding no pudo consultar a Meta, el dato queda en null:
+        // se pregunta ahora (y queda guardado) en vez de perder la alerta.
+        if ($config->is_on_biz_app === null) {
+            app(WhatsAppGroupEligibilityService::class)->statusFor($config, force: true);
+            $config->refresh();
+        }
+        if (! $config->is_on_biz_app) {
             return;
         }
 

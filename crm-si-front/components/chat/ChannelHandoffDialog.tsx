@@ -77,7 +77,9 @@ function HandoffSettingsForm({
   }, [channel])
 
   const isWhatsApp = channel.type === ChannelType.WHATSAPP
-  const onBusinessApp = channel.whatsapp_config?.is_on_biz_app === true
+  // null = todavía no se pudo consultar a Meta: el envío lo verifica antes de
+  // mandar la alerta, así que sólo se bloquea cuando Meta ya dijo que no.
+  const onBusinessApp = channel.whatsapp_config?.is_on_biz_app !== false
 
   const save = async () => {
     if (saving) return
