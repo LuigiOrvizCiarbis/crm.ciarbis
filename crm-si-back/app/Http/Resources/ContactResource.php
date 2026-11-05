@@ -25,6 +25,8 @@ class ContactResource extends JsonResource
             'phone' => $this->phone,
             'source' => $this->source,
             'branch_id' => $this->branch_id,
+            'avatar_url' => $this->avatar_url,
+            'avatar_source' => $this->avatar_source,
             'custom_data' => $this->custom_data ?? [],
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),

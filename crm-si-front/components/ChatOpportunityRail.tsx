@@ -61,7 +61,7 @@ export function ChatOpportunityRail({
 
   return (
     <div
-      className="-mx-1.5 mt-1.5 flex snap-x items-stretch gap-1.5 overflow-x-auto border-t border-border/60 px-1.5 pt-1.5 [scrollbar-width:none] sm:-mx-2 sm:px-2"
+      className="flex min-w-0 flex-1 snap-x items-stretch gap-1.5 overflow-x-auto [scrollbar-width:none]"
       aria-label={t("chats.opportunitiesOfChat")}
       role="list"
     >
@@ -121,9 +121,6 @@ function OpportunityTicket({
         pending && "opacity-60",
       )}
     >
-      {/* Filo de color: la etapa actual se lee antes que el texto. */}
-      <span aria-hidden="true" className="absolute inset-y-0 left-0 w-[3px] transition-colors duration-300" style={{ backgroundColor: accent }} />
-
       {/* El pipeline encabeza la ficha; el título sólo si es propio. */}
       <div className="flex min-w-0 max-w-[200px] flex-col leading-tight" title={opportunity.title}>
         <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-foreground">
@@ -159,9 +156,9 @@ function OpportunityTicket({
               >
                 <span
                   className={cn(
-                    "block h-1.5 w-4 rounded-full transition-[background-color,transform] duration-300 group-hover/seg:scale-y-150 group-disabled/seg:scale-y-100",
+                    "block h-1.5 w-3 rounded-full transition-[background-color,transform] duration-300 group-hover/seg:scale-y-150 group-disabled/seg:scale-y-100",
                     !reached && "bg-border group-hover/seg:bg-muted-foreground/50",
-                    isCurrent && "w-6",
+                    isCurrent && "w-5",
                   )}
                   style={reached ? { backgroundColor: stage.color ?? FALLBACK_STAGE_COLOR } : undefined}
                 />
@@ -169,8 +166,12 @@ function OpportunityTicket({
             )
           })}
         </div>
-        <span className="flex items-center gap-1.5 text-[11px] font-medium" style={{ color: accent }}>
-          {pending ? <Loader2 className="h-2.5 w-2.5 animate-spin" aria-hidden="true" /> : null}
+        <span className="flex items-center gap-1.5 text-[11px] font-medium">
+          {pending ? (
+            <Loader2 className="h-2.5 w-2.5 animate-spin" aria-hidden="true" />
+          ) : (
+            <span aria-hidden="true" className="size-2 shrink-0 rounded-full transition-colors duration-300" style={{ backgroundColor: accent }} />
+          )}
           <span className="truncate text-foreground/90">{current?.name ?? t("chats.select")}</span>
         </span>
       </div>

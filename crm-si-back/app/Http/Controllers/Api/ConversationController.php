@@ -36,6 +36,7 @@ class ConversationController extends Controller
             'search' => 'sometimes|string|min:2|max:100',
             'per_page' => 'sometimes|integer|min:1|max:100',
             'cursor_mode' => 'sometimes|boolean',
+            'awaiting_human' => 'sometimes|boolean',
         ]);
 
         $contactId = $request->query('contact_id');
@@ -47,7 +48,7 @@ class ConversationController extends Controller
 
         $q = Conversation::query()
             ->with([
-                'contact:id,name,phone',
+                'contact:id,name,phone,avatar_path',
                 'channel:id,name,type',
                 'tags',
                 // Sólo las etapas: la bandeja filtra por etapa en cualquier pipeline.
@@ -105,6 +106,11 @@ class ConversationController extends Controller
 
         if ($request->filled('branch_id') && ($user->isTenantOwner() || $user->can('branches.view_all'))) {
             $q->where('conversations.branch_id', (int) $request->query('branch_id'));
+        }
+
+        // Derivadas que todavía esperan a una persona: la primera respuesta humana las cierra.
+        if ($request->boolean('awaiting_human')) {
+            $q->whereHas('humanHandoffs', fn ($handoffs) => $handoffs->whereIn('status', ['pending', 'acknowledged']));
         }
 
         $search = trim((string) $request->query('search', ''));
@@ -234,7 +240,7 @@ class ConversationController extends Controller
     {
 
         $conversation = Conversation::with([
-            'contact:id,name,phone',
+            'contact:id,name,phone,avatar_path',
             'channel:id,name,type',
             'tags',
             'whatsappGroup:id,conversation_id,subject,status,group_id,total_participant_count,invite_link',

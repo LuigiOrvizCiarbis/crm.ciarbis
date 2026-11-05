@@ -81,6 +81,8 @@ export async function getConversationsCursorPage(options: {
   cursor?: string | null;
   channelId?: number | null;
   perPage?: number;
+  /** Sólo las derivadas que todavía esperan a una persona. */
+  awaitingHuman?: boolean;
 } = {}): Promise<ConversationsCursorPage> {
   const params = new URLSearchParams({
     per_page: String(options.perPage ?? 50),
@@ -90,6 +92,7 @@ export async function getConversationsCursorPage(options: {
   // decodificarlo. cursor_mode selecciona CursorPaginator explícitamente.
   if (options.cursor) params.set("cursor", options.cursor);
   if (options.channelId) params.set("channel_id", String(options.channelId));
+  if (options.awaitingHuman) params.set("awaiting_human", "1");
 
   const token = requireToken();
   const query = params.toString();

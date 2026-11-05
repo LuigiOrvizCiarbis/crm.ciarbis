@@ -101,6 +101,31 @@ class InstagramWebhookTest extends TestCase
         Queue::assertNotPushed(GenerateAiReplyJob::class);
     }
 
+    public function test_contact_name_and_avatar_are_hydrated_from_profile(): void
+    {
+        Event::fake();
+        Storage::fake('public');
+        Http::fake([
+            'graph.facebook.com/*' => Http::response([
+                'name' => 'Ana Pérez',
+                'username' => 'anaperez',
+                'profile_pic' => 'https://cdn.example.com/ana.png',
+            ], 200),
+            'https://cdn.example.com/*' => Http::response('PNGDATA', 200, ['Content-Type' => 'image/png']),
+        ]);
+
+        [$channel] = $this->createChannel();
+
+        $this->postWebhook($this->messagingPayload($channel->external_id, 'IGSID_1', 'hola', 'mid_pic'))->assertOk();
+
+        $contact = Contact::first();
+        $this->assertSame('Ana Pérez', $contact->name);
+        $this->assertSame('instagram', $contact->avatar_source);
+        $this->assertStringEndsWith('.png', $contact->avatar_path);
+        Storage::disk('public')->assertExists($contact->avatar_path);
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'fields=name%2Cusername%2Cprofile_pic'));
+    }
+
     public function test_comment_webhook_creates_comment_with_private_reply_deadline(): void
     {
         Queue::fake();

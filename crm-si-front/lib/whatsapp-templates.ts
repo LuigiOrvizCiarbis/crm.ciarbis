@@ -148,3 +148,15 @@ export function buildSendComponents(
 
   return result
 }
+
+// Clases literales para que Tailwind las detecte. Sin violeta: ese color es sólo de la IA.
+const CATEGORY_CLASS: Record<string, string> = {
+  MARKETING: "bg-primary/10 text-primary",
+  UTILITY: "bg-info/10 text-info",
+  AUTHENTICATION: "bg-warning/10 text-warning",
+}
+
+/** Chip de categoría de plantilla (desconocida → estilo base del Badge). */
+export function templateCategoryClass(category: string | null | undefined): string {
+  return (category && CATEGORY_CLASS[category]) || ""
+}

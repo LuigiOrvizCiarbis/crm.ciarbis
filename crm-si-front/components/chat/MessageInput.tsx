@@ -503,7 +503,7 @@ export function MessageInput({
       key: "ai-draft",
       label: t("chats.aiDraftGenerate"),
       Icon: Sparkles,
-      tone: "bg-primary/10 text-primary",
+      tone: "bg-ai/10 text-ai",
       disabled,
       onClick: () => {
         setIsActionsOpen(false)
@@ -760,7 +760,7 @@ export function MessageInput({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className={`h-10 w-10 shrink-0 p-0 sm:h-8 sm:w-8 ${aiDraft?.content ? "bg-primary/10 text-primary hover:bg-primary/15" : ""}`}
+                  className={`h-10 w-10 shrink-0 p-0 sm:h-8 sm:w-8 ${aiDraft?.content ? "bg-ai/10 text-ai hover:bg-ai/15 hover:text-ai" : ""}`}
                   disabled={disabled}
                   onClick={() => {
                     if (aiDraft?.status === "pending") onCancelAiDraft?.()

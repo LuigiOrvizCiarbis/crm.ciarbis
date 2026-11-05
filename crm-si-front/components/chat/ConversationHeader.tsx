@@ -107,7 +107,9 @@ export function ConversationHeader({
   }
 
   return (
-    <div className="border-b border-border bg-card px-3 py-2.5 sm:p-4">
+    // Los textos de las acciones dependen del ancho del panel del chat, no de la ventana: con la
+    // barra lateral y la bandeja abiertas, en una laptop el panel queda angosto.
+    <div className="@container border-b border-border bg-card px-3 py-2.5 sm:p-4">
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
           <Button
@@ -127,6 +129,7 @@ export function ConversationHeader({
             <ContactAvatar
               contactId={conversation.contact?.id}
               name={conversation.contact?.name}
+              imageUrl={conversation.contact?.avatar_url}
               className="h-10 w-10 ring-1 ring-border"
               fallbackClassName="text-sm font-semibold"
             />
@@ -187,11 +190,14 @@ export function ConversationHeader({
                   )}
                 </div>
               )}
-              <LeadScoreBadge
-                score={leadScore}
-                className="hidden cursor-help sm:inline-flex"
-                title={`${t("chats.leadScore")}: ${leadScore}/100 - ${t("chats.leadScoreHint")}`}
-              />
+              {/* 0 es "todavía sin puntaje", igual que en la lista: no se muestra. */}
+              {leadScore > 0 && (
+                <LeadScoreBadge
+                  score={leadScore}
+                  className="hidden cursor-help sm:inline-flex"
+                  title={`${t("chats.leadScore")}: ${leadScore}/100 - ${t("chats.leadScoreHint")}`}
+                />
+              )}
             </div>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
               {isGroup
@@ -200,16 +206,16 @@ export function ConversationHeader({
             </p>
           </div>
         </div>
-        {/* Mobile: sólo el estado de la IA queda a la vista. Es lo único que
-            se mira mientras se lee (dice si el bot está contestando por vos);
+        {/* Panel angosto (teléfono, o laptop con la bandeja abierta): sólo el estado de la IA queda a la
+            vista. Es lo único que se mira mientras se lee (dice si el bot está contestando por vos);
             el resto son acciones puntuales y viven en el menú. */}
-        <div className="flex shrink-0 items-center gap-0.5 sm:hidden">
+        <div className="flex shrink-0 items-center gap-0.5 @2xl:hidden">
           {onToggleAiAutoreply && (
             <Button
               variant="ghost"
               size="sm"
               className={`h-10 w-10 shrink-0 rounded-full p-0 ${
-                conversation.aiAutoreplyEnabled ? "bg-primary/10 text-primary" : "text-muted-foreground"
+                conversation.aiAutoreplyEnabled ? "bg-ai/10 text-ai" : "text-muted-foreground"
               }`}
               onClick={() => void onToggleAiAutoreply(!conversation.aiAutoreplyEnabled)}
               aria-pressed={Boolean(conversation.aiAutoreplyEnabled)}
@@ -260,18 +266,19 @@ export function ConversationHeader({
           </DropdownMenu>
         </div>
 
-        <div className="hidden items-center gap-2 sm:flex">
+        <div className="hidden items-center gap-1 @2xl:flex @3xl:gap-2">
           {onToggleAiAutoreply && (
             <label
               className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted/60"
               title={t("chats.aiAutoreplyHint")}
             >
-              <Bot className={`h-4 w-4 ${conversation.aiAutoreplyEnabled ? "text-primary" : ""}`} />
-              <span className="hidden lg:inline">{t("chats.aiAutoreply")}</span>
+              <Bot className={`h-4 w-4 ${conversation.aiAutoreplyEnabled ? "text-ai" : ""}`} />
+              <span className={`hidden @3xl:inline ${conversation.aiAutoreplyEnabled ? "text-foreground" : ""}`}>{t("chats.aiAutoreply")}</span>
               <Switch
                 checked={Boolean(conversation.aiAutoreplyEnabled)}
                 onCheckedChange={(checked) => void onToggleAiAutoreply(checked)}
                 aria-label={t("chats.aiAutoreply")}
+                className="data-[state=checked]:bg-ai"
               />
             </label>
           )}
@@ -281,9 +288,10 @@ export function ConversationHeader({
             className="gap-2"
             onClick={() => setTaskModalOpen(true)}
             title={t("chats.createTask")}
+            aria-label={t("chats.createTask")}
           >
-            <Plus className="w-4 h-4" />
-            {t("chats.createTask")}
+            <Plus className="w-4 h-4" aria-hidden="true" />
+            <span className="hidden @3xl:inline">{t("chats.createTask")}</span>
           </Button>
           <Button
             type="button"
@@ -306,7 +314,7 @@ export function ConversationHeader({
             aria-label={t("chats.createInvoice")}
           >
             <ReceiptText className="h-4 w-4" />
-            <span className="hidden lg:inline">{t("chats.createInvoice")}</span>
+            <span className="hidden @3xl:inline">{t("chats.createInvoice")}</span>
           </Button>}
           {hasContactId && (
             <Button
