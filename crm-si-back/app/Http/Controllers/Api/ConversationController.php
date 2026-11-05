@@ -47,7 +47,7 @@ class ConversationController extends Controller
 
         $q = Conversation::query()
             ->with([
-                'contact:id,name,phone',
+                'contact:id,name,phone,avatar_path',
                 'channel:id,name,type',
                 'tags',
                 // Sólo las etapas: la bandeja filtra por etapa en cualquier pipeline.
@@ -234,7 +234,7 @@ class ConversationController extends Controller
     {
 
         $conversation = Conversation::with([
-            'contact:id,name,phone',
+            'contact:id,name,phone,avatar_path',
             'channel:id,name,type',
             'tags',
             'whatsappGroup:id,conversation_id,subject,status,group_id,total_participant_count,invite_link',

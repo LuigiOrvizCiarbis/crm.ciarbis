@@ -7,11 +7,14 @@ use App\Enums\MarketingConsentStatus;
 use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\HasBranch;
 use App\Models\Concerns\HasTags;
+use App\Services\ContactAvatarService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
@@ -22,6 +25,10 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
  * @property string|null $external_id
  * @property string|null $source
  * @property array<string, mixed> $custom_data
+ * @property string|null $avatar_path
+ * @property string|null $avatar_source
+ * @property Carbon|null $avatar_checked_at
+ * @property-read string|null $avatar_url
  */
 class Contact extends Model
 {
@@ -49,6 +56,20 @@ class Contact extends Model
         'custom_data' => '{}',
     ];
 
+    protected $hidden = [
+        'avatar_path',
+        'avatar_checked_at',
+    ];
+
+    /**
+     * `avatar_url` viaja en cualquier serialización del modelo, incluidas las
+     * cargas con columnas acotadas (`contact:id,name,phone,avatar_path`) que
+     * la bandeja y el kanban devuelven sin pasar por ContactResource.
+     */
+    protected $appends = [
+        'avatar_url',
+    ];
+
     protected function casts(): array
     {
         return [
@@ -58,6 +79,7 @@ class Contact extends Model
             'lock_version' => 'integer',
             'marketing_consent_status' => MarketingConsentStatus::class,
             'marketing_consent_at' => 'datetime',
+            'avatar_checked_at' => 'datetime',
         ];
     }
 
@@ -289,6 +311,23 @@ class Contact extends Model
     }
 
     /**
+     * URL pública de la foto, o null si no tiene. Mismo armado que
+     * User::avatarUrl(). Lee el atributo crudo porque las cargas con columnas
+     * acotadas pueden no haber traído `avatar_path`.
+     */
+    protected function avatarUrl(): Attribute
+    {
+        return Attribute::get(function (): ?string {
+            $path = $this->attributes['avatar_path'] ?? null;
+            if ($path === null) {
+                return null;
+            }
+
+            return rtrim((string) config('app.url'), '/').'/storage/'.$path;
+        });
+    }
+
+    /**
      * Avanza lock_version en cada modificación persistida.
      *
      * Vive acá y no en cada writer a propósito: el contacto se escribe desde el
@@ -314,6 +353,11 @@ class Contact extends Model
             }
 
             $contact->lock_version = (int) $contact->getOriginal('lock_version') + 1;
+        });
+
+        // La foto es un dato personal: no queda huérfana en el disco.
+        static::deleted(function (self $contact): void {
+            app(ContactAvatarService::class)->deleteFile($contact);
         });
     }
 }

@@ -2105,6 +2105,19 @@
     "loadError": "No se pudo cargar el contacto",
     "close": "Cerrar información del contacto"
   },
+  "contactAvatar": {
+    "upload": "Subir foto",
+    "change": "Cambiar foto",
+    "remove": "Quitar foto",
+    "uploaded": "Foto actualizada",
+    "removed": "Foto quitada",
+    "uploadError": "No se pudo subir la foto",
+    "removeError": "No se pudo quitar la foto",
+    "invalidType": "Elegí una imagen JPG, PNG o WebP.",
+    "tooLarge": "La imagen no puede superar los 2 MB.",
+    "fromFacebook": "Foto de perfil de Facebook",
+    "fromInstagram": "Foto de perfil de Instagram"
+  },
   "fields": {
     "title": "Personalización de campos",
     "subtitle": "Definí campos a medida para cada tabla del CRM.",

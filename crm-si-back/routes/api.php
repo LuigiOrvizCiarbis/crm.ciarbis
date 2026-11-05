@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\BillingConfigController;
 use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\BroadcastCampaignController;
 use App\Http\Controllers\Api\ChannelController;
+use App\Http\Controllers\Api\ContactAvatarController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\ContactFieldController;
 use App\Http\Controllers\Api\ContactHistoryController;
@@ -522,6 +523,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('contacts/{contact}', [ContactController::class, 'show']);
     Route::put('contacts/{contact}', [ContactController::class, 'update']);
     Route::delete('contacts/{contact}', [ContactController::class, 'destroy']);
+    Route::post('contacts/{contact}/avatar', [ContactAvatarController::class, 'store']);
+    Route::delete('contacts/{contact}/avatar', [ContactAvatarController::class, 'destroy']);
     // Extracción de datos desde documentos. El upload es propio del contacto:
     // el genérico /media-assets exige automations.manage, que el rol operativo
     // no tiene, y abrirlo permitiría subir archivos sin vínculo con un contacto.
