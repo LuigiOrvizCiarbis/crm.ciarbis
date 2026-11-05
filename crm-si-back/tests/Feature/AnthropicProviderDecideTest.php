@@ -78,6 +78,40 @@ class AnthropicProviderDecideTest extends TestCase
         $this->assertNull($decision->reply);
     }
 
+    /**
+     * Claude 5+ piensa siempre y el thinking consume max_tokens: sin effort
+     * acotado y con tope chico la respuesta llegaba sin texto y el cliente
+     * quedaba sin contestar.
+     */
+    public function test_thinking_model_request_limits_effort(): void
+    {
+        $this->fakeContent([['type' => 'text', 'text' => 'Hola']]);
+
+        $this->decide('claude-opus-5-5');
+
+        Http::assertSent(fn (Request $request) => $request['output_config'] === ['effort' => 'low']
+            && $request['max_tokens'] >= 4096);
+    }
+
+    public function test_pre_thinking_model_request_keeps_default_effort(): void
+    {
+        $this->fakeContent([['type' => 'text', 'text' => 'Hola']]);
+
+        $this->decide('claude-opus-4-8');
+
+        Http::assertSent(fn (Request $request) => ! isset($request['output_config']));
+    }
+
+    public function test_thinking_without_text_is_an_empty_reply(): void
+    {
+        $this->fakeContent([['type' => 'thinking', 'thinking' => '', 'signature' => 'sig']]);
+
+        $decision = $this->decide('claude-opus-5-5');
+
+        $this->assertFalse($decision->requestsHandoff());
+        $this->assertNull($decision->reply);
+    }
+
     private function fakeContent(array $content): void
     {
         Http::fake(['api.anthropic.com/*' => Http::response([
@@ -89,12 +123,12 @@ class AnthropicProviderDecideTest extends TestCase
         ])]);
     }
 
-    private function decide()
+    private function decide(string $model = 'claude-sonnet-5-5')
     {
         return (new AnthropicProvider('sk-test'))->decide(
             [['role' => 'user', 'content' => 'quiero hablar con una persona']],
             'Sos el asistente.',
-            'claude-sonnet-5-5',
+            $model,
         );
     }
 }

@@ -31,6 +31,20 @@ class AnthropicProvider implements AiProvider
      */
     public static ?ClientInterface $testHttpClient = null;
 
+    /**
+     * Tope de salida de las respuestas al cliente. En los modelos que piensan
+     * por defecto (Claude 5+), max_tokens cubre thinking + texto: con 1024 el
+     * thinking agotaba el tope y la respuesta llegaba sin bloque de texto.
+     */
+    private const REPLY_MAX_TOKENS = 4096;
+
+    /**
+     * Esfuerzo de las respuestas de chat en modelos que piensan por defecto:
+     * un mensaje de WhatsApp no necesita razonamiento profundo, y menos
+     * thinking es menos latencia y costo.
+     */
+    private const REPLY_EFFORT = 'low';
+
     public function __construct(private string $apiKey) {}
 
     public function generate(array $messages, string $systemPrompt, string $model, ?AiToolset $toolset = null): ?string
@@ -60,9 +74,10 @@ class AnthropicProvider implements AiProvider
 
             $response = $client->messages->create(
                 model: $model,
-                maxTokens: 1024,
+                maxTokens: self::REPLY_MAX_TOKENS,
                 system: $system,
                 messages: $messages,
+                outputConfig: $this->replyOutputConfig($model),
             );
 
             foreach ($response->content as $block) {
@@ -124,10 +139,11 @@ class AnthropicProvider implements AiProvider
 
             $response = $client->messages->create(
                 model: $model,
-                maxTokens: 1024,
+                maxTokens: self::REPLY_MAX_TOKENS,
                 system: $system,
                 messages: $messages,
                 tools: $tools,
+                outputConfig: $this->replyOutputConfig($model),
             );
 
             $toolUses = array_values(array_filter(
@@ -157,9 +173,15 @@ class AnthropicProvider implements AiProvider
                 return null;
             }
 
+            // Los bloques thinking vuelven completos y en orden: la API rechaza
+            // con 400 un turno assistant con thinking editado o descartado.
             $assistantBlocks = [];
             foreach ($response->content as $block) {
-                if ($block->type === 'text') {
+                if ($block->type === 'thinking') {
+                    $assistantBlocks[] = ['type' => 'thinking', 'thinking' => $block->thinking, 'signature' => $block->signature];
+                } elseif ($block->type === 'redacted_thinking') {
+                    $assistantBlocks[] = ['type' => 'redacted_thinking', 'data' => $block->data];
+                } elseif ($block->type === 'text') {
                     $assistantBlocks[] = ['type' => 'text', 'text' => $block->text];
                 } elseif ($block->type === 'tool_use') {
                     $assistantBlocks[] = [
@@ -195,11 +217,13 @@ class AnthropicProvider implements AiProvider
     public function decide(array $messages, string $systemPrompt, string $model, bool $offerHandoff = true): AiReplyDecision
     {
         try {
+            $outputConfig = $this->replyOutputConfig($model);
             $response = Http::withHeaders(['x-api-key' => $this->apiKey, 'anthropic-version' => '2023-06-01'])
                 ->timeout((int) config('services.ai.generate_timeout', 60))
                 ->post('https://api.anthropic.com/v1/messages', [
                     'model' => $model,
-                    'max_tokens' => 1024,
+                    'max_tokens' => self::REPLY_MAX_TOKENS,
+                    ...($outputConfig ? ['output_config' => $outputConfig] : []),
                     // Mismo bloque cacheado que generate(): el system prompt
                     // (catálogo incluido) es casi todo el input de cada vuelta.
                     'system' => [[
@@ -242,7 +266,15 @@ class AnthropicProvider implements AiProvider
                 return AiReplyDecision::handoff($handoff, implode("\n\n", $texts));
             }
 
-            return AiReplyDecision::reply($texts[0] ?? null);
+            if ($texts === []) {
+                Log::warning('AnthropicProvider: decide sin bloque de texto', [
+                    'stop_reason' => $response->json('stop_reason'),
+                ]);
+
+                return AiReplyDecision::reply(null);
+            }
+
+            return AiReplyDecision::reply($texts[0]);
         } catch (\Throwable $e) {
             Log::error('AnthropicProvider: error decidiendo handoff', ['error' => $e->getMessage()]);
         }
@@ -285,6 +317,25 @@ class AnthropicProvider implements AiProvider
 
             return null;
         }
+    }
+
+    /**
+     * @return array{effort: string}|null
+     */
+    private function replyOutputConfig(string $model): ?array
+    {
+        return self::thinksByDefault($model) ? ['effort' => self::REPLY_EFFORT] : null;
+    }
+
+    /**
+     * Desde Claude 5 el modelo piensa aunque el request no pida thinking
+     * (en Opus 5.5 ni siquiera se puede apagar). Hasta Claude 4.x no piensa
+     * si no se le pide, y su comportamiento queda igual.
+     */
+    private static function thinksByDefault(string $model): bool
+    {
+        return preg_match('/^claude-(?:[a-z]+-)?(\d+)/', $model, $matches) === 1
+            && (int) $matches[1] >= 5;
     }
 
     /**
