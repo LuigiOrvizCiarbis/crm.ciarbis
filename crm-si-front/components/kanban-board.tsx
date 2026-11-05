@@ -67,6 +67,7 @@ interface Opportunity {
     phone: string | null
     email?: string | null
     source?: string | null
+    avatar_url?: string | null
     channel_type?: number | string | null
   }
   conversation?: {
@@ -243,6 +244,7 @@ function OpportunityCard({
             <ContactAvatar
               contactId={opportunity.contact.id}
               name={opportunity.contact.name}
+              imageUrl={opportunity.contact.avatar_url}
               className="w-8 h-8 shrink-0"
               fallbackClassName="text-xs bg-cyan-500/15 text-cyan-400 font-semibold"
             />

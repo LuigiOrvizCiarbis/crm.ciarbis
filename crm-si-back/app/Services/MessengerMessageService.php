@@ -59,6 +59,10 @@ class MessengerMessageService
         'ig_post' => MessageType::Image,
     ];
 
+    public function __construct(
+        private ContactAvatarService $avatars,
+    ) {}
+
     /**
      * Procesa un evento de mensajería entrante de Messenger.
      *
@@ -176,16 +180,19 @@ class MessengerMessageService
             ]
         );
 
-        // Best-effort: completar el nombre real desde el perfil la primera vez.
-        // No bloquea el flujo si falla (permisos, perfil restringido, etc.).
-        if ($contact->wasRecentlyCreated) {
-            $this->hydrateContactProfile($contact, $channel, $psid);
+        // Best-effort: el nombre real se completa sólo al crear el contacto; la
+        // foto además se refresca cada tanto porque el contacto puede cambiarla
+        // y los contactos previos a esta función no la tienen. No bloquea el
+        // flujo si falla (permisos, perfil restringido, etc.).
+        $isNew = $contact->wasRecentlyCreated;
+        if ($isNew || $this->avatars->isChannelRefreshDue($contact)) {
+            $this->hydrateContactProfile($contact, $channel, $psid, $isNew);
         }
 
         return $contact;
     }
 
-    private function hydrateContactProfile(Contact $contact, Channel $channel, string $psid): void
+    private function hydrateContactProfile(Contact $contact, Channel $channel, string $psid, bool $withName): void
     {
         try {
             $token = $channel->facebookConfig?->getDecryptedToken();
@@ -200,17 +207,24 @@ class MessengerMessageService
                     'fields' => 'first_name,last_name,profile_pic',
                 ]);
 
-            if ($response->successful()) {
-                $name = trim(($response->json('first_name') ?? '').' '.($response->json('last_name') ?? ''));
-                if ($name !== '') {
-                    $contact->update(['name' => $name]);
-                }
+            if (! $response->successful()) {
+                $this->avatars->markChannelChecked($contact);
+
+                return;
             }
+
+            $name = trim(($response->json('first_name') ?? '').' '.($response->json('last_name') ?? ''));
+            if ($withName && $name !== '') {
+                $contact->update(['name' => $name]);
+            }
+
+            $this->avatars->syncFromChannel($contact, $response->json('profile_pic'), 'facebook');
         } catch (\Throwable $e) {
             Log::info('Messenger: no se pudo hidratar el perfil del contacto', [
                 'psid' => $psid,
                 'error' => $e->getMessage(),
             ]);
+            rescue(fn () => $this->avatars->markChannelChecked($contact), report: false);
         }
     }
 

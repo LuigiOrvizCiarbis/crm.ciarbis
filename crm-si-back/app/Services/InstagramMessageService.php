@@ -44,6 +44,10 @@ class InstagramMessageService
         'share' => MessageType::Image,
     ];
 
+    public function __construct(
+        private ContactAvatarService $avatars,
+    ) {}
+
     /**
      * Procesa un evento de mensajería entrante de Instagram.
      *
@@ -177,16 +181,19 @@ class InstagramMessageService
             ]
         );
 
-        // Best-effort: completar el nombre real desde el perfil de IG la primera
-        // vez. No bloquea el flujo si falla (perfil privado, permisos, etc.).
-        if ($contact->wasRecentlyCreated) {
-            $this->hydrateContactProfile($contact, $channel, $igsid);
+        // Best-effort: el nombre real se completa sólo al crear el contacto; la
+        // foto además se refresca cada tanto porque el contacto puede cambiarla
+        // y los contactos previos a esta función no la tienen. No bloquea el
+        // flujo si falla (perfil privado, permisos, etc.).
+        $isNew = $contact->wasRecentlyCreated;
+        if ($isNew || $this->avatars->isChannelRefreshDue($contact)) {
+            $this->hydrateContactProfile($contact, $channel, $igsid, $isNew);
         }
 
         return $contact;
     }
 
-    private function hydrateContactProfile(Contact $contact, Channel $channel, string $igsid): void
+    private function hydrateContactProfile(Contact $contact, Channel $channel, string $igsid, bool $withName): void
     {
         try {
             $token = $channel->instagramConfig?->getDecryptedToken();
@@ -198,20 +205,27 @@ class InstagramMessageService
             $response = Http::withToken($token)
                 ->timeout(10)
                 ->get("https://graph.facebook.com/{$version}/{$igsid}", [
-                    'fields' => 'name,username',
+                    'fields' => 'name,username,profile_pic',
                 ]);
 
-            if ($response->successful()) {
-                $name = $response->json('name') ?? $response->json('username');
-                if ($name) {
-                    $contact->update(['name' => $name]);
-                }
+            if (! $response->successful()) {
+                $this->avatars->markChannelChecked($contact);
+
+                return;
             }
+
+            $name = $response->json('name') ?? $response->json('username');
+            if ($withName && $name) {
+                $contact->update(['name' => $name]);
+            }
+
+            $this->avatars->syncFromChannel($contact, $response->json('profile_pic'), 'instagram');
         } catch (\Throwable $e) {
             Log::info('Instagram: no se pudo hidratar el perfil del contacto', [
                 'igsid' => $igsid,
                 'error' => $e->getMessage(),
             ]);
+            rescue(fn () => $this->avatars->markChannelChecked($contact), report: false);
         }
     }
 

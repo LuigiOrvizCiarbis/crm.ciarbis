@@ -21,7 +21,8 @@ import type { RangeFilterValue } from "./contacts/RangeFilterMenu"
 import { BulkFieldsDialog } from "./contacts/bulk-fields-dialog"
 import { getAuthToken, getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
 import { ContactPipelineDialog } from "@/components/contact-pipeline-dialog"
-import { updateContact, type ContactUpdate } from "@/lib/api/contacts"
+import { updateContact, type ContactAvatar as ContactAvatarPayload, type ContactAvatarSource, type ContactUpdate } from "@/lib/api/contacts"
+import { ContactAvatarActions } from "@/components/contact-avatar-actions"
 import { CustomChoiceBadge, CustomFieldInput, formatCustomChoice } from "@/components/CustomFieldInput"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 import type { Tag } from "@/lib/api/tags"
@@ -84,6 +85,8 @@ interface Contact {
   email: string | null
   phone: string | null
   source: string
+  avatar_url?: string | null
+  avatar_source?: ContactAvatarSource | null
   custom_data?: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -951,6 +954,11 @@ export function ContactsList({
     setProfileContact((prev) => (prev?.id === contactId ? { ...prev, tags } : prev))
   }
 
+  const updateContactAvatar = (contactId: number, avatar: ContactAvatarPayload): void => {
+    setContacts((prev) => prev.map((contact) => (contact.id === contactId ? { ...contact, ...avatar } : contact)))
+    setProfileContact((prev) => (prev?.id === contactId ? { ...prev, ...avatar } : prev))
+  }
+
   const filteredContacts = contacts
   const isInitialLoading = loading && contacts.length === 0 && !error
   // Distingue "no hay resultados para estos filtros" de "todavía no hay contactos".
@@ -984,6 +992,7 @@ export function ContactsList({
               <ContactAvatar
                 contactId={contact.id}
                 name={contact.name}
+                imageUrl={contact.avatar_url}
                 className="w-9 h-9"
                 fallbackClassName="text-xs font-bold"
               />
@@ -1509,6 +1518,7 @@ export function ContactsList({
                       <ContactAvatar
                         contactId={contact.id}
                         name={contact.name}
+                        imageUrl={contact.avatar_url}
                         className="h-11 w-11"
                         fallbackClassName="font-bold"
                       />
@@ -1775,6 +1785,7 @@ export function ContactsList({
                 <ContactAvatar
                   contactId={profileContact.id}
                   name={profileContact.name}
+                  imageUrl={profileContact.avatar_url}
                   className="w-16 h-16"
                   fallbackClassName="text-xl font-bold"
                 />
@@ -1785,6 +1796,12 @@ export function ContactsList({
                   </Badge>
                 </div>
               </div>
+              <ContactAvatarActions
+                contactId={profileContact.id}
+                avatarUrl={profileContact.avatar_url}
+                avatarSource={profileContact.avatar_source}
+                onChange={(avatar) => updateContactAvatar(profileContact.id, avatar)}
+              />
               <Separator />
               <div className="space-y-4">
                 <div className="flex items-center gap-3">

@@ -39,7 +39,8 @@ interface ContactAvatarProps {
 /**
  * Shared contact identity avatar. Generated artwork is deterministic by the
  * internal contact id, so changing a contact name does not change its avatar.
- * `imageUrl` is intentionally supported for a future manual/channel photo.
+ * `imageUrl` is the contact photo (manual upload or channel profile photo);
+ * without it the generated artwork is shown.
  */
 export function ContactAvatar({
   contactId,

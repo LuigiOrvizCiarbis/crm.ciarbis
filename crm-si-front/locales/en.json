@@ -2105,6 +2105,19 @@
     "loadError": "Could not load the contact",
     "close": "Close contact information"
   },
+  "contactAvatar": {
+    "upload": "Upload photo",
+    "change": "Change photo",
+    "remove": "Remove photo",
+    "uploaded": "Photo updated",
+    "removed": "Photo removed",
+    "uploadError": "Could not upload the photo",
+    "removeError": "Could not remove the photo",
+    "invalidType": "Choose a JPG, PNG or WebP image.",
+    "tooLarge": "The image can't be larger than 2 MB.",
+    "fromFacebook": "Facebook profile photo",
+    "fromInstagram": "Instagram profile photo"
+  },
   "fields": {
     "title": "Field customization",
     "subtitle": "Define custom fields for each CRM table.",

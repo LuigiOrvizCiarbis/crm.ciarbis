@@ -112,6 +112,125 @@ class MessengerWebhookTest extends TestCase
         $this->assertSame('Ana Pérez', Contact::first()->name);
     }
 
+    public function test_contact_avatar_is_downloaded_from_profile(): void
+    {
+        Event::fake();
+        Storage::fake('public');
+        Http::fake([
+            'graph.facebook.com/*' => Http::response([
+                'first_name' => 'Ana',
+                'profile_pic' => 'https://cdn.example.com/ana.jpg',
+            ], 200),
+            'https://cdn.example.com/*' => Http::response('JPEGDATA', 200, ['Content-Type' => 'image/jpeg']),
+        ]);
+
+        [, $tenant] = $this->createChannel();
+
+        $this->postWebhook($this->messagingPayload('PSID_1', 'hola', 'mid_pic'))->assertOk();
+
+        $contact = Contact::first();
+        $this->assertSame('facebook', $contact->avatar_source);
+        $this->assertStringStartsWith("contact-avatars/{$tenant->id}/{$contact->id}-", $contact->avatar_path);
+        $this->assertStringEndsWith('.jpg', $contact->avatar_path);
+        Storage::disk('public')->assertExists($contact->avatar_path);
+        $this->assertStringEndsWith('/storage/'.$contact->avatar_path, $contact->avatar_url);
+    }
+
+    public function test_channel_profile_is_not_queried_again_until_refresh_is_due(): void
+    {
+        Event::fake();
+        Storage::fake('public');
+        Http::fake(['graph.facebook.com/*' => Http::response(['first_name' => 'Ana'], 200)]);
+
+        $this->createChannel();
+
+        $this->postWebhook($this->messagingPayload('PSID_1', 'uno', 'mid_a'))->assertOk();
+        $this->postWebhook($this->messagingPayload('PSID_1', 'dos', 'mid_b'))->assertOk();
+        Http::assertSentCount(1);
+
+        $this->travel(8)->days();
+        $this->postWebhook($this->messagingPayload('PSID_1', 'tres', 'mid_c'))->assertOk();
+        Http::assertSentCount(2);
+    }
+
+    public function test_existing_contact_without_avatar_gets_channel_photo_and_keeps_its_name(): void
+    {
+        Event::fake();
+        Storage::fake('public');
+        Http::fake([
+            'graph.facebook.com/*' => Http::response([
+                'first_name' => 'Nombre',
+                'last_name' => 'De Meta',
+                'profile_pic' => 'https://cdn.example.com/ana.jpg',
+            ], 200),
+            'https://cdn.example.com/*' => Http::response('JPEGDATA', 200, ['Content-Type' => 'image/jpeg']),
+        ]);
+
+        [, $tenant] = $this->createChannel();
+        Contact::create([
+            'tenant_id' => $tenant->id,
+            'source' => 'facebook',
+            'external_id' => 'PSID_1',
+            'name' => 'Editado por el agente',
+        ]);
+
+        $this->postWebhook($this->messagingPayload('PSID_1', 'hola', 'mid_old'))->assertOk();
+
+        $contact = Contact::first();
+        $this->assertSame('Editado por el agente', $contact->name);
+        $this->assertSame('facebook', $contact->avatar_source);
+        Storage::disk('public')->assertExists($contact->avatar_path);
+    }
+
+    public function test_manual_avatar_is_never_replaced_by_channel_photo(): void
+    {
+        Event::fake();
+        Storage::fake('public');
+        Http::fake();
+
+        [, $tenant] = $this->createChannel();
+        $contact = Contact::create([
+            'tenant_id' => $tenant->id,
+            'source' => 'facebook',
+            'external_id' => 'PSID_1',
+            'name' => 'Ana',
+        ]);
+        $contact->forceFill(['avatar_path' => 'contact-avatars/manual.jpg', 'avatar_source' => 'manual'])->save();
+
+        $this->postWebhook($this->messagingPayload('PSID_1', 'hola', 'mid_manual'))->assertOk();
+
+        Http::assertNothingSent();
+        $this->assertSame('contact-avatars/manual.jpg', $contact->fresh()->avatar_path);
+    }
+
+    public function test_profile_without_picture_removes_previous_channel_photo(): void
+    {
+        Event::fake();
+        Storage::fake('public');
+        Storage::disk('public')->put('contact-avatars/old.jpg', 'OLD');
+        Http::fake(['graph.facebook.com/*' => Http::response(['first_name' => 'Ana'], 200)]);
+
+        [, $tenant] = $this->createChannel();
+        $contact = Contact::create([
+            'tenant_id' => $tenant->id,
+            'source' => 'facebook',
+            'external_id' => 'PSID_1',
+            'name' => 'Ana',
+        ]);
+        $contact->forceFill([
+            'avatar_path' => 'contact-avatars/old.jpg',
+            'avatar_source' => 'facebook',
+            'avatar_checked_at' => now()->subDays(30),
+        ])->save();
+
+        $this->postWebhook($this->messagingPayload('PSID_1', 'hola', 'mid_nopic'))->assertOk();
+
+        $contact->refresh();
+        $this->assertNull($contact->avatar_path);
+        $this->assertNull($contact->avatar_url);
+        Storage::disk('public')->assertMissing('contact-avatars/old.jpg');
+    }
+
     public function test_inbound_dispatches_ai_reply_when_autoreply_enabled(): void
     {
         Event::fake();
