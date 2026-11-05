@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\HumanHandoffUpdated;
 use App\Jobs\SendHumanHandoffNotificationJob;
 use App\Models\Conversation;
 use App\Models\HandoffNotificationAttempt;
@@ -11,6 +12,7 @@ use App\Models\User;
 use App\Services\Notifications\DomainNotifier;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class HumanHandoffService
@@ -58,6 +60,7 @@ class HumanHandoffService
 
             SendHumanHandoffNotificationJob::dispatch($handoff->id)->afterCommit();
             app(DomainNotifier::class)->handoffRequested($handoff, $conversation);
+            $this->broadcastState($conversation->id, aiAutoreplyEnabled: false);
 
             return $handoff;
         });
@@ -77,6 +80,7 @@ class HumanHandoffService
             $handoff->update($updates);
             $handoff->conversation()->update(['assigned_to' => $user->id]);
         });
+        $this->broadcastState($handoff->conversation_id);
 
         return $handoff->fresh();
     }
@@ -88,32 +92,62 @@ class HumanHandoffService
      */
     public function resolveForHumanMessage(Conversation $conversation, ?CarbonInterface $sentAt = null): void
     {
-        $conversation->humanHandoffs()
+        $resolved = $conversation->humanHandoffs()
             ->whereIn('status', ['pending', 'acknowledged'])
             // Los echoes traen el timestamp de Meta en UTC; human_handoffs
             // guarda hora local sin zona. Comparar en la zona de la app.
             ->when($sentAt, fn ($query) => $query->where('created_at', '<=', $sentAt->copy()->setTimezone(config('app.timezone'))))
             ->update(['status' => 'resolved', 'resolved_at' => now()]);
+        if ($resolved > 0) {
+            $this->broadcastState($conversation->id);
+        }
     }
 
     public function cancelActive(Conversation $conversation): void
     {
-        $conversation->humanHandoffs()
+        $cancelled = $conversation->humanHandoffs()
             ->whereIn('status', ['pending', 'acknowledged'])
             ->update(['status' => 'cancelled', 'cancelled_at' => now()]);
+        if ($cancelled > 0) {
+            $this->broadcastState($conversation->id);
+        }
+    }
+
+    /**
+     * Avisa a quienes tienen la conversación abierta, después del commit para
+     * no anunciar un estado que se revierte. Un Reverb caído no puede frenar
+     * el envío de un mensaje (el observer pasa por acá).
+     */
+    private function broadcastState(int $conversationId, ?bool $aiAutoreplyEnabled = null): void
+    {
+        DB::afterCommit(function () use ($conversationId, $aiAutoreplyEnabled) {
+            $conversation = Conversation::withoutGlobalScopes()->with('activeHumanHandoff')->find($conversationId);
+            if (! $conversation) {
+                return;
+            }
+            try {
+                broadcast(new HumanHandoffUpdated($conversation, $aiAutoreplyEnabled));
+            } catch (\Throwable $e) {
+                Log::warning('HumanHandoffUpdated: no se pudo emitir', ['conversation_id' => $conversationId, 'error' => $e->getMessage()]);
+            }
+        });
     }
 
     /**
      * Aplica un estado de Meta (webhook del número de alertas) al intento de
-     * notificación que corresponda.
+     * notificación que corresponda. Devuelve false si el estado no es de una
+     * alerta: el número de alertas también puede ser un canal de un tenant.
      *
      * @param  array<string, mixed>  $status
      */
-    public function recordAlertStatus(array $status): void
+    public function recordAlertStatus(array $status): bool
     {
-        $attempt = HandoffNotificationAttempt::where('external_id', $status['id'] ?? null)->first();
+        $externalId = $status['id'] ?? null;
+        $attempt = is_string($externalId) && $externalId !== ''
+            ? HandoffNotificationAttempt::where('external_id', $externalId)->first()
+            : null;
         if (! $attempt) {
-            return;
+            return false;
         }
 
         $state = (string) ($status['status'] ?? '');
@@ -126,12 +160,12 @@ class HumanHandoffService
                 ]);
             }
 
-            return;
+            return true;
         }
 
         $rank = self::ALERT_STATUS_RANK[$state] ?? null;
         if ($rank === null) {
-            return;
+            return true;
         }
 
         $updates = [];
@@ -151,5 +185,7 @@ class HumanHandoffService
         if ($updates !== []) {
             $attempt->update($updates);
         }
+
+        return true;
     }
 }
