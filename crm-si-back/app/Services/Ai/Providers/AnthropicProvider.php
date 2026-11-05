@@ -210,8 +210,7 @@ class AnthropicProvider implements AiProvider
                     'messages' => array_map([$this, 'formatMessage'], $messages),
                     ...($offerHandoff ? ['tools' => [[
                         'name' => 'request_human_handoff',
-                        'description' => 'Usá esta herramienta únicamente si el cliente pidió explícitamente hablar con una persona. '
-                            .'Junto con la herramienta, escribile al cliente un mensaje breve avisándole que lo va a atender alguien del equipo.',
+                        'description' => self::HANDOFF_TOOL_DESCRIPTION,
                         'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'properties' => [
                             'reason' => ['type' => 'string', 'enum' => ['customer_requested_human']],
                             'summary' => ['type' => 'string', 'maxLength' => 300],

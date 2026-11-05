@@ -18,6 +18,20 @@ interface AiProvider
     public const MAX_TOOL_ROUNDS = 3;
 
     /**
+     * Cuándo derivar a una persona. Lo usan todos los drivers: el texto del
+     * modelo no deriva nada, sólo la herramienta. Si el modelo le promete al
+     * cliente que lo atiende el equipo sin llamarla (p. ej. porque el prompt
+     * del tenant dice "si falta una tarifa, derivá"), la IA sigue contestando
+     * y nadie se entera.
+     */
+    public const HANDOFF_TOOL_DESCRIPTION = 'Deriva la conversación a una persona del equipo: apaga tus respuestas automáticas y avisa al equipo. '
+        .'Usala cuando el cliente pida hablar con una persona, y también siempre que le vayas a decir que alguien del equipo lo va a atender, '
+        .'le va a responder o le va a pasar un dato (por ejemplo porque tus instrucciones indican derivar esa consulta o porque no podés resolverla). '
+        .'Nunca le digas al cliente que lo va a atender una persona sin usar esta herramienta. '
+        .'No la uses para preguntas que podés responder vos con tus instrucciones o tus otras herramientas. '
+        .'Junto con la herramienta, escribile al cliente un mensaje breve avisándole que lo va a atender alguien del equipo.';
+
+    /**
      * Genera una respuesta de texto a partir del historial de conversación.
      *
      * Con $toolset, el driver ofrece esas herramientas al modelo, ejecuta las
