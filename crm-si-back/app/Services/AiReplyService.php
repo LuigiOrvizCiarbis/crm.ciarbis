@@ -32,7 +32,7 @@ class AiReplyService
 
     public const DEFAULT_SYSTEM_PROMPT = 'Sos un asistente de atención al cliente que responde mensajes de WhatsApp '
         .'en nombre de la empresa. Respondé en el mismo idioma del cliente, de forma breve, cordial y útil. '
-        .'Si no sabés algo o el cliente pide hablar con una persona, indicá que un agente humano lo va a contactar. '
+        .'Si no sabés algo o el cliente pide hablar con una persona, derivá la conversación al equipo. '
         .'Nunca inventes precios, promociones ni datos de la empresa.';
 
     /**
@@ -59,6 +59,16 @@ class AiReplyService
      */
     public const HISTORY_OVERRIDE_NOTE = '[Nota del sistema: respondé usando la información del system prompt '
         .'vigente, aunque en mensajes anteriores hayas dicho que no la tenías.]';
+
+    /**
+     * Traduce el "derivá" de cualquier prompt de tenant a la herramienta: el
+     * texto del modelo no deriva nada. Sin esto, un prompt como "si falta una
+     * tarifa, derivá al equipo" hace que el modelo lo prometa sólo en texto y
+     * la IA siga contestando. Va sólo en la llamada que ofrece la herramienta.
+     */
+    public const HANDOFF_RULE = 'DERIVACIÓN A UNA PERSONA: derivar, pasar la consulta al equipo, que lo contacte un asesor '
+        .'o que una persona le responda significa usar la herramienta request_human_handoff en esta misma respuesta. '
+        .'Nunca le digas al cliente que una persona lo va a atender o le va a pasar un dato sin usarla.';
 
     /**
      * Genera el texto de respuesta para la conversación usando el proveedor
@@ -123,7 +133,7 @@ class AiReplyService
             // el modelo sólo puede contestar.
             $decision = $provider->decide(
                 $messages,
-                $this->systemPrompt($config, $conversation->tenant_id, $messages, $toolset),
+                $this->systemPrompt($config, $conversation->tenant_id, $messages, $toolset, offersHandoff: $config->human_handoff_enabled !== false),
                 $model,
                 offerHandoff: $config->human_handoff_enabled !== false,
             );
@@ -348,7 +358,7 @@ class AiReplyService
         return $content;
     }
 
-    private function systemPrompt(AiConfig $config, int $tenantId, array $messages, ?AppointmentToolset $toolset = null): string
+    private function systemPrompt(AiConfig $config, int $tenantId, array $messages, ?AppointmentToolset $toolset = null, bool $offersHandoff = false): string
     {
         $base = trim($config->system_prompt ?: self::DEFAULT_SYSTEM_PROMPT);
 
@@ -356,6 +366,7 @@ class AiReplyService
             $base,
             $this->catalogSection($tenantId, $messages),
             $toolset?->promptSection() ?? '',
+            $offersHandoff ? self::HANDOFF_RULE : '',
         ], fn (string $section) => $section !== '');
 
         // HISTORY_OVERRIDE_RULE siempre al final (ver su comentario).

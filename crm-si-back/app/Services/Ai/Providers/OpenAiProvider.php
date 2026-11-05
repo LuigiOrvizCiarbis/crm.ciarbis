@@ -174,8 +174,7 @@ class OpenAiProvider implements AiProvider
                 ...($offerHandoff ? ['tools' => [[
                     'type' => 'function', 'function' => [
                         'name' => 'request_human_handoff',
-                        'description' => 'Usá esta herramienta únicamente si el cliente pidió explícitamente hablar con una persona. '
-                            .'Junto con la herramienta, escribile al cliente un mensaje breve avisándole que lo va a atender alguien del equipo.',
+                        'description' => self::HANDOFF_TOOL_DESCRIPTION,
                         'parameters' => ['type' => 'object', 'additionalProperties' => false, 'properties' => [
                             'reason' => ['type' => 'string', 'enum' => ['customer_requested_human']],
                             'summary' => ['type' => 'string', 'maxLength' => 300],
