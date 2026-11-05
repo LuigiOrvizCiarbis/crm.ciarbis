@@ -16,6 +16,25 @@ Trabaja ahí.
 Hace MR a dev.
 Dev se testea → se mergea a test → si funciona → main.
 
+## Probar una rama sin mergear
+
+`ops/worktree/wt.sh` levanta un worktree (back + front) como stack Docker aislado, en paralelo al principal:
+
+```bash
+ops/worktree/wt.sh up lbugio/mi-rama   # o la carpeta del worktree; sin argumento, el worktree actual
+ops/worktree/wt.sh ls                  # stacks levantados y sus URLs
+ops/worktree/wt.sh down lbugio/mi-rama # borra contenedores, volúmenes e imágenes del stack
+```
+
+- Cada stack usa un bloque de puertos propio: front en `https://localhost:90N0` y API en `http://localhost:90N1` (`ls` muestra los valores exactos).
+- La primera vez copia la DB del stack principal si está corriendo; si no, arranca vacía con seeders. Después aplica las migraciones de la rama.
+- El scheduler no corre por defecto, para no duplicar automatizaciones sobre los datos copiados; `up --scheduler` lo suma.
+- El código se ve en vivo (Next recarga solo y PHP toma los cambios en cada request). Volvé a correr `up` (~20 s, no recopia la DB) si la rama trae migraciones, cambia `composer.json`/`package.json`, o tocaste código que corren los jobs en cola: los workers no recargan solos.
+- La sesión del navegador es distinta por puerto: hay que loguearse de nuevo en el front del stack, con los mismos usuarios de la DB local.
+- Logs del back: `docker compose -p wt-<carpeta> logs -f app`. Para empezar con una copia fresca de la DB: `down` y después `up`.
+- Necesita los `.env` del worktree, que Orca copia según `.worktreeinclude`.
+- Al borrar el worktree desde Orca, el archive hook de `orca.yaml` corre `down` solo (por CLI: `orca worktree rm --run-hooks`). Si el worktree se borró por otro lado, `ls` lo muestra como "(worktree borrado)" y `down <carpeta>` lo limpia igual.
+
 
 ## Agenda de turnos con IA
 
