@@ -1,0 +1,15 @@
+# Limpieza de build cache de Docker.
+#
+# Genera ~2GB/dia con los deploys. La version anterior corria SEMANAL y sin
+# filtro de antiguedad: acumulaba 14.8GB reclamables entre corridas y dejaba
+# cache referenciada de hasta 7 meses (prune -f solo borra la huerfana).
+#
+# Ahora: DIARIO y con "until=168h" -> conserva la cache de la ultima semana
+# (la que acelera los builds) y borra el resto, este referenciada o no.
+#
+# El techo duro esta en /etc/docker/daemon.json (builder.gc); esto es la red
+# de seguridad. Loguea a /var/log/docker-prune.log para poder auditarlo
+# (antes iba a /dev/null y por eso nadie noto que no alcanzaba).
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+38 5 * * * root /usr/local/bin/docker-prune.sh
