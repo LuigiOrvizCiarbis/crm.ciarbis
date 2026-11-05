@@ -1,6 +1,5 @@
 'use client'
 
-import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { PlatformIcon } from '@/components/chat/PlatformIcon'
 import { EmptyState } from '@/components/EmptyState'
@@ -145,29 +144,24 @@ export function ChannelsList({
     )
   }
 
+  // Filas con divisor, como la bandeja: una tarjeta por canal apilaba bordes y sombras sin aportar.
   return (
-    <div ref={listRef} className="p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-muted-foreground">
-          {t("chats.channels")} ({channels.length})
-        </h3>
-        {activeFilter !== "todos" && (
-          <Badge variant="outline" className="text-xs">
-            {getChannelDisplayName(filterTypeToChannelType(activeFilter) || ChannelType.MANUAL)}
-          </Badge>
-        )}
-      </div>
+    <div ref={listRef} className="py-3">
+      <h3 className="mb-2 px-4 text-sm font-medium text-muted-foreground">
+        {t("chats.channels")} ({channels.length})
+      </h3>
 
       {/* Canales conectados */}
       {connected.length > 0 && (
-        <div className="space-y-2 mb-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Wifi className="w-3 h-3 text-success" />
+        <div className="mb-4">
+          <div className="flex items-center gap-2 px-4 pb-1.5">
+            <Wifi className="w-3 h-3 text-success" aria-hidden="true" />
             <p className="text-xs font-medium text-success">
               {t("chats.connected")} ({connected.length})
             </p>
           </div>
 
+          <div className="divide-y divide-border border-y border-border">
           {connected.map((channel) => {
             const count = getChannelConversationsCount(channel)
             const isEditing = editingId === channel.id
@@ -185,9 +179,9 @@ export function ChannelsList({
               </span>
             )
             return (
-            <Card
+            <div
               key={channel.id}
-              className={`group relative p-3 transition-colors ${isEditing ? '' : 'hover:bg-accent'} ${isSelected ? 'bg-accent border-primary' : ''}`}
+              className={`group relative px-4 py-2.5 transition-colors ${isEditing ? '' : 'hover:bg-accent'} ${isSelected ? 'bg-accent' : ''}`}
             >
               <div className="flex items-center gap-2 sm:gap-3">
                 <PlatformIcon
@@ -216,7 +210,7 @@ export function ChannelsList({
                     {subtitle}
                   </div>
                 ) : (
-                  /* El ::after estira el botón sobre toda la tarjeta: se puede
+                  /* El ::after estira el botón sobre toda la fila: se puede
                      tocar en cualquier parte y el anillo de foco la rodea
                      entera. Las acciones quedan por encima (z-10). */
                   <button
@@ -224,9 +218,9 @@ export function ChannelsList({
                     data-channel-id={channel.id}
                     aria-current={isSelected ? "true" : undefined}
                     onClick={() => onChannelSelect(channel.id)}
-                    className="flex-1 min-w-0 cursor-pointer text-left outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-[3px] focus-visible:after:ring-ring/50"
+                    className="flex-1 min-w-0 cursor-pointer text-left outline-none after:absolute after:inset-0 focus-visible:after:ring-[3px] focus-visible:after:ring-inset focus-visible:after:ring-ring/50"
                   >
-                    <span className="block font-medium text-sm truncate">
+                    <span className={`block text-sm truncate ${isSelected ? 'font-semibold' : 'font-medium'}`}>
                       {channel.name}
                       {count > 0 && (
                         <span className="ml-1 text-muted-foreground font-normal">({count})</span>
@@ -312,48 +306,45 @@ export function ChannelsList({
                   )}
                 </div>
               </div>
-            </Card>
+            </div>
           )})}
+          </div>
         </div>
       )}
 
       {/* Canales desconectados */}
       {disconnected.length > 0 && (
-        <div className="space-y-2 mb-4">
-          <div className="flex items-center gap-2 mb-2">
-            <WifiOff className="w-3 h-3 text-destructive" />
+        <div className="mb-4">
+          <div className="flex items-center gap-2 px-4 pb-1.5">
+            <WifiOff className="w-3 h-3 text-destructive" aria-hidden="true" />
             <p className="text-xs font-medium text-destructive">
               {t("chats.disconnected")} ({disconnected.length})
             </p>
           </div>
 
-          {disconnected.map((channel) => (
-            <Card key={channel.id} className="p-3 opacity-60">
-              <div className="flex items-center gap-3">
+          <div className="divide-y divide-border border-y border-border">
+            {disconnected.map((channel) => (
+              // Sin opacidad en el texto: lo dejaría bajo el contraste mínimo. El subtítulo ya dice "Desconectado".
+              <div key={channel.id} className="flex items-center gap-3 px-4 py-2.5">
                 <PlatformIcon
                   type={channelTypeToFilterType(channel.type)}
-                  className="w-4 h-4"
+                  className="w-4 h-4 shrink-0 opacity-50"
                 />
-
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm truncate">{channel.name}</p>
+                  <p className="font-medium text-sm truncate text-muted-foreground">{channel.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {getChannelDisplayName(channel.type)} • {t("chats.disconnectedLabel")}
                   </p>
                 </div>
-
-                <Badge variant="destructive" className="text-xs">
-                  {t("chats.offline")}
-                </Badge>
               </div>
-            </Card>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
       {/* Estado vacío */}
       {channels.length === 0 && (
-        <div className="mb-4">
+        <div className="mb-4 px-4">
           <EmptyState
             icon={MessageSquare}
             title={t("chats.noChannels")}

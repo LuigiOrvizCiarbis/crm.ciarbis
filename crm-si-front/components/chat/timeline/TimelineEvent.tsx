@@ -9,10 +9,11 @@ const TYPE_CONFIG: Record<
   TimelineEventData["type"],
   { icon: typeof StickyNote; color: string }
 > = {
-  note: { icon: StickyNote, color: "text-amber-500 bg-amber-500/10" },
-  task: { icon: ListTodo, color: "text-blue-500 bg-blue-500/10" },
-  message: { icon: MessageCircle, color: "text-green-500 bg-green-500/10" },
-  stage: { icon: GitBranch, color: "text-purple-500 bg-purple-500/10" },
+  note: { icon: StickyNote, color: "text-warning bg-warning/10" },
+  task: { icon: ListTodo, color: "text-info bg-info/10" },
+  message: { icon: MessageCircle, color: "text-success bg-success/10" },
+  // Etapas del embudo con el color de acción; el violeta queda para la IA.
+  stage: { icon: GitBranch, color: "text-primary bg-primary/10" },
 }
 
 function formatTime(iso: string): string {

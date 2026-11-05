@@ -251,7 +251,7 @@ export function MailMessageInput({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className={`h-9 w-9 ${aiDraft?.content ? "bg-primary/10 text-primary hover:bg-primary/15" : ""}`}
+                className={`h-9 w-9 ${aiDraft?.content ? "bg-ai/10 text-ai hover:bg-ai/15 hover:text-ai" : ""}`}
                 aria-label={aiDraft?.status === "pending" ? t("chats.aiDraftCancel") : aiDraft?.content ? t("chats.aiDraftUse") : t("chats.aiDraftGenerate")}
                 title={aiDraft?.status === "pending" ? t("chats.aiDraftCancel") : aiDraft?.content ? t("chats.aiDraftUse") : t("chats.aiDraftGenerate")}
                 aria-busy={aiDraft?.status === "pending"}

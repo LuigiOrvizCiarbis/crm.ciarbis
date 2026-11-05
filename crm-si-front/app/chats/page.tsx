@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic"
 import { SidebarLayout } from "@/components/SidebarLayout"
+import { BrandPilot } from "@/components/brand/BrandPilot"
 import { ChatFilters } from "@/components/chat/ChatFilters"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,6 +10,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
@@ -27,7 +30,7 @@ const NewGroupDialog = dynamic(
 import { useChatState } from "@/hooks/useChatState"
 import { useToast } from "@/components/Toast"
 import { ChannelError, ChannelErrorDetail } from "@/lib/channel-error"
-import { FilterType, Channel, Conversation, Message, TranslationLanguage } from "@/data/types"
+import { FilterType, Channel, Conversation, ConversationView, Message, TranslationLanguage } from "@/data/types"
 import { ChannelType, filterTypeToChannelType } from "@/data/enums"
 import { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
@@ -120,6 +123,7 @@ import {
   ArchiveRestore,
   Bot,
   CheckSquare,
+  ChevronDown,
   Facebook,
   Instagram,
   Loader2,
@@ -130,7 +134,6 @@ import {
   Menu,
   MoreHorizontal,
   Search,
-  Sparkles,
   Tags,
   Trash2,
   UserPlus,
@@ -138,8 +141,23 @@ import {
   X,
   Zap,
 } from "lucide-react"
+import { channelIconClass } from "@/lib/utils/channelHelpers"
 
-type ConversationView = "inbox" | "unread" | "archived" | "review"
+/** Si una conversación entra en la vista. "Por revisar" muestra mails, no conversaciones. */
+function matchesConversationView(conversation: Conversation, view: ConversationView): boolean {
+  switch (view) {
+    case "archived":
+      return Boolean(conversation.archived)
+    case "review":
+      return false
+    case "unread":
+      return Boolean(conversation.unread) && !conversation.archived
+    case "waiting":
+      return Boolean(conversation.humanHandoff) && !conversation.archived
+    default:
+      return !conversation.archived
+  }
+}
 
 /**
  * Proveedor OAuth a conectar. Ojo: NO es lo mismo que el FilterType de los
@@ -158,10 +176,10 @@ const CONNECTABLE_CHANNELS: {
   Icon: typeof MessageCircle
   iconClassName: string
 }[] = [
-  { key: "whatsapp", label: "WhatsApp", Icon: MessageCircle, iconClassName: "text-green-600" },
-  { key: "instagram", label: "Instagram", Icon: Instagram, iconClassName: "text-pink-600" },
-  { key: "messenger", label: "Messenger", Icon: Facebook, iconClassName: "text-blue-600" },
-  { key: "mail", label: "Email", Icon: Mail, iconClassName: "text-blue-600" },
+  { key: "whatsapp", label: "WhatsApp", Icon: MessageCircle, iconClassName: channelIconClass("whatsapp") },
+  { key: "instagram", label: "Instagram", Icon: Instagram, iconClassName: channelIconClass("instagram") },
+  { key: "messenger", label: "Messenger", Icon: Facebook, iconClassName: channelIconClass("facebook") },
+  { key: "mail", label: "Email", Icon: Mail, iconClassName: channelIconClass("mail") },
 ]
 
 interface ChatsCompactHeaderProps {
@@ -188,7 +206,7 @@ function ChatsCompactHeader({
   const { t } = useTranslation()
   return (
     <div
-      className={`sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur-xl supports-[backdrop-filter]:bg-background/90 ${
+      className={`sticky top-0 z-40 border-b border-border bg-background ${
         hideOnMobile ? "hidden md:block" : ""
       }`}
     >
@@ -197,26 +215,19 @@ function ChatsCompactHeader({
           variant="ghost"
           size="icon"
           onClick={onOpenChannels}
-          aria-label="Abrir canales"
+          aria-label={t("chats.openChannels")}
           className="md:hidden"
         >
           <Menu className="h-5 w-5" />
         </Button>
-        <div className="flex shrink-0 items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm">
-            <Sparkles className="h-4 w-4" />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight text-foreground">Chats</h1>
-            <p className="hidden text-xs text-muted-foreground sm:block">Bandeja omnicanal</p>
-          </div>
-        </div>
+        {/* Sin ícono ni subtítulo: el ✦ es el símbolo de la IA, y "Bandeja omnicanal" repetía el título. */}
+        <h1 className="shrink-0 text-lg font-semibold tracking-tight text-foreground">Chats</h1>
 
         <div className="relative hidden max-w-md flex-1 md:block">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={searchQuery}
-            placeholder="Buscar conversaciones..."
+            placeholder={t("chats.searchPlaceholder")}
             className="h-9 border-border bg-muted/40 pl-9 shadow-none focus-visible:ring-primary/30"
             onChange={(event) => onSearchChange(event.target.value)}
           />
@@ -228,7 +239,7 @@ function ChatsCompactHeader({
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-2 bg-transparent">
                   <Zap className="h-4 w-4" />
-                  Conectar canal
+                  {t("chats.connectChannel")}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -244,7 +255,7 @@ function ChatsCompactHeader({
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild className="lg:hidden">
-              <Button variant="ghost" size="icon" aria-label="Abrir acciones de chats">
+              <Button variant="ghost" size="icon" aria-label={t("chats.headerActions")}>
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -252,7 +263,7 @@ function ChatsCompactHeader({
               {CONNECTABLE_CHANNELS.map(({ key, label, Icon, iconClassName }) => (
                 <DropdownMenuItem key={key} onClick={() => onConnectChannel(key)}>
                   <Icon className={`mr-2 h-4 w-4 ${iconClassName}`} />
-                  Conectar {label}
+                  {t("chats.connectChannelNamed", { name: label })}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -265,7 +276,7 @@ function ChatsCompactHeader({
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={searchQuery}
-            placeholder="Buscar conversaciones..."
+            placeholder={t("chats.searchPlaceholder")}
             className="h-9 border-border bg-muted/40 pl-9 shadow-none"
             onChange={(event) => onSearchChange(event.target.value)}
           />
@@ -455,7 +466,7 @@ export default function ChatsPage() {
       const groupId = conversationsRef.current.find((c) => c.id === selectedConversationId)?.group?.id
       if (!groupId) return
       await updateWhatsAppGroup(groupId, { subject })
-      addToast({ type: "success", title: "Nombre del grupo actualizado" })
+      addToast({ type: "success", title: t("chats.groupRenamed") })
     } catch (error) {
       if (previous !== undefined) {
         setConversations((prev) => prev.map((c) => (
@@ -467,11 +478,11 @@ export default function ChatsPage() {
       }
       addToast({
         type: "error",
-        title: "No se pudo renombrar el grupo",
+        title: t("chats.groupRenameError"),
         description: error instanceof Error ? error.message : undefined,
       })
     }
-  }, [selectedConversationId, addToast])
+  }, [selectedConversationId, addToast, t])
 
   const activeChannel = useMemo(() => channels.find((channel) => channel.id === selectedChannelId), [channels, selectedChannelId])
 
@@ -510,6 +521,32 @@ export default function ChatsPage() {
     conversationsRef.current = conversations;
   }, [conversations]);
 
+  /**
+   * Las vistas filtran sobre las páginas cargadas, y una derivada puede haber quedado más abajo.
+   * Se piden aparte las que esperan a una persona: se suman a la lista y corrigen el estado de
+   * derivación de las que ya estaban (si la respuesta vino completa, las demás no esperan).
+   */
+  const awaitingRequestVersion = useRef(0)
+  const syncAwaitingHuman = useCallback(async () => {
+    const requestVersion = ++awaitingRequestVersion.current
+    try {
+      const result = await getConversationsCursorPage({ channelId: selectedChannelId, awaitingHuman: true, perPage: 100 })
+      if (requestVersion !== awaitingRequestVersion.current) return
+      const waiting = new Map(result.data.map((conversation) => [conversation.id, conversation]))
+      setConversations((current) => {
+        const knownIds = new Set(current.map((conversation) => conversation.id))
+        const updated = current.map((conversation) => {
+          const match = waiting.get(conversation.id)
+          if (match) return { ...conversation, humanHandoff: match.humanHandoff }
+          return !result.hasMore && conversation.humanHandoff ? { ...conversation, humanHandoff: null } : conversation
+        })
+        return [...updated, ...result.data.filter((conversation) => !knownIds.has(conversation.id))]
+      })
+    } catch {
+      // Es un complemento de la lista: si falla, la bandeja sigue con lo que ya cargó.
+    }
+  }, [selectedChannelId])
+
   const loadConversationPage = useCallback(async (reset = false) => {
     if (!reset && (!hasMoreConversationsRef.current || isLoadingMoreConversationsRef.current)) return
 
@@ -540,6 +577,8 @@ export default function ChatsPage() {
       conversationCursorRef.current = result.nextCursor
       setHasMoreConversations(result.hasMore)
       hasMoreConversationsRef.current = result.hasMore
+      // Después del reset, para que no lo pise.
+      if (reset) void syncAwaitingHuman()
     } catch {
       if (requestVersion === conversationRequestVersion.current) {
         // La carga inicial ya muestra el error en la lista con "Reintentar"; el toast queda solo para "cargar más".
@@ -557,7 +596,7 @@ export default function ChatsPage() {
         isLoadingMoreConversationsRef.current = false
       }
     }
-  }, [addToast, selectedChannelId, t])
+  }, [addToast, selectedChannelId, syncAwaitingHuman, t])
 
   const isTemplateFallbackContent = useCallback((content?: string) => {
     if (!content) return false;
@@ -732,13 +771,23 @@ export default function ChatsPage() {
   useEffect(() => { selectedChannelIdRef.current = selectedChannelId; }, [selectedChannelId]);
 
   const tenantRefreshVersionRef = useRef(0);
+  const awaitingSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (awaitingSyncTimer.current) clearTimeout(awaitingSyncTimer.current) }, []);
 
   const handleTenantMessage = useCallback((message: Message) => {
+    // Un mensaje de la IA puede venir con una derivación nueva: se revisa la lista de las que esperan.
+    if (message.sender_type === "system") {
+      if (awaitingSyncTimer.current) clearTimeout(awaitingSyncTimer.current)
+      awaitingSyncTimer.current = setTimeout(() => void syncAwaitingHuman(), 1500)
+    }
+    // Cualquier respuesta de una persona cierra la derivación en el backend.
+    const answeredByHuman = message.sender_type === "user" && message.direction === "outbound"
     setConversations(prev => {
       const idx = prev.findIndex(c => c.id === message.conversation_id);
       if (idx !== -1) {
         const updated = {
           ...prev[idx],
+          ...(answeredByHuman ? { humanHandoff: null } : {}),
           last_message: getRealtimeMessagePreview(
             message,
             prev[idx].last_message
@@ -759,12 +808,13 @@ export default function ChatsPage() {
         conversationCursorRef.current = data.nextCursor;
         setHasMoreConversations(data.hasMore);
         hasMoreConversationsRef.current = data.hasMore;
+        void syncAwaitingHuman();
       }).catch(() => {});
       // Refresh channel list so conversations_count stays in sync after a new chat lands
       getChannels().then(setChannels).catch(() => {});
       return prev;
     });
-  }, [getRealtimeMessagePreview]);
+  }, [getRealtimeMessagePreview, syncAwaitingHuman]);
 
   useTenantSSE({
     onMessage: handleTenantMessage,
@@ -841,19 +891,17 @@ export default function ChatsPage() {
     const counts = new Map<string, number>()
     filteredConversations.forEach((conversation) => {
       if (selectedTags.size > 0 && !conversation.tags?.some((tag) => selectedTags.has(tag.slug))) return
-      const inView = viewType === "archived"
-        ? conversation.archived
-        : viewType === "unread" ? conversation.unread && !conversation.archived : !conversation.archived
-      if (!inView) return
+      if (!matchesConversationView(conversation, viewType)) return
       stageKeysOf(conversation).forEach((key) => counts.set(key, (counts.get(key) ?? 0) + 1))
     })
     return counts
   }, [filteredConversations, tagFilterSlugs, viewType])
 
   const conversationViewCounts = useMemo(() => ({
-    inbox: tagFilteredConversations.filter((conversation) => !conversation.archived).length,
-    unread: tagFilteredConversations.filter((conversation) => conversation.unread && !conversation.archived).length,
-    archived: tagFilteredConversations.filter((conversation) => conversation.archived).length,
+    inbox: tagFilteredConversations.filter((conversation) => matchesConversationView(conversation, "inbox")).length,
+    unread: tagFilteredConversations.filter((conversation) => matchesConversationView(conversation, "unread")).length,
+    waiting: tagFilteredConversations.filter((conversation) => matchesConversationView(conversation, "waiting")).length,
+    archived: tagFilteredConversations.filter((conversation) => matchesConversationView(conversation, "archived")).length,
     review: mailReviewCount,
   }), [tagFilteredConversations, mailReviewCount])
 
@@ -861,14 +909,7 @@ export default function ChatsPage() {
     const normalizedQuery = searchQuery.trim().toLowerCase()
 
     return tagFilteredConversations.filter((conversation) => {
-      const matchesView =
-        viewType === "archived"
-          ? conversation.archived
-          : viewType === "unread"
-            ? conversation.unread && !conversation.archived
-            : viewType === "review" ? false : !conversation.archived
-
-      if (!matchesView) return false
+      if (!matchesConversationView(conversation, viewType)) return false
       if (!normalizedQuery) return true
 
       const contactName = conversation.contact?.name?.toLowerCase() ?? ""
@@ -925,9 +966,7 @@ export default function ChatsPage() {
     const visibleIds = new Set(visibleConversations.map((c) => c.id))
     const tagSet = new Set(tagFilterSlugs)
     const stageSet = new Set(stageFilter)
-    const targetType = activeFilter !== "todos" && activeFilter !== "no-leidos"
-      ? filterTypeToChannelType(activeFilter)
-      : null
+    const targetType = filterTypeToChannelType(activeFilter)
     const matchingChannelIds = targetType
       ? new Set(channels.filter((ch) => ch.type === targetType).map((ch) => ch.id))
       : null
@@ -935,13 +974,9 @@ export default function ChatsPage() {
     return messageSearchResults.filter((conversation) => {
       if (visibleIds.has(conversation.id)) return false
       if (matchingChannelIds && !matchingChannelIds.has(conversation.channelId)) return false
-      if (activeFilter === "no-leidos" && !((conversation.unread_count ?? 0) > 0 || conversation.unread)) return false
       if (tagSet.size > 0 && !conversation.tags?.some((tag) => tagSet.has(tag.slug))) return false
       if (!matchesStageFilter(conversation, stageSet)) return false
-      if (viewType === "archived") return Boolean(conversation.archived)
-      if (conversation.archived) return false
-      if (viewType === "unread" && !conversation.unread) return false
-      return true
+      return matchesConversationView(conversation, viewType)
     })
   }, [messageSearchResults, visibleConversations, searchQuery, activeFilter, channels, tagFilterSlugs, stageFilter, viewType])
 
@@ -1147,8 +1182,8 @@ export default function ChatsPage() {
     if (!sdkLoaded) {
       addToast({
         type: "loading",
-        title: "Preparando Facebook",
-        description: "La conexión con Facebook se está cargando. Intentá de nuevo en unos segundos.",
+        title: t("chats.facebookLoadingTitle"),
+        description: t("chats.facebookLoadingDesc"),
       })
       return
     }
@@ -1447,7 +1482,7 @@ export default function ChatsPage() {
       setCurrentConversation((prev) => (prev && prev.id === targetId ? { ...prev, archived: previous } : prev));
       addToast({
         type: "error",
-        title: t("chats.archiveError") || "Error al archivar",
+        title: t("chats.archiveError"),
         description: error instanceof Error ? error.message : t("chats.unknownError"),
       });
     }
@@ -1760,20 +1795,20 @@ export default function ChatsPage() {
         next.splice(index, 1)
         return [{ ...current, last_message: `👤 ${contactIds.length} contactos compartidos`, updated_at: savedMessage.created_at, aiAutoreplyEnabled: false }, ...next]
       })
-      addToast({ type: "success", title: "Contactos enviados" })
+      addToast({ type: "success", title: t("chats.contactsSent") })
     } catch (error) {
-      addToast({ type: "error", title: "No se pudieron enviar los contactos", description: error instanceof Error ? error.message : undefined })
+      addToast({ type: "error", title: t("chats.contactsSendError"), description: error instanceof Error ? error.message : undefined })
     }
   }
 
   const handleSaveSharedContact = useCallback(async (message: Message, index: number) => {
     try {
       await saveSharedContact(message.id, index)
-      addToast({ type: "success", title: "Contacto guardado" })
+      addToast({ type: "success", title: t("chats.contactSaved") })
     } catch (error) {
-      addToast({ type: "error", title: "No se pudo guardar el contacto", description: error instanceof Error ? error.message : undefined })
+      addToast({ type: "error", title: t("chats.contactSaveError"), description: error instanceof Error ? error.message : undefined })
     }
-  }, [addToast])
+  }, [addToast, t])
 
   const handleSendMail = async (input: SendMailMessageInput) => {
     if (!selectedConversationId) return
@@ -2053,32 +2088,40 @@ export default function ChatsPage() {
     setBroadcastOpen(true)
   }, [selectedCommonChannelId, addToast, t])
 
-  const renderChannelsSidebar = (
-    onChannelSelect: (channelId: number) => void,
-    onConnectChannelClick: (channelType?: ConnectableChannel) => void,
-  ) => (
-    <>
+  const viewOptions: { key: ConversationView; label: string; title: string; count: number }[] = [
+    { key: "inbox", label: t("chats.views.inbox"), title: t("chats.views.inbox"), count: conversationViewCounts.inbox },
+    { key: "unread", label: t("chats.views.unread"), title: t("chats.views.unread"), count: conversationViewCounts.unread },
+    { key: "waiting", label: t("chats.views.waiting"), title: t("chats.views.waitingHint"), count: conversationViewCounts.waiting },
+    { key: "review", label: t("chats.views.review"), title: t("chats.views.review"), count: conversationViewCounts.review },
+    { key: "archived", label: t("chats.views.archived"), title: t("chats.views.archived"), count: conversationViewCounts.archived },
+  ]
+
+  /** "Por revisar" muestra mails, no conversaciones: elegirla con un chat abierto vuelve a la bandeja. */
+  const selectView = (view: ConversationView) => {
+    if (view === "review" && selectedConversationId) handleBackToConversations()
+    setViewType(view)
+  }
+
+  /** Vistas de la bandeja. En escritorio van en la columna de filtros; en el teléfono, sobre la lista. */
+  const renderViewTabs = () => (
       <div
         role="tablist"
         aria-label={t("chats.views.label")}
-        className="flex h-[70px] items-stretch border-b border-border bg-card/95"
+        className="flex h-[70px] shrink-0 items-stretch border-b border-border bg-card"
       >
-        {([
-          { key: "inbox", label: t("chats.views.inbox"), count: conversationViewCounts.inbox },
-          { key: "unread", label: t("chats.views.unread"), count: conversationViewCounts.unread },
-          { key: "review", label: t("chats.views.review"), count: conversationViewCounts.review },
-          { key: "archived", label: t("chats.views.archived"), count: conversationViewCounts.archived },
-        ] as const).map((item) => {
+        {viewOptions.map((item) => {
           const isActive = viewType === item.key
           const hasUnreadCount = item.key === "unread" && item.count > 0
+          // Que haya derivadas esperando es lo urgente de la bandeja: el contador va en ámbar.
+          const hasWaiting = item.key === "waiting" && item.count > 0
           return (
             <button
               key={item.key}
               type="button"
               role="tab"
               aria-selected={isActive}
-              onClick={() => setViewType(item.key)}
-              title={item.label}
+              onClick={() => selectView(item.key)}
+              title={item.title}
               className={`group relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 text-xs font-medium tracking-[-0.01em] transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
                 isActive
                   ? "text-primary"
@@ -2089,9 +2132,11 @@ export default function ChatsPage() {
                 className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full border px-1.5 text-xs font-semibold tabular-nums transition-colors ${
                   isActive
                     ? "border-primary/35 bg-primary/10 text-primary"
-                    : hasUnreadCount
-                      ? "border-primary/25 bg-primary/10 text-primary"
-                      : "border-border bg-background/80 text-muted-foreground"
+                    : hasWaiting
+                      ? "border-warning/30 bg-warning/10 text-warning"
+                      : hasUnreadCount
+                        ? "border-primary/25 bg-primary/10 text-primary"
+                        : "border-border bg-background/80 text-muted-foreground"
                 }`}
               >
                 {item.count > 99 ? "99+" : item.count}
@@ -2106,6 +2151,15 @@ export default function ChatsPage() {
           )
         })}
       </div>
+  )
+
+  const renderChannelsSidebar = (
+    onChannelSelect: (channelId: number) => void,
+    onConnectChannelClick: (channelType?: ConnectableChannel) => void,
+    { withViewTabs }: { withViewTabs: boolean },
+  ) => (
+    <>
+      {withViewTabs && renderViewTabs()}
 
       <ChatFilters
         activeFilter={activeFilter}
@@ -2113,11 +2167,11 @@ export default function ChatsPage() {
         availableChannelTypes={["whatsapp", "instagram", "facebook"]}
       />
 
-      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/80 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-3">
         <TagFilterMenu
           selectedSlugs={tagFilterSlugs}
           onChange={setTagFilterSlugs}
-          label="Etiquetas"
+          label={t("chats.tagsLabel")}
           align="start"
         />
         <StageFilterMenu
@@ -2145,12 +2199,13 @@ export default function ChatsPage() {
         />
       </div>
 
-      <div className="border-t border-border p-4">
+      {/* En escritorio "Conectar canal" ya está en el encabezado; acá sólo hace falta en el menú del teléfono. */}
+      <div className="border-t border-border p-4 md:hidden">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="w-full justify-center gap-2 bg-transparent">
               <Zap className="h-4 w-4 text-primary" />
-              Conectar canal
+              {t("chats.connectChannel")}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-[--radix-dropdown-menu-trigger-width]">
@@ -2182,6 +2237,7 @@ export default function ChatsPage() {
 
   return (
     <SidebarLayout>
+      <BrandPilot />
       <ChatsCompactHeader
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -2195,8 +2251,8 @@ export default function ChatsPage() {
           side="left"
           className="flex w-[320px] flex-col gap-0 p-0 sm:max-w-[360px] md:hidden"
         >
-          <SheetTitle className="sr-only">Canales</SheetTitle>
-          {renderChannelsSidebar(handleMobileChannelSelect, handleMobileConnectChannel)}
+          <SheetTitle className="sr-only">{t("chats.channels")}</SheetTitle>
+          {renderChannelsSidebar(handleMobileChannelSelect, handleMobileConnectChannel, { withViewTabs: false })}
         </SheetContent>
       </Sheet>
 
@@ -2215,7 +2271,7 @@ export default function ChatsPage() {
             selectedConversationId ? "2xl:flex" : "md:flex"
           }`}
         >
-          {renderChannelsSidebar(handleChannelSelect, handleConnectChannel)}
+          {renderChannelsSidebar(handleChannelSelect, handleConnectChannel, { withViewTabs: true })}
         </div>
 
         {selectedConversationId && (
@@ -2223,11 +2279,30 @@ export default function ChatsPage() {
             aria-label={t("chats.conversationRail.label")}
             className="hidden w-[300px] shrink-0 flex-col border-r border-border bg-card md:flex lg:w-[340px]"
           >
-            <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
-              <p className="truncate text-sm font-semibold tracking-[-0.01em]">
-                {activeChannel?.name ?? t(`chats.views.${viewType}`)}
-              </p>
-              <span className="shrink-0 rounded-full border border-border bg-background/80 px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
+            {/* Con un chat abierto la columna de filtros no está: la vista se cambia desde acá. */}
+            <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border px-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="min-w-0 gap-1.5 px-2 text-sm font-semibold" aria-label={t("chats.views.switch")}>
+                    <span className="truncate">{t(`chats.views.${viewType}`)}</span>
+                    {activeChannel && <span className="truncate font-normal text-muted-foreground">· {activeChannel.name}</span>}
+                    <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuRadioGroup value={viewType} onValueChange={(value) => selectView(value as ConversationView)}>
+                    {viewOptions.map((item) => (
+                      <DropdownMenuRadioItem key={item.key} value={item.key} title={item.title}>
+                        <span className="flex-1">{item.label}</span>
+                        <span className={`ml-3 text-xs tabular-nums ${item.key === "waiting" && item.count > 0 ? "font-semibold text-warning" : "text-muted-foreground"}`}>
+                          {item.count > 99 ? "99+" : item.count}
+                        </span>
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <span className="mr-2 shrink-0 rounded-full border border-border bg-background px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground">
                 {listedConversations.length}
               </span>
             </div>
@@ -2252,8 +2327,13 @@ export default function ChatsPage() {
         {/* Panel principal */}
         <div className="flex-1 bg-background flex flex-col overflow-hidden min-h-0">
 
+          {/* En el teléfono no hay columna de filtros: las vistas se muestran sobre la lista. */}
+          {!selectedConversationId && <div className="md:hidden">{renderViewTabs()}</div>}
+
           {!selectedChannelId && !selectedConversationId && (
-            <FilteredConversationsHeader activeFilter={activeFilter} />
+            <div className="hidden md:block">
+              <FilteredConversationsHeader view={viewType} activeFilter={activeFilter} />
+            </div>
           )}
 
           {selectedChannelId && !selectedConversationId && activeChannel && (
@@ -2278,176 +2358,134 @@ export default function ChatsPage() {
 
           {!selectedConversationId && viewType !== "review" && (
             <>
-              <div className="flex items-center justify-between gap-2 border-b border-border bg-card/60 px-4 py-2">
-                <div className="flex items-center gap-2">
+              {selectionMode ? (
+                // Modo selección: arriba qué está elegido (y "Eliminar", separado del resto); abajo las acciones.
+                // Dos filas fijas en vez de una que se corta donde caiga según el ancho.
+                <div className="border-b border-border bg-card px-2 py-1.5">
+                <div className="flex items-center gap-1">
                   <Button
-                    variant={selectionMode ? "default" : "outline"}
+                    variant="ghost"
                     size="sm"
+                    className="h-8 w-8 p-0"
                     onClick={handleToggleSelectionMode}
-                    className="gap-2"
+                    aria-label={t("chats.bulk.exitSelection")}
+                    title={t("chats.bulk.exitSelection")}
                   >
-                    <CheckSquare className="h-4 w-4" />
-                    {selectionMode ? t("chats.bulk.exitSelection") : t("chats.bulk.selectMode")}
+                    <X className="h-4 w-4" aria-hidden="true" />
                   </Button>
-                  {selectionMode && visibleConversations.length > 0 && (
-                    <Button variant="ghost" size="sm" onClick={handleSelectAllVisible}>
-                      {allVisibleSelected ? t("chats.bulk.deselectAll") : t("chats.bulk.selectAll")}
-                    </Button>
-                  )}
-                  {!selectionMode && canCreateGroups && (
-                    <Button variant="outline" size="sm" className="gap-2" onClick={() => setNewGroupOpen(true)}>
-                      <Users className="h-4 w-4" />
-                      Nuevo grupo
-                    </Button>
-                  )}
-                  {!selectionMode && (
+                  <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-1 text-sm font-medium tabular-nums" aria-live="polite">
+                    {t(`chats.bulk.selectedCount_${selectedConversationIds.size === 1 ? "one" : "other"}`, { count: selectedConversationIds.size })}
+                    {bulkSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" aria-label={t("chats.bulk.applying")} />}
+                  </span>
+                  {visibleConversations.length > 0 && (
                     <Button
-                      variant={groupsOnly ? "default" : "ghost"}
+                      variant="ghost"
                       size="sm"
-                      className="gap-2"
-                      onClick={() => setGroupsOnly((prev) => !prev)}
-                      title="Mostrar solo grupos"
+                      className="text-muted-foreground"
+                      onClick={selectedConversationIds.size > 0 && allVisibleSelected ? handleClearSelection : handleSelectAllVisible}
+                      disabled={bulkSubmitting}
                     >
-                      <Users className="h-4 w-4" />
-                      Grupos
+                      {selectedConversationIds.size > 0 && allVisibleSelected ? t("chats.bulk.clear") : t("chats.bulk.selectAll")}
+                    </Button>
+                  )}
+                  {selectedConversationIds.size > 0 && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="ml-auto shrink-0 gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => setBulkDeleteOpen(true)}
+                      disabled={bulkSubmitting}
+                      aria-label={t("chats.bulk.delete")}
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      {/* En el teléfono sólo el ícono: con el texto la fila no entra en 390 px. */}
+                      <span className="hidden sm:inline">{t("chats.bulk.delete")}</span>
                     </Button>
                   )}
                 </div>
-                {selectionMode && selectedConversationIds.size > 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    {t("chats.bulk.selectedCount", { count: selectedConversationIds.size })}
-                  </span>
-                )}
-              </div>
 
-              {selectionMode && selectedConversationIds.size > 0 && (
-                <div className="flex flex-wrap items-center gap-2 border-b border-primary/20 bg-primary/5 px-4 py-2">
-                  <Button
-                    size="sm"
-                    onClick={() => setBulkTagsOpen(true)}
-                    disabled={bulkSubmitting}
-                    className="gap-2"
-                  >
-                    <Tags className="h-3.5 w-3.5" />
-                    {t("chats.bulk.editTags")}
+                  {selectedConversationIds.size > 0 && (
+                    // En el teléfono las acciones se deslizan en una fila: apiladas ocupaban tres renglones.
+                    <div className="-mx-2 mt-1.5 flex items-center gap-1 overflow-x-auto border-t border-border px-2 pt-1.5 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+                      <Button size="sm" variant="ghost" className="gap-1.5" onClick={() => setBulkTagsOpen(true)} disabled={bulkSubmitting}>
+                        <Tags className="h-4 w-4" aria-hidden="true" />
+                        {t("chats.bulk.editTags")}
+                      </Button>
+                      <Button size="sm" variant="ghost" className="gap-1.5" onClick={() => setBulkAssignOpen(true)} disabled={bulkSubmitting}>
+                        <UserPlus className="h-4 w-4" aria-hidden="true" />
+                        {t("chats.bulk.assign")}
+                      </Button>
+                      <Button size="sm" variant="ghost" className="gap-1.5" onClick={() => handleBulkArchive(viewType !== "archived")} disabled={bulkSubmitting}>
+                        {viewType === "archived" ? <ArchiveRestore className="h-4 w-4" aria-hidden="true" /> : <Archive className="h-4 w-4" aria-hidden="true" />}
+                        {viewType === "archived" ? t("chats.bulk.unarchive") : t("chats.bulk.archive")}
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" variant="ghost" className="gap-1.5" disabled={bulkSubmitting}>
+                            <MailOpen className="h-4 w-4" aria-hidden="true" />
+                            {t("chats.bulk.markAs")}
+                            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          <DropdownMenuItem onSelect={() => void handleBulkMarkRead(true)}>
+                            <MailOpen className="mr-2 h-4 w-4" aria-hidden="true" />
+                            {t("chats.bulk.read")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => void handleBulkMarkRead(false)}>
+                            <Mail className="mr-2 h-4 w-4" aria-hidden="true" />
+                            {t("chats.bulk.unread")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" variant="ghost" className="gap-1.5" disabled={bulkSubmitting}>
+                            <Bot className="h-4 w-4 text-ai" aria-hidden="true" />
+                            {t("chats.bulk.aiAssistant")}
+                            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          <DropdownMenuItem onSelect={() => void handleBulkAiAutoreply(true)}>
+                            <Bot className="mr-2 h-4 w-4 text-ai" aria-hidden="true" />
+                            {t("chats.bulk.enableAi")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => void handleBulkAiAutoreply(false)}>
+                            <Bot className="mr-2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                            {t("chats.bulk.disableAi")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <Button size="sm" variant="ghost" className="gap-1.5" onClick={handleBroadcastClick} disabled={bulkSubmitting}>
+                        <Megaphone className="h-4 w-4" aria-hidden="true" />
+                        {t("chats.bulk.broadcast")}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 border-b border-border bg-card px-4 py-2">
+                  <Button variant="outline" size="sm" onClick={handleToggleSelectionMode} className="gap-2">
+                    <CheckSquare className="h-4 w-4" aria-hidden="true" />
+                    {t("chats.bulk.selectMode")}
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setBulkAssignOpen(true)}
-                    disabled={bulkSubmitting}
-                    className="gap-2"
-                  >
-                    <UserPlus className="h-3.5 w-3.5" />
-                    {t("chats.bulk.assign")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={handleBroadcastClick}
-                    disabled={bulkSubmitting}
-                    className="gap-2"
-                  >
-                    <Megaphone className="h-3.5 w-3.5" />
-                    {t("chats.bulk.broadcast")}
-                  </Button>
-                  {viewType === "archived" ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleBulkArchive(false)}
-                      disabled={bulkSubmitting}
-                      className="gap-2"
-                    >
-                      {bulkSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArchiveRestore className="h-3.5 w-3.5" />}
-                      {t("chats.bulk.unarchive")}
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleBulkArchive(true)}
-                      disabled={bulkSubmitting}
-                      className="gap-2"
-                    >
-                      {bulkSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
-                      {t("chats.bulk.archive")}
+                  {canCreateGroups && (
+                    <Button variant="outline" size="sm" className="gap-2" onClick={() => setNewGroupOpen(true)}>
+                      <Users className="h-4 w-4" aria-hidden="true" />
+                      {t("chats.newGroup")}
                     </Button>
                   )}
                   <Button
+                    variant={groupsOnly ? "default" : "ghost"}
                     size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkMarkRead(true)}
-                    disabled={bulkSubmitting}
                     className="gap-2"
+                    onClick={() => setGroupsOnly((prev) => !prev)}
+                    title={t("chats.groupsOnlyHint")}
+                    aria-pressed={groupsOnly}
                   >
-                    {bulkSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MailOpen className="h-3.5 w-3.5" />}
-                    {t("chats.bulk.markRead")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleBulkMarkRead(false)}
-                    disabled={bulkSubmitting}
-                    className="gap-2"
-                  >
-                    {bulkSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
-                    {t("chats.bulk.markUnread")}
-                  </Button>
-                  <div
-                    role="group"
-                    aria-label={t("chats.bulk.aiAssistant")}
-                    className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-background pl-2 pr-1"
-                  >
-                    {bulkSubmitting ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                    ) : (
-                      <Bot className="h-3.5 w-3.5 text-muted-foreground" />
-                    )}
-                    <span className="hidden text-xs font-medium text-muted-foreground lg:inline">
-                      {t("chats.bulk.aiAssistant")}
-                    </span>
-                    <div className="ml-1 flex items-center gap-0.5">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleBulkAiAutoreply(true)}
-                        disabled={bulkSubmitting}
-                        className="h-6 px-2 text-xs text-success hover:bg-success/10 hover:text-success"
-                      >
-                        {t("chats.bulk.enableAi")}
-                      </Button>
-                      <span aria-hidden className="text-border">|</span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleBulkAiAutoreply(false)}
-                        disabled={bulkSubmitting}
-                        className="h-6 px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                      >
-                        {t("chats.bulk.disableAi")}
-                      </Button>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => setBulkDeleteOpen(true)}
-                    disabled={bulkSubmitting}
-                    className="gap-2"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    {t("chats.bulk.delete")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={handleClearSelection}
-                    disabled={bulkSubmitting}
-                    className="gap-2"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    {t("chats.bulk.clear")}
+                    <Users className="h-4 w-4" aria-hidden="true" />
+                    {t("chats.groups")}
                   </Button>
                 </div>
               )}
@@ -2484,7 +2522,7 @@ export default function ChatsPage() {
                           },
                         },
                       }
-                    : { title: t("chats.noConversations"), description: t("chats.noConversationsDesc") }
+                    : { title: t(`chats.empty.${viewType}.title`), description: t(`chats.empty.${viewType}.description`) }
                 }
               />
             </>
@@ -2526,7 +2564,7 @@ export default function ChatsPage() {
                 chatId={selectedConversationId}
                 contact={(() => {
                   const contactId = activeConversation.contact_id ?? Number(activeConversation.contact?.id)
-                  return contactId ? { id: contactId, name: activeConversation.contact?.name ?? "Contacto" } : null
+                  return contactId ? { id: contactId, name: activeConversation.contact?.name ?? t("chats.contactFallback") } : null
                 })()}
                 value={{
                   stageId: currentConversation?.pipeline_stage_id,
@@ -2776,7 +2814,7 @@ export default function ChatsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("chats.bulk.deleteConfirmTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("chats.bulk.deleteConfirmDesc", { count: selectedConversationIds.size })}
+              {t(`chats.bulk.deleteConfirmDesc_${selectedConversationIds.size === 1 ? "one" : "other"}`, { count: selectedConversationIds.size })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

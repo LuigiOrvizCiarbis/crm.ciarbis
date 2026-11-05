@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/select"
 import { WhatsAppTemplate } from "@/data/types"
 import { cn } from "@/lib/utils"
+import { templateCategoryClass } from "@/lib/whatsapp-templates"
 
 interface BroadcastDialogProps {
   open: boolean
@@ -45,12 +46,6 @@ interface BroadcastDialogProps {
   selectedIds: number[]
   channelId: number | null
   onSuccess: () => void
-}
-
-const categoryColors: Record<string, string> = {
-  MARKETING: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-  UTILITY: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-  AUTHENTICATION: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
 }
 
 export function BroadcastDialog({
@@ -282,7 +277,7 @@ export function BroadcastDialog({
                           <span className="truncate text-sm font-medium">{template.name}</span>
                           <Badge
                             variant="secondary"
-                            className={cn("shrink-0 text-xs", categoryColors[template.category])}
+                            className={cn("shrink-0 text-xs", templateCategoryClass(template.category))}
                           >
                             {template.category}
                           </Badge>
@@ -309,7 +304,7 @@ export function BroadcastDialog({
           /* Detalle + parámetros */
           <div className="flex min-h-0 flex-1 flex-col gap-4">
             <div className="flex items-center gap-2">
-              <Badge variant="secondary" className={categoryColors[selected.category] || ""}>
+              <Badge variant="secondary" className={templateCategoryClass(selected.category)}>
                 {selected.category}
               </Badge>
               <span className="text-xs text-muted-foreground">{selected.language}</span>

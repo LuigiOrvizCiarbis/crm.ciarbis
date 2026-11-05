@@ -22,7 +22,7 @@ export function useConversationFilters({
 
   // ✅ Filtrar channels por tipo
   const filteredChannels = useMemo(() => {
-    if (activeFilter === "todos" || activeFilter === "no-leidos") {
+    if (activeFilter === "todos") {
       return channels
     }
 
@@ -43,12 +43,6 @@ export function useConversationFilters({
     // Filtro por tipo de filtro activo
     if (activeFilter === "todos") {
       return result
-    }
-
-    if (activeFilter === "no-leidos") {
-      return result.filter(conv =>
-        (conv.unread_count && conv.unread_count > 0) || conv.unread
-      )
     }
 
     // Filtro por tipo de canal (whatsapp, instagram, etc.)

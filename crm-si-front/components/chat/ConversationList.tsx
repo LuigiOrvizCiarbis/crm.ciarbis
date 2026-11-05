@@ -6,7 +6,7 @@ import { LeadScoreBadge } from "@/components/Badges"
 import { PlatformIcon } from "@/components/chat/PlatformIcon"
 import { EmptyState } from "@/components/EmptyState"
 import { SkeletonList } from "@/components/Skeleton"
-import { AlertCircle, Check, Loader2, MessageSquare, Users } from "lucide-react"
+import { AlertCircle, Bot, Check, Loader2, MessageSquare, Users } from "lucide-react"
 import { Conversation, Channel } from "@/data/types"
 import { channelTypeToFilterType } from "@/data/enums"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -115,7 +115,8 @@ const ConversationCard = memo(function ConversationCard({
       aria-selected={selectionMode ? isChecked : isSelected}
       tabIndex={tabIndex}
       data-conversation-id={conversation.id}
-      className={`${compact ? 'px-3 py-2.5' : 'p-3'} cursor-pointer outline-none hover:bg-accent transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 ${isSelected ? 'bg-accent border-primary' : ''} ${isChecked ? 'bg-primary/5 border-primary/40' : ''}`}
+      // En el piloto BIMS la bandeja es una lista de filas con divisor, no una pila de tarjetas.
+      className={`${compact ? 'px-3 py-2.5' : 'p-3'} cursor-pointer outline-none hover:bg-accent transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 brand:gap-0 brand:rounded-none brand:border-0 brand:border-b brand:border-border brand:bg-transparent brand:shadow-none brand:focus-visible:ring-inset ${isSelected ? 'bg-accent border-primary brand:bg-accent' : ''} ${isChecked ? 'bg-primary/5 border-primary/40 brand:bg-primary/5' : ''}`}
       onClick={handleCardClick}
       onKeyDown={handleKeyDown}
       onFocus={() => onFocusOption(conversation.id)}
@@ -157,6 +158,11 @@ const ConversationCard = memo(function ConversationCard({
               <span className={`text-sm truncate min-w-0 ${isUnread ? 'font-semibold text-foreground' : 'font-medium'}`}>
                 {contactName}
               </span>
+              {conversation.aiAutoreplyEnabled && (
+                <Bot className="size-3.5 shrink-0 text-ai" role="img" aria-label={t("chats.list.aiOn")}>
+                  <title>{t("chats.list.aiOn")}</title>
+                </Bot>
+              )}
               {leadScore != null && leadScore > 0 && (
                 <LeadScoreBadge
                   score={leadScore}
@@ -189,8 +195,20 @@ const ConversationCard = memo(function ConversationCard({
               {contactPhone}
             </p>
           )}
-          <p className={`text-xs truncate ${isUnread ? 'text-foreground/90 font-medium' : 'text-muted-foreground'}`}>
-            {conversation.last_message}
+          <p className={`flex min-w-0 items-center gap-1.5 text-xs ${isUnread ? 'text-foreground/90 font-medium' : 'text-muted-foreground'}`}>
+            {/* Pendiente pide que alguien la tome; tomada todavía espera la primera respuesta. */}
+            {conversation.humanHandoff && (
+              <span
+                className={`shrink-0 rounded-full border px-1.5 text-[11px] font-medium leading-4 ${
+                  conversation.humanHandoff.status === "pending"
+                    ? "border-warning/30 bg-warning/10 text-warning"
+                    : "border-border bg-muted text-muted-foreground"
+                }`}
+              >
+                {t(conversation.humanHandoff.status === "pending" ? "chats.list.handedOff" : "chats.list.taken")}
+              </span>
+            )}
+            <span className="truncate">{conversation.last_message}</span>
           </p>
           {!compact && conversation.tags && conversation.tags.length > 0 && (
             <TagChips tags={conversation.tags} maxVisible={2} className="mt-2" />
@@ -353,8 +371,8 @@ export function ConversationList({
 }: ConversationListProps) {
   const { t } = useTranslation()
   const resolvedEmptyState: NonNullable<ConversationListProps["emptyState"]> = emptyState ?? {
-    title: t("chats.noConversations"),
-    description: t("chats.noConversationsDesc"),
+    title: t("chats.empty.inbox.title"),
+    description: t("chats.empty.inbox.description"),
   }
 
   // Build a channel lookup map for O(1) access
@@ -439,7 +457,7 @@ export function ConversationList({
   }
 
   return (
-    <div className={`flex-1 overflow-y-auto ${compact ? 'p-2' : 'p-4'}`}>
+    <div className={`flex-1 overflow-y-auto ${compact ? 'p-2' : 'p-4'} brand:p-0`}>
       <ConversationListbox
         label={t("chats.conversationListLabel")}
         conversations={uniqueConversations}
@@ -450,7 +468,7 @@ export function ConversationList({
         selectedIds={selectedIds}
         onToggleSelect={onToggleSelect}
         compact={compact}
-        className={compact ? 'space-y-1' : 'space-y-2'}
+        className={`${compact ? 'space-y-1' : 'space-y-2'} brand:space-y-0`}
       />
       {hasMore && (
         <div ref={loadMoreRef} className="flex h-16 items-center justify-center" aria-live="polite">
@@ -459,7 +477,7 @@ export function ConversationList({
       )}
       {(hasMessageResults || isSearchingMessages) && (
         <div className="mt-4">
-          <div className="flex items-center gap-2 px-1 pb-2">
+          <div className="flex items-center gap-2 px-1 pb-2 brand:px-4 brand:pt-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {t("chats.messageResults")}
             </p>
@@ -472,7 +490,7 @@ export function ConversationList({
             selectedConversationId={selectedConversationId}
             onConversationClick={onConversationClick}
             compact={compact}
-            className="space-y-2"
+            className="space-y-2 brand:space-y-0"
           />
         </div>
       )}

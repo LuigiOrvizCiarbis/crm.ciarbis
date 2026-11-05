@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, useId } from "react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { useToast } from "@/components/Toast"
-import { AlertCircle, Archive, Briefcase, ChevronDown, Loader2, Mail, MailOpen, Plus, Tag as TagLucideIcon } from "lucide-react"
+import { AlertCircle, Archive, Briefcase, ChevronDown, Flag, Loader2, Mail, MailOpen, Plus, Tag as TagLucideIcon, UserRound } from "lucide-react"
 import { fetchPipelineStages, PipelineStage } from "@/lib/api/pipeline"
 import { fetchUsers } from "@/lib/api/users"
 import { updateConversationStage, assignConversationUser } from "@/lib/api/conversations"
@@ -442,12 +442,15 @@ export function ChatQuickBar({
       const hasOpportunities = Boolean(contact) && opportunities.length > 0
 
       return (
-    <div className="sticky top-0 z-10 rounded-xl border border-border bg-card/80 p-1.5 backdrop-blur sm:p-2">
-      {/* Desktop Layout */}
-      <div className="hidden md:flex items-center gap-2">
-        {/* Stage Select: etapa del chat (sólo si ninguna oportunidad la maneja) */}
+    <div className="border-b border-border bg-card px-2 py-1.5 sm:px-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+      {/* Etapa del chat y oportunidades, lo que más se mira: a la izquierda en escritorio y debajo
+          del resumen en el teléfono. Si no entran junto a las propiedades, pasan a su propia línea. */}
+      {(hasOpportunities || showChatStage) && (
+      <div className={`order-2 min-w-0 items-center gap-2 md:order-1 md:flex md:w-auto md:flex-auto ${hasOpportunities ? "flex w-full" : "hidden"}`}>
+        {/* Etapa del chat: sólo si ninguna oportunidad del pipeline predeterminado la maneja */}
         {showChatStage && (
-        <div className={`inline-flex shrink-0 items-center gap-2 text-[12px] text-muted-foreground bg-muted border border-border rounded-xl px-3 py-1.5 ${PILL_FOCUS_RING}`}>
+        <div className={`hidden shrink-0 items-center gap-2 rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent md:inline-flex ${PILL_FOCUS_RING}`}>
           <StageDot color={chatStageColor} />
           <span id={stageLabelId}>{t("chats.chatStageLabel")}:</span>
           {isLoadingStages ? (
@@ -486,10 +489,25 @@ export function ChatQuickBar({
           )}
         </div>
         )}
+        {hasOpportunities && (
+          <ChatOpportunityRail
+            opportunities={opportunities}
+            stagesByPipeline={stagesByPipeline}
+            pendingOpportunityId={pendingOpportunityId}
+            contactName={contact?.name}
+            onMove={handleOpportunityStageChange}
+            onNew={openNewOpportunity}
+          />
+        )}
+      </div>
+      )}
 
-        {/* Priority Select */}
-        <div className={`inline-flex items-center gap-2 text-[12px] text-muted-foreground bg-muted border border-border rounded-xl px-3 py-1.5 ${PILL_FOCUS_RING}`}>
-          <span id={priorityLabelId}>{t("chats.priorityLabel")}:</span>
+      {/* Propiedades y acciones del chat: controles livianos, sin cajas, a la derecha. */}
+      <div className="order-3 ml-auto hidden shrink-0 items-center gap-0.5 md:flex">
+        {/* El nombre del campo queda para lectores de pantalla y el tooltip: así entra junto a la oportunidad. */}
+        <div title={t("chats.priorityLabel")} className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent ${PILL_FOCUS_RING}`}>
+          <Flag className="size-3.5 shrink-0" aria-hidden="true" />
+          <span id={priorityLabelId} className="sr-only">{t("chats.priorityLabel")}</span>
           <select
             value={value.priority || "baja"}
             onChange={(e) => handlePriorityChange(e.target.value as Priority)}
@@ -504,8 +522,9 @@ export function ChatQuickBar({
         </div>
 
         {/* Assignee Select (shadcn Select) */}
-        <div className={`inline-flex items-center gap-2 text-[12px] text-muted-foreground bg-muted border border-border rounded-xl px-3 py-1.5 ${PILL_FOCUS_RING}`}>
-          <span id={assigneeLabelId}>{t("chats.assignToLabel")}:</span>
+        <div title={t("chats.assignToLabel")} className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent ${PILL_FOCUS_RING}`}>
+          <UserRound className="size-3.5 shrink-0" aria-hidden="true" />
+          <span id={assigneeLabelId} className="sr-only">{t("chats.assignToLabel")}</span>
           {isLoadingUsers ? (
             <Loader2 className="h-3 w-3 animate-spin" />
           ) : usersFailed && !team.length ? (
@@ -518,7 +537,7 @@ export function ChatQuickBar({
               <SelectTrigger
                 id={`${assigneeLabelId}-trigger`}
                 aria-labelledby={`${assigneeLabelId} ${assigneeLabelId}-trigger`}
-                className="h-auto w-40 border-0 bg-transparent p-0 text-foreground text-sm shadow-none focus-visible:ring-0 gap-2"
+                className="h-auto w-auto max-w-40 border-0 bg-transparent p-0 text-foreground text-sm shadow-none focus-visible:ring-0 gap-2 hover:bg-transparent dark:bg-transparent dark:hover:bg-transparent"
               >
                 <SelectValue placeholder={t("chats.select")} className="truncate">
                   <span className="truncate block w-full text-left">
@@ -537,9 +556,8 @@ export function ChatQuickBar({
           )}
         </div>
 
-        {/* Etiquetas: una sola línea (un chip + "+N") y el selector como ícono, para que la
-            barra no se desborde en laptops; la lista completa está en el selector. */}
-        <div className="flex min-w-0 max-w-[280px] items-center gap-1.5 rounded-xl border border-border bg-muted px-2 py-1.5">
+        {/* Etiquetas: un chip + "+N" y el selector como ícono; la lista completa está en el selector. */}
+        <div className="flex min-w-0 max-w-[220px] items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-accent">
           <TagChips tags={tags} maxVisible={1} className="min-w-0 flex-nowrap overflow-hidden" />
           <TagPicker
             target="conversation"
@@ -552,14 +570,14 @@ export function ChatQuickBar({
           />
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-1 ml-auto">
+        {/* Acciones */}
+        <div className="flex items-center gap-0.5">
           {/* Sin oportunidades: acceso discreto para crear la primera */}
           {contact && !hasOpportunities && (
             <Button
               variant="ghost"
               size="sm"
-              className="relative p-2 rounded-lg border border-border hover:bg-accent text-foreground"
+              className="relative h-8 w-8 p-0 text-foreground"
               onClick={openNewOpportunity}
               title={t("chats.newOpportunity")}
               aria-label={t("chats.newOpportunity")}
@@ -572,7 +590,7 @@ export function ChatQuickBar({
             <Button
               variant="ghost"
               size="sm"
-              className="p-2 rounded-lg border border-border hover:bg-accent text-foreground"
+              className="h-8 w-8 p-0 text-foreground"
               onClick={onToggleReadStatus}
               title={isUnread ? t("chats.markAsRead") : t("chats.markAsUnread")}
               aria-label={isUnread ? t("chats.markAsRead") : t("chats.markAsUnread")}
@@ -583,7 +601,7 @@ export function ChatQuickBar({
           <Button
             variant="ghost"
             size="sm"
-            className="p-2 rounded-lg border border-border hover:bg-accent text-foreground"
+            className="h-8 w-8 p-0 text-foreground"
             onClick={handleToggleArchive}
             title={value.archived ? t("chats.unarchiveShortcut") : t("chats.archiveShortcut")}
             aria-label={value.archived ? t("chats.unarchiveShortcut") : t("chats.archiveShortcut")}
@@ -598,7 +616,7 @@ export function ChatQuickBar({
           alto no entran junto a las acciones en 360px, así que la fila muestra
           un resumen tocable (etapa y prioridad) que abre la hoja "Gestionar
           chat" con los tres controles apilados y con su etiqueta visible. */}
-      <div className="flex items-center gap-1.5 md:hidden">
+      <div className="order-1 flex w-full items-center gap-1.5 md:hidden">
         <Sheet open={isManageSheetOpen} onOpenChange={setIsManageSheetOpen}>
           <div className={`flex min-w-0 flex-1 items-center rounded-lg border border-border bg-muted/50 ${PILL_FOCUS_RING}`}>
             <SheetTrigger asChild>
@@ -790,22 +808,12 @@ export function ChatQuickBar({
           </Button>
         </div>
       </div>
+      </div>
 
       {contact && opportunitiesFailed && (
         <div className="mt-1.5 flex items-center rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-1 text-xs">
           <LoadError message={t("chats.opportunitiesLoadError")} retryLabel={t("chats.retry")} onRetry={retryOpportunities} />
         </div>
-      )}
-
-      {hasOpportunities && (
-        <ChatOpportunityRail
-          opportunities={opportunities}
-          stagesByPipeline={stagesByPipeline}
-          pendingOpportunityId={pendingOpportunityId}
-          contactName={contact?.name}
-          onMove={handleOpportunityStageChange}
-          onNew={openNewOpportunity}
-        />
       )}
 
       <ContactPipelineDialog

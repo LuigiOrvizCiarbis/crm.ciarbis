@@ -685,8 +685,7 @@
     "searchNext": "Siguiente",
     "searchClear": "Limpiar",
     "searchClose": "Cerrar búsqueda",
-    "all": "TODOS",
-    "unread": "No leídos",
+    "all": "Todos",
     "connectChannel": "Conectar canal",
     "connectWhatsApp": "Conectar WhatsApp",
     "connectInstagram": "Conectar Instagram",
@@ -709,19 +708,6 @@
     "noChannelsDesc": "No tenés canales configurados",
     "readOnly": "Solo lectura",
     "disconnectedLabel": "Desconectado",
-    "offline": "Offline",
-    "filterAll": "Todas las conversaciones",
-    "filterUnread": "Conversaciones no leídas",
-    "filterWhatsApp": "Conversaciones de WhatsApp",
-    "filterInstagram": "Conversaciones de Instagram",
-    "filterFacebook": "Conversaciones de Facebook",
-    "filterLinkedIn": "Conversaciones de LinkedIn",
-    "filterTelegram": "Conversaciones de Telegram",
-    "filterWeb": "Conversaciones web",
-    "filterMail": "Conversaciones por correo",
-    "filterManual": "Conversaciones manuales",
-    "noConversations": "No hay conversaciones",
-    "noConversationsDesc": "Esta cuenta no tiene conversaciones activas",
     "noSearchResults": "Sin resultados",
     "noSearchResultsDesc": "No hay conversaciones que coincidan con la búsqueda.",
     "noFilterMatchesDesc": "Ningún chat coincide con los filtros aplicados.",
@@ -1057,23 +1043,18 @@
     },
     "bulk": {
       "selectMode": "Seleccionar",
-      "exitSelection": "Salir",
-      "selectAll": "Seleccionar todos",
-      "deselectAll": "Deseleccionar todos",
-      "selectedCount": "{{count}} seleccionados",
+      "exitSelection": "Salir de la selección",
+      "selectAll": "Seleccionar todas",
       "editTags": "Etiquetas",
       "assign": "Asignar",
       "archive": "Archivar",
       "unarchive": "Desarchivar",
-      "markRead": "Marcar leídas",
-      "markUnread": "Marcar no leídas",
       "aiAssistant": "Asistente IA",
-      "enableAi": "Activar",
-      "disableAi": "Desactivar",
+      "enableAi": "Activar la IA",
+      "disableAi": "Desactivar la IA",
       "delete": "Eliminar",
-      "clear": "Limpiar",
+      "clear": "Quitar selección",
       "deleteConfirmTitle": "Eliminar conversaciones",
-      "deleteConfirmDesc": "Vas a eliminar {{count}} conversación(es). Esta acción no se puede deshacer.",
       "result": {
         "success": "{{updated}} conversación(es) actualizadas",
         "partial": "{{updated}} actualizadas, {{failed}} omitidas",
@@ -1107,7 +1088,15 @@
         "cancel": "Cancelar",
         "apply": "Aplicar"
       },
-      "broadcast": "Difusión"
+      "broadcast": "Difusión",
+      "selectedCount_one": "{{count}} seleccionada",
+      "selectedCount_other": "{{count}} seleccionadas",
+      "applying": "Aplicando",
+      "markAs": "Marcar como",
+      "read": "Leídas",
+      "unread": "No leídas",
+      "deleteConfirmDesc_one": "Vas a eliminar 1 conversación. Esta acción no se puede deshacer.",
+      "deleteConfirmDesc_other": "Vas a eliminar {{count}} conversaciones. Esta acción no se puede deshacer."
     },
     "broadcast": {
       "dialog": {
@@ -1166,8 +1155,11 @@
       "label": "Vistas de conversaciones",
       "inbox": "Bandeja",
       "unread": "No leídos",
+      "waiting": "Derivadas",
+      "waitingHint": "Derivadas a una persona que todavía esperan respuesta",
       "review": "Por revisar",
-      "archived": "Archivados"
+      "archived": "Archivados",
+      "switch": "Cambiar vista"
     },
     "conversationRail": {
       "label": "Lista de conversaciones"
@@ -1189,9 +1181,51 @@
       "title": "Derivación a humano",
       "defaultSummary": "El cliente pidió hablar con una persona.",
       "take": "Tomar",
-      "taken": "Tomada",
+      "takenTitle": "Derivación tomada",
       "takeError": "No se pudo tomar la derivación"
-    }
+    },
+    "list": {
+      "aiOn": "La IA responde esta conversación",
+      "handedOff": "Derivada",
+      "taken": "Tomada"
+    },
+    "channelFilterLabel": "Filtrar por canal",
+    "empty": {
+      "inbox": {
+        "title": "No hay conversaciones",
+        "description": "Cuando te escriban por un canal conectado, la conversación aparece acá."
+      },
+      "unread": {
+        "title": "Estás al día",
+        "description": "No quedan conversaciones sin leer."
+      },
+      "waiting": {
+        "title": "Nadie espera a una persona",
+        "description": "Cuando la IA derive una conversación, aparece acá hasta que alguien responda."
+      },
+      "archived": {
+        "title": "No hay conversaciones archivadas",
+        "description": "Las que archives quedan acá y vuelven a la bandeja si el contacto escribe de nuevo."
+      }
+    },
+    "openChannels": "Abrir canales",
+    "headerActions": "Acciones de chats",
+    "searchPlaceholder": "Buscar conversaciones…",
+    "connectChannelNamed": "Conectar {{name}}",
+    "newGroup": "Nuevo grupo",
+    "groups": "Grupos",
+    "groupsOnlyHint": "Mostrar sólo grupos",
+    "groupRenamed": "Nombre del grupo actualizado",
+    "groupRenameError": "No se pudo renombrar el grupo",
+    "facebookLoadingTitle": "Preparando Facebook",
+    "facebookLoadingDesc": "La conexión con Facebook se está cargando. Intentá de nuevo en unos segundos.",
+    "contactsSent": "Contactos enviados",
+    "contactsSendError": "No se pudieron enviar los contactos",
+    "contactSaved": "Contacto guardado",
+    "contactSaveError": "No se pudo guardar el contacto",
+    "contactFallback": "Contacto",
+    "archiveError": "No se pudo archivar la conversación",
+    "mailAttachments": "Adjuntos ({{count}})"
   },
   "settings": {
     "title": "Configuración",

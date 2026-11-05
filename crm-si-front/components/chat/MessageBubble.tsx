@@ -262,10 +262,11 @@ export const MessageBubble = memo(function MessageBubble({
       ? "rounded-2xl rounded-br-sm"
       : "rounded-2xl rounded-bl-sm"
 
+  // La IA tiene su propio color: se distingue de lo que escribió una persona del equipo.
   const surface = isUser
     ? "bg-primary text-primary-foreground"
     : isBot
-      ? "border border-primary/30 bg-primary/10"
+      ? "border border-ai/30 bg-ai/10"
       : "bg-muted"
 
   const body = isDeleted ? (
@@ -411,7 +412,7 @@ export const MessageBubble = memo(function MessageBubble({
           {...(hasActions ? longPress : {})}
         >
           {isBot && (
-            <div className="mb-1 flex items-center gap-1 text-[11px] font-medium text-primary">
+            <div className="mb-1 flex items-center gap-1 text-[11px] font-medium text-ai">
               <Bot className="h-3 w-3" />
               {t("chats.aiBadge")}
             </div>
