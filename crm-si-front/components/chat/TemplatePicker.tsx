@@ -18,6 +18,7 @@ import {
   getHeaderMediaFormat,
   resolveParamValue,
   type ParamSource,
+  templateCategoryClass,
 } from "@/lib/whatsapp-templates"
 import {
   Select,
@@ -41,12 +42,6 @@ interface TemplatePickerProps {
   onOpenChange?: (open: boolean) => void
   /** Oculta el botón propio cuando quien abre el diálogo es otro control. */
   hideTrigger?: boolean
-}
-
-const categoryColors: Record<string, string> = {
-  MARKETING: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-  UTILITY: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-  AUTHENTICATION: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
 }
 
 export function TemplatePicker({
@@ -272,7 +267,7 @@ export function TemplatePicker({
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium text-sm truncate">{template.name}</span>
-                        <Badge variant="secondary" className={`text-xs shrink-0 ${categoryColors[template.category] || ""}`}>
+                        <Badge variant="secondary" className={`text-xs shrink-0 ${templateCategoryClass(template.category)}`}>
                           {template.category}
                         </Badge>
                       </div>
@@ -294,7 +289,7 @@ export function TemplatePicker({
           /* Detail view */
           <div className="flex flex-col gap-4 min-h-0 flex-1">
             <div className="flex items-center gap-2">
-              <Badge variant="secondary" className={categoryColors[selected.category] || ""}>
+              <Badge variant="secondary" className={templateCategoryClass(selected.category)}>
                 {selected.category}
               </Badge>
               <span className="text-xs text-muted-foreground">{selected.language}</span>

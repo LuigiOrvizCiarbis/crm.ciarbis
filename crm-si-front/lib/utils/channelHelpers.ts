@@ -92,7 +92,6 @@ export function getConnectButtonLabel(filter: FilterType): string {
     mail: "Configurar email",
     manual: "Crear canal manual",
     todos: "Conectar canal",
-    "no-leidos": "Conectar canal",
   };
   return labels[filter];
 }
@@ -118,14 +117,15 @@ export function channelKey(type: number | string | null | undefined): string {
   return String(type).toLowerCase();
 }
 
-// Clases literales para que Tailwind las detecte.
+// Clases literales para que Tailwind las detecte. "web" va en neutro: el violeta es de la IA y el
+// turquesa, de las acciones.
 const CHANNEL_CHIP_CLASS: Record<string, string> = {
   whatsapp: "border-green-500/30 bg-green-500/10 text-green-700 dark:bg-green-500/20 dark:text-green-400",
   instagram: "border-pink-500/30 bg-pink-500/10 text-pink-700 dark:bg-pink-500/20 dark:text-pink-400",
   facebook: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400",
   linkedin: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-sky-400",
   telegram: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-sky-400",
-  web: "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:bg-violet-500/20 dark:text-violet-400",
+  web: "border-border bg-muted text-foreground",
   mail: "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400",
 };
 
@@ -135,7 +135,7 @@ const CHANNEL_ICON_CLASS: Record<string, string> = {
   facebook: "text-blue-600 dark:text-blue-400",
   linkedin: "text-sky-600 dark:text-sky-400",
   telegram: "text-sky-600 dark:text-sky-400",
-  web: "text-violet-600 dark:text-violet-400",
+  web: "text-foreground",
   mail: "text-orange-600 dark:text-orange-400",
 };
 

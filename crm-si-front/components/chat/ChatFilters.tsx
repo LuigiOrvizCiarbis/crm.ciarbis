@@ -1,7 +1,6 @@
 "use client"
 
 import { PlatformIcon } from "./PlatformIcon"
-import { MessageSquare } from "lucide-react"
 import { FilterType } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
 
@@ -11,93 +10,54 @@ interface ChatFiltersProps {
   availableChannelTypes?: FilterType[]
 }
 
+/** Nombres de canal para filtros y títulos; son nombres propios, no se traducen. */
+export const CHANNEL_FILTERS: { key: Exclude<FilterType, "todos">; label: string }[] = [
+  { key: "whatsapp", label: "WhatsApp" },
+  { key: "instagram", label: "Instagram" },
+  { key: "facebook", label: "Facebook" },
+  { key: "linkedin", label: "LinkedIn" },
+  { key: "telegram", label: "Telegram" },
+  { key: "web", label: "Web" },
+  { key: "mail", label: "Email" },
+  { key: "manual", label: "Manual" },
+]
+
+/** Filtro por canal. "No leídos" no va acá: es una de las vistas de la bandeja. */
 export const ChatFilters = ({
   activeFilter,
   onFilterChange,
-  availableChannelTypes
+  availableChannelTypes,
 }: ChatFiltersProps) => {
   const { t } = useTranslation()
 
-  const allFilterButtons = [
-    {
-      key: "todos" as FilterType,
-      label: t("chats.all"),
-      icon: <MessageSquare className="w-3 h-3" />
-    },
-    {
-      key: "no-leidos" as FilterType,
-      label: t("chats.unread"),
-      icon: <div className="w-3 h-3 bg-primary rounded-full" />
-    },
-    {
-      key: "whatsapp" as FilterType,
-      label: "WHATSAPP",
-      icon: <PlatformIcon type="whatsapp" className="w-3 h-3" />
-    },
-    {
-      key: "instagram" as FilterType,
-      label: "INSTAGRAM",
-      icon: <PlatformIcon type="instagram" className="w-3 h-3" />
-    },
-    {
-      key: "facebook" as FilterType,
-      label: "FACEBOOK",
-      icon: <PlatformIcon type="facebook" className="w-3 h-3" />
-    },
-    {
-      key: "linkedin" as FilterType,
-      label: "LINKEDIN",
-      icon: <PlatformIcon type="linkedin" className="w-3 h-3" />
-    },
-    {
-      key: "telegram" as FilterType,
-      label: "TELEGRAM",
-      icon: <PlatformIcon type="telegram" className="w-3 h-3" />
-    },
-    {
-      key: "web" as FilterType,
-      label: "WEB",
-      icon: <PlatformIcon type="web" className="w-3 h-3" />
-    },
-    {
-      key: "mail" as FilterType,
-      label: "EMAIL",
-      icon: <PlatformIcon type="mail" className="w-3 h-3" />
-    },
-    {
-      key: "manual" as FilterType,
-      label: "MANUAL",
-      icon: <PlatformIcon type="manual" className="w-3 h-3" />
-    },
+  const buttons = [
+    { key: "todos" as FilterType, label: t("chats.all"), icon: null },
+    ...CHANNEL_FILTERS
+      .filter((item) => !availableChannelTypes || availableChannelTypes.includes(item.key))
+      .map((item) => ({ ...item, icon: <PlatformIcon type={item.key} className="size-3.5" aria-hidden="true" /> })),
   ]
 
-  const filterButtons = availableChannelTypes
-    ? allFilterButtons.filter(btn =>
-        btn.key === "todos" ||
-        btn.key === "no-leidos" ||
-        availableChannelTypes.includes(btn.key)
-      )
-    : allFilterButtons
-
   return (
-    <div className="border-b border-border bg-card/80 px-4 py-3">
-      <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-        {filterButtons.map((button) => (
+    <div role="group" aria-label={t("chats.channelFilterLabel")} className="flex flex-wrap gap-1 border-b border-border bg-card px-4 py-3">
+      {buttons.map((button) => {
+        const active = activeFilter === button.key
+        return (
           <button
             key={button.key}
             type="button"
-            className={`inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border px-3 text-xs font-semibold uppercase tracking-[0.02em] transition-colors ${
-              activeFilter === button.key
-                ? "border-primary bg-primary text-primary-foreground shadow-sm shadow-primary/20"
-                : "border-border bg-background/60 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+            aria-pressed={active}
+            className={`inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md border px-2 text-xs font-medium outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
+              active
+                ? "border-primary/30 bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
             }`}
             onClick={() => onFilterChange(button.key)}
           >
             {button.icon}
             {button.label}
           </button>
-        ))}
-      </div>
+        )
+      })}
     </div>
   )
 }

@@ -685,8 +685,7 @@
     "searchNext": "Next",
     "searchClear": "Clear",
     "searchClose": "Close search",
-    "all": "ALL",
-    "unread": "UNREAD",
+    "all": "All",
     "connectChannel": "Connect channel",
     "connectWhatsApp": "Connect WhatsApp",
     "connectInstagram": "Connect Instagram",
@@ -709,19 +708,6 @@
     "noChannelsDesc": "You have no configured channels",
     "readOnly": "Read only",
     "disconnectedLabel": "Disconnected",
-    "offline": "Offline",
-    "filterAll": "All conversations",
-    "filterUnread": "Unread conversations",
-    "filterWhatsApp": "WhatsApp conversations",
-    "filterInstagram": "Instagram conversations",
-    "filterFacebook": "Facebook conversations",
-    "filterLinkedIn": "LinkedIn conversations",
-    "filterTelegram": "Telegram conversations",
-    "filterWeb": "Web conversations",
-    "filterMail": "Email conversations",
-    "filterManual": "Manual conversations",
-    "noConversations": "No conversations",
-    "noConversationsDesc": "This account has no active conversations",
     "noSearchResults": "No results",
     "noSearchResultsDesc": "No conversations match your search.",
     "noFilterMatchesDesc": "No chats match the applied filters.",
@@ -1057,23 +1043,18 @@
     },
     "bulk": {
       "selectMode": "Select",
-      "exitSelection": "Exit",
+      "exitSelection": "Exit selection",
       "selectAll": "Select all",
-      "deselectAll": "Deselect all",
-      "selectedCount": "{{count}} selected",
       "editTags": "Tags",
       "assign": "Assign",
       "archive": "Archive",
       "unarchive": "Unarchive",
-      "markRead": "Mark as read",
-      "markUnread": "Mark as unread",
       "aiAssistant": "AI assistant",
-      "enableAi": "Enable",
-      "disableAi": "Disable",
+      "enableAi": "Turn on AI",
+      "disableAi": "Turn off AI",
       "delete": "Delete",
-      "clear": "Clear",
+      "clear": "Clear selection",
       "deleteConfirmTitle": "Delete conversations",
-      "deleteConfirmDesc": "You are about to delete {{count}} conversation(s). This action cannot be undone.",
       "result": {
         "success": "{{updated}} conversation(s) updated",
         "partial": "{{updated}} updated, {{failed}} skipped",
@@ -1107,7 +1088,15 @@
         "cancel": "Cancel",
         "apply": "Apply"
       },
-      "broadcast": "Broadcast"
+      "broadcast": "Broadcast",
+      "selectedCount_one": "{{count}} selected",
+      "selectedCount_other": "{{count}} selected",
+      "applying": "Applying",
+      "markAs": "Mark as",
+      "read": "Read",
+      "unread": "Unread",
+      "deleteConfirmDesc_one": "You are about to delete 1 conversation. This cannot be undone.",
+      "deleteConfirmDesc_other": "You are about to delete {{count}} conversations. This cannot be undone."
     },
     "broadcast": {
       "dialog": {
@@ -1166,8 +1155,11 @@
       "label": "Conversation views",
       "inbox": "Inbox",
       "unread": "Unread",
+      "waiting": "Handed off",
+      "waitingHint": "Handed off to a person and still waiting for a reply",
       "review": "To review",
-      "archived": "Archived"
+      "archived": "Archived",
+      "switch": "Switch view"
     },
     "conversationRail": {
       "label": "Conversation list"
@@ -1189,9 +1181,51 @@
       "title": "Human handoff",
       "defaultSummary": "The customer asked to talk to a person.",
       "take": "Take",
-      "taken": "Taken",
+      "takenTitle": "Handoff taken",
       "takeError": "Could not take the handoff"
-    }
+    },
+    "list": {
+      "aiOn": "AI is replying to this conversation",
+      "handedOff": "Handed off",
+      "taken": "Taken"
+    },
+    "channelFilterLabel": "Filter by channel",
+    "empty": {
+      "inbox": {
+        "title": "No conversations",
+        "description": "When someone writes to a connected channel, the conversation shows up here."
+      },
+      "unread": {
+        "title": "You're all caught up",
+        "description": "There are no unread conversations left."
+      },
+      "waiting": {
+        "title": "Nobody is waiting for a person",
+        "description": "When the AI hands off a conversation, it shows up here until someone replies."
+      },
+      "archived": {
+        "title": "No archived conversations",
+        "description": "Archived conversations stay here and return to the inbox if the contact writes again."
+      }
+    },
+    "openChannels": "Open channels",
+    "headerActions": "Chat actions",
+    "searchPlaceholder": "Search conversations…",
+    "connectChannelNamed": "Connect {{name}}",
+    "newGroup": "New group",
+    "groups": "Groups",
+    "groupsOnlyHint": "Show groups only",
+    "groupRenamed": "Group name updated",
+    "groupRenameError": "Could not rename the group",
+    "facebookLoadingTitle": "Getting Facebook ready",
+    "facebookLoadingDesc": "The Facebook connection is still loading. Try again in a few seconds.",
+    "contactsSent": "Contacts sent",
+    "contactsSendError": "Could not send the contacts",
+    "contactSaved": "Contact saved",
+    "contactSaveError": "Could not save the contact",
+    "contactFallback": "Contact",
+    "archiveError": "Could not archive the conversation",
+    "mailAttachments": "Attachments ({{count}})"
   },
   "settings": {
     "title": "Settings",

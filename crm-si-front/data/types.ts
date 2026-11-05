@@ -134,9 +134,11 @@ export interface Tag {
   is_system: boolean
 }
 
+/** Vistas de la bandeja de Chats. "review" es la bandeja de mails por revisar. */
+export type ConversationView = "inbox" | "unread" | "waiting" | "archived" | "review"
+
 export type FilterType = 
   | "todos" 
-  | "no-leidos" 
   | "whatsapp" 
   | "instagram" 
   | "facebook" 

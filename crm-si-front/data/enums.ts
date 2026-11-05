@@ -64,7 +64,6 @@ export function filterTypeToChannelType(filter: FilterType): ChannelType | null 
     case "manual":
       return ChannelType.MANUAL
     case "todos":
-    case "no-leidos":
       return null
     default:
       return null
