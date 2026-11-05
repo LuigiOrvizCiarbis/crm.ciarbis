@@ -202,11 +202,12 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
             $messengerMessageService,
             $mailMessageService,
         );
-        // Preferimos el texto que el modelo escribió junto a la tool: mantiene
-        // el tono del asistente del tenant. El fijo queda como respaldo.
+        // Preferimos el aviso que escribió el modelo: mantiene el tono del
+        // asistente del tenant y explica el motivo. El fijo queda como
+        // respaldo y no asume que el cliente pidió hablar con alguien.
         $ack = $decision->reply ?? (($decision->handoff['customer_locale'] ?? 'es') === 'en'
-            ? 'Of course. I’m transferring you to a team member, who will reply here shortly.'
-            : 'Claro, te derivo con una persona del equipo. En breve te van a responder por acá.');
+            ? 'I’m passing your message to a team member, who will reply here shortly.'
+            : 'Le paso tu consulta a una persona del equipo. En breve te responden por acá.');
         $service?->sendSystemTextMessageFromCRM($conversation, $ack);
     }
 

@@ -235,11 +235,7 @@ class AnthropicProvider implements AiProvider
                     ...($offerHandoff ? ['tools' => [[
                         'name' => 'request_human_handoff',
                         'description' => self::HANDOFF_TOOL_DESCRIPTION,
-                        'input_schema' => ['type' => 'object', 'additionalProperties' => false, 'properties' => [
-                            'reason' => ['type' => 'string', 'enum' => ['customer_requested_human']],
-                            'summary' => ['type' => 'string', 'maxLength' => 300],
-                            'customer_locale' => ['type' => 'string', 'enum' => ['es', 'en']],
-                        ], 'required' => ['reason', 'summary', 'customer_locale']],
+                        'input_schema' => self::HANDOFF_TOOL_PARAMETERS,
                     ]]] : []),
                 ]);
             if (! $response->successful()) {
