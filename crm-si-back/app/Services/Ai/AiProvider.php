@@ -29,7 +29,31 @@ interface AiProvider
         .'le va a responder o le va a pasar un dato (por ejemplo porque tus instrucciones indican derivar esa consulta o porque no podés resolverla). '
         .'Nunca le digas al cliente que lo va a atender una persona sin usar esta herramienta. '
         .'No la uses para preguntas que podés responder vos con tus instrucciones o tus otras herramientas. '
-        .'Junto con la herramienta, escribile al cliente un mensaje breve avisándole que lo va a atender alguien del equipo.';
+        .'En customer_message escribí el aviso que va a recibir el cliente.';
+
+    /**
+     * JSON Schema de los argumentos de la herramienta, común a los drivers.
+     * customer_message es obligatorio: cuando derivan, los modelos casi nunca
+     * escriben un texto aparte junto a la herramienta, y el cliente recibía
+     * siempre el aviso fijo.
+     */
+    public const HANDOFF_TOOL_PARAMETERS = [
+        'type' => 'object',
+        'additionalProperties' => false,
+        'properties' => [
+            'reason' => ['type' => 'string', 'enum' => ['customer_requested_human']],
+            'summary' => ['type' => 'string', 'maxLength' => 300],
+            'customer_locale' => ['type' => 'string', 'enum' => ['es', 'en']],
+            'customer_message' => [
+                'type' => 'string',
+                'maxLength' => 500,
+                'description' => 'Mensaje para el cliente, en su idioma y con el tono de tus instrucciones. '
+                    .'Contale en una o dos oraciones por qué lo pasás con el equipo (por ejemplo, que ese dato no lo tenés confirmado '
+                    .'o que lo pidió) y que alguien le va a responder por acá. No arranques con "Claro" si el cliente no pidió hablar con una persona.',
+            ],
+        ],
+        'required' => ['reason', 'summary', 'customer_locale', 'customer_message'],
+    ];
 
     /**
      * Genera una respuesta de texto a partir del historial de conversación.

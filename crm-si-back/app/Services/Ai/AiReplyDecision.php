@@ -4,9 +4,9 @@ namespace App\Services\Ai;
 
 /**
  * Resultado de una vuelta de autoreply: o un texto para mandarle al cliente, o
- * un pedido de derivación a humano. En la derivación, $reply es el texto que el
- * modelo escribió junto a la tool (si escribió alguno) y se usa como aviso al
- * cliente en lugar del mensaje fijo.
+ * un pedido de derivación a humano. En la derivación, $reply es el aviso al
+ * cliente: el customer_message de la tool, o si falta el texto que el modelo
+ * escribió aparte. Sin ninguno de los dos se usa el mensaje fijo.
  */
 final class AiReplyDecision
 {
@@ -17,11 +17,19 @@ final class AiReplyDecision
         return new self($reply, null);
     }
 
-    public static function handoff(array $data, ?string $message = null): self
+    public static function handoff(array $data, ?string $text = null): self
     {
-        $message = $message !== null ? trim($message) : null;
+        return new self(self::nonBlank($data['customer_message'] ?? null) ?? self::nonBlank($text), $data);
+    }
 
-        return new self($message !== '' ? $message : null, $data);
+    private static function nonBlank(mixed $text): ?string
+    {
+        if (! is_string($text)) {
+            return null;
+        }
+        $text = trim($text);
+
+        return $text !== '' ? $text : null;
     }
 
     public function requestsHandoff(): bool
