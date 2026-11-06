@@ -175,11 +175,7 @@ class OpenAiProvider implements AiProvider
                     'type' => 'function', 'function' => [
                         'name' => 'request_human_handoff',
                         'description' => self::HANDOFF_TOOL_DESCRIPTION,
-                        'parameters' => ['type' => 'object', 'additionalProperties' => false, 'properties' => [
-                            'reason' => ['type' => 'string', 'enum' => ['customer_requested_human']],
-                            'summary' => ['type' => 'string', 'maxLength' => 300],
-                            'customer_locale' => ['type' => 'string', 'enum' => ['es', 'en']],
-                        ], 'required' => ['reason', 'summary', 'customer_locale']],
+                        'parameters' => self::HANDOFF_TOOL_PARAMETERS,
                     ],
                 ]], 'tool_choice' => 'auto'] : []),
             ]);

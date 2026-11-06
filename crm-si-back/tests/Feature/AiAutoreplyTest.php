@@ -306,7 +306,7 @@ class AiAutoreplyTest extends TestCase
         $this->mock(WhatsAppMessageService::class, function ($mock) {
             $mock->shouldReceive('sendSystemTextMessageFromCRM')
                 ->once()
-                ->withArgs(fn (Conversation $c, string $content) => str_starts_with($content, 'Of course.'));
+                ->withArgs(fn (Conversation $c, string $content) => str_starts_with($content, 'I’m passing your message to a team member'));
         });
 
         $this->runJob($conversation);

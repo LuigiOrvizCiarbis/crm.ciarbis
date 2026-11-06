@@ -45,6 +45,25 @@ class AnthropicProviderDecideTest extends TestCase
         $this->assertNull($decision->reply);
     }
 
+    /**
+     * Al derivar, los modelos casi nunca escriben texto aparte: el aviso al
+     * cliente sale del argumento obligatorio de la tool, aunque haya texto.
+     */
+    public function test_customer_message_from_tool_is_the_acknowledgement(): void
+    {
+        $this->fakeContent([
+            ['type' => 'text', 'text' => 'Te derivo.'],
+            ['type' => 'tool_use', 'id' => 'toolu_1', 'name' => 'request_human_handoff', 'input' => self::TOOL_INPUT + [
+                'customer_message' => '  Eso no lo tengo confirmado, te paso con alguien del equipo.  ',
+            ]],
+        ]);
+
+        $decision = $this->decide();
+
+        $this->assertTrue($decision->requestsHandoff());
+        $this->assertSame('Eso no lo tengo confirmado, te paso con alguien del equipo.', $decision->reply);
+    }
+
     public function test_plain_text_is_a_reply(): void
     {
         $this->fakeContent([['type' => 'text', 'text' => '  Sí, tenemos stock.  ']]);
