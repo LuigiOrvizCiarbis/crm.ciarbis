@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StatStrip } from "@/components/ui/stat-strip"
+import { DataTable } from "@/components/ui/data-table"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -492,39 +494,89 @@ export default function InvoicesPage() {
                 </Select>
               </div>
             </div>
-            <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-muted/45 text-left text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="px-5 py-3">Factura</th><th className="px-5 py-3">Cliente</th><th className="px-5 py-3">Vencimiento</th><th className="px-5 py-3 text-right">Total</th><th className="px-5 py-3 text-right">Saldo</th><th className="px-5 py-3">Estado</th><th className="px-5 py-3" /></tr></thead><tbody className="divide-y">{loading ? <tr><td className="px-5 py-12 text-center text-muted-foreground" colSpan={7}>Cargando cobros…</td></tr> : visibleInvoices.length === 0 ? <tr><td className="px-5 py-14 text-center text-muted-foreground" colSpan={7}>{collectionStatusFilter !== "all" || invoiceSearch ? "No hay cobros que coincidan con la búsqueda o el filtro." : "Todavía no hay cobros. Creá uno para empezar."}</td></tr> : visibleInvoices.map((invoice) => <tr key={invoice.id} className="hover:bg-muted/25"><td className="px-5 py-4"><button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => void openInvoice(invoice.id)}>{invoice.number}</button><p className="max-w-56 truncate text-xs text-muted-foreground">{invoice.concept}</p></td><td className="px-5 py-4">{invoice.contact?.name ?? "Contacto"}</td><td className="px-5 py-4">{date(invoice.due_on)}</td><td className="px-5 py-4 text-right font-medium">{money(invoice.amount_cents)}</td><td className="px-5 py-4 text-right">{money(invoice.balance_cents ?? invoice.amount_cents - (invoice.paid_cents ?? 0))}</td><td className="px-5 py-4">{collectionStatusControl(invoice)}</td><td className="px-5 py-4 text-right">{invoice.status === "issued" && <Button variant="ghost" size="icon" aria-label={`Descargar ${invoice.number}`} onClick={() => void downloadPdf(invoice.id)}><ArrowDownToLine className="size-4" /></Button>}</td></tr>)}</tbody></table></div></Card>
-            <div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">Página {invoicePage} de {invoicePages}</p><div className="flex gap-2"><Button variant="outline" size="sm" disabled={invoicePage <= 1 || loading} onClick={() => setInvoicePage((page) => Math.max(1, page - 1))}>Anterior</Button><Button variant="outline" size="sm" disabled={invoicePage >= invoicePages || loading} onClick={() => setInvoicePage((page) => Math.min(invoicePages, page + 1))}>Siguiente</Button></div></div>
+            <DataTable<InvoiceRecord>
+              data={visibleInvoices}
+              getRowId={(invoice) => invoice.id}
+              getRowLabel={(invoice) => invoice.number}
+              activeRowId={selectedInvoice?.id ?? null}
+              loading={loading}
+              loadingLabel="Cargando cobros…"
+              emptyLabel={collectionStatusFilter !== "all" || invoiceSearch ? "No hay cobros que coincidan con la búsqueda o el filtro." : "Todavía no hay cobros. Creá uno para empezar."}
+              minTableWidth="760px"
+              columns={[
+                {
+                  id: "number",
+                  header: "Factura",
+                  rowHeader: true,
+                  cell: (invoice) => <>
+                    <button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => void openInvoice(invoice.id)}>{invoice.number}</button>
+                    <p className="max-w-56 truncate text-xs text-muted-foreground">{invoice.concept}</p>
+                  </>,
+                },
+                { id: "contact", header: "Cliente", cell: (invoice) => invoice.contact?.name ?? "Contacto" },
+                { id: "due", header: "Vencimiento", className: "tabular-nums", cell: (invoice) => date(invoice.due_on) },
+                { id: "total", header: "Total", align: "right", className: "font-medium tabular-nums", cell: (invoice) => money(invoice.amount_cents) },
+                { id: "balance", header: "Saldo", align: "right", className: "tabular-nums", cell: (invoice) => money(invoice.balance_cents ?? invoice.amount_cents - (invoice.paid_cents ?? 0)) },
+                { id: "status", header: "Estado", cell: (invoice) => collectionStatusControl(invoice) },
+                {
+                  id: "pdf",
+                  header: "",
+                  headerLabel: "PDF",
+                  align: "right",
+                  cell: (invoice) => invoice.status === "issued" && <Button variant="ghost" size="icon" aria-label={`Descargar ${invoice.number}`} onClick={() => void downloadPdf(invoice.id)}><ArrowDownToLine className="size-4" /></Button>,
+                },
+              ]}
+            />
+            <DataTablePagination page={invoicePage} pageCount={invoicePages} onPageChange={setInvoicePage} disabled={loading} />
           </TabsContent>
           <TabsContent value="recurrences">
             {!settings?.enabled && <p className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">Los cobros recurrentes se generan como borradores para controlar sus pagos. Activá los envíos en Configuración de cobros para mandar los próximos por WhatsApp.</p>}
-            <Card className="overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[900px] text-sm">
-                  <thead className="bg-muted/45 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr><th className="px-5 py-3">Concepto</th><th className="px-5 py-3">Cliente</th><th className="px-5 py-3">Frecuencia</th><th className="px-5 py-3">Próximo cobro</th><th className="px-5 py-3 text-right">Importe</th><th className="px-5 py-3">Recurrencia</th><th className="px-5 py-3">Último período · pago</th><th className="px-5 py-3" /></tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {loading ? <tr><td className="px-5 py-12 text-center text-muted-foreground" colSpan={8}>Cargando recurrencias…</td></tr> : recurrences.length === 0 ? <tr><td className="px-5 py-14 text-center" colSpan={8}><Repeat2 className="mx-auto mb-3 size-8 text-muted-foreground/50"/><p className="font-medium">Sin cobros recurrentes</p><p className="mt-1 text-muted-foreground">Las recurrencias generan una factura separada por cada período.</p></td></tr> : recurrences.map((recurrence) => <tr key={recurrence.id} className="hover:bg-muted/25">
-                      <td className="px-5 py-4 font-medium">{recurrence.concept}</td>
-                      <td className="px-5 py-4">{recurrence.contact?.name}</td>
-                      <td className="px-5 py-4">{recurrenceFrequency(recurrence.interval_unit, recurrence.interval_count)}</td>
-                      <td className="px-5 py-4">{recurrence.status === "draft" ? "Al activar" : date(recurrence.next_occurrence_on)}</td>
-                      <td className="px-5 py-4 text-right font-medium">{money(recurrence.amount_cents)}</td>
-                      <td className="px-5 py-4"><Badge variant={recurrence.status === "active" ? "default" : "outline"}>{recurrence.status === "active" ? "Activa" : recurrence.status === "draft" ? "Borrador" : recurrence.status === "paused" ? "Pausada" : recurrence.status === "completed" ? "Completada" : "Cancelada"}</Badge></td>
-                      <td className="px-5 py-4">{recurrence.latest_invoice ? <div className="space-y-2"><button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => void openInvoice(recurrence.latest_invoice!.id)}>{recurrence.latest_invoice.number}</button>{collectionStatusControl(recurrence.latest_invoice)}</div> : <span className="text-xs text-muted-foreground">Aún no generado</span>}</td>
-                      <td className="px-5 py-4 text-right"><div className="flex flex-wrap justify-end gap-1">
-                        {(recurrence.invoices_count ?? 0) > 0 && <Button size="sm" variant="outline" onClick={() => { setRecurrenceFilter(recurrence); setInvoicePage(1); setActiveTab("invoices") }}>Ver períodos</Button>}
-                        {canManage && ["draft", "active"].includes(recurrence.status) && <Button size="sm" variant="ghost" onClick={() => { setRecurrenceToEdit(recurrence); setRecurrenceEdit({ concept: recurrence.concept, amount: (recurrence.amount_cents / 100).toFixed(2), interval_count: String(recurrence.interval_count), interval_unit: recurrence.interval_unit, payment_term_days: String(recurrence.payment_term_days), ends_on: "" }) }}>Editar</Button>}
-                        {canManage && recurrence.status === "draft" && <Button size="sm" variant="outline" disabled={busy} onClick={() => void activateRecurrence(recurrence.id)}><Check className="mr-1 size-4" /> Activar</Button>}
-                        {canManage && recurrence.status === "active" && <Button size="sm" variant="ghost" onClick={() => void changeRecurrenceState(recurrence.id, "pause")}><ChevronDown className="mr-1 size-4" /> Pausar</Button>}
-                        {canManage && recurrence.status === "paused" && <Button size="sm" variant="outline" onClick={() => void changeRecurrenceState(recurrence.id, "resume")}>Reanudar</Button>}
-                        {canManage && ["draft", "active", "paused"].includes(recurrence.status) && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setRecurrenceToCancel(recurrence.id)}>Cancelar</Button>}
-                      </div></td>
-                    </tr>)}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
+            <DataTable<InvoiceRecurrenceRecord>
+              data={recurrences}
+              getRowId={(recurrence) => recurrence.id}
+              getRowLabel={(recurrence) => recurrence.concept}
+              loading={loading}
+              loadingLabel="Cargando recurrencias…"
+              emptyLabel={<div className="py-4 text-center">
+                <Repeat2 className="mx-auto mb-3 size-8 text-muted-foreground/50" />
+                <p className="font-medium text-foreground">Sin cobros recurrentes</p>
+                <p className="mt-1 text-muted-foreground">Las recurrencias generan una factura separada por cada período.</p>
+              </div>}
+              minTableWidth="900px"
+              columns={[
+                { id: "concept", header: "Concepto", rowHeader: true, className: "font-medium", cell: (recurrence) => recurrence.concept },
+                { id: "contact", header: "Cliente", cell: (recurrence) => recurrence.contact?.name },
+                { id: "frequency", header: "Frecuencia", cell: (recurrence) => recurrenceFrequency(recurrence.interval_unit, recurrence.interval_count) },
+                { id: "next", header: "Próximo cobro", className: "tabular-nums", cell: (recurrence) => recurrence.status === "draft" ? "Al activar" : date(recurrence.next_occurrence_on) },
+                { id: "amount", header: "Importe", align: "right", className: "font-medium tabular-nums", cell: (recurrence) => money(recurrence.amount_cents) },
+                {
+                  id: "status",
+                  header: "Recurrencia",
+                  cell: (recurrence) => <Badge variant={recurrence.status === "active" ? "default" : "outline"}>{recurrence.status === "active" ? "Activa" : recurrence.status === "draft" ? "Borrador" : recurrence.status === "paused" ? "Pausada" : recurrence.status === "completed" ? "Completada" : "Cancelada"}</Badge>,
+                },
+                {
+                  id: "latest",
+                  header: "Último período · pago",
+                  cell: (recurrence) => recurrence.latest_invoice
+                    ? <div className="space-y-2"><button className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => void openInvoice(recurrence.latest_invoice!.id)}>{recurrence.latest_invoice.number}</button>{collectionStatusControl(recurrence.latest_invoice)}</div>
+                    : <span className="text-xs text-muted-foreground">Aún no generado</span>,
+                },
+                {
+                  id: "actions",
+                  header: "",
+                  headerLabel: "Acciones",
+                  align: "right",
+                  cell: (recurrence) => <div className="flex flex-wrap justify-end gap-1">
+                    {(recurrence.invoices_count ?? 0) > 0 && <Button size="sm" variant="outline" onClick={() => { setRecurrenceFilter(recurrence); setInvoicePage(1); setActiveTab("invoices") }}>Ver períodos</Button>}
+                    {canManage && ["draft", "active"].includes(recurrence.status) && <Button size="sm" variant="ghost" onClick={() => { setRecurrenceToEdit(recurrence); setRecurrenceEdit({ concept: recurrence.concept, amount: (recurrence.amount_cents / 100).toFixed(2), interval_count: String(recurrence.interval_count), interval_unit: recurrence.interval_unit, payment_term_days: String(recurrence.payment_term_days), ends_on: "" }) }}>Editar</Button>}
+                    {canManage && recurrence.status === "draft" && <Button size="sm" variant="outline" disabled={busy} onClick={() => void activateRecurrence(recurrence.id)}><Check className="mr-1 size-4" /> Activar</Button>}
+                    {canManage && recurrence.status === "active" && <Button size="sm" variant="ghost" onClick={() => void changeRecurrenceState(recurrence.id, "pause")}><ChevronDown className="mr-1 size-4" /> Pausar</Button>}
+                    {canManage && recurrence.status === "paused" && <Button size="sm" variant="outline" onClick={() => void changeRecurrenceState(recurrence.id, "resume")}>Reanudar</Button>}
+                    {canManage && ["draft", "active", "paused"].includes(recurrence.status) && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setRecurrenceToCancel(recurrence.id)}>Cancelar</Button>}
+                  </div>,
+                },
+              ]}
+            />
           </TabsContent>
         </Tabs>
 

@@ -22,8 +22,9 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat("es-AR").format(Math.round(value))
 }
 
+// Sin decimales de relleno: "0%" y "12,5%", no "0.0%".
 function formatPercent(value: number): string {
-  return `${value.toFixed(1)}%`
+  return `${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 1 }).format(value)}%`
 }
 
 export function ContactsStats({ refreshKey = 0, onBillingAvailabilityChange }: ContactsStatsProps) {
@@ -90,9 +91,9 @@ export function ContactsStats({ refreshKey = 0, onBillingAvailabilityChange }: C
       {failed && !isLoading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground" role="alert">
           <AlertTriangle className="size-4 shrink-0 text-destructive" aria-hidden="true" />
-          <span>No se pudieron cargar las métricas.</span>
+          <span>{t("contactsPage.stats.loadError")}</span>
           <Button variant="link" size="sm" className="h-auto p-0" onClick={() => setRetryKey((key) => key + 1)}>
-            Reintentar
+            {t("contactsPage.stats.retry")}
           </Button>
         </div>
       )}

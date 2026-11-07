@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { LeadScoreBadge } from "@/components/Badges"
-import { ArrowLeft, Info, History, Pencil, Check, X, User, Users, Plus, Bot, MoreVertical, ReceiptText, CalendarOff } from "lucide-react"
+import { ArrowLeft, Info, History, Pencil, Check, X, User, Users, Plus, Bot, MoreVertical, ReceiptText, CalendarOff, Search } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +29,7 @@ interface ConversationHeaderProps {
   onRenameContact?: (name: string) => Promise<void> | void
   onRenameGroup?: (subject: string) => Promise<void> | void
   onToggleAiAutoreply?: (enabled: boolean) => Promise<void> | void
+  onSearchMessages: () => void
 }
 
 export function ConversationHeader({
@@ -39,6 +40,7 @@ export function ConversationHeader({
   onRenameContact,
   onRenameGroup,
   onToggleAiAutoreply,
+  onSearchMessages,
 }: ConversationHeaderProps) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [timelineOpen, setTimelineOpen] = useState(false)
@@ -205,10 +207,20 @@ export function ConversationHeader({
             </p>
           </div>
         </div>
-        {/* Panel angosto (teléfono, o laptop con la bandeja abierta): sólo el estado de la IA queda a la
-            vista. Es lo único que se mira mientras se lee (dice si el bot está contestando por vos);
+        {/* Panel angosto (teléfono, o laptop con la bandeja abierta): a la vista quedan buscar en el hilo
+            y el estado de la IA, que se usan mientras se lee (la IA dice si el bot está contestando por vos);
             el resto son acciones puntuales y viven en el menú. */}
         <div className="flex shrink-0 items-center gap-0.5 @2xl:hidden">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-10 w-10 shrink-0 rounded-full p-0 text-muted-foreground"
+            onClick={onSearchMessages}
+            title={t("chats.searchInChat")}
+            aria-label={t("chats.searchInChat")}
+          >
+            <Search className="h-[18px] w-[18px]" aria-hidden="true" />
+          </Button>
           {onToggleAiAutoreply && (
             <Button
               variant="ghost"
@@ -313,8 +325,17 @@ export function ConversationHeader({
             aria-label={t("chats.createInvoice")}
           >
             <ReceiptText className="h-4 w-4" />
-            <span className="hidden @3xl:inline">{t("chats.createInvoice")}</span>
+            <span className="hidden @4xl:inline">{t("chats.createInvoice")}</span>
           </Button>}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onSearchMessages}
+            title={t("chats.searchInChat")}
+            aria-label={t("chats.searchInChat")}
+          >
+            <Search className="w-4 h-4" aria-hidden="true" />
+          </Button>
           {hasContactId && (
             <Button
               variant="ghost"

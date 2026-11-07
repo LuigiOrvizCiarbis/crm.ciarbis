@@ -169,15 +169,13 @@
     "deleteConfirmBody": "Se eliminará \"{{name}}\" del catálogo. Esta acción no se puede deshacer.",
     "activate": "Activar",
     "deactivate": "Desactivar",
-    "bulkSelected": "{{count}} seleccionado(s)",
     "bulkActivated": "Productos activados",
     "bulkDeactivated": "Productos desactivados",
     "bulkDeleted": "Productos eliminados",
     "bulkDeleteConfirmBody": "Se eliminarán {{count}} producto(s) del catálogo. Esta acción no se puede deshacer.",
-    "perPage": "Por página",
-    "paginationInfo": "{{from}}-{{to}} de {{total}}",
-    "previous": "Anterior",
-    "next": "Siguiente"
+    "clearSelection": "Limpiar selección",
+    "bulkSelected_one": "{{count}} seleccionado",
+    "bulkSelected_other": "{{count}} seleccionados"
   },
   "dashboard": {
     "title": "Panel",
@@ -373,11 +371,11 @@
       "description": "Elegí qué contactos ver.",
       "button": "Filtros",
       "buttonActive": "Filtros, {{count}} activos",
-      "source": "Origen",
+      "source": "Fuente",
       "clear": "Limpiar",
       "done": "Listo",
-      "status": "Estado",
       "all": "Todos",
+      "allSources": "Todas las fuentes",
       "lead": "Lead",
       "qualified": "Calificado",
       "customer": "Cliente",
@@ -405,10 +403,11 @@
       "activeLeads": "Leads activos",
       "qualified": "Calificados",
       "conversionRate": "Tasa de conversión",
-      "vsPrevious": "vs {value} mes pasado",
       "billingAlDia": "Al día",
       "billingPorVencer": "Por vencer",
-      "billingVencido": "Vencidos"
+      "billingVencido": "Vencidos",
+      "loadError": "No se pudieron cargar las métricas.",
+      "retry": "Reintentar"
     },
     "table": {
       "contact": "Contacto",
@@ -467,7 +466,10 @@
         "success": "{{count}} contacto(s) eliminado(s)",
         "partial": "{{deleted}} eliminado(s), {{failed}} sin permiso",
         "error": "No se pudieron eliminar los contactos"
-      }
+      },
+      "selected_one": "{{count}} seleccionado",
+      "selected_other": "{{count}} seleccionados",
+      "clear": "Quitar selección"
     },
     "customFields": {
       "title": "Campos de contacto",
@@ -892,6 +894,8 @@
     "voiceLocked": "Grabando…",
     "voiceSending": "Enviando…",
     "edited": "editado",
+    "showOriginal": "Ver el texto original",
+    "hideOriginal": "Ocultar el texto original",
     "messageFailed": "No se pudo entregar",
     "dateToday": "Hoy",
     "dateYesterday": "Ayer",
@@ -1009,6 +1013,7 @@
     "opportunities": "Oportunidades",
     "opportunitiesOfChat": "Oportunidades de este chat",
     "newOpportunity": "Nueva oportunidad",
+    "opportunitySince": "desde el {{date}}",
     "noOpportunities": "Este chat todavía no tiene oportunidades.",
     "opportunityStageLabel": "Etapa de la oportunidad",
     "moveOpportunityTo": "Mover a {{stage}}",
@@ -1225,7 +1230,16 @@
     "contactSaveError": "No se pudo guardar el contacto",
     "contactFallback": "Contacto",
     "archiveError": "No se pudo archivar la conversación",
-    "mailAttachments": "Adjuntos ({{count}})"
+    "mailAttachments": "Adjuntos ({{count}})",
+    "audio": {
+      "play": "Reproducir audio",
+      "pause": "Pausar audio",
+      "seek": "Posición del audio",
+      "position": "{{current}} de {{total}}",
+      "speed": "Velocidad {{rate}}, tocá para cambiarla",
+      "loadError": "No se pudo cargar el audio.",
+      "open": "Abrir"
+    }
   },
   "settings": {
     "title": "Configuración",
@@ -2468,6 +2482,31 @@
       "sound": "Sonido",
       "soundHint": "Un aviso corto al llegar una notificación.",
       "typesTitle": "Qué te avisamos"
+    }
+  },
+  "dataTable": {
+    "loading": "Cargando…",
+    "empty": "Sin datos para mostrar",
+    "selectAll": "Seleccionar todas las filas",
+    "selectRow": "Seleccionar fila",
+    "selectRowNamed": "Seleccionar {{row}}",
+    "moveColumn": "Mover columna {{column}}",
+    "dndColumn": "la columna {{column}}",
+    "resizeColumn": "Ajustar ancho de {{column}}",
+    "resizeValue": "{{width}} píxeles",
+    "resizeHint": "Arrastrá para ajustar. Doble clic para autoajustar.",
+    "range": "{{from}}–{{to}} de {{total}}",
+    "rangeEmpty": "Sin resultados",
+    "perPage": "Por página",
+    "page": "{{page}} de {{pages}}",
+    "previousPage": "Página anterior",
+    "nextPage": "Página siguiente",
+    "resetWidths": "Restablecer anchos",
+    "resetWidthsHint": "Volver a los anchos de columna originales"
+  },
+  "tasks": {
+    "list": {
+      "empty": "No hay tareas para mostrar."
     }
   }
 }

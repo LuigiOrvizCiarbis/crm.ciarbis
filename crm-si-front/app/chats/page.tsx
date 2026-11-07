@@ -357,6 +357,8 @@ export default function ChatsPage() {
   const [selectedChannel, setSelectedChannel] = useState<number | null>(null)
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null)
   const [isContactInfoOpen, setIsContactInfoOpen] = useState(false)
+  // Conversación con el buscador del hilo abierto: con el id (y no un booleano) cambiar de chat lo cierra solo.
+  const [threadSearchFor, setThreadSearchFor] = useState<number | null>(null)
   const contactInfoTriggerRef = useRef<HTMLElement | null>(null)
   const isLgViewport = useSyncExternalStore(subscribeToLgViewport, getLgViewportSnapshot, getLgViewportServerSnapshot)
   const [isChannelsSheetOpen, setIsChannelsSheetOpen] = useState(false)
@@ -1292,6 +1294,10 @@ export default function ChatsPage() {
     setSelectedConversationId(null)
     router.replace("/chats")
   }, [router])
+
+  const handleThreadSearchOpenChange = useCallback((open: boolean) => {
+    setThreadSearchFor(open ? selectedConversationId : null)
+  }, [selectedConversationId])
 
   const handleBackToChannels = useCallback(() => {
     tenantRefreshVersionRef.current++
@@ -2557,6 +2563,7 @@ export default function ChatsPage() {
                 onRenameContact={handleRenameContact}
                 onRenameGroup={handleRenameGroup}
                 onToggleAiAutoreply={handleToggleAiAutoreply}
+                onSearchMessages={() => handleThreadSearchOpenChange(true)}
               />
               {currentConversation?.id === selectedConversationId && (
                 <HumanHandoffBanner
@@ -2630,6 +2637,8 @@ export default function ChatsPage() {
                 onTranslateMessage={handleTranslateMessage}
                 channelType={activeConversation?.channel?.type}
                 isGroupConversation={activeConversation?.kind === "group"}
+                searchOpen={threadSearchFor === selectedConversationId}
+                onSearchOpenChange={handleThreadSearchOpenChange}
               />
               {activeConversation?.channel?.type === ChannelType.MAIL ? (
                 <MailMessageInput

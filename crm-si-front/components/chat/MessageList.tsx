@@ -50,6 +50,9 @@ interface MessageListProps {
   onTranslateMessage: (message: Message, targetLanguage: TranslationLanguage) => Promise<MessageTranslationResponse>
   channelType?: ChannelType
   isGroupConversation?: boolean
+  /** El buscador se abre desde el header: una lupa flotando sobre el hilo tapaba burbujas. */
+  searchOpen: boolean
+  onSearchOpenChange: (open: boolean) => void
 }
 
 interface TranslationState {
@@ -98,7 +101,8 @@ function FloatingDayChip({
           if (entry.boundingClientRect.top < rootTop) above.add(entry.target)
           else above.delete(entry.target)
         }
-        let label = separators[0].dataset.dayLabel || ""
+        // Sin separador por encima, el del día está a la vista: repetirlo flotando lo duplicaba.
+        let label = ""
         for (const separator of separators) {
           if (!above.has(separator)) break
           label = separator.dataset.dayLabel || label
@@ -171,6 +175,8 @@ export const MessageList = memo(function MessageList({
   onTranslateMessage,
   channelType,
   isGroupConversation = false,
+  searchOpen,
+  onSearchOpenChange,
 }: MessageListProps) {
   const { t, language } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -191,7 +197,6 @@ export const MessageList = memo(function MessageList({
   const [arrivalAnnouncement, setArrivalAnnouncement] = useState("")
 
   // --- Búsqueda dentro de la conversación ---
-  const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [activeMatch, setActiveMatch] = useState(0)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -289,7 +294,7 @@ export const MessageList = memo(function MessageList({
       else goToNextMatch()
     } else if (event.key === "Escape") {
       event.preventDefault()
-      setSearchOpen(false)
+      onSearchOpenChange(false)
     }
   }
 
@@ -441,18 +446,6 @@ export const MessageList = memo(function MessageList({
       {/* Contenedor relativo para superponer el buscador sobre los mensajes */}
       <div className="thread-scroll-root relative flex flex-1 min-h-0 flex-col">
         <ThreadBackdrop />
-        {/* Botón lupa flotante (cuando el buscador está cerrado) */}
-        {!searchOpen && (
-          <button
-            type="button"
-            onClick={() => setSearchOpen(true)}
-            className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/90 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-muted hover:text-foreground"
-            title={t("chats.searchInChat")}
-            aria-label={t("chats.searchInChat")}
-          >
-            <Search className="h-4 w-4" />
-          </button>
-        )}
 
         {/* Barra de búsqueda flotante */}
         {searchOpen && (
@@ -512,7 +505,7 @@ export const MessageList = memo(function MessageList({
               </button>
               <button
                 type="button"
-                onClick={() => setSearchOpen(false)}
+                onClick={() => onSearchOpenChange(false)}
                 className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 title={t("chats.searchClose")}
                 aria-label={t("chats.searchClose")}
