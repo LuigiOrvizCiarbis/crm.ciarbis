@@ -428,12 +428,20 @@ class WhatsAppMessageService
             : Str::uuid().'.ogg';
         $convertedAbsolutePath = Storage::disk('public')->path($convertedRelativePath);
 
+        // Mismos flags que VoiceTranscoder: timestamps continuos, mono y sin metadata
+        // del contenedor original; si no, Meta rechaza el OGG con 131053.
         $result = Process::timeout(30)->run([
             'ffmpeg', '-y',
             '-i', $sourceAbsolutePath,
+            '-vn',
+            '-map_metadata', '-1',
+            '-af', 'asetpts=N/SR/TB',
+            '-ac', '1',
+            '-ar', '48000',
             '-c:a', 'libopus',
             '-b:a', '64k',
-            '-vn',
+            '-avoid_negative_ts', 'make_zero',
+            '-f', 'ogg',
             $convertedAbsolutePath,
         ]);
 

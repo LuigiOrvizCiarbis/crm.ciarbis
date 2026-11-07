@@ -15,7 +15,17 @@ class VoiceTranscoder
         unlink($base);
         $output = $base.'.ogg';
         try {
-            $process = new Process(['ffmpeg', '-y', '-i', $input, '-vn', '-ac', '1', '-c:a', 'libopus', '-b:a', '32k', '-application', 'voip', '-f', 'ogg', $output]);
+            // Meta re-procesa el OGG de forma asíncrona y lo rechaza (131053, "processing it is
+            // of type application/octet-stream") si los granule positions tienen saltos: las
+            // grabaciones de MediaRecorder traen timestamps irregulares y offsets de inicio.
+            // asetpts reconstruye la línea de tiempo por muestras, -map_metadata -1 descarta
+            // los tags del contenedor original (webm/mp4) y make_zero evita start_time negativo.
+            $process = new Process([
+                'ffmpeg', '-y', '-i', $input, '-vn', '-map_metadata', '-1',
+                '-af', 'asetpts=N/SR/TB', '-ac', '1', '-ar', '48000',
+                '-c:a', 'libopus', '-b:a', '32k', '-application', 'voip',
+                '-avoid_negative_ts', 'make_zero', '-f', 'ogg', $output,
+            ]);
             $process->setTimeout(120);
             try {
                 $process->mustRun();
