@@ -84,12 +84,13 @@ export function TeamInvitationsCard() {
   return (
     <SettingsBlock
       title={t("team.inviteTitle")}
+      description={t("team.inviteDescription")}
       icon={UserPlus}
       measure="prose"
     >
       <div className="space-y-7">
         {/* Invite form */}
-        <form onSubmit={handleSend} className="space-y-2">
+        <form onSubmit={handleSend} className="flex flex-col gap-2 sm:flex-row">
           <Input
             type="email"
             placeholder={t("team.emailPlaceholder")}
@@ -97,11 +98,11 @@ export function TeamInvitationsCard() {
             onChange={(e) => setEmail(e.target.value)}
             required
             disabled={sending}
-            className="w-full"
+            className="w-full sm:flex-1"
           />
           <div className="flex gap-2">
             <Select value={roleName} onValueChange={setRoleName}>
-              <SelectTrigger className="flex-1">
+              <SelectTrigger className="flex-1 sm:w-40 sm:flex-none">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -165,7 +166,7 @@ export function TeamInvitationsCard() {
             </div>
           </div>
         ) : (
-          <p className="py-2 text-sm text-muted-foreground">{t("team.noInvitations")}</p>
+          <p className="border-y border-border py-4 text-sm text-muted-foreground">{t("team.noInvitations")}</p>
         )}
 
         {/* Accepted invitations */}

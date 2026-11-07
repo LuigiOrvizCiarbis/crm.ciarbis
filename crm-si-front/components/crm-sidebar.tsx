@@ -169,7 +169,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
       >
         {/* Main navigation items */}
         {navItems.map((item) => {
-          const isActive = pathname === item.href
+          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
           const label = resolveNavigationLabel(item, user?.tenant?.navigation_labels, t)
 
           return (
@@ -261,7 +261,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
 
         {/* Bottom items */}
         {bottomItems.map((item) => {
-          const isActive = pathname === item.href
+          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
           const label = resolveNavigationLabel(item, user?.tenant?.navigation_labels, t)
 
           return (

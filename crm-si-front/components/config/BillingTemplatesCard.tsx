@@ -325,7 +325,9 @@ export function BillingTemplatesCard() {
                             </span>
                           )}
                         </label>
-                        <p className="text-xs text-muted-foreground">{draft.description}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {draft.description}
+                        </p>
                       </div>
                     </div>
                     {draft.template && (

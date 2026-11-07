@@ -101,6 +101,7 @@ export function BusinessVerificationCard() {
           size="sm"
           onClick={() => void load()}
           disabled={loadingChannels}
+          className="-mr-2"
         >
           <RefreshCw className="mr-1 size-4" />
           {t("businessVerification.refresh")}

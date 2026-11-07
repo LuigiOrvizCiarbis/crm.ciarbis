@@ -61,7 +61,7 @@ final class BillingTemplateDrafts
                 $language,
                 key: self::TRIAL,
                 label: 'Aviso de fin de prueba',
-                description: 'Opcional. Se envía antes de que termine el período de prueba.',
+                description: 'Se envía antes de que termine el período de prueba.',
                 body: 'Hola {{nombre}}, tu período de prueba termina el {{fecha}}. Escribinos para continuar.',
                 examples: ['nombre' => 'María', 'fecha' => '10/09'],
             ),

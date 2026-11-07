@@ -1244,23 +1244,15 @@
   "settings": {
     "title": "Settings",
     "page": {
-      "description": "Manage your workspace structure, team tools, and integrations.",
+      "description": "Everything that shapes how your team works in BIMS. Pick what you want to adjust.",
       "navigationLabel": "Settings sections",
-      "organization": {
-        "title": "Organization",
-        "description": "Define access, branches, and team members."
-      },
-      "operation": {
-        "title": "Operations",
-        "description": "Adapt the CRM to the way your team works."
-      },
-      "integrations": {
-        "title": "Integrations",
-        "description": "Connect external services and configure automations."
-      },
       "restricted": {
         "title": "No settings available",
         "description": "Your account does not have permission to view or modify this section."
+      },
+      "notFound": {
+        "title": "This section is not available",
+        "description": "It does not exist or your user cannot see it. Go back to Settings to see what you can adjust."
       }
     },
     "workspace": {
@@ -1448,7 +1440,7 @@
     "disconnect": "Disconnect",
     "integrationUpdated": "Integration updated",
     "integrationUpdatedDesc": "Integration status updated successfully",
-    "channels": "Communication Channels",
+    "channels": "Contacts by channel",
     "channelActive": "Active",
     "addChannel": "Add Channel",
     "contactSync": {
@@ -1688,7 +1680,7 @@
       }
     },
     "integrationsHub": {
-      "back": "Integrations",
+      "back": "Connected services",
       "connect": "Connect",
       "configure": "Configure",
       "status": {
@@ -1838,6 +1830,79 @@
         "upsertTitle": "No duplicates.",
         "upsertDescription": "If external_id already exists, the contact is updated. Fields you omit keep their current value."
       }
+    },
+    "you": "You",
+    "groups": {
+      "organization": {
+        "title": "Organization",
+        "description": "Who belongs to the workspace and how it presents itself."
+      },
+      "sales": {
+        "title": "Sales",
+        "description": "How each deal moves forward and what data you keep on each customer."
+      },
+      "messaging": {
+        "title": "Messaging and automation",
+        "description": "Quick replies, collections and rules that run on their own."
+      },
+      "integrations": {
+        "title": "Integrations",
+        "description": "Channels and services connected to BIMS."
+      }
+    },
+    "pages": {
+      "workspace": {
+        "title": "Workspace",
+        "description": "Workspace name, leaving or deactivating it."
+      },
+      "team": {
+        "title": "Team and permissions",
+        "description": "Members, invitations and what each role can do."
+      },
+      "branches": {
+        "title": "Branches",
+        "description": "Locations to split contacts and deals."
+      },
+      "menu": {
+        "title": "Menu names",
+        "description": "Rename sections with your team's vocabulary."
+      },
+      "pipelines": {
+        "title": "Pipelines",
+        "description": "Stages, colors and win probability."
+      },
+      "goals": {
+        "title": "Goals",
+        "description": "Revenue, response and cycle targets shown on the Dashboard."
+      },
+      "fields": {
+        "title": "Custom fields",
+        "description": "Your own data for contacts and products."
+      },
+      "tags": {
+        "title": "Tags",
+        "description": "Colors and cleanup for your team's tags."
+      },
+      "shortcuts": {
+        "title": "Chat shortcuts",
+        "description": "Saved replies so you type less."
+      },
+      "automations": {
+        "title": "Automations",
+        "description": "Sequences that start on their own from CRM events."
+      },
+      "billing": {
+        "title": "Collections",
+        "description": "WhatsApp templates for due-date reminders and payment requests."
+      },
+      "channels": {
+        "title": "Channels",
+        "description": "Connected WhatsApp, Instagram and Facebook, plus Meta verification."
+      },
+      "services": {
+        "title": "Connected services",
+        "description": "Google Calendar, AI assistant, WooCommerce and webhooks."
+      }
     }
   },
   "team": {
@@ -1869,7 +1934,8 @@
     "workspace": "Team",
     "invitedBy": "Invited by",
     "emailMismatch": "This invitation was sent to",
-    "emailMismatchHint": "Log out and register with that email, or ask for a new invitation."
+    "emailMismatchHint": "Log out and register with that email, or ask for a new invitation.",
+    "inviteDescription": "Invite people by email and pick their role before they join."
   },
   "common": {
     "save": "Save",
@@ -1900,7 +1966,7 @@
   },
   "roles": {
     "title": "Roles and permissions",
-    "subtitle": "Define what each role can do in the workspace",
+    "subtitle": "Define what each role can do in the workspace.",
     "newRole": "New role",
     "editRole": "Edit role",
     "createRole": "Create role",
@@ -1925,16 +1991,11 @@
     "ownerLockedTitle": "This is the workspace Owner role",
     "ownerLockedDescription": "It cannot be modified or deleted to protect your administrative access. If you need to adjust the Owner's permissions, do it from the backend permission catalog.",
     "ownerViewOnly": "Read-only: the Owner role is immutable",
-    "assignTitle": "Assign roles to users",
-    "assignSubtitle": "Change each team member's role",
+    "assignSubtitle": "Change each team member's role.",
     "assignSuccess": "Role assigned",
     "assignError": "Could not assign the role",
     "noUsers": "No users in the team",
     "noRoles": "No custom roles yet",
-    "tabs": {
-      "roles": "Roles",
-      "users": "Users"
-    },
     "groups": {
       "conversations": "Conversations",
       "sections": "Section access",
@@ -2074,7 +2135,10 @@
       "branches.manage": "Manage branches",
       "branches.view_all": "View data across all branches",
       "navigation_labels.manage": "Customize navigation labels"
-    }
+    },
+    "membersTitle": "Members",
+    "customGroup": "Custom",
+    "blockTitle": "Roles"
   },
   "sucursales": {
     "title": "Branches",
@@ -2182,11 +2246,9 @@
       "products": "Catalog"
     },
     "addField": "Add field",
-    "addFirstField": "Create the first one",
     "editTitle": "Edit field",
     "dialogDescription": "Define a custom field for this table.",
     "empty": "You haven't created any custom fields yet.",
-    "emptyTitle": "No custom fields yet",
     "emptyBody": "Add your own fields (color, size, priority…) to tailor this table to how you work.",
     "fieldLabel": "Field name",
     "fieldType": "Type",

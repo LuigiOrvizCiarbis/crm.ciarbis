@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { useToast } from "@/components/Toast"
 import { usePermission } from "@/hooks/usePermission"
@@ -80,7 +81,7 @@ export function PipelineManager() {
   }
 
   return (
-    <SettingsBlock id="panel-stages" className="scroll-mt-28" title="Embudos" description="Organizá procesos comerciales y sus etapas." icon={GitBranch} measure="prose">
+    <SettingsBlock title="Embudos" description="Organizá procesos comerciales y sus etapas." icon={GitBranch} measure="prose">
       {loadError ? (
         <div className="space-y-3 py-4 text-center">
           <p className="text-sm text-destructive">No se pudieron cargar los embudos.</p>
@@ -90,12 +91,17 @@ export function PipelineManager() {
       <div className="space-y-5">
         {canManage && <div className="flex gap-2"><Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nombre del embudo" aria-label="Nombre del nuevo embudo" /><Button disabled={saving || !newName.trim()} onClick={() => void mutate(async () => { await createPipeline(newName.trim()); setNewName("") })}>Crear</Button></div>}
         <div className="flex flex-col gap-2 sm:flex-row">
-          <select aria-label="Embudo seleccionado" value={selectedId || ""} onChange={(e) => setSelectedId(Number(e.target.value))} className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm">
-            {pipelines.map((pipeline) => <option key={pipeline.id} value={pipeline.id}>{pipeline.name}{pipeline.is_default ? " · Predeterminado" : ""}</option>)}
-          </select>
+          <Select value={selectedId ? String(selectedId) : ""} onValueChange={(value) => setSelectedId(Number(value))}>
+            <SelectTrigger aria-label="Embudo seleccionado" className="sm:flex-1">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {pipelines.map((pipeline) => <SelectItem key={pipeline.id} value={String(pipeline.id)}>{pipeline.name}{pipeline.is_default ? " · Predeterminado" : ""}</SelectItem>)}
+            </SelectContent>
+          </Select>
           {canManage && selected && <Button variant="outline" disabled={saving || selected.is_default} onClick={() => void mutate(() => updatePipeline(selected.id, { is_default: true }))}><Star className="mr-2 size-4" aria-hidden="true" />Predeterminar</Button>}
         </div>
-        {canManage && selected && <div className="flex gap-2"><Input value={rename} onChange={(e) => setRename(e.target.value)} aria-label="Nombre del embudo" /><Button variant="outline" disabled={saving || !rename.trim() || rename.trim() === selected.name} onClick={() => void mutate(() => updatePipeline(selected.id, { name: rename.trim() }))}>Renombrar</Button><Button variant="outline" className="text-destructive" disabled={saving || selected.is_default || (selected.opportunities_count ?? 0) > 0} title={selected.is_default ? "Elegí otro predeterminado antes de eliminarlo" : (selected.opportunities_count ?? 0) > 0 ? "Mové las oportunidades primero" : "Eliminar embudo"} aria-label={`Eliminar embudo ${selected.name}`} onClick={() => { setPipelineToDelete(selected); setDeleteOpen(true) }}><Trash2 className="size-4" aria-hidden="true" /></Button></div>}
+        {canManage && selected && <div className="flex gap-2"><Input value={rename} onChange={(e) => setRename(e.target.value)} aria-label="Nombre del embudo" /><Button variant="outline" disabled={saving || !rename.trim() || rename.trim() === selected.name} onClick={() => void mutate(() => updatePipeline(selected.id, { name: rename.trim() }))}>Renombrar</Button><Button variant="outline" size="icon" className="text-muted-foreground hover:text-destructive" disabled={saving || selected.is_default || (selected.opportunities_count ?? 0) > 0} title={selected.is_default ? "Elegí otro predeterminado antes de eliminarlo" : (selected.opportunities_count ?? 0) > 0 ? "Mové las oportunidades primero" : "Eliminar embudo"} aria-label={`Eliminar embudo ${selected.name}`} onClick={() => { setPipelineToDelete(selected); setDeleteOpen(true) }}><Trash2 className="size-4" aria-hidden="true" /></Button></div>}
         {selected && <PipelineStagesManager pipelineId={selected.id} onStagesChanged={() => void refresh()} />}
       </div>
       )}

@@ -1244,23 +1244,15 @@
   "settings": {
     "title": "Configuración",
     "page": {
-      "description": "Administrá la estructura del equipo, las herramientas de trabajo y las integraciones del espacio.",
+      "description": "Todo lo que define cómo trabaja tu equipo en BIMS. Elegí qué querés ajustar.",
       "navigationLabel": "Secciones de configuración",
-      "organization": {
-        "title": "Organización",
-        "description": "Definí accesos, sucursales y miembros del equipo."
-      },
-      "operation": {
-        "title": "Operación",
-        "description": "Adaptá el CRM a la forma de trabajo de tu equipo."
-      },
-      "integrations": {
-        "title": "Integraciones",
-        "description": "Conectá servicios externos y configurá las automatizaciones."
-      },
       "restricted": {
         "title": "Sin configuraciones disponibles",
         "description": "Tu usuario no tiene permisos para ver o modificar esta sección."
+      },
+      "notFound": {
+        "title": "Esta sección no está disponible",
+        "description": "No existe o tu usuario no tiene permiso para verla. Volvé a Configuración para ver lo que sí podés ajustar."
       }
     },
     "workspace": {
@@ -1329,7 +1321,7 @@
       },
       "actions": "acciones",
       "executions": "ejecuciones",
-      "preview": "Preview",
+      "preview": "Vista previa",
       "history": "Historial",
       "pause": "Pausar",
       "activate": "Activar",
@@ -1448,7 +1440,7 @@
     "disconnect": "Desconectar",
     "integrationUpdated": "Integración actualizada",
     "integrationUpdatedDesc": "El estado de la integración se actualizó correctamente",
-    "channels": "Canales de comunicación",
+    "channels": "Contactos por canal",
     "channelActive": "Activo",
     "addChannel": "Agregar canal",
     "contactSync": {
@@ -1688,7 +1680,7 @@
       }
     },
     "integrationsHub": {
-      "back": "Integraciones",
+      "back": "Servicios conectados",
       "connect": "Conectar",
       "configure": "Configurar",
       "status": {
@@ -1838,6 +1830,79 @@
         "upsertTitle": "Sin duplicados.",
         "upsertDescription": "Si external_id ya existe, el contacto se actualiza. Los campos que no envíes conservan su valor actual."
       }
+    },
+    "you": "Vos",
+    "groups": {
+      "organization": {
+        "title": "Organización",
+        "description": "Quién forma parte del espacio y cómo se presenta."
+      },
+      "sales": {
+        "title": "Ventas",
+        "description": "Cómo avanza cada oportunidad y qué datos guardás de cada cliente."
+      },
+      "messaging": {
+        "title": "Mensajes y automatización",
+        "description": "Respuestas rápidas, cobranzas y reglas que trabajan solas."
+      },
+      "integrations": {
+        "title": "Integraciones",
+        "description": "Canales y servicios conectados a BIMS."
+      }
+    },
+    "pages": {
+      "workspace": {
+        "title": "Workspace",
+        "description": "Nombre del espacio, salir o desactivarlo."
+      },
+      "team": {
+        "title": "Equipo y permisos",
+        "description": "Miembros, invitaciones y qué puede hacer cada rol."
+      },
+      "branches": {
+        "title": "Sucursales",
+        "description": "Ubicaciones para repartir contactos y oportunidades."
+      },
+      "menu": {
+        "title": "Nombres del menú",
+        "description": "Renombrá las secciones con el vocabulario de tu equipo."
+      },
+      "pipelines": {
+        "title": "Embudos",
+        "description": "Etapas, colores y probabilidad de cierre."
+      },
+      "goals": {
+        "title": "Metas",
+        "description": "Objetivos de ingresos, respuesta y ciclo que muestra el Panel."
+      },
+      "fields": {
+        "title": "Campos personalizados",
+        "description": "Datos propios para contactos y productos."
+      },
+      "tags": {
+        "title": "Etiquetas",
+        "description": "Colores y limpieza de las etiquetas del equipo."
+      },
+      "shortcuts": {
+        "title": "Atajos de chat",
+        "description": "Respuestas guardadas para escribir menos."
+      },
+      "automations": {
+        "title": "Automatizaciones",
+        "description": "Secuencias que arrancan solas con eventos del CRM."
+      },
+      "billing": {
+        "title": "Cobranza",
+        "description": "Plantillas de WhatsApp para avisar vencimientos y reclamar pagos."
+      },
+      "channels": {
+        "title": "Canales",
+        "description": "WhatsApp, Instagram y Facebook conectados, y la verificación de Meta."
+      },
+      "services": {
+        "title": "Servicios conectados",
+        "description": "Google Calendar, asistente de IA, WooCommerce y webhooks."
+      }
     }
   },
   "team": {
@@ -1869,7 +1934,8 @@
     "workspace": "Equipo",
     "invitedBy": "Invitado por",
     "emailMismatch": "Esta invitación fue enviada a",
-    "emailMismatchHint": "Cerrá sesión y registrate con ese email, o pedí una nueva invitación."
+    "emailMismatchHint": "Cerrá sesión y registrate con ese email, o pedí una nueva invitación.",
+    "inviteDescription": "Invitá personas por email y elegí su rol antes de que entren."
   },
   "common": {
     "save": "Guardar",
@@ -1900,7 +1966,7 @@
   },
   "roles": {
     "title": "Roles y permisos",
-    "subtitle": "Definí qué puede hacer cada rol en el workspace",
+    "subtitle": "Definí qué puede hacer cada rol en el workspace.",
     "newRole": "Nuevo rol",
     "editRole": "Editar rol",
     "createRole": "Crear rol",
@@ -1925,16 +1991,11 @@
     "ownerLockedTitle": "Este es el rol Owner del workspace",
     "ownerLockedDescription": "No puede ser modificado ni eliminado para proteger tu acceso administrativo. Si necesitás ajustar permisos del Owner, hacelo desde el catálogo de permisos del backend.",
     "ownerViewOnly": "Solo lectura: el rol Owner es inmutable",
-    "assignTitle": "Asignar roles a usuarios",
-    "assignSubtitle": "Cambiá el rol de cada miembro del equipo",
+    "assignSubtitle": "Cambiá el rol de cada miembro del equipo.",
     "assignSuccess": "Rol asignado",
     "assignError": "No se pudo asignar el rol",
     "noUsers": "No hay usuarios en el equipo",
     "noRoles": "Aún no hay roles personalizados",
-    "tabs": {
-      "roles": "Roles",
-      "users": "Usuarios"
-    },
     "groups": {
       "conversations": "Conversaciones",
       "sections": "Acceso a secciones",
@@ -2074,7 +2135,10 @@
       "branches.manage": "Gestionar sucursales",
       "branches.view_all": "Ver datos de todas las sucursales",
       "navigation_labels.manage": "Personalizar etiquetas de navegación"
-    }
+    },
+    "membersTitle": "Miembros",
+    "customGroup": "Personalizados",
+    "blockTitle": "Roles"
   },
   "sucursales": {
     "title": "Sucursales",
@@ -2182,11 +2246,9 @@
       "products": "Catálogo"
     },
     "addField": "Agregar campo",
-    "addFirstField": "Crear el primero",
     "editTitle": "Editar campo",
     "dialogDescription": "Definí un campo personalizado para esta tabla.",
     "empty": "Aún no creaste campos personalizados.",
-    "emptyTitle": "Sin campos personalizados",
     "emptyBody": "Sumá campos propios (color, talle, prioridad…) para adaptar esta tabla a tu operación.",
     "fieldLabel": "Nombre del campo",
     "fieldType": "Tipo",
