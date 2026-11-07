@@ -121,7 +121,7 @@ export function ChannelsCard() {
       description={t("settings.contactSync.subtitle")}
       icon={MessageSquare}
       action={
-        <Button variant="ghost" size="sm" aria-label={t("settings.contactSync.refresh")} onClick={() => void load()} disabled={loading}>
+        <Button variant="ghost" size="sm" className="-mr-2" aria-label={t("settings.contactSync.refresh")} onClick={() => void load()} disabled={loading}>
           <RefreshCw className="mr-1 size-4" />{t("settings.contactSync.refresh")}
         </Button>
       }
@@ -157,7 +157,7 @@ function ChannelRow({ row, onRetry, onRetryHistory, onRefresh, t, onReconnect, l
     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pl-12 text-sm text-muted-foreground">
       {row.loading ? <Skeleton className="h-5 w-48" /> : row.error ? <span className="flex items-center gap-1 text-destructive"><AlertCircle className="h-4 w-4" />{t("settings.contactSync.loadError")}</span> : <SyncStatus sync={sync} language={language} t={t} />}
       {!row.loading && row.error && <Button size="sm" variant="outline" onClick={onRefresh}><RefreshCw className="mr-1 h-4 w-4" />{t("settings.contactSync.retryQuery")}</Button>}
-      {!row.loading && sync && sync.status !== "completed" && sync.status !== "not_applicable" && sync.can_retry && <Button size="sm" onClick={onRetry} disabled={row.retrying}>
+      {!row.loading && sync && sync.status !== "completed" && sync.status !== "not_applicable" && sync.can_retry && <Button size="sm" variant="outline" onClick={onRetry} disabled={row.retrying}>
         {row.retrying ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1 h-4 w-4" />}{t("settings.contactSync.retry")}
       </Button>}
       {!row.loading && sync?.status === "failed" && !sync.can_retry && <Button size="sm" variant="outline" onClick={onReconnect}>{t("settings.contactSync.reconnect")}</Button>}

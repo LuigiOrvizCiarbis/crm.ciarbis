@@ -51,7 +51,8 @@ export function IntegrationsSection() {
   }, [visibleIntegrations])
 
   useEffect(() => {
-    const [, detailId] = window.location.hash.slice(1).split("/")
+    // /configuracion/integraciones#<id> abre el detalle (enlaces del Panel y el regreso de OAuth).
+    const detailId = window.location.hash.slice(1)
     if (detailId && visibleIntegrations.some((def) => def.id === detailId)) {
       setOpenId(detailId)
     }
@@ -60,12 +61,12 @@ export function IntegrationsSection() {
 
   const openDetail = (id: string) => {
     setOpenId(id)
-    window.history.replaceState(null, "", `#integrations/${id}`)
+    window.history.replaceState(null, "", `#${id}`)
   }
 
   const closeDetail = () => {
     setOpenId(null)
-    window.history.replaceState(null, "", "#integrations")
+    window.history.replaceState(null, "", window.location.pathname + window.location.search)
     // La config pudo cambiar dentro del detalle (conectar/desconectar).
     void refreshStatuses()
   }
@@ -142,7 +143,7 @@ function DirectoryRow({ integration, status, onOpen }: DirectoryRowProps) {
           <span className="block text-sm font-medium text-foreground">
             {t(integration.nameKey)}
           </span>
-          <span className="block truncate text-sm text-muted-foreground">
+          <span className="block text-pretty text-sm text-muted-foreground">
             {t(integration.descriptionKey)}
           </span>
         </span>
@@ -194,9 +195,10 @@ function IntegrationDetail({
         </span>
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-3">
-            <h3 className="text-lg font-semibold text-foreground">
+            {/* El detalle reemplaza a la página de integraciones, así que su nombre es el h1. */}
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">
               {t(integration.nameKey)}
-            </h3>
+            </h1>
             <StatusBadge status={status} />
           </div>
           <p className="max-w-[70ch] text-sm leading-6 text-muted-foreground">

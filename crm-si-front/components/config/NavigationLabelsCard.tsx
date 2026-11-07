@@ -88,28 +88,41 @@ export function NavigationLabelsCard() {
         </Button>
       }
     >
-      <div className="space-y-3">
+      {/* Una fila por ítem: el nombre por defecto ya está en la etiqueta y en el placeholder, así que no repetimos "Predeterminado" debajo. */}
+      <div className="divide-y divide-border border-y border-border">
         {NAVIGATION_ITEMS.map((item) => {
           const override = labels[item.key] ?? ""
           const defaultLabel = resolveNavigationLabel(item, undefined, t)
+          const inputId = `navigation-label-${item.key}`
           return (
-            <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 border-b border-border/70 pb-3 last:border-0">
-              <div className="min-w-0 space-y-1.5">
-                <Label htmlFor={`navigation-label-${item.key}`} className="flex items-center gap-2">
-                  <item.icon className="size-4 text-muted-foreground" aria-hidden="true" />
-                  {defaultLabel}
-                </Label>
+            <div
+              key={item.key}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 py-2.5 sm:grid-cols-[10rem_minmax(0,1fr)_auto]"
+            >
+              <Label htmlFor={inputId} className="col-span-2 flex min-w-0 items-center gap-2 sm:col-span-1">
+                <item.icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span className="truncate">{defaultLabel}</span>
+              </Label>
+              <div className="relative min-w-0">
                 <Input
-                  id={`navigation-label-${item.key}`}
+                  id={inputId}
                   value={override}
                   onChange={(event) => setLabel(item.key, event.target.value)}
                   maxLength={MAX_LABEL_LENGTH}
                   placeholder={defaultLabel}
-                  aria-describedby={`navigation-label-${item.key}-hint`}
+                  aria-describedby={`${inputId}-hint`}
+                  className={override ? "pr-14" : undefined}
                 />
-                <p id={`navigation-label-${item.key}-hint`} className="text-xs text-muted-foreground">
+                <span
+                  id={`${inputId}-hint`}
+                  className={
+                    override
+                      ? "pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs tabular-nums text-muted-foreground"
+                      : "sr-only"
+                  }
+                >
                   {override ? `${override.length}/${MAX_LABEL_LENGTH}` : t("settings.navigationLabels.defaultHint", { label: defaultLabel })}
-                </p>
+                </span>
               </div>
               <Button
                 type="button"
@@ -119,15 +132,16 @@ export function NavigationLabelsCard() {
                 disabled={!override}
                 title={t("settings.navigationLabels.reset")}
                 aria-label={t("settings.navigationLabels.reset")}
+                className={override ? "text-muted-foreground" : "invisible"}
               >
-                <RotateCcw className="size-4" />
+                <RotateCcw className="size-4" aria-hidden="true" />
               </Button>
             </div>
           )
         })}
       </div>
-      <div className="mt-4 flex items-center justify-between gap-4 border-t border-border pt-4">
-        <p className="text-xs leading-5 text-muted-foreground">{t("settings.navigationLabels.mobileHint")}</p>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <p className="text-pretty text-xs leading-5 text-muted-foreground">{t("settings.navigationLabels.mobileHint")}</p>
         <Button type="button" variant="outline" size="sm" onClick={resetAll} disabled={Object.keys(labels).length === 0 || saving}>
           <RotateCcw className="mr-1.5 size-3.5" />
           {t("settings.navigationLabels.resetAll")}

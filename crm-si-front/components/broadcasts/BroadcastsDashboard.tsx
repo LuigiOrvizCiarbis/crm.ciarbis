@@ -589,7 +589,7 @@ export function BroadcastsDashboard() {
                   Conectá WhatsApp o Instagram desde Configuración para empezar a difundir.
                 </p>
                 <Button variant="outline" size="sm" className="mt-4 h-9" asChild>
-                  <Link href="/configuracion#integrations">
+                  <Link href="/configuracion/canales">
                     Conectar un canal
                     <ArrowUpRight className="ml-2 h-4 w-4" />
                   </Link>

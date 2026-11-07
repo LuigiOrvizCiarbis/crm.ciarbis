@@ -158,16 +158,21 @@ export function SettingsSectionHeading<Id extends string>({
   const Icon = section.icon
 
   return (
-    <section id={section.id} aria-labelledby={`${section.id}-title`} className="scroll-mt-14 pt-14 first:pt-10">
-      <div className="mb-7">
+    // El h2 tiene que pesar más que los h3 de cada bloque; antes era un eyebrow de 12px y la jerarquía se leía al revés.
+    <section
+      id={section.id}
+      aria-labelledby={`${section.id}-title`}
+      className="scroll-mt-14 pt-10 not-first:mt-16 not-first:border-t not-first:border-border not-first:pt-12"
+    >
+      <div className="mb-8">
         <h2
           id={`${section.id}-title`}
-          className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
+          className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground"
         >
-          <Icon className="size-3.5" aria-hidden />
+          <Icon className="size-4 text-muted-foreground" aria-hidden />
           {section.label}
         </h2>
-        <p className="mt-2 max-w-[68ch] text-sm leading-6 text-muted-foreground">{section.description}</p>
+        <p className="mt-1 max-w-[68ch] text-pretty text-sm leading-6 text-muted-foreground">{section.description}</p>
       </div>
       <div className="space-y-10">{children}</div>
     </section>

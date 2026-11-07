@@ -194,9 +194,10 @@ export function WorkspaceCard() {
       icon={Building2}
       measure="prose"
     >
-      <form className="space-y-6" onSubmit={save}>
-        <div className="space-y-1.5">
-          <Label htmlFor="workspace-name">{t("settings.workspace.nameLabel")}</Label>
+      {/* Un solo campo: el botón va al lado del input en vez de quedar suelto en una fila propia. */}
+      <form className="space-y-1.5" onSubmit={save}>
+        <Label htmlFor="workspace-name">{t("settings.workspace.nameLabel")}</Label>
+        <div className="flex items-center gap-2">
           <Input
             id="workspace-name"
             value={name}
@@ -209,25 +210,22 @@ export function WorkspaceCard() {
             aria-describedby={error ? "workspace-name-error" : "workspace-name-hint"}
             aria-invalid={Boolean(error)}
           />
-          {error ? (
-            <p id="workspace-name-error" role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          ) : (
-            <p id="workspace-name-hint" className="text-xs text-muted-foreground">
-              {isOwner ? t("settings.workspace.nameHint") : t("settings.workspace.ownerOnly")}
-            </p>
-          )}
-        </div>
-
-        {isOwner ? (
-          <div className="flex justify-end">
-            <Button type="submit" size="sm" disabled={!canSubmit}>
-              {saving ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : null}
+          {isOwner ? (
+            <Button type="submit" disabled={!canSubmit} className="shrink-0">
+              {saving ? <Loader2 className="mr-1.5 size-4 animate-spin" aria-hidden="true" /> : null}
               {saving ? t("common.saving") : t("common.save")}
             </Button>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
+        {error ? (
+          <p id="workspace-name-error" role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        ) : (
+          <p id="workspace-name-hint" className="text-xs text-muted-foreground">
+            {isOwner ? t("settings.workspace.nameHint") : t("settings.workspace.ownerOnly")}
+          </p>
+        )}
       </form>
 
       <div className="mt-8 rounded-xl border border-destructive/30 bg-destructive/5 p-4">

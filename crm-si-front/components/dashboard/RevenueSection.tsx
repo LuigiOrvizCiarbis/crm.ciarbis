@@ -167,7 +167,7 @@ function SetupHints({ revenue, goalApplies, narrowed, canSetGoal, canSetProbabil
   if (narrowed && revenue.goal != null) {
     hints.push(<span key="narrowed">{t("dashboard.revenue.goalHidden")}</span>)
   } else if (goalApplies && revenue.goal == null && canSetGoal) {
-    hints.push(<ConfigLink key="goal" href="/configuracion#panel-goals">{t("dashboard.revenue.setGoal")}</ConfigLink>)
+    hints.push(<ConfigLink key="goal" href="/configuracion/metas">{t("dashboard.revenue.setGoal")}</ConfigLink>)
   }
 
   // Sólo importa si hay oportunidades abiertas en etapas sin probabilidad.
@@ -176,7 +176,7 @@ function SetupHints({ revenue, goalApplies, narrowed, canSetGoal, canSetProbabil
       ? t("dashboard.revenue.setProbabilities")
       : plural(t, "dashboard.revenue.stagesWithout", revenue.stages_without_probability)
     hints.push(canSetProbabilities
-      ? <ConfigLink key="prob" href="/configuracion#panel-stages">{text}</ConfigLink>
+      ? <ConfigLink key="prob" href="/configuracion/embudos">{text}</ConfigLink>
       : <span key="prob">{text}</span>)
   }
 

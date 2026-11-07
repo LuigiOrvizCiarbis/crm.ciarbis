@@ -130,7 +130,7 @@ class DomainNotifier
                 'channel_id' => $channel->id,
                 'channel_name' => $channel->name,
                 'channel_type' => $channel->type instanceof ChannelType ? $channel->type->value : $channel->type,
-                'url' => '/configuracion',
+                'url' => '/configuracion/canales',
             ],
             'channel:'.$channel->id.':token',
         );

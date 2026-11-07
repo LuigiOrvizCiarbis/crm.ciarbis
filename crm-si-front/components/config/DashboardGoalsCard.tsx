@@ -72,7 +72,6 @@ export function DashboardGoalsCard() {
   }
 
   return (
-    <div id="panel-goals" className="scroll-mt-28">
       <SettingsBlock title={t("settings.goals.title")} description={t("settings.goals.description")} icon={Target} measure="prose">
         {loading ? (
           <div className="grid gap-4 sm:grid-cols-2">
@@ -146,13 +145,14 @@ export function DashboardGoalsCard() {
                 <p id="goal-cycle-hint" className="text-xs text-muted-foreground">{t("settings.goals.cycleHint")}</p>
               </div>
             </div>
-            <Button type="submit" size="sm" disabled={!dirty || saving}>
-              {saving && <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />}
-              {t("settings.goals.save")}
-            </Button>
+            <div className="flex justify-end">
+              <Button type="submit" size="sm" disabled={!dirty || saving}>
+                {saving && <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />}
+                {t("settings.goals.save")}
+              </Button>
+            </div>
           </form>
         )}
       </SettingsBlock>
-    </div>
   )
 }
