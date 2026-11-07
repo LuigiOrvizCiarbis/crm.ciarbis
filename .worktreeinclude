@@ -1,0 +1,24 @@
+# Orca copia estas rutas (gitignoradas) desde el checkout principal a cada worktree nuevo.
+# Solo rutas literales relativas a la raíz del repo: sin globs (*, ?) ni negaciones (!).
+
+# Entorno
+crm-si-back/.env
+crm-si-back/.env.local
+crm-si-front/.env
+crm-si-front/.env.local
+crm-si-front/.env.sentry-build-plugin
+crm-si-front/certificates
+
+# Contexto para agentes y docs locales
+AGENTS.md
+CLAUDE.md
+DESIGN.md
+PRODUCT.md
+crm-si-back/CLAUDE.md
+.claude
+crm-si-back/.claude
+.impeccable/design.json
+
+# Editor
+.vscode/settings.json
+crm-si-front/.vscode/mcp.json

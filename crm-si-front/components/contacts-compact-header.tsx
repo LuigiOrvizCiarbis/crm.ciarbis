@@ -78,16 +78,17 @@ export function ContactsCompactHeader({
   }
 
   return (
-    <div className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
-      {/* Tablet (md a lg): dos filas, título + acciones arriba y búsqueda + filtros abajo. Teléfono y desktop: una fila. */}
-      <div className="h-[75px] px-4 md:px-6 lg:px-8 flex items-center justify-between gap-4 md:max-lg:h-auto md:max-lg:flex-wrap md:max-lg:gap-y-3 md:max-lg:py-3">
+    <div className="sticky top-0 z-40 border-b border-border bg-background">
+      {/* Tablet y laptop (md a xl): dos filas, título + acciones arriba y búsqueda + filtros abajo. Con el sidebar abierto,
+          en una sola fila el buscador quedaba de 50px. Teléfono y desktop ancho: una fila. */}
+      <div className="h-[75px] px-4 md:px-6 lg:px-8 flex items-center justify-between gap-4 md:max-xl:h-auto md:max-xl:flex-wrap md:max-xl:gap-y-3 md:max-xl:py-3">
         <div className="flex-shrink-0">
           <h1 className="text-xl md:text-2xl font-bold tracking-tight">
             {t("contactsPage.title")}
           </h1>
         </div>
 
-        <div className="flex-1 max-w-md hidden md:block md:max-lg:order-3 md:max-lg:max-w-none">
+        <div className="flex-1 max-w-md hidden md:block md:max-xl:order-3 md:max-xl:max-w-none">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -95,17 +96,17 @@ export function ContactsCompactHeader({
               aria-label={t("contactsPage.searchLabel")}
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
-              className="pl-9 h-9 md:max-lg:h-10"
+              className="pl-9 h-9 md:max-xl:h-10"
             />
           </div>
         </div>
 
-        {/* Corte de línea sólo en tablet. */}
-        <div className="hidden basis-full md:max-lg:order-2 md:max-lg:block" aria-hidden="true" />
+        {/* Corte de línea sólo bajo xl. */}
+        <div className="hidden basis-full md:max-xl:order-2 md:max-xl:block" aria-hidden="true" />
 
-        {/* Bajo lg los dos grupos se reordenan como hijos directos (contents); desde lg forman la fila original. */}
-        <div className="contents lg:flex lg:items-center lg:gap-2 lg:flex-shrink-0">
-        <div className="flex items-center gap-2 flex-shrink-0 max-md:ml-auto md:max-lg:order-4 lg:contents">
+        {/* Bajo xl los dos grupos se reordenan como hijos directos (contents); desde xl forman la fila original. */}
+        <div className="contents xl:flex xl:items-center xl:gap-2 xl:flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0 max-md:ml-auto md:max-xl:order-4 xl:contents">
           {billingAvailable && (
             <ToggleGroup
               type="single"
@@ -129,11 +130,11 @@ export function ContactsCompactHeader({
           )}
 
           <Select value={sourceFilter} onValueChange={(value) => onSourceFilter?.(value)}>
-            <SelectTrigger className="w-[140px] h-9 hidden sm:flex md:max-lg:h-10">
-              <SelectValue placeholder={t("contactsPage.filters.status")} />
+            <SelectTrigger className="h-9 w-auto min-w-[140px] gap-2 hidden sm:flex md:max-xl:h-10" aria-label={t("contactsPage.filters.source")}>
+              <SelectValue placeholder={t("contactsPage.filters.source")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{t("contactsPage.filters.all")}</SelectItem>
+              <SelectItem value="all">{t("contactsPage.filters.allSources")}</SelectItem>
               {CONTACT_SOURCES.map((source) => (
                 <SelectItem key={source.value} value={source.value}>{source.label}</SelectItem>
               ))}
@@ -152,33 +153,34 @@ export function ContactsCompactHeader({
           />
         </div>
 
-        {/* Con cobranzas, el filtro de audiencia suma ~170px: entre lg y 2xl los botones de CSV quedan en ícono para que entren la búsqueda y "Nuevo contacto". */}
-        <div className="flex items-center gap-2 flex-shrink-0 max-md:-ml-2 md:max-lg:order-1 md:max-lg:ml-auto lg:contents">
+        {/* En una fila (xl+), los botones de CSV quedan en ícono hasta 1400px (2xl con el filtro de audiencia de cobranzas)
+            para que entren la búsqueda y "Nuevo contacto". CSV va en ghost: es de vez en cuando y no compite con "Nuevo contacto". */}
+        <div className="flex items-center gap-2 flex-shrink-0 max-md:-ml-2 md:max-xl:order-1 md:max-xl:ml-auto xl:contents">
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={onImportCSV}
-            className="hidden md:flex gap-2 h-9 bg-transparent md:max-lg:h-10"
+            className="hidden md:flex gap-2 h-9 md:max-xl:h-10"
             aria-label={t("contactsPage.actions.importCsv")}
-            title={billingAvailable ? t("contactsPage.actions.importCsv") : undefined}
+            title={t("contactsPage.actions.importCsv")}
           >
             <Upload className="w-4 h-4" />
-            <span className={billingAvailable ? "lg:max-2xl:hidden" : undefined}>{t("contactsPage.actions.importCsv")}</span>
+            <span className={billingAvailable ? "xl:max-2xl:hidden" : "xl:max-[1400px]:hidden"}>{t("contactsPage.actions.importCsv")}</span>
           </Button>
 
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={onExportCSV}
-            className="hidden md:flex gap-2 h-9 bg-transparent md:max-lg:h-10"
+            className="hidden md:flex gap-2 h-9 md:max-xl:h-10"
             aria-label={t("contactsPage.actions.exportCsv")}
-            title={billingAvailable ? t("contactsPage.actions.exportCsv") : undefined}
+            title={t("contactsPage.actions.exportCsv")}
           >
             <Download className="w-4 h-4" />
-            <span className={billingAvailable ? "lg:max-2xl:hidden" : undefined}>{t("contactsPage.actions.exportCsv")}</span>
+            <span className={billingAvailable ? "xl:max-2xl:hidden" : "xl:max-[1400px]:hidden"}>{t("contactsPage.actions.exportCsv")}</span>
           </Button>
 
-          <Button size="sm" onClick={onNewContact} className="h-9 max-sm:size-10 md:max-lg:h-10" aria-label={t("contactsPage.actions.newContact")}>
+          <Button size="sm" onClick={onNewContact} className="h-9 max-sm:size-10 md:max-xl:h-10" aria-label={t("contactsPage.actions.newContact")}>
             <Plus className="w-4 h-4 sm:mr-1" />
             <span className="hidden sm:inline">{t("contactsPage.actions.newContact")}</span>
           </Button>

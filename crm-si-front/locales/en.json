@@ -169,15 +169,13 @@
     "deleteConfirmBody": "\"{{name}}\" will be removed from the catalog. This action cannot be undone.",
     "activate": "Activate",
     "deactivate": "Deactivate",
-    "bulkSelected": "{{count}} selected",
     "bulkActivated": "Products activated",
     "bulkDeactivated": "Products deactivated",
     "bulkDeleted": "Products deleted",
     "bulkDeleteConfirmBody": "{{count}} product(s) will be removed from the catalog. This action cannot be undone.",
-    "perPage": "Per page",
-    "paginationInfo": "{{from}}-{{to}} of {{total}}",
-    "previous": "Previous",
-    "next": "Next"
+    "clearSelection": "Clear selection",
+    "bulkSelected_one": "{{count}} selected",
+    "bulkSelected_other": "{{count}} selected"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -376,8 +374,8 @@
       "source": "Source",
       "clear": "Clear",
       "done": "Done",
-      "status": "Status",
       "all": "All",
+      "allSources": "All sources",
       "lead": "Lead",
       "qualified": "Qualified",
       "customer": "Customer",
@@ -401,14 +399,15 @@
       "newContact": "New contact"
     },
     "stats": {
-      "total": "Total Contacts",
-      "activeLeads": "Active Leads",
+      "total": "Total contacts",
+      "activeLeads": "Active leads",
       "qualified": "Qualified",
-      "conversionRate": "Conversion Rate",
-      "vsPrevious": "vs {value} last month",
+      "conversionRate": "Conversion rate",
       "billingAlDia": "Up to date",
       "billingPorVencer": "Due soon",
-      "billingVencido": "Overdue"
+      "billingVencido": "Overdue",
+      "loadError": "Couldn't load the metrics.",
+      "retry": "Retry"
     },
     "table": {
       "contact": "Contact",
@@ -467,7 +466,10 @@
         "success": "{{count}} contact(s) deleted",
         "partial": "{{deleted}} deleted, {{failed}} not permitted",
         "error": "Could not delete the contacts"
-      }
+      },
+      "selected_one": "{{count}} selected",
+      "selected_other": "{{count}} selected",
+      "clear": "Clear selection"
     },
     "customFields": {
       "title": "Contact fields",
@@ -892,6 +894,8 @@
     "voiceLocked": "Recording…",
     "voiceSending": "Sending…",
     "edited": "edited",
+    "showOriginal": "Show original text",
+    "hideOriginal": "Hide original text",
     "messageFailed": "Not delivered",
     "dateToday": "Today",
     "dateYesterday": "Yesterday",
@@ -1009,6 +1013,7 @@
     "opportunities": "Opportunities",
     "opportunitiesOfChat": "Opportunities in this chat",
     "newOpportunity": "New opportunity",
+    "opportunitySince": "since {{date}}",
     "noOpportunities": "This chat has no opportunities yet.",
     "opportunityStageLabel": "Opportunity stage",
     "moveOpportunityTo": "Move to {{stage}}",
@@ -1225,7 +1230,16 @@
     "contactSaveError": "Could not save the contact",
     "contactFallback": "Contact",
     "archiveError": "Could not archive the conversation",
-    "mailAttachments": "Attachments ({{count}})"
+    "mailAttachments": "Attachments ({{count}})",
+    "audio": {
+      "play": "Play audio",
+      "pause": "Pause audio",
+      "seek": "Audio position",
+      "position": "{{current}} of {{total}}",
+      "speed": "Speed {{rate}}, tap to change",
+      "loadError": "Couldn't load the audio.",
+      "open": "Open"
+    }
   },
   "settings": {
     "title": "Settings",
@@ -2481,6 +2495,31 @@
       "sound": "Sound",
       "soundHint": "A short chime when a notification arrives.",
       "typesTitle": "What we notify you about"
+    }
+  },
+  "dataTable": {
+    "loading": "Loading…",
+    "empty": "No data to show",
+    "selectAll": "Select all rows",
+    "selectRow": "Select row",
+    "selectRowNamed": "Select {{row}}",
+    "moveColumn": "Move column {{column}}",
+    "dndColumn": "the {{column}} column",
+    "resizeColumn": "Resize {{column}}",
+    "resizeValue": "{{width}} pixels",
+    "resizeHint": "Drag to resize. Double-click to auto-fit.",
+    "range": "{{from}}–{{to}} of {{total}}",
+    "rangeEmpty": "No results",
+    "perPage": "Per page",
+    "page": "{{page}} of {{pages}}",
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
+    "resetWidths": "Reset widths",
+    "resetWidthsHint": "Restore the original column widths"
+  },
+  "tasks": {
+    "list": {
+      "empty": "No tasks to show."
     }
   }
 }

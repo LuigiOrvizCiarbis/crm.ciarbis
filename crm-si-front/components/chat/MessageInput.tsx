@@ -8,17 +8,17 @@ import { EmojiPicker } from "./EmojiPicker"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useToast } from "@/components/Toast"
-import { Paperclip, Smile, Send, X, Pencil, Check, Music2, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound, CalendarClock } from "lucide-react"
+import { Paperclip, Smile, Send, X, Pencil, Check, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound, CalendarClock } from "lucide-react"
 import { KeyboardEvent, SyntheticEvent, useMemo, useRef, useState, useEffect } from "react"
 import dynamic from "next/dynamic"
 import Image from "next/image"
 import { Message, TranslationLanguage } from "@/data/types"
 import { getMessageHotkeys, type MessageHotkey } from "@/lib/api/message-hotkeys"
-import { pauseOtherAudios } from "@/lib/audio"
 import { expandHotkey, parseSlashCommand, type HotkeyExpansionContext } from "@/lib/utils/hotkeys"
 import { HotkeyAutocomplete } from "./HotkeyAutocomplete"
 import type { ManualAiDraft } from "@/lib/api/manual-ai-drafts"
 import { VoiceRecorder } from "./VoiceRecorder"
+import { AudioPlayer } from "./AudioPlayer"
 import { ContactShareDialog } from "./ContactShareDialog"
 import { ScheduleMessagePicker } from "./ScheduleMessagePicker"
 import { useComposerStore } from "@/store/useComposerStore"
@@ -546,11 +546,7 @@ export function MessageInput({
               />
             ) : (
               <div className="min-w-[240px] max-w-[320px] rounded-lg border border-border bg-background p-3">
-                <div className="mb-2 flex items-center gap-2 text-sm">
-                  <Music2 className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{selectedMedia?.name}</span>
-                </div>
-                <audio controls src={mediaPreview} className="w-full" onPlay={pauseOtherAudios} />
+                <AudioPlayer src={mediaPreview} filename={selectedMedia?.name} />
               </div>
             )}
             <button

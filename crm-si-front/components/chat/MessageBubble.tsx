@@ -5,7 +5,7 @@ import { MessageStatus } from "./MessageStatus"
 import { MessageReactions } from "./MessageReactions"
 import { ReactionPicker } from "./ReactionPicker"
 import { EmojiPicker } from "./EmojiPicker"
-import { MoreHorizontal, Pencil, Trash2, Bot, Languages, EyeOff, Phone, Mail } from "lucide-react"
+import { MoreHorizontal, Pencil, Trash2, Bot, Languages, EyeOff, Phone, Mail, Ban, AlertCircle } from "lucide-react"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useLongPress } from "@/hooks/useLongPress"
 import { memo, useState } from "react"
@@ -28,12 +28,12 @@ import {
   parseTemplateContent,
   MessageBubbleImage,
   MessageBubbleSticker,
-  MessageBubbleAudio,
   MessageBubbleVideo,
   MessageBubbleDocument,
 } from "./messageThreadUtils"
 import { MessageText } from "./MessageText"
 import { LinkPreviewCard } from "./LinkPreviewCard"
+import { AudioPlayer } from "./AudioPlayer"
 
 export interface TranslationState {
   content?: string
@@ -93,7 +93,8 @@ export const MessageBubble = memo(function MessageBubble({
   isGroupConversation = false,
   onSaveContact,
 }: MessageBubbleProps) {
-  const { t } = useTranslation()
+  const { t, language } = useTranslation()
+  const [showOriginal, setShowOriginal] = useState(false)
 
   const isUser = msg.sender_type === "user"
   const isBot = msg.sender_type === "system" && msg.direction === "outbound"
@@ -190,7 +191,7 @@ export const MessageBubble = memo(function MessageBubble({
       <PopoverAnchor asChild>
         <div
           className={`flex items-center opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100 ${
-            isUser ? "mr-1" : "ml-1"
+            isOwn ? "mr-1" : "ml-1"
           }`}
         >
           <DropdownMenu>
@@ -199,7 +200,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <MoreHorizontal className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align={isUser ? "end" : "start"}>
+            <DropdownMenuContent align={isOwn ? "end" : "start"}>
               {canReact && onReact && (
                 <>
                   <ReactionPicker
@@ -263,19 +264,61 @@ export const MessageBubble = memo(function MessageBubble({
       : "rounded-2xl rounded-bl-sm"
 
   // La IA tiene su propio color: se distingue de lo que escribió una persona del equipo.
-  const surface = isUser
-    ? "bg-primary text-primary-foreground"
-    : isBot
-      ? "border border-ai/30 bg-ai/10"
-      : "bg-muted"
+  // Un mensaje borrado pierde el color de su emisor: queda como hueco punteado, legible y sin peso.
+  const surface = isDeleted
+    ? "border border-dashed border-border text-muted-foreground"
+    : isUser
+      ? "bg-primary text-primary-foreground"
+      : isBot
+        ? "border border-ai/30 bg-ai/10"
+        : "bg-muted"
+  const onAccent = isUser && !isDeleted
+
+  const timestamp = msg.delivered_at || msg.created_at
+  // Los mensajes fallidos siempre conservan su estado visible, aunque otro
+  // mensaje del mismo emisor los siga dentro de la ventana de agrupación.
+  const showStatusRow = isLastOfGroup || (msg.direction === "outbound" && !!msg.failed_at)
+  const playsAudio = !isDeleted && Boolean(isAudio && mediaUrl)
+
+  // La hora vive dentro de la burbuja, abajo a la derecha junto al estado. Normalmente sólo
+  // el último de la tanda la muestra; los fallos mantienen su estado visible en cada mensaje.
+  const statusContent = showStatusRow && (timestamp || msg.failed_at) ? (
+    <>
+      {isEdited && (hasOriginalContent ? (
+        <button
+          type="button"
+          className="rounded-sm underline decoration-current/40 underline-offset-2 hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => setShowOriginal((value) => !value)}
+          aria-expanded={showOriginal}
+          title={showOriginal ? t("chats.hideOriginal") : t("chats.showOriginal")}
+        >
+          {t("chats.edited")}
+        </button>
+      ) : (
+        <span>{t("chats.edited")}</span>
+      ))}
+      {timestamp && (
+        <span className={`tabular-nums ${onAccent ? "text-primary-foreground" : ""}`}>
+          {new Date(timestamp).toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" })}
+        </span>
+      )}
+      <MessageStatus message={msg} onAccent={onAccent} />
+    </>
+  ) : null
 
   const body = isDeleted ? (
-    <p className="text-sm italic opacity-60">{t("chats.messageDeleted")}</p>
+    <p className="flex items-center gap-1.5 text-sm italic">
+      <Ban className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      {t("chats.messageDeleted")}
+    </p>
   ) : hasOriginalContent ? (
-    <div className="space-y-2">
-      <p className="text-xs opacity-70 line-through whitespace-pre-wrap [overflow-wrap:anywhere]">
-        {msg.original_content}
-      </p>
+    <div>
+      {/* El original queda a un toque de "editado": a la vista ensuciaba cada mensaje corregido. */}
+      {showOriginal && (
+        <p className="mb-1.5 border-b border-current/20 pb-1.5 text-xs line-through whitespace-pre-wrap [overflow-wrap:anywhere]">
+          {msg.original_content}
+        </p>
+      )}
       <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
         <MessageText
           content={msg.content || ""}
@@ -314,7 +357,7 @@ export const MessageBubble = memo(function MessageBubble({
       )}
     </div>
   ) : isAudio && mediaUrl ? (
-    <MessageBubbleAudio mediaUrl={mediaUrl} filename={msg.media_filename} />
+    <AudioPlayer src={mediaUrl} filename={msg.media_filename} onAccent={onAccent} meta={statusContent} />
   ) : isVideo && mediaUrl ? (
     <div className="space-y-1">
       <MessageBubbleVideo mediaUrl={mediaUrl} />
@@ -388,18 +431,13 @@ export const MessageBubble = memo(function MessageBubble({
     </div>
   )
 
-  const timestamp = msg.delivered_at || msg.created_at
-  // Los mensajes fallidos siempre conservan su estado visible, aunque otro
-  // mensaje del mismo emisor los siga dentro de la ventana de agrupación.
-  const showStatusRow = isLastOfGroup || (msg.direction === "outbound" && !!msg.failed_at)
-
   return (
     <div
       className={`group/msg flex ${isOwn ? "justify-end" : "justify-start"} ${
         isFirstOfGroup ? "mt-3" : "mt-0.5"
       }`}
     >
-      {isUser && actionsMenu}
+      {isOwn && actionsMenu}
 
       {/* Wrapper en columna: la burbuja y los chips de reacción son hermanos
           en flujo normal (no absolute), así una tanda de mensajes agrupados
@@ -465,29 +503,27 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         )}
 
-          {/* La hora vive dentro de la burbuja, alineada abajo a la derecha junto
-              al estado. Normalmente sólo el último de la tanda la muestra; los
-              fallos mantienen su estado visible en cada mensaje. */}
-          {showStatusRow && (timestamp || msg.failed_at) && (
+          {/* En los audios la hora va en la fila del reproductor. */}
+          {statusContent && !playsAudio && (
             <div
               className={`mt-0.5 flex items-center justify-end gap-1 text-[11px] ${
-                isUser ? "" : "text-muted-foreground"
+                onAccent ? "" : "text-muted-foreground"
               }`}
             >
-              {isEdited && <span>{t("chats.edited")}</span>}
-              {timestamp && (
-                <span className={`tabular-nums ${isUser ? "text-primary-foreground" : ""}`}>
-                  {new Date(timestamp).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    hour12: true,
-                  })}
-                </span>
-              )}
-              <MessageStatus message={msg} onAccent={isUser} />
+              {statusContent}
             </div>
           )}
         </div>
+
+        {/* El motivo del fallo a la vista: sólo con el ícono, nadie se enteraba de que el mensaje no salió. */}
+        {msg.direction === "outbound" && msg.failed_at && (
+          <p className="mt-1 flex max-w-full items-start gap-1 text-xs text-destructive">
+            <AlertCircle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              {msg.error_message ? `${t("chats.messageFailed")}: ${msg.error_message}` : t("chats.messageFailed")}
+            </span>
+          </p>
+        )}
 
         <MessageReactions
           reactions={reactions}
@@ -497,7 +533,7 @@ export const MessageBubble = memo(function MessageBubble({
         />
       </div>
 
-      {!isUser && actionsMenu}
+      {!isOwn && actionsMenu}
 
       <Sheet open={isActionSheetOpen} onOpenChange={setIsActionSheetOpen}>
         <SheetContent side="bottom" className="gap-0 rounded-t-2xl pb-[env(safe-area-inset-bottom)]">

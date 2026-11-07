@@ -11,6 +11,7 @@ export type ChatOpportunity = {
   value: number | string | null
   pipeline_id: number
   pipeline_stage_id: number | null
+  created_at?: string | null
   pipeline?: { id: number; name: string; is_default?: boolean } | null
 }
 
@@ -58,6 +59,11 @@ export function ChatOpportunityRail({
   onNew,
 }: ChatOpportunityRailProps) {
   const { t } = useTranslation()
+  // Dos oportunidades del mismo embudo sin título propio ni monto se veían idénticas.
+  const pipelineCounts = opportunities.reduce<Record<number, number>>((counts, item) => {
+    counts[item.pipeline_id] = (counts[item.pipeline_id] ?? 0) + 1
+    return counts
+  }, {})
 
   return (
     <div
@@ -72,6 +78,7 @@ export function ChatOpportunityRail({
           stages={stagesByPipeline[opportunity.pipeline_id] ?? []}
           pending={pendingOpportunityId === opportunity.id}
           contactName={contactName}
+          showSince={pipelineCounts[opportunity.pipeline_id] > 1}
           onMove={(stageId) => onMove(opportunity, stageId)}
         />
       ))}
@@ -94,15 +101,17 @@ function OpportunityTicket({
   stages,
   pending,
   contactName,
+  showSince,
   onMove,
 }: {
   opportunity: ChatOpportunity
   stages: PipelineStage[]
   pending: boolean
   contactName?: string
+  showSince: boolean
   onMove: (stageId: number) => void
 }) {
-  const { t } = useTranslation()
+  const { t, language } = useTranslation()
   const currentIndex = stages.findIndex((stage) => stage.id === opportunity.pipeline_stage_id)
   const current = currentIndex >= 0 ? stages[currentIndex] : undefined
   const next = currentIndex >= 0 ? stages[currentIndex + 1] : stages[0]
@@ -111,13 +120,16 @@ function OpportunityTicket({
   const value = formatOpportunityValue(opportunity.value)
   const title = customTitle(opportunity.title, contactName)
   const pipelineName = opportunity.pipeline?.name ?? opportunity.title
-  const details = [title, value].filter(Boolean).join(" · ")
+  const since = showSince && opportunity.created_at
+    ? t("chats.opportunitySince", { date: new Date(opportunity.created_at).toLocaleDateString(language, { day: "numeric", month: "short" }) })
+    : null
+  const details = [title, value].filter(Boolean).join(" · ") || since
 
   return (
     <div
       role="listitem"
       className={cn(
-        "relative flex shrink-0 snap-start items-center gap-2.5 overflow-hidden rounded-lg border border-border/70 bg-muted/30 py-1.5 pl-3 pr-1 transition-opacity",
+        "relative flex shrink-0 snap-start items-center gap-2.5 overflow-hidden rounded-lg border border-border/70 py-1.5 pl-3 pr-1 transition-opacity",
         pending && "opacity-60",
       )}
     >

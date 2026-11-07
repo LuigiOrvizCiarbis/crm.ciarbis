@@ -39,7 +39,7 @@ const ConversationCard = memo(function ConversationCard({
   onToggleSelect,
   compact = false,
 }: ConversationCardProps) {
-  const { t } = useTranslation()
+  const { t, language } = useTranslation()
   const cardRef = useRef<HTMLDivElement>(null)
 
   // En la columna lateral, el chat abierto (p. ej. desde un deep-link) puede
@@ -74,7 +74,7 @@ const ConversationCard = memo(function ConversationCard({
       date.getDate() === now.getDate()
 
     if (isSameDay) {
-      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true })
+      return date.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" })
     }
 
     const yesterday = new Date(now)
@@ -88,10 +88,10 @@ const ConversationCard = memo(function ConversationCard({
 
     const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
     if (diffDays < 7) {
-      return date.toLocaleDateString([], { weekday: "short" })
+      return date.toLocaleDateString(language, { weekday: "short" })
     }
 
-    return date.toLocaleDateString([], { day: "2-digit", month: "2-digit" })
+    return date.toLocaleDateString(language, { day: "2-digit", month: "2-digit" })
   }
 
   const handleCardClick = () => {

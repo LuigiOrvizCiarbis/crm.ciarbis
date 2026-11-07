@@ -31,7 +31,7 @@ import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatStrip } from "@/components/ui/stat-strip"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table"
 import { useToast } from "@/components/Toast"
 import { Channel, WhatsAppTemplate } from "@/data/types"
 import { ChannelType } from "@/data/enums"
@@ -122,6 +122,69 @@ const campaignProgress = (campaign: BroadcastCampaign) =>
 // Mientras la campaña no terminó se muestra el costo estimado; después, el real.
 const campaignCost = (campaign: BroadcastCampaign) =>
   currency.format(["scheduled", "processing"].includes(campaign.status) ? campaign.estimated_cost_usd : campaign.actual_cost_usd)
+
+const historyColumns: DataTableColumn<BroadcastCampaign>[] = [
+  {
+    id: "name",
+    header: "Nombre de la difusión",
+    rowHeader: true,
+    cell: (campaign) => {
+      const summary = (
+        <>
+          <p className="font-medium">{campaign.name}</p>
+          <p className="text-xs text-muted-foreground">{campaign.template.name} · {campaign.channel.name}</p>
+        </>
+      )
+      return campaign.results_tracking_version === 1 ? (
+        <Link href={`/difusiones/${campaign.id}`} className="block rounded-sm outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50">
+          {summary}
+        </Link>
+      ) : (
+        summary
+      )
+    },
+  },
+  {
+    id: "status",
+    header: "Estado",
+    cell: (campaign) => {
+      const state = campaignStatus[campaign.status]
+      return <Badge className={cn("border-0", state.className)}>{state.label}</Badge>
+    },
+  },
+  {
+    id: "audience",
+    header: "Contactos",
+    cell: (campaign) => (
+      <div className="flex min-w-28 items-center gap-2">
+        <Users className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+        <span className="tabular-nums">{campaign.audience_count.toLocaleString("es-AR")}</span>
+        <Progress value={campaignProgress(campaign)} className="h-1.5 w-12" aria-label="Avance del envío" />
+      </div>
+    ),
+  },
+  {
+    id: "sent",
+    header: "Enviado",
+    align: "right",
+    className: "font-medium tabular-nums text-success",
+    cell: (campaign) => campaign.sent_count.toLocaleString("es-AR"),
+  },
+  {
+    id: "errors",
+    header: "Error",
+    align: "right",
+    className: (campaign) => cn("tabular-nums", campaign.error_count ? "font-medium text-destructive" : "text-muted-foreground"),
+    cell: (campaign) => campaign.error_count.toLocaleString("es-AR"),
+  },
+  { id: "cost", header: "Gasto", align: "right", className: "tabular-nums", cell: campaignCost },
+  {
+    id: "scheduled_at",
+    header: "Fecha y hora",
+    className: "text-sm tabular-nums text-muted-foreground",
+    cell: (campaign) => dateTime.format(new Date(campaign.scheduled_at)),
+  },
+]
 
 export function BroadcastsDashboard() {
   const { addToast } = useToast()
@@ -275,6 +338,46 @@ export function BroadcastsDashboard() {
       )}
     </div>
   )
+
+  const templateColumns: DataTableColumn<WhatsAppTemplate>[] = [
+    {
+      id: "reference",
+      header: "Referencia",
+      className: "font-mono text-xs text-muted-foreground",
+      cell: (template) => `#${template.external_id || template.id}`,
+    },
+    {
+      id: "name",
+      header: "Nombre",
+      rowHeader: true,
+      cell: (template) => (
+        <>
+          <p className="font-medium">{template.name}</p>
+          <p className="text-xs text-muted-foreground">{template.category} · {template.language}</p>
+        </>
+      ),
+    },
+    {
+      id: "status",
+      header: "Estado",
+      cell: (template) => {
+        const state = templateStatus[template.status] ?? { label: template.status, className: "bg-muted text-muted-foreground" }
+        return (
+          <>
+            <Badge variant="outline" className={state.className}>{state.label}</Badge>
+            {state.hint && <p className="mt-1 max-w-56 text-xs leading-4 text-muted-foreground">{state.hint}</p>}
+          </>
+        )
+      },
+    },
+    {
+      id: "created_at",
+      header: "Creación",
+      className: "text-sm tabular-nums text-muted-foreground",
+      cell: (template) => dateTime.format(new Date(template.created_at)),
+    },
+    { id: "actions", header: "", headerLabel: "Acciones", align: "right", cell: renderTemplateActions },
+  ]
 
   if (loading) {
     return (
@@ -433,63 +536,13 @@ export function BroadcastsDashboard() {
             )}
           </ul>
 
-          <div className="mt-3 hidden overflow-x-auto rounded-lg border border-border md:block">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nombre de la difusión</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead>Contactos</TableHead>
-                  <TableHead className="text-right">Enviado</TableHead>
-                  <TableHead className="text-right">Error</TableHead>
-                  <TableHead className="text-right">Gasto</TableHead>
-                  <TableHead>Fecha y hora</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {campaigns.map((campaign) => {
-                  const state = campaignStatus[campaign.status]
-                  const progress = campaignProgress(campaign)
-                  return (
-                    <TableRow key={campaign.id}>
-                      <TableCell>
-                        {campaign.results_tracking_version === 1 ? (
-                          <Link href={`/difusiones/${campaign.id}`} className="block rounded-sm outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50">
-                            <p className="font-medium">{campaign.name}</p>
-                            <p className="text-xs text-muted-foreground">{campaign.template.name} · {campaign.channel.name}</p>
-                          </Link>
-                        ) : (
-                          <>
-                            <p className="font-medium">{campaign.name}</p>
-                            <p className="text-xs text-muted-foreground">{campaign.template.name} · {campaign.channel.name}</p>
-                          </>
-                        )}
-                      </TableCell>
-                      <TableCell><Badge className={cn("border-0", state.className)}>{state.label}</Badge></TableCell>
-                      <TableCell>
-                        <div className="flex min-w-28 items-center gap-2">
-                          <Users className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-                          <span className="tabular-nums">{campaign.audience_count.toLocaleString("es-AR")}</span>
-                          <Progress value={progress} className="h-1.5 w-12" aria-label="Avance del envío" />
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-medium tabular-nums text-success">{campaign.sent_count.toLocaleString("es-AR")}</TableCell>
-                      <TableCell className={cn("text-right tabular-nums", campaign.error_count ? "font-medium text-destructive" : "text-muted-foreground")}>{campaign.error_count.toLocaleString("es-AR")}</TableCell>
-                      <TableCell className="text-right tabular-nums">{campaignCost(campaign)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{dateTime.format(new Date(campaign.scheduled_at))}</TableCell>
-                    </TableRow>
-                  )
-                })}
-                {campaigns.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
-                      Todavía no hay difusiones. La primera puede salir hoy.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+          <DataTable
+            className="mt-3 hidden md:block"
+            columns={historyColumns}
+            data={campaigns}
+            getRowId={(campaign) => String(campaign.id)}
+            emptyLabel="Todavía no hay difusiones. La primera puede salir hoy."
+          />
         </section>
 
         <section className="mt-12">
@@ -594,46 +647,14 @@ export function BroadcastsDashboard() {
                   </li>
                 )}
               </ul>
-              <div className="hidden overflow-x-auto md:block">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Referencia</TableHead>
-                      <TableHead>Nombre</TableHead>
-                      <TableHead>Estado</TableHead>
-                      <TableHead>Creación</TableHead>
-                      <TableHead className="text-right" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {visibleTemplates.map((template) => {
-                      const state = templateStatus[template.status] ?? { label: template.status, className: "bg-muted text-muted-foreground" }
-                      return (
-                        <TableRow key={template.id}>
-                          <TableCell className="font-mono text-xs text-muted-foreground">#{template.external_id || template.id}</TableCell>
-                          <TableCell>
-                            <p className="font-medium">{template.name}</p>
-                            <p className="text-xs text-muted-foreground">{template.category} · {template.language}</p>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={state.className}>{state.label}</Badge>
-                            {state.hint && <p className="mt-1 max-w-56 text-xs leading-4 text-muted-foreground">{state.hint}</p>}
-                          </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{dateTime.format(new Date(template.created_at))}</TableCell>
-                          <TableCell className="text-right">{renderTemplateActions(template)}</TableCell>
-                        </TableRow>
-                      )
-                    })}
-                    {visibleTemplates.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={5} className="h-28 text-center text-muted-foreground">
-                          {templatesEmptyMessage}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+              <DataTable
+                className="hidden md:block"
+                variant="plain"
+                columns={templateColumns}
+                data={visibleTemplates}
+                getRowId={(template) => String(template.id)}
+                emptyLabel={templatesEmptyMessage}
+              />
               </>
             )}
           </div>
