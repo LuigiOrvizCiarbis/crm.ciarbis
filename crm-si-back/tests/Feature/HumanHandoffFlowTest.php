@@ -394,7 +394,7 @@ class HumanHandoffFlowTest extends TestCase
 
     // --- Interruptor por tenant -------------------------------------------------
 
-    public function test_tenant_switch_off_does_not_offer_the_handoff_tool(): void
+    public function test_tenant_switch_off_does_not_offer_the_handoff_tool_nor_its_rule(): void
     {
         $config = AiConfig::withoutGlobalScopes()->create([
             'tenant_id' => $this->tenant->id,
@@ -420,7 +420,10 @@ class HumanHandoffFlowTest extends TestCase
         $sent = Http::recorded()->map(fn ($pair) => $pair[0]);
         $this->assertCount(2, $sent);
         $this->assertFalse(isset($sent[0]['tools']));
+        // Sin herramienta, la regla le pediría usar algo que no existe.
+        $this->assertStringNotContainsString(AiReplyService::HANDOFF_RULE, json_encode($sent[0]['system'], JSON_UNESCAPED_UNICODE));
         $this->assertSame('request_human_handoff', $sent[1]['tools'][0]['name']);
+        $this->assertStringContainsString(AiReplyService::HANDOFF_RULE, json_encode($sent[1]['system'], JSON_UNESCAPED_UNICODE));
     }
 
     /** "Quiero cambiar mi turno" no se deriva antes de que el bot vea su agenda. */

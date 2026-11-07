@@ -147,6 +147,7 @@ const ConversationCard = memo(function ConversationCard({
             <ContactAvatar
               contactId={conversation.contact?.id}
               name={contactName}
+              imageUrl={conversation.contact?.avatar_url}
               className="w-8 h-8"
             />
           )}

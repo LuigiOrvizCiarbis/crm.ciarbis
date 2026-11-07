@@ -453,6 +453,18 @@ export default function ChatsPage() {
     }
   }, [selectedConversationId, addToast, t])
 
+  // La foto la cambia el panel del contacto; la bandeja y el encabezado la
+  // reflejan sin esperar a la próxima recarga de conversaciones.
+  const handleContactAvatarChange = useCallback((contactId: number, avatarUrl: string | null) => {
+    const withAvatar = (c: Conversation): Conversation => (
+      c.contact && (c.contact_id ?? Number(c.contact.id)) === contactId
+        ? { ...c, contact: { ...c.contact, avatar_url: avatarUrl } }
+        : c
+    )
+    setConversations((prev) => prev.map(withAvatar))
+    setCurrentConversation((prev) => (prev ? withAvatar(prev) : prev))
+  }, [])
+
   const handleRenameGroup = useCallback(async (subject: string) => {
     if (!selectedConversationId) return
 
@@ -2747,6 +2759,7 @@ export default function ChatsPage() {
               contactId={contactId}
               isOpen={isContactInfoOpen}
               onClose={() => setIsContactInfoOpen(false)}
+              onAvatarChange={handleContactAvatarChange}
               className={panelClassName}
             />
           )

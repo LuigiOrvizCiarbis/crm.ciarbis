@@ -6,13 +6,16 @@ import { ContactAvatar } from "@/components/contact-avatar"
 import { Badge } from "@/components/ui/badge"
 import { X, Phone, MessageSquare, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { getContact, type Contact } from "@/lib/api/contacts"
+import { getContact, type Contact, type ContactAvatar as ContactAvatarPayload } from "@/lib/api/contacts"
+import { ContactAvatarActions } from "@/components/contact-avatar-actions"
 import { useTranslation } from "@/hooks/useTranslation"
 
 interface ContactInfoPanelProps {
   contactId: number
   isOpen: boolean
   onClose: () => void
+  /** Para que la bandeja y el encabezado muestren la foto nueva sin recargar. */
+  onAvatarChange?: (contactId: number, avatarUrl: string | null) => void
   className?: string
 }
 
@@ -31,7 +34,7 @@ function formatValue(value: unknown): string {
   return String(value)
 }
 
-export function ContactInfoPanel({ contactId, isOpen, onClose, className }: ContactInfoPanelProps) {
+export function ContactInfoPanel({ contactId, isOpen, onClose, onAvatarChange, className }: ContactInfoPanelProps) {
   const { t } = useTranslation()
   const [contact, setContact] = useState<Contact | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -64,6 +67,11 @@ export function ContactInfoPanel({ contactId, isOpen, onClose, className }: Cont
       cancelled = true
     }
   }, [contactId, isOpen, t, reloadKey])
+
+  const handleAvatarChange = (avatar: ContactAvatarPayload) => {
+    setContact((prev) => (prev ? { ...prev, ...avatar } : prev))
+    onAvatarChange?.(contactId, avatar.avatar_url)
+  }
 
   if (!isOpen) return null
 
@@ -109,6 +117,7 @@ export function ContactInfoPanel({ contactId, isOpen, onClose, className }: Cont
               <ContactAvatar
                 contactId={contact.id}
                 name={contact.name}
+                imageUrl={contact.avatar_url}
                 className="w-24 h-24"
                 fallbackClassName="text-2xl"
               />
@@ -116,6 +125,13 @@ export function ContactInfoPanel({ contactId, isOpen, onClose, className }: Cont
                 <h3 className="text-xl font-semibold">{contact.name}</h3>
                 {contact.phone && <p className="text-sm text-muted-foreground">{contact.phone}</p>}
               </div>
+              <ContactAvatarActions
+                contactId={contact.id}
+                avatarUrl={contact.avatar_url}
+                avatarSource={contact.avatar_source}
+                onChange={handleAvatarChange}
+                className="items-center text-center"
+              />
             </div>
 
             <div className="space-y-4">

@@ -37,12 +37,23 @@ export interface ContactAssignedUser {
   email: string | null
 }
 
+/** `manual` la subió un agente; el resto la trajo el canal y se refresca sola. */
+export type ContactAvatarSource = "manual" | "facebook" | "instagram"
+
+export interface ContactAvatar {
+  avatar_url: string | null
+  avatar_source: ContactAvatarSource | null
+}
+
 export interface Contact {
   id: number
   name: string
   email: string | null
   phone: string | null
   source: string
+  /** Absoluta; null cuando no hay foto (WhatsApp sólo admite foto manual). */
+  avatar_url: string | null
+  avatar_source: ContactAvatarSource | null
   custom_data: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -154,6 +165,46 @@ export async function updateContact(contactId: number, updates: ContactUpdate): 
   }
 
   return (payload.data ?? payload) as Contact;
+}
+
+export async function uploadContactAvatar(contactId: number, file: File): Promise<ContactAvatar> {
+  const token = getAuthToken();
+  if (!token) throw new Error("No authentication token found");
+
+  const formData = new FormData();
+  formData.append("avatar", file);
+
+  const response = await fetch(`/api/contacts/${contactId}/avatar`, {
+    method: "POST",
+    // Sin Content-Type: el browser pone el boundary del multipart.
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...workspaceHeaders() },
+    body: formData,
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throwApiError(response.status, payload, "No se pudo subir la foto");
+  }
+
+  return payload.data as ContactAvatar;
+}
+
+/** Quita la foto manual; si el canal tiene una, vuelve a mostrarse esa. */
+export async function deleteContactAvatar(contactId: number): Promise<ContactAvatar> {
+  const token = getAuthToken();
+  if (!token) throw new Error("No authentication token found");
+
+  const response = await fetch(`/api/contacts/${contactId}/avatar`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...workspaceHeaders() },
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throwApiError(response.status, payload, "No se pudo quitar la foto");
+  }
+
+  return payload.data as ContactAvatar;
 }
 
 export type BulkTagAction = "add" | "remove" | "replace";

@@ -72,6 +72,32 @@ class AiToolLoopTest extends TestCase
     }
 
     /**
+     * Con thinking (Claude 5+) la API rechaza con 400 la ronda siguiente si
+     * el turno assistant no trae sus bloques thinking intactos y en orden.
+     */
+    public function test_anthropic_echoes_thinking_blocks_between_tool_rounds(): void
+    {
+        $this->mockAi(AnthropicProvider::class, [
+            $this->anthropicMessage([
+                ['type' => 'thinking', 'thinking' => '', 'signature' => 'sig_1'],
+                ['type' => 'redacted_thinking', 'data' => 'opaque'],
+                ['type' => 'tool_use', 'id' => 'toolu_1', 'name' => 'consultar', 'input' => []],
+            ], 'tool_use'),
+            $this->anthropicMessage([['type' => 'text', 'text' => 'Tengo lunes 11:00.']]),
+        ]);
+
+        $reply = (new AnthropicProvider('sk-test'))->generate([['role' => 'user', 'content' => 'Quiero un turno']], 'system', 'claude-opus-5-5', $this->fakeToolset());
+
+        $this->assertSame('Tengo lunes 11:00.', $reply);
+        $assistant = json_decode((string) $this->history[1]['request']->getBody(), true)['messages'][1]['content'];
+        $this->assertSame([
+            ['type' => 'thinking', 'thinking' => '', 'signature' => 'sig_1'],
+            ['type' => 'redacted_thinking', 'data' => 'opaque'],
+        ], array_slice($assistant, 0, 2));
+        $this->assertSame('tool_use', $assistant[2]['type']);
+    }
+
+    /**
      * Sin tiempo para ejecutar herramientas, el texto que acompaña al
      * tool_use ("¡Listo, agendado!") no se envía: la reserva no ocurrió.
      */

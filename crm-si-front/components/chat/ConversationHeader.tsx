@@ -131,6 +131,7 @@ export function ConversationHeader({
             <ContactAvatar
               contactId={conversation.contact?.id}
               name={conversation.contact?.name}
+              imageUrl={conversation.contact?.avatar_url}
               className="h-10 w-10 ring-1 ring-border"
               fallbackClassName="text-sm font-semibold"
             />

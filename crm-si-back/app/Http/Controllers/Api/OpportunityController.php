@@ -18,7 +18,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 class OpportunityController extends Controller
 {
     private const EAGER_LOAD = [
-        'contact:id,name,phone,email,source',
+        'contact:id,name,phone,email,source,avatar_path',
         'conversation:id,contact_id,channel_id,last_message_content,last_message_at',
         'conversation.channel:id,name,type',
         'pipelineStage:id,name,sort_order,is_default',

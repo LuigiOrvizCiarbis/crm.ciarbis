@@ -90,7 +90,7 @@ export interface Conversation {
   contact_id?: number
   // null en conversaciones de grupo (kind === "group"): un grupo no tiene un
   // contacto único, ver whatsapp-group-panel / conversation-header.
-  contact: {id: string, name: string, phone?: string} | null
+  contact: {id: string, name: string, phone?: string, avatar_url?: string | null} | null
   kind?: "direct" | "group"
   group?: WhatsAppGroupSummary
   last_message: string
