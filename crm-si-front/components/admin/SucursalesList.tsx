@@ -64,12 +64,9 @@ export function SucursalesList({ creating: creatingProp, onCreatingChange }: Suc
   return (
     <div className="space-y-6">
       {branches.length === 0 ? (
-        <Card>
-          <CardContent className="p-8 text-center text-muted-foreground">
-            <Building2 className="w-10 h-10 mx-auto mb-2 opacity-50" />
-            <p>{t("sucursales.empty")}</p>
-          </CardContent>
-        </Card>
+        <div className="border-y border-border">
+          <p className="py-4 text-sm text-muted-foreground">{t("sucursales.empty")}</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {branches.map((branch) => (
@@ -91,10 +88,11 @@ export function SucursalesList({ creating: creatingProp, onCreatingChange }: Suc
                       <Button
                         size="icon"
                         variant="ghost"
+                        className="text-muted-foreground hover:text-destructive"
                         onClick={() => setDeletingId(branch.id)}
                         aria-label={t("sucursales.deleteNamed", { name: branch.name })}
                       >
-                        <Trash2 className="w-4 h-4 text-destructive" aria-hidden="true" />
+                        <Trash2 className="w-4 h-4" aria-hidden="true" />
                       </Button>
                     </div>
                   )}

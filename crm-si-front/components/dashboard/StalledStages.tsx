@@ -120,7 +120,7 @@ export function StalledStages({ stages, staleAfterDays = 14, isLoading, classNam
       return (
         <p className="text-sm text-muted-foreground">
           {t("dashboard.stalled.noStages")}{" "}
-          <Link href="/configuracion" className="font-medium text-primary underline-offset-4 hover:underline">
+          <Link href="/configuracion/embudos" className="font-medium text-primary underline-offset-4 hover:underline">
             {t("dashboard.stalled.configureStages")}
           </Link>
         </p>

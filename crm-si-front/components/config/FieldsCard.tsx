@@ -337,7 +337,7 @@ export function FieldsCard() {
               if (value) setSelectedEntity(value as EntityKey)
             }}
             aria-label={t("fields.entitySelector.label")}
-            className="w-full sm:w-auto sm:inline-flex rounded-lg border bg-muted/40 p-1"
+            className="h-9 w-full rounded-lg bg-muted p-[3px] sm:inline-flex sm:w-auto"
           >
             {visibleEntities.map((e) => {
               const count = entityCount(e.key)
@@ -345,7 +345,7 @@ export function FieldsCard() {
                 <ToggleGroupItem
                   key={e.key}
                   value={e.key}
-                  className="flex-1 sm:flex-none gap-1.5 rounded-md px-3 text-sm data-[state=on]:bg-background data-[state=on]:shadow-sm"
+                  className="h-full flex-1 gap-1.5 rounded-md px-3 text-sm data-[state=on]:bg-background data-[state=on]:shadow-sm sm:flex-none"
                 >
                   {t(e.labelKey)}
                   {count !== null ? (
@@ -358,11 +358,11 @@ export function FieldsCard() {
         ) : null}
 
         {loading && !loaded ? (
-          <ul className="space-y-2" aria-hidden>
+          <ul className="divide-y divide-border border-y border-border" aria-hidden>
             {Array.from({ length: 3 }).map((_, i) => (
               <li
                 key={i}
-                className="flex items-center gap-3 rounded-md border bg-card p-3"
+                className="flex items-center gap-3 py-3"
               >
                 <div className="size-4 rounded bg-muted animate-pulse" />
                 <div className="flex-1 space-y-2">
@@ -373,22 +373,13 @@ export function FieldsCard() {
             ))}
           </ul>
         ) : fields.length === 0 ? (
-          <div className="rounded-lg border border-dashed py-10 px-6 text-center">
-            <p className="text-sm font-medium">{t("fields.emptyTitle")}</p>
-            <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-              {t("fields.emptyBody")}
-            </p>
-            {canManage ? (
-              <Button size="sm" variant="outline" className="mt-4" onClick={openCreate}>
-                <Plus className="size-4 mr-1" />
-                {t("fields.addFirstField")}
-              </Button>
-            ) : null}
-          </div>
+          <p className="border-y border-border py-4 text-sm text-muted-foreground">
+            {t("fields.emptyBody")}
+          </p>
         ) : (
           <DndContext sensors={sensors} accessibility={dndAccessibility} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={fields.map((f) => f.id)} strategy={verticalListSortingStrategy}>
-              <ul className="space-y-1.5">
+              <ul className="divide-y divide-border border-y border-border">
                 {fields.map((field) => (
                   <SortableRow
                     key={field.id}
@@ -694,8 +685,8 @@ function SortableRow({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "group flex items-center gap-3 rounded-md border bg-card px-2.5 py-2 transition-colors",
-        isDragging ? "z-10 opacity-80 shadow-md" : "hover:border-foreground/15 hover:bg-muted/40",
+        "group flex items-center gap-3 bg-background py-3 transition-colors",
+        isDragging ? "relative z-10 opacity-80 shadow-md" : "hover:bg-muted/40",
       )}
     >
       {canManage ? (
@@ -714,25 +705,25 @@ function SortableRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium truncate">{field.label}</span>
-          <Badge variant="secondary" className="text-xs font-normal">
+          <Badge variant="outline" className="text-xs font-normal text-muted-foreground">
             {typeLabel}
           </Badge>
           {field.is_required ? (
-            <span className="text-[0.7rem] uppercase tracking-wide text-muted-foreground">
+            <Badge variant="outline" className="text-xs font-normal text-muted-foreground">
               {requiredBadge}
-            </span>
+            </Badge>
           ) : null}
           {field.is_unique ? (
-            <span className="text-[0.7rem] uppercase tracking-wide text-muted-foreground">
+            <Badge variant="outline" className="text-xs font-normal text-muted-foreground">
               {uniqueBadge}
-            </span>
+            </Badge>
           ) : null}
         </div>
         <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground/80">{field.key}</p>
       </div>
       {canManage ? (
         <div className="flex items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-          <Button variant="ghost" size="icon" className="size-8" onClick={onEdit} aria-label={editLabel}>
+          <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" onClick={onEdit} aria-label={editLabel}>
             <Pencil className="size-4" />
           </Button>
           <Button

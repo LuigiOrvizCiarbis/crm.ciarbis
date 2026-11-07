@@ -389,8 +389,6 @@ export function AutomationsSettings() {
 
   return (
     <SettingsBlock
-      id="panel-automations"
-      className="scroll-mt-28"
       title={t("settings.automations.title")}
       description={t("settings.automations.description")}
       icon={Workflow}
@@ -427,10 +425,10 @@ export function AutomationsSettings() {
                   <Button variant="ghost" size="sm" onClick={() => { setPreviewRule(rule); setPreview(null) }}><Eye className="mr-1.5 size-4" />{t("settings.automations.preview")}</Button>
                   <Button variant="ghost" size="sm" onClick={() => void openRuns(rule)}><History className="mr-1.5 size-4" />{t("settings.automations.history")}</Button>
                   <Button variant="ghost" size="icon" aria-label={t("common.edit")} onClick={() => openEdit(rule)}><Pencil className="size-4" /></Button>
-                  <Button variant="ghost" size="icon" aria-label={rule.status === "active" ? t("settings.automations.pause") : t("settings.automations.activate")} onClick={() => void mutateStatus(rule)}>
+                  <Button variant="ghost" size="icon" aria-label={rule.status === "active" ? t("settings.automations.pause") : t("settings.automations.activate")} title={rule.status === "active" ? t("settings.automations.pause") : t("settings.automations.activate")} onClick={() => void mutateStatus(rule)}>
                     {rule.status === "active" ? <Pause className="size-4" /> : <Play className="size-4" />}
                   </Button>
-                  <Button variant="ghost" size="icon" disabled={rule.status === "active"} aria-label={t("common.delete")} onClick={() => void remove(rule)}><Trash2 className="size-4 text-destructive" /></Button>
+                  <Button variant="ghost" size="icon" disabled={rule.status === "active"} aria-label={t("common.delete")} title={t("common.delete")} className="text-muted-foreground hover:text-destructive" onClick={() => void remove(rule)}><Trash2 className="size-4" /></Button>
                 </div>
               </article>
             ))}
@@ -603,7 +601,7 @@ function ActionEditor({ index, action, channels, templates, documentFieldOptions
   const headerMediaMissing = Boolean(config.template_id) && headerMediaFormat !== null && headerParamCount !== 1
   return (
     <div className="relative rounded-xl border border-border bg-card p-4 shadow-sm">
-      <div className="mb-4 flex items-center justify-between"><div className="flex items-center gap-2"><span className="flex size-6 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold">{index + 1}</span><p className="text-sm font-medium">{t("settings.automations.whatsappTemplate")}</p></div><Button variant="ghost" size="icon" aria-label={t("settings.automations.removeAction")} disabled={index === 0} onClick={onRemove}><Trash2 className="size-4 text-destructive" /></Button></div>
+      <div className="mb-4 flex items-center justify-between"><div className="flex items-center gap-2"><span className="flex size-6 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold">{index + 1}</span><p className="text-sm font-medium">{t("settings.automations.whatsappTemplate")}</p></div><Button variant="ghost" size="icon" aria-label={t("settings.automations.removeAction")} disabled={index === 0} className="text-muted-foreground hover:text-destructive" onClick={onRemove}><Trash2 className="size-4" /></Button></div>
       <div className="grid gap-4 md:grid-cols-2">
         <Field label={t("settings.automations.channel")}><Select value={config.channel_id ? String(config.channel_id) : ""} onValueChange={(value) => { const channelId = Number(value); onChange({ ...action, config: { ...config, channel_id: channelId, template_id: undefined } }); void onLoadTemplates(channelId) }}><SelectTrigger><SelectValue placeholder={t("settings.automations.selectChannel")} /></SelectTrigger><SelectContent>{channels.map((channel) => <SelectItem key={channel.id} value={String(channel.id)}>{channel.name}</SelectItem>)}</SelectContent></Select></Field>
         <Field label={t("settings.automations.template")}><Select disabled={!config.channel_id} value={config.template_id ? String(config.template_id) : ""} onValueChange={(value) => { const templateId = Number(value); const template = (templates[config.channel_id ?? 0] ?? []).find((item) => item.id === templateId); const autofilled = parametersForTemplate(template); onChange({ ...action, config: { ...config, template_id: templateId, parameters: parameters.length ? parameters : autofilled } }) }}><SelectTrigger><SelectValue placeholder={t("settings.automations.selectTemplate")} /></SelectTrigger><SelectContent>{(templates[config.channel_id ?? 0] ?? []).map((template) => <SelectItem key={template.id} value={String(template.id)}>{template.name} · {template.language}</SelectItem>)}</SelectContent></Select></Field>

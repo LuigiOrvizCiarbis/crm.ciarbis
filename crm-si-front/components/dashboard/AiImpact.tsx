@@ -183,7 +183,7 @@ function SetUpAi() {
     <p className="text-sm text-muted-foreground">
       {t("dashboard.ai.setUp")}{" "}
       <Link
-        href="/configuracion#integrations/ai-assistant"
+        href="/configuracion/integraciones#ai-assistant"
         className="inline-flex items-center gap-0.5 rounded-sm font-medium text-ai underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
       >
         {t("dashboard.ai.setUpLink")}
@@ -303,7 +303,7 @@ function Automations({ automations }: { automations: DashboardAiImpact["automati
             return (
               <li key={rule.id}>
                 {canOpen ? (
-                  <Link href="/configuracion#panel-automations" className={rowLink}>{body}</Link>
+                  <Link href="/configuracion/automatizaciones" className={rowLink}>{body}</Link>
                 ) : (
                   <div className="py-2">{body}</div>
                 )}

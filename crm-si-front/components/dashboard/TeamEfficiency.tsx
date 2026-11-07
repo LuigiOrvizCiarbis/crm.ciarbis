@@ -133,7 +133,7 @@ export function TeamEfficiency({ efficiency, isLoading, canEditGoals }: TeamEffi
         <h2 id="panel-efficiency-title" className="text-base font-semibold tracking-tight">{t("dashboard.efficiency.title")}</h2>
         {canEditGoals && missingGoals && (
           <Link
-            href="/configuracion#panel-goals"
+            href="/configuracion/metas"
             className="rounded-sm text-sm font-medium text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
             {t("dashboard.efficiency.setGoals")}

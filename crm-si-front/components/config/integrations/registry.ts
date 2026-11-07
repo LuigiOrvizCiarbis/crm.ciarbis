@@ -33,7 +33,7 @@ export interface IntegrationDefinition {
 }
 
 // Agregar una integración = agregar una entrada acá. El directorio, el detalle
-// y el deep-link por hash (#integrations/<id>) salen de esta lista.
+// y el deep-link por hash (/configuracion/integraciones#<id>) salen de esta lista.
 export const INTEGRATIONS: IntegrationDefinition[] = [
   {
     id: "ai-assistant",

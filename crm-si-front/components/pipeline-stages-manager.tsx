@@ -51,6 +51,9 @@ interface PipelineStagesManagerProps {
 
 const DEFAULT_NEW_COLOR = "#3B82F6"
 
+// Edición inline: el borde aparece al pasar o enfocar, el texto se lee como valor.
+const INLINE_INPUT = "h-8 border-transparent bg-transparent shadow-none hover:border-border focus-visible:border-ring dark:bg-transparent"
+
 /** "" deja la etapa sin probabilidad; cualquier otro valor se acota a 0..100. */
 function parseProbability(raw: string): number | null {
   const digits = raw.replace(/\D/g, "")
@@ -92,7 +95,7 @@ function SortableStageRow({
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-2 rounded-md border border-border bg-card p-2"
+      className="flex items-center gap-3 bg-background py-3"
     >
       {canManage && (
         <button
@@ -121,7 +124,7 @@ function SortableStageRow({
         disabled={!canManage || saving}
         onChange={(e) => onNameChange(stage.id, e.target.value)}
         onBlur={() => onCommit(stage)}
-        className="h-8 flex-1"
+        className={`${INLINE_INPUT} flex-1`}
         aria-label={t("pipeline.stages.nameAria")}
       />
 
@@ -133,22 +136,27 @@ function SortableStageRow({
           disabled={!canManage || saving}
           onChange={(e) => onProbabilityChange(stage.id, parseProbability(e.target.value))}
           onBlur={() => onCommit(stage)}
-          className="h-8 pr-6 text-right tabular-nums"
+          className={`${INLINE_INPUT} pr-6 text-right tabular-nums placeholder:text-muted-foreground/60`}
           aria-label={t("pipeline.stages.probabilityAria", { name: stage.name })}
         />
-        <span aria-hidden="true" className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs ${stage.win_probability == null ? "text-muted-foreground/60" : "text-muted-foreground"}`}
+        >
+          %
+        </span>
       </div>
 
       {canManage && (
         <Button
           variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-destructive"
           disabled={saving}
           onClick={() => onDelete(stage)}
           aria-label={t("pipeline.stages.deleteAria", { name: stage.name })}
         >
-          <Trash2 className="h-4 w-4" aria-hidden="true" />
+          <Trash2 className="size-4" aria-hidden="true" />
         </Button>
       )}
     </div>
@@ -355,7 +363,7 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
           items={stages.map((s) => s.id.toString())}
           strategy={verticalListSortingStrategy}
         >
-          <div className="space-y-2">
+          <div className="divide-y divide-border border-y border-border">
             {stages.map((stage) => (
               <SortableStageRow
                 key={stage.id}
@@ -369,18 +377,17 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
                 onDelete={setStageToDelete}
               />
             ))}
+            {stages.length === 0 && (
+              <p className="py-4 text-sm text-muted-foreground">
+                {t("pipeline.stages.empty")}
+              </p>
+            )}
           </div>
         </SortableContext>
       </DndContext>
 
-      {stages.length === 0 && (
-        <p className="py-4 text-center text-sm text-muted-foreground">
-          {t("pipeline.stages.empty")}
-        </p>
-      )}
-
       {canManage && (
-        <div className="flex items-center gap-2 border-t border-border pt-4">
+        <div className="flex items-center gap-2">
           <input
             type="color"
             value={newColor}
@@ -406,7 +413,7 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
       )}
 
       {canManage && stages.length > 0 && (
-        <div className="space-y-1 text-xs text-muted-foreground">
+        <div className="space-y-1 text-pretty text-xs text-muted-foreground">
           <p>{t("pipeline.stages.editHint")}</p>
           <p>{t("pipeline.stages.probabilityHint")}</p>
         </div>

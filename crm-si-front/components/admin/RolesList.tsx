@@ -1,10 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Card, CardContent } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Pencil, Trash2, Plus, Loader2, ShieldCheck, Eye, Crown } from "lucide-react"
+import { Pencil, Trash2, Plus, ShieldCheck, Eye, Crown } from "lucide-react"
 import { useToast } from "@/components/Toast"
 import { useTranslation } from "@/hooks/useTranslation"
 import { deleteRole, getRoles, type Role } from "@/lib/api/roles"
@@ -67,67 +67,70 @@ export function RolesList() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold">{t("roles.title")}</h3>
-          <p className="text-sm text-muted-foreground">{t("roles.subtitle")}</p>
-        </div>
-        {canManage && (
-          <Button onClick={() => setCreating(true)} size="sm">
-            <Plus className="w-4 h-4 mr-1" />
-            {t("roles.newRole")}
-          </Button>
-        )}
-      </div>
-
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <div className="divide-y divide-border border-y border-border">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-3 py-3">
+              <Skeleton className="size-5 rounded-full" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-48" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-6">
           {systemRoles.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 {t("roles.systemBadge")}
               </p>
-              {systemRoles.map((role) => (
-                <RoleRow
-                  key={role.id}
-                  role={role}
-                  canEdit={isOwner && !role.is_owner ? true : isOwner}
-                  canDelete={false}
-                  onEdit={() => setEditing(role)}
-                  onDelete={() => setDeletingId(role.id)}
-                  t={t}
-                />
-              ))}
+              <div className="divide-y divide-border border-y border-border">
+                {systemRoles.map((role) => (
+                  <RoleRow
+                    key={role.id}
+                    role={role}
+                    canEdit={isOwner && !role.is_owner ? true : isOwner}
+                    canDelete={false}
+                    onEdit={() => setEditing(role)}
+                    onDelete={() => setDeletingId(role.id)}
+                    t={t}
+                  />
+                ))}
+              </div>
             </div>
           )}
 
           <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              {t("roles.tabs.roles")}
-            </p>
-            {customRoles.length === 0 ? (
-              <Card className="border-dashed">
-                <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                  {t("roles.noRoles")}
-                </CardContent>
-              </Card>
-            ) : (
-              customRoles.map((role) => (
-                <RoleRow
-                  key={role.id}
-                  role={role}
-                  canEdit={canManage}
-                  canDelete={canManage}
-                  onEdit={() => setEditing(role)}
-                  onDelete={() => setDeletingId(role.id)}
-                  t={t}
-                />
-              ))
-            )}
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                {t("roles.customGroup")}
+              </p>
+              {canManage && (
+                <Button onClick={() => setCreating(true)} size="sm">
+                  <Plus className="size-4" aria-hidden="true" />
+                  {t("roles.newRole")}
+                </Button>
+              )}
+            </div>
+            <div className="divide-y divide-border border-y border-border">
+              {customRoles.length === 0 ? (
+                <p className="py-4 text-sm text-muted-foreground">{t("roles.noRoles")}</p>
+              ) : (
+                customRoles.map((role) => (
+                  <RoleRow
+                    key={role.id}
+                    role={role}
+                    canEdit={canManage}
+                    canDelete={canManage}
+                    onEdit={() => setEditing(role)}
+                    onDelete={() => setDeletingId(role.id)}
+                    t={t}
+                  />
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -175,23 +178,22 @@ interface RoleRowProps {
 function RoleRow({ role, canEdit, canDelete, onEdit, onDelete, t }: RoleRowProps) {
   const isOwnerRole = role.is_owner === true
   return (
-    <Card className="border-border">
-      <CardContent className="flex items-center justify-between py-3">
-        <div className="flex items-center gap-3 min-w-0">
-          {isOwnerRole ? (
-            <Crown className="w-5 h-5 text-amber-500 shrink-0" />
-          ) : (
-            <ShieldCheck className="w-5 h-5 text-muted-foreground shrink-0" />
-          )}
-          <div className="min-w-0">
+    <div className="flex items-center gap-3 py-3">
+      {isOwnerRole ? (
+        <Crown className="size-5 shrink-0 text-warning" aria-hidden="true" />
+      ) : (
+        <ShieldCheck className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      )}
+      <div className="min-w-0 flex-1">
+          <div>
             <div className="flex items-center gap-2">
               <p className="font-medium truncate">{role.name}</p>
               {isOwnerRole ? (
-                <Badge variant="default" className="text-xs bg-amber-500/15 text-amber-700 hover:bg-amber-500/15 dark:text-amber-400 border border-amber-500/30">
+                <Badge variant="outline" className="text-xs">
                   {t("roles.ownerBadge")}
                 </Badge>
               ) : role.is_system && (
-                <Badge variant="secondary" className="text-xs">
+                <Badge variant="outline" className="text-xs">
                   {t("roles.systemBadge")}
                 </Badge>
               )}
@@ -209,27 +211,26 @@ function RoleRow({ role, canEdit, canDelete, onEdit, onDelete, t }: RoleRowProps
               </p>
             )}
           </div>
-        </div>
+      </div>
         <div className="flex items-center gap-1 shrink-0">
           {canEdit && (
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 text-muted-foreground"
               onClick={onEdit}
               title={isOwnerRole ? t("roles.ownerViewOnly") : t("roles.editRole")}
               aria-label={isOwnerRole ? t("roles.viewRoleNamed", { name: role.name }) : t("roles.editRoleNamed", { name: role.name })}
             >
-              {isOwnerRole ? <Eye className="w-4 h-4" aria-hidden="true" /> : <Pencil className="w-4 h-4" aria-hidden="true" />}
+              {isOwnerRole ? <Eye className="size-4" aria-hidden="true" /> : <Pencil className="size-4" aria-hidden="true" />}
             </Button>
           )}
           {canDelete && (
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onDelete} aria-label={t("roles.deleteRoleNamed", { name: role.name })}>
-              <Trash2 className="w-4 h-4" aria-hidden="true" />
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={onDelete} aria-label={t("roles.deleteRoleNamed", { name: role.name })}>
+              <Trash2 className="size-4" aria-hidden="true" />
             </Button>
           )}
         </div>
-      </CardContent>
-    </Card>
+    </div>
   )
 }

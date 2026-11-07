@@ -48,18 +48,19 @@ class GoogleCalendarConnectionController extends Controller
     public function callback(Request $request): RedirectResponse
     {
         $frontendUrl = config('app.frontend_url', 'http://localhost:3000');
+        $back = fn (string $result) => redirect()->away(self::settingsUrl($frontendUrl, $result));
 
         $state = $request->query('state');
         $code = $request->query('code');
 
         if (! $state || ! $code) {
-            return redirect()->away("{$frontendUrl}/configuracion?google_calendar=error");
+            return $back('error');
         }
 
         $payload = GoogleCalendarOAuth::consumeState($state);
 
         if (! $payload) {
-            return redirect()->away("{$frontendUrl}/configuracion?google_calendar=expired");
+            return $back('expired');
         }
 
         $user = User::withoutGlobalScope(TenantScope::class)->find($payload['user_id']);
@@ -68,7 +69,7 @@ class GoogleCalendarConnectionController extends Controller
             ->where('tenant_id', $payload['tenant_id'])
             ->where('user_id', $user->id)
             ->exists()) {
-            return redirect()->away("{$frontendUrl}/configuracion?google_calendar=error");
+            return $back('error');
         }
 
         // OAuth callbacks do not have the request header, so restore the
@@ -82,7 +83,7 @@ class GoogleCalendarConnectionController extends Controller
             if (isset($token['error'])) {
                 Log::error('GoogleCalendarConnectionController: token exchange failed', ['error' => $token]);
 
-                return redirect()->away("{$frontendUrl}/configuracion?google_calendar=error");
+                return $back('error');
             }
 
             $grantedScopes = explode(' ', $token['scope'] ?? '');
@@ -108,7 +109,7 @@ class GoogleCalendarConnectionController extends Controller
 
             if (! GoogleCalendarClient::hasRequiredScopes($connection)) {
                 if (($payload['phase'] ?? 'combined') === 'calendar') {
-                    return redirect()->away("{$frontendUrl}/configuracion?google_calendar=scope_missing");
+                    return $back('scope_missing');
                 }
 
                 $calendarClient = GoogleCalendarClient::make([GoogleCalendarClient::CALENDAR_SCOPE]);
@@ -121,10 +122,16 @@ class GoogleCalendarConnectionController extends Controller
                 'error' => $e->getMessage(),
             ]);
 
-            return redirect()->away("{$frontendUrl}/configuracion?google_calendar=error");
+            return $back('error');
         }
 
-        return redirect()->away("{$frontendUrl}/configuracion?google_calendar=connected");
+        return $back('connected');
+    }
+
+    /** El hash abre el detalle de Google Calendar, que es quien lee `google_calendar`. */
+    private static function settingsUrl(string $frontendUrl, string $result): string
+    {
+        return "{$frontendUrl}/configuracion/integraciones?google_calendar={$result}#google-calendar";
     }
 
     public function destroy(Request $request): JsonResponse

@@ -170,7 +170,7 @@ export function MessageHotkeysCard() {
         {loading ? (
           <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
         ) : hotkeys.length === 0 ? (
-          <p className="py-2 text-sm text-muted-foreground">
+          <p className="border-y border-border py-4 text-sm text-muted-foreground">
             {t("settings.hotkeys.empty")}
           </p>
         ) : (
@@ -197,7 +197,15 @@ export function MessageHotkeysCard() {
         )}
 
         <p className="text-xs text-muted-foreground">
-          {t("settings.hotkeys.variablesHelp")}
+          {t("settings.hotkeys.variablesHelp")
+            .split(/(\{\{\w+\}\})/)
+            .map((part, i) =>
+              /^\{\{\w+\}\}$/.test(part) ? (
+                <code key={i} className="font-mono text-xs text-muted-foreground">{part}</code>
+              ) : (
+                part
+              ),
+            )}
         </p>
       </div>
 
