@@ -440,19 +440,19 @@ export function ChatQuickBar({
       // la sigue y el riel ya la muestra: el selector sobra.
       const showChatStage = !opportunities.some((item) => item.pipeline?.is_default)
       const hasOpportunities = Boolean(contact) && opportunities.length > 0
+      // Una ficha sola entra en la fila sólo si reemplaza a la etapa del chat; si no, el riel baja a una
+      // fila propia en vez de empujar las propiedades a un segundo renglón suelto.
+      const railOnOwnRow = hasOpportunities && (opportunities.length > 1 || showChatStage)
 
       return (
-    <div className="border-b border-border bg-card px-2 py-1.5 sm:px-3">
+    <div className="@container border-b border-border bg-card px-2 py-1.5 sm:px-3">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-      {/* Etapa del chat y oportunidades, lo que más se mira: a la izquierda en escritorio y debajo
-          del resumen en el teléfono. Si no entran junto a las propiedades, pasan a su propia línea. */}
-      {(hasOpportunities || showChatStage) && (
-      <div className={`order-2 min-w-0 items-center gap-2 md:order-1 md:flex md:w-auto md:flex-auto ${hasOpportunities ? "flex w-full" : "hidden"}`}>
-        {/* Etapa del chat: sólo si ninguna oportunidad del pipeline predeterminado la maneja */}
-        {showChatStage && (
-        <div className={`hidden shrink-0 items-center gap-2 rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent md:inline-flex ${PILL_FOCUS_RING}`}>
+      {/* Etapa del chat: sólo si ninguna oportunidad del pipeline predeterminado la maneja */}
+      {showChatStage && (
+        <div title={t("chats.chatStageLabel")} className={`hidden shrink-0 items-center gap-2 rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent md:order-1 md:inline-flex ${PILL_FOCUS_RING}`}>
           <StageDot color={chatStageColor} />
-          <span id={stageLabelId}>{t("chats.chatStageLabel")}:</span>
+          {/* En un panel angosto la etiqueta queda para lectores y el tooltip: así la etapa entra junto a las propiedades. */}
+          <span id={stageLabelId} className="sr-only @2xl:not-sr-only">{t("chats.chatStageLabel")}:</span>
           {isLoadingStages ? (
             <Loader2 className="h-3 w-3 animate-spin" />
           ) : stagesFailed ? (
@@ -466,7 +466,7 @@ export function ChatQuickBar({
               <SelectTrigger
                 id={`${stageLabelId}-trigger`}
                 aria-labelledby={`${stageLabelId} ${stageLabelId}-trigger`}
-                className="h-auto w-35 border-0 bg-transparent p-0 text-foreground text-sm shadow-none focus-visible:ring-0 gap-2 hover:bg-transparent data-placeholder:text-foreground"
+                className="h-auto w-auto max-w-40 border-0 bg-transparent p-0 text-foreground text-sm shadow-none focus-visible:ring-0 gap-2 hover:bg-transparent data-placeholder:text-foreground"
               >
                 <SelectValue placeholder={t("chats.select")} className="truncate">
                   <span className="truncate block w-full text-left">
@@ -488,8 +488,11 @@ export function ChatQuickBar({
             </Select>
           )}
         </div>
-        )}
-        {hasOpportunities && (
+      )}
+
+      {/* Oportunidades. En el teléfono van debajo del resumen. */}
+      {hasOpportunities && (
+        <div className={`order-2 flex w-full min-w-0 ${railOnOwnRow ? "md:order-4" : "md:w-auto md:flex-auto"}`}>
           <ChatOpportunityRail
             opportunities={opportunities}
             stagesByPipeline={stagesByPipeline}
@@ -498,15 +501,15 @@ export function ChatQuickBar({
             onMove={handleOpportunityStageChange}
             onNew={openNewOpportunity}
           />
-        )}
-      </div>
+        </div>
       )}
 
       {/* Propiedades y acciones del chat: controles livianos, sin cajas, a la derecha. */}
-      <div className="order-3 ml-auto hidden shrink-0 items-center gap-0.5 md:flex">
+      <div className={`order-3 hidden shrink-0 items-center gap-0.5 md:flex ${showChatStage || !railOnOwnRow ? "ml-auto" : ""}`}>
         {/* El nombre del campo queda para lectores de pantalla y el tooltip: así entra junto a la oportunidad. */}
         <div title={t("chats.priorityLabel")} className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent ${PILL_FOCUS_RING}`}>
-          <Flag className="size-3.5 shrink-0" aria-hidden="true" />
+          {/* Los íconos ceden en paneles angostos para que etapa y propiedades compartan la fila. */}
+          <Flag className="hidden size-3.5 shrink-0 @2xl:block" aria-hidden="true" />
           <span id={priorityLabelId} className="sr-only">{t("chats.priorityLabel")}</span>
           <select
             value={value.priority || "baja"}
@@ -523,7 +526,7 @@ export function ChatQuickBar({
 
         {/* Assignee Select (shadcn Select) */}
         <div title={t("chats.assignToLabel")} className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent ${PILL_FOCUS_RING}`}>
-          <UserRound className="size-3.5 shrink-0" aria-hidden="true" />
+          <UserRound className="hidden size-3.5 shrink-0 @2xl:block" aria-hidden="true" />
           <span id={assigneeLabelId} className="sr-only">{t("chats.assignToLabel")}</span>
           {isLoadingUsers ? (
             <Loader2 className="h-3 w-3 animate-spin" />

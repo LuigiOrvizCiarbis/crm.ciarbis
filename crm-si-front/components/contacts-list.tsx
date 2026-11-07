@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, GripVertical, ArrowUpDown, ArrowUp, ArrowDown, Tags, FileText, Paperclip, RotateCcw, Trash2, Pencil } from "lucide-react"
+import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, Tags, FileText, Paperclip, RotateCcw, Trash2, Pencil } from "lucide-react"
 import type { RangeFilterValue } from "./contacts/RangeFilterMenu"
 import { BulkFieldsDialog } from "./contacts/bulk-fields-dialog"
 import { getAuthToken, getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
@@ -27,34 +27,16 @@ import { CustomChoiceBadge, CustomFieldInput, formatCustomChoice } from "@/compo
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 import type { Tag } from "@/lib/api/tags"
 import { useAutosave } from "@/lib/hooks/useAutosave"
-import { cn } from "@/lib/utils"
 import { EditableCell } from "@/components/editable-cell"
 import { TagChips } from "@/components/tags/TagChips"
 import { TagPicker } from "@/components/tags/TagPicker"
 import { useToast } from "@/components/Toast"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { DataTable, type DataTableColumn, type DataTableSort } from "@/components/ui/data-table"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { useTranslation } from "@/hooks/useTranslation"
-import { useDndAccessibility } from "@/hooks/useDndAccessibility"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core"
-import {
-  arrayMove,
-  SortableContext,
-  horizontalListSortingStrategy,
-  sortableKeyboardCoordinates,
-  useSortable,
-} from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
 import { formatCurrency } from "@/lib/currency"
 import { channelChipClass } from "@/lib/utils/channelHelpers"
 
@@ -118,7 +100,7 @@ const sourceLabels: Record<string, string> = {
   manual: "Manual",
 }
 
-type ColumnId = "select" | "contact" | "phone" | "email" | "source" | "tags" | "lastContact" | "actions" | `custom:${string}`
+type ColumnId = "contact" | "phone" | "email" | "source" | "tags" | "lastContact" | "actions" | `custom:${string}`
 type SortField = "name" | "phone" | "email" | "source" | "updated_at" | `custom:${string}`
 type SortDirection = "asc" | "desc"
 
@@ -127,19 +109,19 @@ interface Column {
   labelKey: string
   width: string
   minWidth: string
-  draggable: boolean
 }
 
 const DEFAULT_COLUMNS: Column[] = [
-  { id: "select", labelKey: "", width: "50px", minWidth: "50px", draggable: false },
-  { id: "contact", labelKey: "contactsPage.table.contact", width: "260px", minWidth: "220px", draggable: true },
-  { id: "phone", labelKey: "contactsPage.table.phone", width: "180px", minWidth: "160px", draggable: true },
-  { id: "email", labelKey: "contactsPage.table.email", width: "220px", minWidth: "180px", draggable: true },
-  { id: "source", labelKey: "contactsPage.table.source", width: "140px", minWidth: "120px", draggable: true },
-  { id: "tags", labelKey: "Etiquetas", width: "210px", minWidth: "180px", draggable: true },
-  { id: "lastContact", labelKey: "contactsPage.table.lastContact", width: "150px", minWidth: "130px", draggable: true },
-  { id: "actions", labelKey: "contactsPage.table.actions", width: "150px", minWidth: "130px", draggable: true },
+  { id: "contact", labelKey: "contactsPage.table.contact", width: "260px", minWidth: "220px" },
+  { id: "phone", labelKey: "contactsPage.table.phone", width: "180px", minWidth: "160px" },
+  { id: "email", labelKey: "contactsPage.table.email", width: "220px", minWidth: "180px" },
+  { id: "source", labelKey: "contactsPage.table.source", width: "140px", minWidth: "120px" },
+  { id: "tags", labelKey: "Etiquetas", width: "210px", minWidth: "180px" },
+  { id: "lastContact", labelKey: "contactsPage.table.lastContact", width: "150px", minWidth: "130px" },
+  { id: "actions", labelKey: "contactsPage.table.actions", width: "150px", minWidth: "130px" },
 ]
+
+const COLUMN_MAX_WIDTH = "560px"
 
 const COLUMN_ORDER_KEY = "contacts-column-order"
 const COLUMN_WIDTHS_KEY = "contacts-column-widths"
@@ -200,13 +182,14 @@ function loadColumnOrder(workspaceId: number | null): Column[] {
   try {
     const saved = window.localStorage.getItem(workspaceStorageKey(COLUMN_ORDER_KEY, workspaceId))
     if (!saved) return DEFAULT_COLUMNS
-    const ids = JSON.parse(saved) as ColumnId[]
+    const ids = JSON.parse(saved) as string[]
+    // Los órdenes guardados antes de que la selección la dibujara DataTable traen "select": se descarta.
     const ordered: Column[] = ids
       .map((id): Column | undefined => {
         const known = DEFAULT_COLUMNS.find((c) => c.id === id)
         if (known) return known
         if (typeof id === "string" && id.startsWith("custom:")) {
-          return { id, labelKey: id.slice("custom:".length), width: "180px", minWidth: "140px", draggable: true }
+          return { id: id as ColumnId, labelKey: id.slice("custom:".length), width: "180px", minWidth: "140px" }
         }
         return undefined
       })
@@ -226,15 +209,6 @@ function loadColumnWidths(workspaceId: number | null): Record<string, string> {
   } catch {
     return {}
   }
-}
-
-function widthInPixels(width: string): number {
-  const parsed = Number.parseFloat(width)
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
-function widthWithMinimum(column: Column, width: number): string {
-  return `${Math.min(560, Math.max(widthInPixels(column.minWidth), Math.round(width)))}px`
 }
 
 function getLastContact(contact: Contact): string {
@@ -262,161 +236,6 @@ function exportContactsCsv(contacts: Contact[]): void {
   link.download = `contactos_${new Date().toISOString().split("T")[0]}.csv`
   link.click()
   URL.revokeObjectURL(link.href)
-}
-
-function ColumnResizeHandle({
-  column,
-  label,
-  onResize,
-  onAutoResize,
-}: {
-  column: Column
-  label: string
-  onResize: (columnId: ColumnId, delta: number) => void
-  onAutoResize: (columnId: ColumnId) => void
-}) {
-  const previousX = useRef<number | null>(null)
-
-  const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    previousX.current = event.clientX
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-
-  const handlePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
-    if (previousX.current === null) return
-    const delta = event.clientX - previousX.current
-    previousX.current = event.clientX
-    onResize(column.id, delta)
-  }
-
-  const handlePointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
-    previousX.current = null
-    event.currentTarget.releasePointerCapture(event.pointerId)
-  }
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-      event.preventDefault()
-      event.stopPropagation()
-      const direction = event.key === "ArrowRight" ? 1 : -1
-      onResize(column.id, direction * (event.shiftKey ? 40 : 10))
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      aria-label={`Ajustar ancho de ${label || "columna"}`}
-      aria-valuemin={widthInPixels(column.minWidth)}
-      aria-valuenow={widthInPixels(column.width)}
-      aria-valuetext={`${widthInPixels(column.width)} píxeles`}
-      role="separator"
-      tabIndex={0}
-      className="absolute inset-y-0 right-0 z-10 w-3 cursor-col-resize touch-none rounded-sm outline-none transition-colors hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onDoubleClick={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        onAutoResize(column.id)
-      }}
-      onKeyDown={handleKeyDown}
-      title="Arrastrar para ajustar. Doble clic para autoajustar."
-    />
-  )
-}
-
-function SortableHeader({
-  column,
-  label,
-  sortField,
-  sortDirection,
-  onSort,
-  onResize,
-  onAutoResize,
-}: {
-  column: Column
-  label: string
-  sortField: SortField
-  sortDirection: SortDirection
-  onSort: (columnId: ColumnId) => void
-  onResize: (columnId: ColumnId, delta: number) => void
-  onAutoResize: (columnId: ColumnId) => void
-}) {
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
-    id: column.id,
-    disabled: !column.draggable,
-  })
-
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    width: column.width,
-    minWidth: column.minWidth,
-  }
-
-  if (!column.draggable) {
-    return (
-      <TableHead ref={setNodeRef} style={style} className={cn("relative", column.id === "actions" ? "text-right" : "")}>
-        {label}
-      </TableHead>
-    )
-  }
-
-  const columnSortField = sortFieldForColumn(column.id)
-  const isSorted = columnSortField === sortField
-  const SortIcon = isSorted ? (sortDirection === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown
-
-  // El <th> conserva su rol de encabezado: el arrastre con mouse se inicia desde toda la celda,
-  // pero el control accesible (rol, foco, instrucciones, teclado) es el botón del asa.
-  return (
-    <TableHead
-      ref={setNodeRef}
-      style={style}
-      className={cn(
-        "relative select-none cursor-grab active:cursor-grabbing",
-        column.id === "actions" ? "text-right" : "",
-      )}
-      aria-sort={isSorted ? (sortDirection === "asc" ? "ascending" : "descending") : undefined}
-      {...listeners}
-    >
-      <div className={cn("flex items-center gap-2", column.id === "actions" ? "justify-end" : "")}>
-        <button
-          type="button"
-          ref={setActivatorNodeRef}
-          {...attributes}
-          aria-label={`Mover columna ${label}`}
-          className="-m-1 rounded-sm p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <GripVertical className="w-3.5 h-3.5" aria-hidden="true" />
-        </button>
-        {columnSortField ? (
-          <button
-            type="button"
-            className={cn(
-              "inline-flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50",
-              isSorted && "text-primary",
-            )}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation()
-              onSort(column.id)
-            }}
-          >
-            <span className="truncate">{label}</span>
-            <SortIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          </button>
-        ) : (
-          <span>{label}</span>
-        )}
-      </div>
-      <ColumnResizeHandle column={column} label={label} onResize={onResize} onAutoResize={onAutoResize} />
-    </TableHead>
-  )
 }
 
 interface ContactsListProps {
@@ -517,14 +336,12 @@ export function ContactsList({
         labelKey: f.label,
         width: loadColumnWidths(workspaceId)[`custom:${f.key}`] ?? "180px",
         minWidth: "140px",
-        draggable: true,
       })),
     [contactFields, workspaceId],
   )
 
   const [columns, setColumns] = useState<Column[]>(DEFAULT_COLUMNS)
   const [columnsHydrated, setColumnsHydrated] = useState(false)
-  const tableRef = useRef<HTMLTableElement | null>(null)
 
   useEffect(() => {
     const savedWidths = loadColumnWidths(workspaceId)
@@ -579,58 +396,12 @@ export function ContactsList({
     )
   }, [columns, columnsHydrated, workspaceId])
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  )
   const columnLabel = (column: Column) =>
     column.id === "tags"
       ? "Etiquetas"
       : column.id.startsWith("custom:")
         ? capitalize(column.labelKey)
-        : column.labelKey
-          ? t(column.labelKey)
-          : ""
-  const dndAccessibility = useDndAccessibility((id) => {
-    const column = columns.find((item) => item.id === id)
-    return column ? `la columna ${columnLabel(column)}` : undefined
-  })
-
-  const handleColumnDragEnd = (event: DragEndEvent): void => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    setColumns((items) => {
-      const oldIndex = items.findIndex((i) => i.id === active.id)
-      const newIndex = items.findIndex((i) => i.id === over.id)
-      if (oldIndex === -1 || newIndex === -1) return items
-      if (!items[oldIndex].draggable || !items[newIndex].draggable) return items
-      return arrayMove(items, oldIndex, newIndex)
-    })
-  }
-
-  const handleColumnResize = (columnId: ColumnId, delta: number): void => {
-    setColumns((current) => current.map((column) => {
-      if (column.id !== columnId) return column
-      return {
-        ...column,
-        width: widthWithMinimum(column, widthInPixels(column.width) + delta),
-      }
-    }))
-  }
-
-  const handleColumnAutoResize = (columnId: ColumnId): void => {
-    const column = columns.find((item) => item.id === columnId)
-    if (!column || !tableRef.current) return
-
-    const cells = Array.from(tableRef.current.querySelectorAll<HTMLElement>("[data-column-id]"))
-      .filter((cell) => cell.dataset.columnId === columnId)
-    const measuredWidth = cells.reduce((width, cell) => Math.max(width, cell.scrollWidth), 0)
-    const nextWidth = Math.min(560, Math.max(widthInPixels(column.minWidth), measuredWidth + 12))
-
-    setColumns((current) => current.map((item) => (
-      item.id === columnId ? { ...item, width: `${Math.round(nextWidth)}px` } : item
-    )))
-  }
+        : t(column.labelKey)
 
   const resetColumnWidths = (): void => {
     setColumns((current) => current.map((column) => {
@@ -639,17 +410,14 @@ export function ContactsList({
     }))
   }
 
-  const handleSort = (columnId: ColumnId): void => {
-    const nextSortField = sortFieldForColumn(columnId)
+  const sortedColumn = columns.find((column) => sortFieldForColumn(column.id) === sortField)
+  const tableSort: DataTableSort | null = sortedColumn ? { columnId: sortedColumn.id, direction: sortDirection } : null
+
+  const handleSortChange = ({ columnId, direction }: DataTableSort): void => {
+    const nextSortField = sortFieldForColumn(columnId as ColumnId)
     if (!nextSortField) return
-
-    if (nextSortField === sortField) {
-      setSortDirection((current) => (current === "asc" ? "desc" : "asc"))
-      return
-    }
-
     setSortField(nextSortField)
-    setSortDirection(nextSortField === "updated_at" ? "desc" : "asc")
+    setSortDirection(direction)
   }
 
   const { save: saveAutosave } = useAutosave<{ id: number; updates: ContactUpdate; rollback: Partial<Contact> }>({
@@ -971,14 +739,6 @@ export function ContactsList({
 
   const renderCell = (contact: Contact, columnId: ColumnId): React.ReactNode => {
     switch (columnId) {
-      case "select":
-        return (
-          <Checkbox
-            checked={selectedIds.has(contact.id)}
-            onCheckedChange={() => toggleSelect(contact.id)}
-            aria-label={`Seleccionar ${contact.name}`}
-          />
-        )
       case "contact":
         return (
           <div className="flex items-center gap-3">
@@ -1035,7 +795,7 @@ export function ContactsList({
               val ? (
                 <div className="flex items-center gap-2 whitespace-nowrap">
                   <MessageSquare className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  <span className="text-sm font-mono tabular-nums">{val}</span>
+                  <span className="text-sm tabular-nums">{val}</span>
                 </div>
               ) : (
                 <span className="text-muted-foreground text-sm">—</span>
@@ -1086,7 +846,7 @@ export function ContactsList({
       case "tags":
         return (
           <div className="flex items-center gap-2">
-            <TagChips tags={contact.tags} maxVisible={2} emptyLabel="Sin etiquetas" />
+            <TagChips tags={contact.tags} maxVisible={2} />
             <TagPicker
               target="contact"
               targetId={contact.id}
@@ -1302,15 +1062,22 @@ export function ContactsList({
     }
   }
 
-  const allSelected = filteredContacts.length > 0 && filteredContacts.every((c) => selectedIds.has(c.id))
-
-  const handleSelectAll = () => {
-    if (allSelected) {
-      setSelectedIds(new Set())
-    } else {
-      setSelectedIds(new Set(filteredContacts.map((c) => c.id)))
+  const tableColumns = columns.map((column): DataTableColumn<Contact> => {
+    const columnSortField = sortFieldForColumn(column.id)
+    return {
+      id: column.id,
+      header: columnLabel(column),
+      cell: (contact) => renderCell(contact, column.id),
+      sortable: columnSortField !== null,
+      // "Último contacto" ordena por updated_at: lo útil primero es lo más reciente.
+      defaultSortDirection: columnSortField === "updated_at" ? "desc" : "asc",
+      draggable: true,
+      width: column.width,
+      minWidth: column.minWidth,
+      maxWidth: COLUMN_MAX_WIDTH,
+      align: column.id === "actions" ? "right" : undefined,
     }
-  }
+  })
 
   const toggleSelect = (id: number) => {
     const next = new Set(selectedIds)
@@ -1319,101 +1086,102 @@ export function ContactsList({
     setSelectedIds(next)
   }
 
+  // "Restablecer anchos" sólo tiene sentido si alguien cambió alguno.
+  const widthsCustomized = columns.some((column) => (
+    column.width !== (DEFAULT_COLUMNS.find((item) => item.id === column.id)?.width ?? "180px")
+  ))
+
+  const emptyState = (
+    <>
+      <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+      {hasActiveFilters ? (
+        <>
+          <h3 className="text-lg font-medium text-foreground mb-2">No se encontraron contactos</h3>
+          <p className="text-muted-foreground">
+            {searchTerm ? "Probá con otros términos de búsqueda o ajustá los filtros." : "Probá ajustando o quitando los filtros."}
+          </p>
+          {searchTerm && onSearchTermChange ? (
+            <Button variant="outline" className="mt-4" onClick={() => onSearchTermChange("")}>
+              Limpiar búsqueda
+            </Button>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <h3 className="text-lg font-medium text-foreground mb-2">Todavía no tenés contactos</h3>
+          <p className="text-muted-foreground">Empezá agregando tu primer contacto o importando un archivo.</p>
+          <Button className="mt-4" onClick={() => setDialogOpen(true)}>
+            Nuevo contacto
+          </Button>
+        </>
+      )}
+    </>
+  )
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-lg border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-muted-foreground">
-          {paginationMeta.total > 0 ? (
-            <>
-              Mostrando{" "}
-              <span className="font-medium text-foreground">{paginationMeta.from}</span>
-              {"-"}
-              <span className="font-medium text-foreground">{paginationMeta.to}</span>
-              {" de "}
-              <span className="font-medium text-foreground">{paginationMeta.total}</span>
-              {" contactos"}
-            </>
-          ) : (
-            "Sin contactos para mostrar"
-          )}
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-muted-foreground">Por página</span>
-          <Select value={String(perPage)} onValueChange={(value) => setPerPage(Number(value))}>
-            <SelectTrigger className="h-8 w-24 max-md:h-10">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="10">10</SelectItem>
-              <SelectItem value="20">20</SelectItem>
-              <SelectItem value="50">50</SelectItem>
-              <SelectItem value="100">100</SelectItem>
-            </SelectContent>
-          </Select>
-          {/* Los anchos de columna sólo existen en la tabla de md en adelante. */}
+    <div className="space-y-3">
+      {/* Sin tarjeta: es la cabecera de la tabla, no un bloque aparte. */}
+      <DataTablePagination
+        page={paginationMeta.current_page}
+        pageCount={paginationMeta.last_page}
+        onPageChange={setPage}
+        total={paginationMeta.total}
+        pageSize={perPage}
+        pageSizeOptions={[10, 20, 50, 100]}
+        onPageSizeChange={setPerPage}
+        disabled={loading}
+        actions={
+          // Los anchos de columna sólo existen en la tabla de md en adelante.
+          widthsCustomized ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="hidden gap-2 text-muted-foreground md:inline-flex"
+              onClick={resetColumnWidths}
+              title={t("dataTable.resetWidthsHint")}
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              {t("dataTable.resetWidths")}
+            </Button>
+          ) : null
+        }
+      />
+
+      {/* Selección: acciones livianas; "Eliminar" en texto rojo, separado, para que nada compita como acción principal. */}
+      {selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5">
           <Button
             variant="ghost"
             size="sm"
-            className="hidden gap-2 md:inline-flex"
-            onClick={resetColumnWidths}
-            title="Restablecer anchos de columnas"
+            className="size-8 p-0"
+            onClick={() => setSelectedIds(new Set())}
+            aria-label={t("contactsPage.bulk.clear")}
+            title={t("contactsPage.bulk.clear")}
           >
-            <RotateCcw className="h-4 w-4" />
-            <span className="hidden lg:inline">Restablecer anchos</span>
+            <X className="h-4 w-4" aria-hidden="true" />
           </Button>
-          <div className="flex items-center gap-2 max-sm:w-full max-sm:justify-between">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={loading || paginationMeta.current_page <= 1}
-              onClick={() => setPage((current) => Math.max(current - 1, 1))}
-            >
-              Anterior
-            </Button>
-            <span className="min-w-20 text-center text-sm text-muted-foreground">
-              {paginationMeta.current_page} / {paginationMeta.last_page}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={loading || paginationMeta.current_page >= paginationMeta.last_page}
-              onClick={() => setPage((current) => Math.min(current + 1, paginationMeta.last_page))}
-            >
-              Siguiente
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* Bulk selection bar */}
-      {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between px-4 py-3 bg-primary/10 border border-primary/20 rounded-lg">
-          <Badge variant="secondary" className="text-sm font-semibold">
-            {selectedIds.size} contacto{selectedIds.size !== 1 ? "s" : ""} seleccionado{selectedIds.size !== 1 ? "s" : ""}
-          </Badge>
-          <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => setBulkFieldsOpen(true)}>
-              <Pencil className="w-3 h-3 mr-1" />
-              {t("contactsPage.bulk.editFields")}
-            </Button>
-            <Button size="sm" onClick={() => setBulkTagsOpen(true)}>
-              <Tags className="w-3 h-3 mr-1" />
-              {t("contactsPage.bulk.editTags")}
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={bulkDeleting}
-              onClick={() => setBulkDeleteOpen(true)}
-            >
-              <Trash2 className="w-3 h-3 mr-1" />
-              {t("contactsPage.bulk.delete.action")}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>
-              <X className="w-3 h-3 mr-1" />
-              Cancelar
-            </Button>
-          </div>
+          <span className="px-1 text-sm font-medium tabular-nums" aria-live="polite">
+            {t(`contactsPage.bulk.selected_${selectedIds.size === 1 ? "one" : "other"}`, { count: selectedIds.size })}
+          </span>
+          <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
+          <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setBulkFieldsOpen(true)}>
+            <Pencil className="h-4 w-4" aria-hidden="true" />
+            {t("contactsPage.bulk.editFields")}
+          </Button>
+          <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setBulkTagsOpen(true)}>
+            <Tags className="h-4 w-4" aria-hidden="true" />
+            {t("contactsPage.bulk.editTags")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            disabled={bulkDeleting}
+            onClick={() => setBulkDeleteOpen(true)}
+          >
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+            {t("contactsPage.bulk.delete.action")}
+          </Button>
         </div>
       )}
 
@@ -1582,97 +1350,47 @@ export function ContactsList({
             })}
           </div>
 
-          <div className="hidden border rounded-lg overflow-hidden md:block">
-            <div className="overflow-x-auto">
-              <DndContext sensors={sensors} accessibility={dndAccessibility} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
-                <Table ref={tableRef} className="min-w-[1100px] table-fixed">
-                  <TableHeader className="sticky top-0 z-10 bg-background border-b">
-                    <TableRow>
-                      <SortableContext items={columns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
-                        {columns.map((column) => {
-                          if (column.id === "select") {
-                            return (
-                              <TableHead key={column.id} data-column-id={column.id} style={{ width: column.width, minWidth: column.minWidth }} className="px-4">
-                                <Checkbox checked={allSelected} onCheckedChange={handleSelectAll} aria-label="Seleccionar todos los contactos" />
-                              </TableHead>
-                            )
-                          }
-                          return (
-                            <SortableHeader
-                              key={column.id}
-                              column={column}
-                              label={columnLabel(column)}
-                              sortField={sortField}
-                              sortDirection={sortDirection}
-                              onSort={handleSort}
-                              onResize={handleColumnResize}
-                              onAutoResize={handleColumnAutoResize}
-                            />
-                          )
-                        })}
-                      </SortableContext>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loading ? (
-                      <TableRow>
-                        <TableCell colSpan={columns.length} className="h-40">
-                          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                            <Loader2 className="h-5 w-5 animate-spin" />
-                            Cargando contactos
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredContacts.map((contact, idx) => (
-                        <TableRow
-                          key={contact.id}
-                          className={`${idx % 2 === 0 ? "bg-muted/30" : ""} hover:bg-muted/50 transition-colors`}
-                        >
-                          {columns.map((column) => (
-                            <TableCell
-                              key={column.id}
-                              data-column-id={column.id}
-                              className={`py-3 ${column.id === "select" ? "px-4" : ""} ${column.id === "actions" ? "text-right" : ""}`}
-                              style={{ width: column.width, minWidth: column.minWidth, maxWidth: column.width }}
-                            >
-                              {renderCell(contact, column.id)}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </DndContext>
-            </div>
-          </div>
+          <DataTable
+            className="hidden md:block"
+            columns={tableColumns}
+            data={filteredContacts}
+            getRowId={(contact) => contact.id}
+            getRowLabel={(contact) => contact.name}
+            loading={loading}
+            loadingLabel="Cargando contactos"
+            emptyLabel={emptyState}
+            fixedLayout
+            minTableWidth="1100px"
+            sort={tableSort}
+            onSortChange={handleSortChange}
+            selectable
+            selectedIds={selectedIds}
+            onSelectedIdsChange={(ids) => setSelectedIds(new Set(Array.from(ids, Number)))}
+            reorderable
+            onColumnOrderChange={(orderedIds) => setColumns((current) => orderedIds
+              .map((id) => current.find((column) => column.id === id))
+              .filter((column): column is Column => Boolean(column)))}
+            onColumnResize={(columnId, width) => setColumns((current) => current.map((column) => (
+              column.id === columnId ? { ...column, width: `${width}px` } : column
+            )))}
+          />
 
+          {/* En escritorio el vacío va dentro de la tabla; en teléfono no hay tabla que lo contenga. */}
           {!loading && filteredContacts.length === 0 && (
-            <div className="text-center py-12">
-              <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-              {hasActiveFilters ? (
-                <>
-                  <h3 className="text-lg font-medium text-foreground mb-2">No se encontraron contactos</h3>
-                  <p className="text-muted-foreground">
-                    {searchTerm ? "Probá con otros términos de búsqueda o ajustá los filtros." : "Probá ajustando o quitando los filtros."}
-                  </p>
-                  {searchTerm && onSearchTermChange ? (
-                    <Button variant="outline" className="mt-4" onClick={() => onSearchTermChange("")}>
-                      Limpiar búsqueda
-                    </Button>
-                  ) : null}
-                </>
-              ) : (
-                <>
-                  <h3 className="text-lg font-medium text-foreground mb-2">Todavía no tenés contactos</h3>
-                  <p className="text-muted-foreground">Empezá agregando tu primer contacto o importando un archivo.</p>
-                  <Button className="mt-4" onClick={() => setDialogOpen(true)}>
-                    Nuevo contacto
-                  </Button>
-                </>
-              )}
-            </div>
+            <div className="text-center py-12 md:hidden">{emptyState}</div>
+          )}
+
+          {/* Al final de la página también: es donde uno termina de leer las filas. */}
+          {filteredContacts.length > 0 && paginationMeta.last_page > 1 && (
+            <DataTablePagination
+              className="pt-1"
+              page={paginationMeta.current_page}
+              pageCount={paginationMeta.last_page}
+              onPageChange={setPage}
+              total={paginationMeta.total}
+              pageSize={perPage}
+              disabled={loading}
+            />
           )}
         </>
       )}

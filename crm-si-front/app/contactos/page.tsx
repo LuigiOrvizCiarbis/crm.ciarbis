@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { RangeFilterValue } from "@/components/contacts/RangeFilterMenu"
 import { ContactsMobileFilters } from "@/components/contacts/ContactsMobileFilters"
+import { BrandPilot } from "@/components/brand/BrandPilot"
 
 export default function ContactosPage() {
   const { t } = useTranslation()
@@ -47,6 +48,7 @@ export default function ContactosPage() {
 
   return (
     <SidebarLayout>
+      <BrandPilot />
       <ContactsCompactHeader
         searchQuery={searchQuery}
         onSearch={setSearchQuery}
@@ -99,7 +101,7 @@ export default function ContactosPage() {
             billingAvailable={billingAvailable}
           />
         </div>
-        <div className="px-4 md:px-6 lg:px-8 py-6 space-y-6">
+        <div className="space-y-4 px-4 py-5 md:px-6 lg:px-8">
           <ContactsStats refreshKey={refreshKey} onBillingAvailabilityChange={handleBillingAvailability} />
           <ContactsList
             searchTerm={searchQuery}

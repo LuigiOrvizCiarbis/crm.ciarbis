@@ -4,6 +4,7 @@ import { ChevronUp, Lock, Mic, Send, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "@/hooks/useTranslation"
 import { audioExtensionForMime, canRecordAudio, pickRecorderMimeType } from "@/lib/audio"
+import { Button } from "@/components/ui/button"
 
 type RecorderState = "idle" | "recording" | "locked" | "uploading" | "error"
 type Props = {
@@ -211,7 +212,10 @@ export function VoiceRecorder({
   const handlePointerDown = (event: React.PointerEvent<HTMLElement>) => {
     if (disabled || !canRecord) return
     if (state === "locked" || state === "uploading") return
-    // Sólo el botón principal del mouse; en touch/pen siempre es 0.
+    // Con mouse no hay gesto de mantener: un clic graba menos de un segundo y se descartaba sin
+    // que apareciera nada. Ahí manda el onClick (grabación fijada, como WhatsApp Web).
+    if (event.pointerType === "mouse") return
+    // Touch y lápiz: sólo el contacto principal (button 0).
     if (event.button !== 0) return
 
     event.preventDefault()
@@ -314,22 +318,28 @@ export function VoiceRecorder({
               <Lock className="h-3 w-3 shrink-0" aria-hidden />
               {t("chats.voiceLocked")}
             </span>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               onClick={cancel}
               aria-label={t("chats.voiceCancel")}
-              className="shrink-0 p-2 text-muted-foreground hover:text-destructive"
+              title={t("chats.voiceCancel")}
+              className="h-10 w-10 shrink-0 p-0 text-muted-foreground hover:text-destructive sm:h-8 sm:w-8"
             >
-              <Trash2 className="h-5 w-5" />
-            </button>
-            <button
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            {/* Mismo botón que el de enviar del compositor: es la acción principal mientras se graba. */}
+            <Button
               type="button"
+              size="sm"
               onClick={finish}
               aria-label={t("chats.voiceSend")}
-              className="shrink-0 p-2 text-primary"
+              title={t("chats.voiceSend")}
+              className="h-10 w-10 shrink-0 p-0 sm:h-8 sm:w-auto sm:px-3"
             >
-              <Send className="h-5 w-5" />
-            </button>
+              <Send className="h-4 w-4" aria-hidden="true" />
+            </Button>
           </>
         ) : state === "uploading" ? (
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{t("chats.voiceSending")}</span>
@@ -364,9 +374,8 @@ export function VoiceRecorder({
         onPointerCancel={handlePointerCancel}
         onContextMenu={(event) => event.preventDefault()}
         onClick={() => {
-          // Sólo llega acá por teclado (Enter/Espacio): sin gesto de puntero no
-          // hay "soltar", así que arrancamos ya fijado y se corta con los
-          // botones de enviar/descartar, que sí son alcanzables por teclado.
+          // Llega acá con mouse o teclado (Enter/Espacio): sin gesto de soltar,
+          // arrancamos ya fijado y se corta con los botones de enviar/descartar.
           if (suppressClickRef.current) {
             suppressClickRef.current = false
             return
@@ -375,6 +384,7 @@ export function VoiceRecorder({
           void start()
         }}
         aria-label={state === "error" ? t("chats.voiceRetry") : t("chats.voiceStart")}
+        title={state === "error" ? t("chats.voiceRetry") : t("chats.voiceStart")}
         className="shrink-0 touch-none select-none p-2 transition-transform active:scale-125 active:text-destructive"
       >
         <Mic className="h-5 w-5" />

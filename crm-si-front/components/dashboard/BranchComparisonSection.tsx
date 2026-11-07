@@ -3,13 +3,13 @@
 import { useEffect, useState } from "react"
 import { PanelSection } from "@/components/dashboard/PanelSection"
 import { Button } from "@/components/ui/button"
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useIsOwner, usePermission } from "@/hooks/usePermission"
 import { useBranchesStore } from "@/store/useBranchesStore"
 import { getBranchComparison, type BranchComparisonRow, type DashboardFilters } from "@/lib/api/dashboard"
 import { formatCompactCurrency } from "@/lib/currency"
-import { cn } from "@/lib/utils"
 
 interface BranchComparisonSectionProps {
   /** Los filtros del encabezado salvo la sucursal: la tabla siempre muestra todas. */
@@ -55,7 +55,16 @@ export function BranchComparisonSection({ filters, selectedBranchId }: BranchCom
   if (!canViewAll) return null
   if (loaded && branches.length === 0) return null
 
-  const numeric = "px-3 py-2.5 text-right tabular-nums"
+  const numeric = "tabular-nums"
+  const count = (value: number) => value.toLocaleString("es-AR")
+  const columns: DataTableColumn<BranchComparisonRow>[] = [
+    { id: "name", header: t("sucursales.fields.name"), rowHeader: true, cell: (row) => row.name },
+    { id: "contacts", header: t("sucursales.dashboard.contacts"), align: "right", className: numeric, cell: (row) => count(row.contacts_new) },
+    { id: "conversations", header: t("sucursales.dashboard.conversations"), align: "right", className: numeric, cell: (row) => count(row.conversations) },
+    { id: "opportunities", header: t("sucursales.dashboard.opportunities"), align: "right", className: numeric, cell: (row) => count(row.opportunities_count) },
+    { id: "value", header: t("sucursales.dashboard.value"), align: "right", className: numeric, cell: (row) => formatCompactCurrency(row.opportunities_value) },
+    { id: "won", header: t("sucursales.dashboard.won"), align: "right", className: numeric, cell: (row) => count(row.opportunities_won) },
+  ]
 
   return (
     <PanelSection
@@ -76,35 +85,16 @@ export function BranchComparisonSection({ filters, selectedBranchId }: BranchCom
           {[0, 1, 2].map((row) => <Skeleton key={row} className="h-6 w-full" />)}
         </div>
       ) : (
-        <div className="-mx-3 overflow-x-auto">
-          <table className="w-full min-w-[36rem] text-sm">
-            <thead>
-              <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                <th scope="col" className="px-3 py-2 font-medium">{t("sucursales.fields.name")}</th>
-                <th scope="col" className="px-3 py-2 text-right font-medium">{t("sucursales.dashboard.contacts")}</th>
-                <th scope="col" className="px-3 py-2 text-right font-medium">{t("sucursales.dashboard.conversations")}</th>
-                <th scope="col" className="px-3 py-2 text-right font-medium">{t("sucursales.dashboard.opportunities")}</th>
-                <th scope="col" className="px-3 py-2 text-right font-medium">{t("sucursales.dashboard.value")}</th>
-                <th scope="col" className="px-3 py-2 text-right font-medium">{t("sucursales.dashboard.won")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.map((row) => {
-                const selected = row.id === selectedBranchId
-                return (
-                  <tr key={row.id} aria-current={selected ? "true" : undefined} className={cn("border-b border-border last:border-0", selected && "bg-muted")}>
-                    <th scope="row" className={cn("px-3 py-2.5 text-left", selected ? "font-semibold" : "font-medium")}>{row.name}</th>
-                    <td className={numeric}>{row.contacts_new.toLocaleString("es-AR")}</td>
-                    <td className={numeric}>{row.conversations.toLocaleString("es-AR")}</td>
-                    <td className={numeric}>{row.opportunities_count.toLocaleString("es-AR")}</td>
-                    <td className={numeric}>{formatCompactCurrency(row.opportunities_value)}</td>
-                    <td className={numeric}>{row.opportunities_won.toLocaleString("es-AR")}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          className="-mx-3"
+          variant="plain"
+          density="compact"
+          minTableWidth="36rem"
+          columns={columns}
+          data={stats}
+          getRowId={(row) => String(row.id)}
+          activeRowId={selectedBranchId != null ? String(selectedBranchId) : undefined}
+        />
       )}
     </PanelSection>
   )

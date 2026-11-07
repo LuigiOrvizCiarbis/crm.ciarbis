@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table"
 import { getPlans, type Plan, type PlanCompareValue } from "@/lib/api/plans"
 import { useAuthStore } from "@/store/useAuthStore"
 import { trialDaysLeft } from "@/lib/trial"
@@ -194,47 +195,39 @@ export default function PricingPage() {
             {compareKeys.length > 0 && (
               <section className="space-y-4">
                 <h2 className="text-xl font-semibold text-center">{t("pricing.comparisonTitle")}</h2>
-                <div className="overflow-x-auto rounded-xl border">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th scope="col" className="text-left p-4 font-medium min-w-[200px]">
-                          {t("pricing.comparisonFeature")}
-                        </th>
-                        {plans.map((plan) => (
-                          <th key={plan.id} scope="col" className="p-4 text-center min-w-[120px] font-semibold">
-                            {plan.name}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {compareKeys.map((key) => (
-                        <tr key={key} className="border-b last:border-b-0">
-                          <th scope="row" className="text-left p-4 font-medium">
-                            {compareLabel(key)}
-                          </th>
-                          {plans.map((plan) => {
-                            const rendered = formatCompareValue(plan.compare[key])
-                            return (
-                              <td key={plan.id} className="p-4 text-center align-middle">
-                                {rendered === "check" ? (
-                                  <Check className="w-4 h-4 text-success mx-auto" aria-hidden />
-                                ) : rendered === null ? (
-                                  <span className="text-muted-foreground" aria-hidden>
-                                    —
-                                  </span>
-                                ) : (
-                                  <span className="tabular-nums">{rendered}</span>
-                                )}
-                              </td>
-                            )
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable<string>
+                  className="rounded-xl"
+                  columns={[
+                    {
+                      id: "feature",
+                      header: t("pricing.comparisonFeature"),
+                      rowHeader: true,
+                      minWidth: "200px",
+                      headerClassName: "min-w-[200px]",
+                      cell: (key) => compareLabel(key),
+                    },
+                    ...plans.map<DataTableColumn<string>>((plan) => ({
+                      id: String(plan.id),
+                      header: plan.name,
+                      align: "center",
+                      headerClassName: "min-w-[120px] font-semibold",
+                      cell: (key) => {
+                        const rendered = formatCompareValue(plan.compare[key])
+                        return rendered === "check" ? (
+                          <Check className="w-4 h-4 text-success mx-auto" aria-hidden />
+                        ) : rendered === null ? (
+                          <span className="text-muted-foreground" aria-hidden>
+                            —
+                          </span>
+                        ) : (
+                          <span className="tabular-nums">{rendered}</span>
+                        )
+                      },
+                    })),
+                  ]}
+                  data={compareKeys}
+                  getRowId={(key) => key}
+                />
               </section>
             )}
           </>

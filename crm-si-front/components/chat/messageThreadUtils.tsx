@@ -1,8 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { FileText, Music2 } from "lucide-react"
-import { pauseOtherAudios } from "@/lib/audio"
+import { FileText } from "lucide-react"
 import { MessageReaction } from "@/data/types"
 import { DocumentViewerSheet, type DocumentViewerSource } from "@/components/ui/DocumentViewerSheet"
 
@@ -224,18 +223,6 @@ export function MessageBubbleSticker({ mediaUrl }: { mediaUrl: string }) {
       />
       {lightboxOpen && <ImageLightbox src={mediaUrl} onClose={() => setLightboxOpen(false)} />}
     </>
-  )
-}
-
-export function MessageBubbleAudio({ mediaUrl, filename }: { mediaUrl: string; filename?: string | null }) {
-  return (
-    <div className="space-y-2 min-w-[220px]">
-      <div className="flex items-center gap-2 text-xs opacity-80">
-        <Music2 className="h-4 w-4 shrink-0" />
-        <span className="truncate">{filename || "Audio"}</span>
-      </div>
-      <audio controls src={mediaUrl} className="w-full max-w-[280px]" preload="metadata" onPlay={pauseOtherAudios} />
-    </div>
   )
 }
 

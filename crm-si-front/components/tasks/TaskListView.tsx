@@ -3,14 +3,12 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -33,36 +31,19 @@ import {
   Check,
   X,
   ExternalLink,
-  GripVertical,
 } from "lucide-react"
 import type { Task } from "@/lib/types/task"
 import type { TaskPayload } from "@/lib/api/tasks"
 import { format } from "date-fns"
 import { useToast } from "@/components/Toast"
-import { useDndAccessibility } from "@/hooks/useDndAccessibility"
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table"
 import { useRouter } from "next/navigation"
 import { useTaskStore } from "@/store/useTaskStore"
 import { CalendarSyncBadge } from "./CalendarSyncBadge"
 import { AiBookingApprovalBadge } from "./AiBookingApprovalBadge"
 import { TaskDetailSheet } from "./TaskDetailSheet"
 import { priorityLabels, statusLabels, typeLabels } from "./task-labels"
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core"
-import {
-  arrayMove,
-  SortableContext,
-  horizontalListSortingStrategy,
-  sortableKeyboardCoordinates,
-  useSortable,
-} from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
+import { useTranslation } from "@/hooks/useTranslation"
 
 const taskTypeIcons = {
   reunion: Video,
@@ -101,6 +82,9 @@ type TaskColumnKey =
   | "assignee"
   | "related"
   | "actions"
+
+/** "selection" queda en el formato guardado; la columna de selección la dibuja DataTable. */
+type DataColumnKey = Exclude<TaskColumnKey, "selection">
 
 const TASK_COLUMN_WIDTHS_KEY = "tasks-table-column-widths"
 const TASK_COLUMN_ORDER_KEY = "tasks-table-column-order"
@@ -182,60 +166,6 @@ const getInitialColumnWidths = () => {
   }
 }
 
-function SortableTaskHeader({
-  column,
-  width,
-  minWidth,
-  onResizeStart,
-  children,
-}: {
-  column: TaskColumn
-  width: number
-  minWidth: number
-  onResizeStart: (columnKey: TaskColumnKey, event: React.MouseEvent<HTMLButtonElement>) => void
-  children?: React.ReactNode
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: column.key,
-    disabled: !column.draggable,
-  })
-
-  return (
-    <TableHead
-      ref={setNodeRef}
-      className="group relative select-none overflow-hidden pr-5"
-      style={{
-        width,
-        minWidth,
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.55 : 1,
-      }}
-    >
-      <div className="flex min-w-0 items-center gap-1.5">
-        {column.draggable && (
-          <button
-            type="button"
-            aria-label={`Mover columna ${column.label}`}
-            className="cursor-grab touch-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
-            {...attributes}
-            {...listeners}
-          >
-            <GripVertical className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
-        )}
-        <div className="truncate">{children ?? column.label}</div>
-      </div>
-      <button
-        type="button"
-        aria-label={`Redimensionar columna ${column.label || "de selección"}`}
-        className="absolute right-0 top-0 h-full w-2 cursor-col-resize border-r border-transparent transition-colors hover:border-primary/70 group-hover:border-border"
-        onMouseDown={(event) => onResizeStart(column.key, event)}
-      />
-    </TableHead>
-  )
-}
-
 export function TaskListView({ tasks }: { tasks: Task[] }) {
   const updateTask = useTaskStore((state) => state.updateTask)
   const deleteTask = useTaskStore((state) => state.deleteTask)
@@ -263,27 +193,7 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
     window.localStorage.setItem(TASK_COLUMN_ORDER_KEY, JSON.stringify(columns.map((column) => column.key)))
   }, [columns])
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  )
-  const dndAccessibility = useDndAccessibility((id) => {
-    const label = columns.find((column) => column.key === id)?.label
-    return label ? `la columna ${label}` : undefined
-  })
-
-  const handleColumnDragEnd = ({ active, over }: DragEndEvent) => {
-    if (!over || active.id === over.id) return
-
-    setColumns((current) => {
-      const oldIndex = current.findIndex((column) => column.key === active.id)
-      const newIndex = current.findIndex((column) => column.key === over.id)
-      if (oldIndex === -1 || newIndex === -1) return current
-      if (!current[oldIndex].draggable || !current[newIndex].draggable) return current
-
-      return arrayMove(current, oldIndex, newIndex)
-    })
-  }
+  const { t } = useTranslation()
 
   useEffect(() => {
     window.localStorage.setItem(TASK_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths))
@@ -383,26 +293,6 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
       router.push(`/oportunidades?id=${relation.id}`)
     } else if (relation.kind === "chat") {
       router.push(`/chats?chat=${relation.id}`)
-    }
-  }
-
-  const toggleSelection = (taskId: string) => {
-    setSelectedTasks((prev) => {
-      const newSet = new Set(prev)
-      if (newSet.has(taskId)) {
-        newSet.delete(taskId)
-      } else {
-        newSet.add(taskId)
-      }
-      return newSet
-    })
-  }
-
-  const toggleSelectAll = () => {
-    if (selectedTasks.size === localTasks.length) {
-      setSelectedTasks(new Set())
-    } else {
-      setSelectedTasks(new Set(localTasks.map((t) => t.id)))
     }
   }
 
@@ -527,47 +417,29 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
     })
   }
 
-  const handleColumnResizeStart = (columnKey: TaskColumnKey, event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-
-    const startX = event.clientX
-    const startWidth = columnWidths[columnKey]
-
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      const nextWidth = Math.max(minColumnWidths[columnKey], startWidth + moveEvent.clientX - startX)
-      setColumnWidths((current) => ({
-        ...current,
-        [columnKey]: nextWidth,
-      }))
-    }
-
-    const handleMouseUp = () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      window.removeEventListener("mousemove", handleMouseMove)
-      window.removeEventListener("mouseup", handleMouseUp)
-    }
-
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    window.addEventListener("mousemove", handleMouseMove)
-    window.addEventListener("mouseup", handleMouseUp)
-  }
-
-  const tableWidth = columns.reduce((total, column) => total + columnWidths[column.key], 0)
-
-  const renderResizableHeader = (column: TaskColumn, content?: React.ReactNode) => (
-    <SortableTaskHeader
-      key={column.key}
-      column={column}
-      width={columnWidths[column.key]}
-      minWidth={minColumnWidths[column.key]}
-      onResizeStart={handleColumnResizeStart}
-    >
-      {content}
-    </SortableTaskHeader>
+  // "selection" sigue en el orden guardado (formato histórico), pero la columna la dibuja DataTable.
+  const visibleColumns = columns.filter(
+    (column): column is TaskColumn & { key: DataColumnKey } => column.key !== "selection",
   )
+  const tableWidth = visibleColumns.reduce((total, column) => total + columnWidths[column.key], 0)
+
+  const tableColumns: DataTableColumn<Task>[] = visibleColumns.map((column) => ({
+    id: column.key,
+    header: column.label,
+    draggable: column.draggable,
+    width: `${columnWidths[column.key]}px`,
+    minWidth: `${minColumnWidths[column.key]}px`,
+    cell: (task: Task) => renderTaskCell(task, column.key),
+  }))
+
+  const handleColumnOrderChange = (orderedIds: string[]) => {
+    setColumns((current) => [
+      ...current.filter((column) => column.key === "selection"),
+      ...orderedIds
+        .map((id) => current.find((column) => column.key === id))
+        .filter((column): column is TaskColumn => Boolean(column)),
+    ])
+  }
 
   const renderStatusSelect = (task: Task, sizeClassName: string) => (
     <Select value={task.status} onValueChange={(value) => handleStatusChange(task.id, value as Task["status"])}>
@@ -586,13 +458,11 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
     </Select>
   )
 
-  const renderTaskCell = (task: Task, columnKey: TaskColumnKey) => {
+  const renderTaskCell = (task: Task, columnKey: DataColumnKey) => {
     const TypeIcon = taskTypeIcons[task.type]
     const isEditing = editingCell?.taskId === task.id
 
     switch (columnKey) {
-      case "selection":
-        return <Checkbox checked={selectedTasks.has(task.id)} onCheckedChange={() => toggleSelection(task.id)} aria-label={`Seleccionar ${task.name}`} />
       case "name":
         return isEditing && editingCell.field === "name" ? (
           <div className="flex items-center gap-1">
@@ -801,62 +671,53 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
           )
         })}
       </ul>
-
-      <div className="hidden overflow-x-auto rounded-lg border border-border bg-card md:block">
-        <DndContext sensors={sensors} accessibility={dndAccessibility} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
-          <Table className="table-fixed" style={{ width: tableWidth }}>
-            <colgroup>
-              {columns.map((column) => (
-                <col key={column.key} style={{ width: columnWidths[column.key] }} />
-              ))}
-            </colgroup>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent border-b border-border">
-                <SortableContext items={columns.map((column) => column.key)} strategy={horizontalListSortingStrategy}>
-                  {columns.map((column) =>
-                    renderResizableHeader(
-                      column,
-                      column.key === "selection" ? (
-                        <Checkbox
-                          checked={selectedTasks.size === localTasks.length && localTasks.length > 0}
-                          onCheckedChange={toggleSelectAll}
-                          aria-label="Seleccionar todas las tareas"
-                        />
-                      ) : undefined,
-                    ),
-                  )}
-                </SortableContext>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {localTasks.map((task) => (
-                <TableRow key={task.id} className="border-b border-border/50 hover:bg-muted/30">
-                  {columns.map((column) => (
-                    <TableCell key={column.key}>{renderTaskCell(task, column.key)}</TableCell>
-                  ))}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </DndContext>
-
-        {selectedTasks.size > 0 && (
-          <div className="border-t border-border p-3 bg-muted/30 flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">{selectedTasks.size} tarea(s) seleccionada(s)</span>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => setShowBulkEdit(true)}>
+      <DataTable<Task>
+        className="hidden md:block"
+        columns={tableColumns}
+        data={localTasks}
+        getRowId={(task) => task.id}
+        getRowLabel={(task) => task.name}
+        emptyLabel={t("tasks.list.empty")}
+        fixedLayout
+        minTableWidth={`${tableWidth}px`}
+        selectable
+        selectedIds={selectedTasks}
+        onSelectedIdsChange={(ids) => setSelectedTasks(new Set(Array.from(ids, String)))}
+        reorderable
+        onColumnOrderChange={handleColumnOrderChange}
+        onColumnResize={(columnId, width) =>
+          setColumnWidths((current) => ({ ...current, [columnId as TaskColumnKey]: width }))
+        }
+        footer={
+          selectedTasks.size > 0 ? (
+            // Misma barra de selección que contactos y catálogo: limpiar, contador y acciones livianas.
+            <div className="-mx-2 -my-1.5 flex flex-wrap items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="size-8 p-0"
+                onClick={() => setSelectedTasks(new Set())}
+                aria-label="Quitar selección"
+                title="Quitar selección"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </Button>
+              <span className="px-1 text-sm font-medium tabular-nums" aria-live="polite">
+                {selectedTasks.size === 1 ? "1 tarea seleccionada" : `${selectedTasks.size} tareas seleccionadas`}
+              </span>
+              <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
+              <Button size="sm" variant="ghost" className="gap-1.5" onClick={() => setShowBulkEdit(true)}>
+                <Edit2 className="h-4 w-4" aria-hidden="true" />
                 Editar en lote
               </Button>
-              <Button size="sm" variant="outline" onClick={handleBulkMarkDone}>
+              <Button size="sm" variant="ghost" className="gap-1.5" onClick={handleBulkMarkDone}>
+                <Check className="h-4 w-4" aria-hidden="true" />
                 Marcar como hechas
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setSelectedTasks(new Set())}>
-                Cancelar
-              </Button>
             </div>
-          </div>
-        )}
-      </div>
+          ) : undefined
+        }
+      />
 
       {/* Bulk Edit Modal */}
       <Dialog open={showBulkEdit} onOpenChange={setShowBulkEdit}>

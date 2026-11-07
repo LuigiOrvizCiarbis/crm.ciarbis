@@ -25,14 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { DataTable } from "@/components/ui/data-table"
 import {
   Braces,
   CheckCircle2,
@@ -330,108 +323,122 @@ export function WebhooksSettings() {
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("settings.webhooks.colName")}</TableHead>
-                  <TableHead>{t("settings.webhooks.colUrl")}</TableHead>
-                  <TableHead>{t("settings.webhooks.colKey")}</TableHead>
-                  <TableHead>{t("settings.webhooks.colLastReceived")}</TableHead>
-                  <TableHead>{t("settings.webhooks.colEnabled")}</TableHead>
-                  <TableHead className="text-right">
-                    {t("settings.webhooks.colActions")}
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {endpoints.map((endpoint) => (
-                  <TableRow key={endpoint.id} className="group">
-                    <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate">{endpoint.name}</span>
-                        {endpoint.has_signing_secret && (
-                          <Badge variant="secondary" className="shrink-0 gap-1">
-                            <ShieldCheck className="size-3" aria-hidden="true" />
-                            HMAC
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <button
-                        type="button"
-                        onClick={() => copy(endpoint.public_url)}
-                        className="flex items-center gap-1 rounded-sm text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        aria-label={t("settings.webhooks.payload.copyUrl")}
-                        title={endpoint.public_url}
-                      >
-                        <span className="max-w-[220px] truncate">
-                          {endpoint.public_url}
-                        </span>
-                        <Copy className="size-3 shrink-0" aria-hidden="true" />
-                      </button>
-                    </TableCell>
-                    <TableCell>
-                      <code className="font-mono text-xs text-muted-foreground">
-                        {endpoint.api_key_prefix}…
-                      </code>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {endpoint.last_received_at
-                        ? new Date(endpoint.last_received_at).toLocaleString()
-                        : "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Switch
-                        checked={endpoint.enabled}
-                        disabled={!canManage}
-                        onCheckedChange={(v) => handleToggle(endpoint, v)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <DataTable<WebhookEndpoint>
+            data={endpoints}
+            getRowId={(endpoint) => endpoint.id}
+            rowClassName={() => "group"}
+            columns={[
+              {
+                id: "name",
+                header: t("settings.webhooks.colName"),
+                rowHeader: true,
+                className: "font-medium",
+                cell: (endpoint) => (
+                  <div className="flex items-center gap-2">
+                    <span className="truncate">{endpoint.name}</span>
+                    {endpoint.has_signing_secret && (
+                      <Badge variant="secondary" className="shrink-0 gap-1">
+                        <ShieldCheck className="size-3" aria-hidden="true" />
+                        HMAC
+                      </Badge>
+                    )}
+                  </div>
+                ),
+              },
+              {
+                id: "url",
+                header: t("settings.webhooks.colUrl"),
+                cell: (endpoint) => (
+                  <button
+                    type="button"
+                    onClick={() => copy(endpoint.public_url)}
+                    className="flex items-center gap-1 rounded-sm text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t("settings.webhooks.payload.copyUrl")}
+                    title={endpoint.public_url}
+                  >
+                    <span className="max-w-[220px] truncate">
+                      {endpoint.public_url}
+                    </span>
+                    <Copy className="size-3 shrink-0" aria-hidden="true" />
+                  </button>
+                ),
+              },
+              {
+                id: "key",
+                header: t("settings.webhooks.colKey"),
+                cell: (endpoint) => (
+                  <code className="font-mono text-xs text-muted-foreground">
+                    {endpoint.api_key_prefix}…
+                  </code>
+                ),
+              },
+              {
+                id: "lastReceived",
+                header: t("settings.webhooks.colLastReceived"),
+                className: "text-xs text-muted-foreground tabular-nums",
+                cell: (endpoint) =>
+                  endpoint.last_received_at
+                    ? new Date(endpoint.last_received_at).toLocaleString()
+                    : "—",
+              },
+              {
+                id: "enabled",
+                header: t("settings.webhooks.colEnabled"),
+                cell: (endpoint) => (
+                  <Switch
+                    checked={endpoint.enabled}
+                    disabled={!canManage}
+                    onCheckedChange={(v) => handleToggle(endpoint, v)}
+                    aria-label={t("settings.webhooks.colEnabled")}
+                  />
+                ),
+              },
+              {
+                id: "actions",
+                header: "",
+                headerLabel: t("settings.webhooks.colActions"),
+                align: "right",
+                cell: (endpoint) => (
+                  <div className="flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      aria-label={t("settings.webhooks.viewDeliveries")}
+                      onClick={() => setDeliveriesFor(endpoint)}
+                    >
+                      <ListChecks className="size-4" />
+                    </Button>
+                    {canManage && (
+                      <>
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
                           className="size-8"
-                          aria-label={t("settings.webhooks.viewDeliveries")}
-                          onClick={() => setDeliveriesFor(endpoint)}
+                          aria-label={t("settings.webhooks.rotateKey")}
+                          onClick={() => setRotateTarget(endpoint)}
                         >
-                          <ListChecks className="size-4" />
+                          <KeyRound className="size-4" />
                         </Button>
-                        {canManage && (
-                          <>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="size-8"
-                              aria-label={t("settings.webhooks.rotateKey")}
-                              onClick={() => setRotateTarget(endpoint)}
-                            >
-                              <KeyRound className="size-4" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="size-8 text-muted-foreground hover:text-destructive"
-                              aria-label={t("settings.webhooks.delete")}
-                              onClick={() => setDeleteTarget(endpoint)}
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-muted-foreground hover:text-destructive"
+                          aria-label={t("settings.webhooks.delete")}
+                          onClick={() => setDeleteTarget(endpoint)}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                ),
+              },
+            ]}
+          />
         )}
 
         <PayloadGuide
@@ -1118,49 +1125,37 @@ function DeliveriesDialog({
             {t("settings.webhooks.deliveriesEmpty")}
           </p>
         ) : (
-          <div className="max-h-[50vh] overflow-y-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("settings.webhooks.colStatus")}</TableHead>
-                  <TableHead>{t("settings.webhooks.colResult")}</TableHead>
-                  <TableHead>{t("settings.webhooks.colDate")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {deliveries.map((d) => (
-                  <TableRow
-                    key={d.id}
-                    tabIndex={0}
-                    aria-selected={detail?.id === d.id}
-                    data-state={detail?.id === d.id ? "selected" : undefined}
-                    className="cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                    onClick={() => openDetail(d.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault()
-                        void openDetail(d.id)
-                      }
-                    }}
-                  >
-                    <TableCell>
-                      <DeliveryStatusBadge status={d.status} />
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {d.created === null && d.updated === null && d.failed === null
-                        ? "—"
-                        : `+${d.created ?? 0} / ~${d.updated ?? 0} / !${d.failed ?? 0}`}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {d.created_at
-                        ? new Date(d.created_at).toLocaleString()
-                        : "—"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <DataTable<WebhookDelivery>
+            density="compact"
+            maxHeight="50vh"
+            data={deliveries}
+            getRowId={(d) => d.id}
+            onRowClick={(d) => void openDetail(d.id)}
+            activeRowId={detail?.id}
+            columns={[
+              {
+                id: "status",
+                header: t("settings.webhooks.colStatus"),
+                cell: (d) => <DeliveryStatusBadge status={d.status} />,
+              },
+              {
+                id: "result",
+                header: t("settings.webhooks.colResult"),
+                className: "text-xs text-muted-foreground tabular-nums",
+                cell: (d) =>
+                  d.created === null && d.updated === null && d.failed === null
+                    ? "—"
+                    : `+${d.created ?? 0} / ~${d.updated ?? 0} / !${d.failed ?? 0}`,
+              },
+              {
+                id: "date",
+                header: t("settings.webhooks.colDate"),
+                className: "text-xs text-muted-foreground tabular-nums",
+                cell: (d) =>
+                  d.created_at ? new Date(d.created_at).toLocaleString() : "—",
+              },
+            ]}
+          />
         )}
 
         {detail && (

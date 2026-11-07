@@ -6,7 +6,7 @@ import { AlertCircle, CheckCircle2, Download, Loader2, Upload } from "lucide-rea
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { DataTable } from "@/components/ui/data-table"
 import { getAuthToken } from "@/lib/api/auth-token"
 import type { ImportFieldType } from "@/components/import/import-types"
 import { FieldTargetCombobox } from "@/components/import/field-target-combobox"
@@ -159,7 +159,26 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete, pro
     {step === "mapping" && <div className="space-y-3 py-2">
       {book && book.SheetNames.length > 1 && <div className="flex items-center gap-2 text-sm">Hoja <Select value={sheet} onValueChange={(name) => chooseSheet(book, name, originalName)}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent>{book.SheetNames.map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}</SelectContent></Select></div>}
       <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 p-3 text-sm"><span>Modo</span><Select value={mode} onValueChange={setMode}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="create">Crear solamente</SelectItem><SelectItem value="update">Actualizar solamente</SelectItem><SelectItem value="upsert">Crear y actualizar</SelectItem></SelectContent></Select><><span>Identificar por</span><Select value={matchField} onValueChange={setMatchField}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent>{(isContactImport ? contactMatchTargets : productMatchTargets).map((target) => <SelectItem key={target.value} value={target.value}>{target.label}</SelectItem>)}{productFields.filter((f) => f.is_unique).map((f) => <SelectItem key={f.key} value={"custom:" + f.key}>{f.label}</SelectItem>)}</SelectContent></Select></><label className="flex items-center gap-2"><input type="checkbox" checked={preserveEmpty} onChange={(e) => setPreserveEmpty(e.target.checked)} /> Conservar vacíos</label></div>
-      <div className="max-h-100 overflow-auto rounded-lg border"><Table><TableHeader><TableRow><TableHead>Columna</TableHead><TableHead>Destino</TableHead><TableHead>Campo nuevo</TableHead><TableHead>Ejemplos</TableHead></TableRow></TableHeader><TableBody>{headers.map((header, index) => { const field = fields.find((item) => item.id === "column-" + index); return <TableRow key={index}><TableCell>{header || <span className="text-destructive">Sin encabezado</span>}</TableCell><TableCell><FieldTargetCombobox value={mapping[index] || "ignore"} options={targets} onChange={(value) => updateTarget(index, value)} /></TableCell><TableCell>{field && <div className="flex flex-wrap gap-2"><input className="h-8 w-32 rounded border bg-background px-2 text-sm" value={field.label} onChange={(e) => updateField(field.id, { label: e.target.value })} /><Select value={field.type} onValueChange={(type) => updateField(field.id, { type: type as ImportFieldType })}><SelectTrigger className="h-8 w-28"><SelectValue /></SelectTrigger><SelectContent>{[["text", "Texto"], ["number", "Número"], ["currency", "Moneda"], ["date", "Fecha"], ["boolean", "Sí/No"], ["email", "Email"], ["url", "URL"], ["select", "Selección"]].map(([type, label]) => <SelectItem key={type} value={type}>{label}</SelectItem>)}</SelectContent></Select>{field.type === "currency" && <Select value={field.options?.currency || "ARS"} onValueChange={(currency) => updateField(field.id, { options: { ...field.options, currency } })}><SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ARS">ARS</SelectItem><SelectItem value="USD">USD</SelectItem></SelectContent></Select>}</div>}</TableCell><TableCell className="max-w-52 text-xs text-muted-foreground">{rows.slice(0, 3).map((row) => row[index]).filter(Boolean).join(" · ")}</TableCell></TableRow> })}</TableBody></Table></div>
+      <DataTable<{ header: string; index: number }>
+        data={headers.map((header, index) => ({ header, index }))}
+        getRowId={(r) => r.index}
+        maxHeight="25rem"
+        density="compact"
+        columns={[
+          { id: "column", header: "Columna", cell: ({ header }) => header || <span className="text-destructive">Sin encabezado</span> },
+          { id: "target", header: "Destino", cell: ({ index }) => <FieldTargetCombobox value={mapping[index] || "ignore"} options={targets} onChange={(value) => updateTarget(index, value)} /> },
+          {
+            id: "newField",
+            header: "Campo nuevo",
+            cell: ({ index }) => {
+              const field = fields.find((item) => item.id === "column-" + index)
+              if (!field) return null
+              return <div className="flex flex-wrap gap-2"><input className="h-8 w-32 rounded border bg-background px-2 text-sm" value={field.label} onChange={(e) => updateField(field.id, { label: e.target.value })} /><Select value={field.type} onValueChange={(type) => updateField(field.id, { type: type as ImportFieldType })}><SelectTrigger className="h-8 w-28"><SelectValue /></SelectTrigger><SelectContent>{[["text", "Texto"], ["number", "Número"], ["currency", "Moneda"], ["date", "Fecha"], ["boolean", "Sí/No"], ["email", "Email"], ["url", "URL"], ["select", "Selección"]].map(([type, label]) => <SelectItem key={type} value={type}>{label}</SelectItem>)}</SelectContent></Select>{field.type === "currency" && <Select value={field.options?.currency || "ARS"} onValueChange={(currency) => updateField(field.id, { options: { ...field.options, currency } })}><SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ARS">ARS</SelectItem><SelectItem value="USD">USD</SelectItem></SelectContent></Select>}</div>
+            },
+          },
+          { id: "examples", header: "Ejemplos", className: "max-w-52 text-xs text-muted-foreground", cell: ({ index }) => rows.slice(0, 3).map((row) => row[index]).filter(Boolean).join(" · ") },
+        ]}
+      />
     </div>}
     {step === "review" && preview && <div className="space-y-3 py-5">
       <div className="grid grid-cols-4 gap-3">

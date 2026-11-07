@@ -35,7 +35,7 @@ interface MessageStatusProps {
  * micrófono (played) y alerta (failed).
  */
 export function MessageStatus({ message, onAccent = false }: MessageStatusProps) {
-  const { t } = useTranslation()
+  const { t, language } = useTranslation()
 
   if (message.direction !== "outbound") return null
 
@@ -43,7 +43,7 @@ export function MessageStatus({ message, onAccent = false }: MessageStatusProps)
 
   const formatTime = (value?: string | null) =>
     value
-      ? new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true })
+      ? new Date(value).toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" })
       : null
 
   // "Entregado" no significa "no lo leyó": si el contacto desactivó las

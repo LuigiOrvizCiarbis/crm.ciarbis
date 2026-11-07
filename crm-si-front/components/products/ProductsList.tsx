@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { DataTable, type DataTableColumn, type DataTableSort } from "@/components/ui/data-table"
+import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { CustomChoiceBadge, CustomFieldInput } from "@/components/CustomFieldInput"
 import { useProductFieldsStore } from "@/store/useProductFieldsStore"
 import type { ProductField } from "@/lib/api/product-fields"
@@ -46,14 +47,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { UniversalImportDialog } from "@/components/import/universal-import-dialog"
+import { DEFAULT_CURRENCY, formatCurrency } from "@/lib/currency"
 
 interface FormState {
   name: string
@@ -353,12 +348,7 @@ export function ProductsList() {
   const pageStart = (currentPage - 1) * pageSize
   const paginatedProducts = sortedProducts.slice(pageStart, pageStart + pageSize)
 
-  const formatPrice = (price: string | null) => {
-    if (price === null || price === "") return "—"
-    const value = Number(price)
-    if (Number.isNaN(value)) return price
-    return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  }
+  const formatPrice = (price: string | null) => formatCurrency(price, DEFAULT_CURRENCY)
 
   const selectedProducts = products.filter((p) => selectedIds.has(p.id))
   const clearSelection = () => setSelectedIds(new Set())
@@ -435,8 +425,12 @@ export function ProductsList() {
       header: t("catalog.columnStatus"),
       sortable: true,
       width: "128px",
+      // Estado semántico: activo en el tono de éxito, inactivo neutro. Antes "Inactivo" era el chip más llamativo.
       cell: (product) => (
-        <Badge variant={product.is_active ? "default" : "secondary"}>
+        <Badge
+          variant="outline"
+          className={product.is_active ? "border-success/30 bg-success/10 text-success" : "border-border bg-muted text-muted-foreground"}
+        >
           {product.is_active ? t("catalog.active") : t("catalog.inactive")}
         </Badge>
       ),
@@ -521,32 +515,38 @@ export function ProductsList() {
       </div>
 
       {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between rounded-lg border border-primary/20 bg-primary/10 px-4 py-3">
-          <Badge variant="secondary" className="text-sm font-semibold">
-            {t("catalog.bulkSelected", { count: selectedIds.size })}
-          </Badge>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => handleBulkSetActive(true)}>
-              {t("catalog.activate")}
-            </Button>
-            <Button size="sm" variant="outline" disabled={bulkBusy} onClick={() => handleBulkSetActive(false)}>
-              {t("catalog.deactivate")}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-destructive hover:text-destructive"
-              disabled={bulkBusy}
-              onClick={() => setBulkDeleteOpen(true)}
-            >
-              <Trash2 className="mr-1 h-3.5 w-3.5" />
-              {t("catalog.delete")}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={bulkBusy} onClick={clearSelection}>
-              <X className="mr-1 h-3.5 w-3.5" />
-              {t("catalog.cancel")}
-            </Button>
-          </div>
+        <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-card px-2 py-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="size-8 p-0"
+            disabled={bulkBusy}
+            onClick={clearSelection}
+            aria-label={t("catalog.clearSelection")}
+            title={t("catalog.clearSelection")}
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </Button>
+          <span className="px-1 text-sm font-medium tabular-nums" aria-live="polite">
+            {t(`catalog.bulkSelected_${selectedIds.size === 1 ? "one" : "other"}`, { count: selectedIds.size })}
+          </span>
+          <span aria-hidden="true" className="mx-1 h-5 w-px bg-border" />
+          <Button variant="ghost" size="sm" disabled={bulkBusy} onClick={() => handleBulkSetActive(true)}>
+            {t("catalog.activate")}
+          </Button>
+          <Button variant="ghost" size="sm" disabled={bulkBusy} onClick={() => handleBulkSetActive(false)}>
+            {t("catalog.deactivate")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            disabled={bulkBusy}
+            onClick={() => setBulkDeleteOpen(true)}
+          >
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+            {t("catalog.delete")}
+          </Button>
         </div>
       )}
 
@@ -554,6 +554,7 @@ export function ProductsList() {
         columns={columns}
         data={paginatedProducts}
         getRowId={(product) => product.id}
+        getRowLabel={(product) => product.name}
         loading={loading}
         loadingLabel={t("catalog.loading")}
         emptyLabel={t("catalog.empty")}
@@ -567,56 +568,19 @@ export function ProductsList() {
         onSelectedIdsChange={setSelectedIds}
       />
 
-      {!loading && products.length > 0 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            {t("catalog.paginationInfo", {
-              from: pageStart + 1,
-              to: pageStart + paginatedProducts.length,
-              total: products.length,
-            })}
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">{t("catalog.perPage")}</span>
-            <Select
-              value={String(pageSize)}
-              onValueChange={(value) => {
-                setPageSize(Number(value))
-                setPage(1)
-              }}
-            >
-              <SelectTrigger className="h-8 w-20">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PAGE_SIZE_OPTIONS.map((option) => (
-                  <SelectItem key={option} value={String(option)}>
-                    {option}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage <= 1}
-            >
-              {t("catalog.previous")}
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              {currentPage} / {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage >= totalPages}
-            >
-              {t("catalog.next")}
-            </Button>
-          </div>
-        </div>
+      {!loading && sortedProducts.length > 0 && (
+        <DataTablePagination
+          page={currentPage}
+          pageCount={totalPages}
+          onPageChange={setPage}
+          total={sortedProducts.length}
+          pageSize={pageSize}
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
+          onPageSizeChange={(size) => {
+            setPageSize(size)
+            setPage(1)
+          }}
+        />
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

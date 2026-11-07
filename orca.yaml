@@ -1,0 +1,6 @@
+scripts:
+  # Al borrar un worktree, baja su stack de ops/worktree/wt.sh (si tiene uno)
+  # antes de que Orca borre las carpetas. `|| true`: sin stack no hay nada que
+  # bajar y el borrado no debe bloquearse.
+  archive: |
+    "$ORCA_ROOT_PATH/ops/worktree/wt.sh" down "$ORCA_WORKTREE_PATH" || true

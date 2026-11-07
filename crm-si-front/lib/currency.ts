@@ -40,6 +40,9 @@ export function formatCurrency(value: unknown, currency: unknown): string {
     currencyDisplay: "symbol",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
+    // El español agrupa sólo desde 5 cifras ("$ 4500,00" junto a "$ 35.000,00"); en una columna de montos
+    // eso desalinea la lectura, así que se agrupa siempre.
+    useGrouping: "always",
   }).format(amount)
 
   return code === "USD" && !formatted.includes("US$") ? formatted.replace("$", "US$") : formatted
