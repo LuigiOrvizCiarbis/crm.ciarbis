@@ -135,13 +135,9 @@ export interface WebsiteContextResult {
 export async function generateWebsiteContext(
   url: string,
 ): Promise<{ data?: WebsiteContextResult; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch("/api/ai-config/website-context", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
