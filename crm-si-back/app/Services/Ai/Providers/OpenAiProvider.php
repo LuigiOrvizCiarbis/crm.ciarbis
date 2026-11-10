@@ -234,6 +234,41 @@ class OpenAiProvider implements AiProvider
         }
     }
 
+    public function summarize(string $content, string $systemPrompt, string $model, int $maxTokens): ?string
+    {
+        try {
+            $client = OpenAI::factory()
+                ->withApiKey($this->apiKey)
+                ->withHttpClient(new GuzzleClient([
+                    'timeout' => (int) config('services.ai.website_context.timeout', 90),
+                ]))
+                ->make();
+
+            $response = $client->chat()->create([
+                'model' => $model,
+                'max_completion_tokens' => $maxTokens,
+                'reasoning_effort' => 'minimal',
+                'messages' => [
+                    ['role' => 'system', 'content' => $systemPrompt],
+                    ['role' => 'user', 'content' => $content],
+                ],
+            ]);
+
+            $summary = $response->choices[0]->message->content ?? null;
+
+            return is_string($summary) && trim($summary) !== ''
+                ? trim($summary)
+                : null;
+        } catch (\Throwable $e) {
+            Log::error('OpenAiProvider: error resumiendo texto', [
+                'model' => $model,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
     /**
      * Traduce un mensaje del historial al formato de la API de OpenAI. Si el
      * content es string plano, pasa sin tocar. Si es una lista de bloques

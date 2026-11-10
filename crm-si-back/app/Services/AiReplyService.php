@@ -61,6 +61,13 @@ class AiReplyService
         .'vigente, aunque en mensajes anteriores hayas dicho que no la tenías.]';
 
     /**
+     * Encabezado de la información del sitio web del tenant. Va después de sus
+     * instrucciones y, si se contradicen, prevalecen las instrucciones.
+     */
+    public const WEBSITE_CONTEXT_HEADER = "## Información de la empresa (sitio web)\n"
+        .'Datos tomados del sitio web de la empresa. Si contradicen las instrucciones de arriba, prevalecen las instrucciones.';
+
+    /**
      * Traduce el "derivá" de cualquier prompt de tenant a la herramienta: el
      * texto del modelo no deriva nada. Sin esto, un prompt como "si falta una
      * tarifa, derivá al equipo" hace que el modelo lo prometa sólo en texto y
@@ -364,6 +371,7 @@ class AiReplyService
 
         $sections = array_filter([
             $base,
+            $this->websiteSection($config),
             $this->catalogSection($tenantId, $messages),
             $toolset?->promptSection() ?? '',
             $offersHandoff ? self::HANDOFF_RULE : '',
@@ -371,6 +379,13 @@ class AiReplyService
 
         // HISTORY_OVERRIDE_RULE siempre al final (ver su comentario).
         return implode("\n\n", $sections)."\n\n".self::HISTORY_OVERRIDE_RULE;
+    }
+
+    private function websiteSection(AiConfig $config): string
+    {
+        $context = trim((string) $config->website_context);
+
+        return $context === '' ? '' : self::WEBSITE_CONTEXT_HEADER."\n".$context;
     }
 
     /**
