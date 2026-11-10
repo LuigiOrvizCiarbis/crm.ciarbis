@@ -30,6 +30,8 @@ import { WorkspaceSwitcher } from "@/components/WorkspaceSwitcher"
 import { NotificationsBell } from "@/components/notifications-bell"
 import { BimsLogo } from "@/components/brand/BimsLogo"
 import { accessibleNavigationItems, canAccessSection } from "@/lib/section-access"
+import { accountInitials, signOut } from "@/lib/account-session"
+import { AccountSwitcherItems } from "@/components/AccountSwitcherItems"
 
 interface SidebarProps {
   className?: string
@@ -42,27 +44,12 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
   const pathname = usePathname()
   const router = useRouter()
   const [openSections, setOpenSections] = useState<string[]>([])
-  const { user, token, logout } = useAuthStore()
+  const user = useAuthStore((state) => state.user)
   const permissions = useAuthStore((state) => state.permissions)
   const role = useAuthStore((state) => state.role)
   const { t } = useTranslation()
 
-  const handleLogout = async () => {
-    try {
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
-      })
-    } catch {
-      // Ignorar errores, cerrar sesión de todos modos
-    }
-    logout()
-    router.replace("/login")
-  }
-
-  const userInitials = user?.name
-    ? user.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
-    : user?.email?.slice(0, 2).toUpperCase() || "U"
+  const userInitials = accountInitials(user ?? {})
 
   const toggleSection = (section: string) => {
     if (isCollapsed) return
@@ -315,7 +302,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
                 </div>
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" className="w-56">
+            <DropdownMenuContent align="start" side="top" className="w-64">
               <DropdownMenuItem onClick={() => router.push("/perfil")}>
                 <User className="mr-2 h-4 w-4" />
                 {t("nav.profile")}
@@ -325,7 +312,9 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
                 {t("nav.settings")}
               </DropdownMenuItem> : null}
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+              <AccountSwitcherItems />
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => void signOut()} className="text-destructive focus:text-destructive">
                 <LogOut className="mr-2 h-4 w-4" />
                 {t("nav.logout")}
               </DropdownMenuItem>
@@ -367,7 +356,7 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <DropdownMenuContent align="start" side="right" className="w-56">
+            <DropdownMenuContent align="start" side="right" className="w-64">
               <DropdownMenuItem onClick={() => router.push("/perfil")}>
                 <User className="mr-2 h-4 w-4" />
                 {t("nav.profile")}
@@ -377,7 +366,9 @@ export function CrmSidebar({ className, isCollapsed = false, onToggle }: Sidebar
                 {t("nav.settings")}
               </DropdownMenuItem> : null}
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+              <AccountSwitcherItems />
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => void signOut()} className="text-destructive focus:text-destructive">
                 <LogOut className="mr-2 h-4 w-4" />
                 {t("nav.logout")}
               </DropdownMenuItem>

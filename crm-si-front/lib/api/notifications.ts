@@ -1,5 +1,5 @@
 import { throwApiError } from "./api-error"
-import { getAuthToken, workspaceHeaders } from "./auth-token"
+import { workspaceHeaders } from "./auth-token"
 import type { ProfilePreferences } from "./profile"
 
 export type NotificationType =
@@ -61,17 +61,10 @@ export interface NotificationPreferences {
   browser: boolean
 }
 
-function requireToken(): string {
-  const token = getAuthToken()
-  if (!token) throw new Error("No authentication token found")
-  return token
-}
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...options,
     headers: {
-      Authorization: `Bearer ${requireToken()}`,
       Accept: "application/json",
       "Content-Type": "application/json",
       ...workspaceHeaders(),

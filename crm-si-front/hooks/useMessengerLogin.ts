@@ -42,24 +42,11 @@ export const useMessengerLogin = () => {
   // state anti-CSRF del OAuth: solo aceptamos el callback que iniciamos.
   const stateRef = useRef<string | null>(null);
 
-  const getAuthToken = (): string | null => {
-    const authStorage = localStorage.getItem("auth-storage");
-    return authStorage ? JSON.parse(authStorage)?.state?.token : null;
-  };
-
   const redirectUri = useCallback(() => {
     return `${window.location.origin}/meta/callback`;
   }, []);
 
   const postToBackend = useCallback(async (body: Record<string, unknown>) => {
-    const token = getAuthToken();
-    if (!token) {
-      window.dispatchEvent(new CustomEvent("channel-error", {
-        detail: { code: "channelErrorSessionExpired" } satisfies ChannelErrorDetail,
-      }));
-      return;
-    }
-
     try {
       let data: any;
       try {
@@ -67,7 +54,6 @@ export const useMessengerLogin = () => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify(body),
         });

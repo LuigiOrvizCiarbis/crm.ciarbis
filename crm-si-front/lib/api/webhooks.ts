@@ -1,5 +1,3 @@
-import { getAuthToken } from "./auth-token"
-
 export interface WebhookEndpoint {
   id: number
   name: string
@@ -93,16 +91,12 @@ export interface Paginated<T> {
   total: number
 }
 
-function authHeaders(): Record<string, string> | null {
-  const token = getAuthToken()
-  if (!token) return null
-  return { Authorization: `Bearer ${token}`, Accept: "application/json" }
+function authHeaders(): Record<string, string> {
+  return { Accept: "application/json" }
 }
 
 export async function listWebhookEndpoints(): Promise<WebhookEndpoint[]> {
   const headers = authHeaders()
-  if (!headers) return []
-
   const res = await fetch("/api/webhook-endpoints", {
     headers,
     cache: "no-store",
@@ -115,8 +109,6 @@ export async function listWebhookEndpoints(): Promise<WebhookEndpoint[]> {
 
 export async function getWebhookContactFields(): Promise<WebhookContactField[]> {
   const headers = authHeaders()
-  if (!headers) return []
-
   const res = await fetch("/api/webhook-endpoints/schema", {
     headers,
     cache: "no-store",
@@ -131,8 +123,6 @@ export async function createWebhookEndpoint(
   input: WebhookEndpointInput,
 ): Promise<{ data?: WebhookEndpoint; error?: string }> {
   const headers = authHeaders()
-  if (!headers) return { error: "No auth" }
-
   const res = await fetch("/api/webhook-endpoints", {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
@@ -149,8 +139,6 @@ export async function updateWebhookEndpoint(
   input: WebhookEndpointUpdateInput,
 ): Promise<{ data?: WebhookEndpoint; error?: string }> {
   const headers = authHeaders()
-  if (!headers) return { error: "No auth" }
-
   const res = await fetch(`/api/webhook-endpoints/${id}`, {
     method: "PUT",
     headers: { ...headers, "Content-Type": "application/json" },
@@ -166,8 +154,6 @@ export async function deleteWebhookEndpoint(
   id: number,
 ): Promise<{ ok: boolean; error?: string }> {
   const headers = authHeaders()
-  if (!headers) return { ok: false, error: "No auth" }
-
   const res = await fetch(`/api/webhook-endpoints/${id}`, {
     method: "DELETE",
     headers,
@@ -184,8 +170,6 @@ export async function rotateWebhookKey(
   id: number,
 ): Promise<{ data?: WebhookEndpoint; error?: string }> {
   const headers = authHeaders()
-  if (!headers) return { error: "No auth" }
-
   const res = await fetch(`/api/webhook-endpoints/${id}/rotate-key`, {
     method: "POST",
     headers,
@@ -201,8 +185,6 @@ export async function listWebhookDeliveries(
   page = 1,
 ): Promise<Paginated<WebhookDelivery> | null> {
   const headers = authHeaders()
-  if (!headers) return null
-
   const res = await fetch(
     `/api/webhook-endpoints/${id}/deliveries?page=${page}`,
     { headers, cache: "no-store" },
@@ -217,8 +199,6 @@ export async function getWebhookDelivery(
   deliveryId: number,
 ): Promise<WebhookDeliveryDetail | null> {
   const headers = authHeaders()
-  if (!headers) return null
-
   const res = await fetch(
     `/api/webhook-endpoints/${id}/deliveries/${deliveryId}`,
     { headers, cache: "no-store" },

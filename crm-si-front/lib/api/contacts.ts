@@ -1,4 +1,4 @@
-import { getAuthToken, workspaceHeaders } from "./auth-token";
+import { workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 import type { Tag } from "./tags";
 
@@ -71,9 +71,6 @@ export interface GetContactsParams {
 }
 
 export async function getContacts(params: GetContactsParams = {}): Promise<Contact[]> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const query = new URLSearchParams();
   query.set("per_page", String(params.per_page ?? 100));
   if (params.search) query.set("search", params.search);
@@ -87,7 +84,6 @@ export async function getContacts(params: GetContactsParams = {}): Promise<Conta
 
   const response = await fetch(`/api/contacts?${query.toString()}`, {
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       ...workspaceHeaders(),
     },
@@ -103,12 +99,8 @@ export async function getContacts(params: GetContactsParams = {}): Promise<Conta
 }
 
 export async function getContact(contactId: number): Promise<Contact> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch(`/api/contacts/${contactId}`, {
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       ...workspaceHeaders(),
     },
@@ -124,12 +116,8 @@ export async function getContact(contactId: number): Promise<Contact> {
 }
 
 export async function getContactsSummary(): Promise<ContactsSummary> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch("/api/contacts/summary", {
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       ...workspaceHeaders(),
     },
@@ -145,13 +133,9 @@ export async function getContactsSummary(): Promise<ContactsSummary> {
 }
 
 export async function updateContact(contactId: number, updates: ContactUpdate): Promise<Contact> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch(`/api/contacts/${contactId}`, {
     method: "PUT",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
       ...workspaceHeaders(),
@@ -168,16 +152,13 @@ export async function updateContact(contactId: number, updates: ContactUpdate): 
 }
 
 export async function uploadContactAvatar(contactId: number, file: File): Promise<ContactAvatar> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const formData = new FormData();
   formData.append("avatar", file);
 
   const response = await fetch(`/api/contacts/${contactId}/avatar`, {
     method: "POST",
     // Sin Content-Type: el browser pone el boundary del multipart.
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...workspaceHeaders() },
+    headers: { Accept: "application/json", ...workspaceHeaders() },
     body: formData,
   });
 
@@ -191,12 +172,9 @@ export async function uploadContactAvatar(contactId: number, file: File): Promis
 
 /** Quita la foto manual; si el canal tiene una, vuelve a mostrarse esa. */
 export async function deleteContactAvatar(contactId: number): Promise<ContactAvatar> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch(`/api/contacts/${contactId}/avatar`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...workspaceHeaders() },
+    headers: { Accept: "application/json", ...workspaceHeaders() },
   });
 
   const payload = await response.json().catch(() => ({}));
@@ -233,13 +211,9 @@ export interface BulkFieldsResponse {
 }
 
 export async function bulkUpdateContactFields(req: BulkFieldsRequest): Promise<BulkFieldsResponse> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch("/api/contacts/bulk-fields", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
       ...workspaceHeaders(),
@@ -256,13 +230,9 @@ export async function bulkUpdateContactFields(req: BulkFieldsRequest): Promise<B
 }
 
 export async function bulkUpdateContactTags(req: BulkTagsRequest): Promise<BulkTagsResponse> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch("/api/contacts/bulk-tags", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
       ...workspaceHeaders(),

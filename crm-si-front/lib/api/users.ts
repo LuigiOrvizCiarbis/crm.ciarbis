@@ -1,5 +1,4 @@
 import type { UserRole } from "@/store/useAuthStore"
-import { getAuthToken } from "./auth-token"
 
 export interface SystemUser {
   id: number
@@ -11,12 +10,8 @@ export interface SystemUser {
 
 /** Igual que getUsers pero lanza si falla, para las pantallas que distinguen "error" de "lista vacía". */
 export async function fetchUsers(): Promise<SystemUser[]> {
-  const token = getAuthToken()
-  if (!token) return []
-
   const res = await fetch("/api/users", {
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
     cache: "no-store",

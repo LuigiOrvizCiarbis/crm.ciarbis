@@ -105,7 +105,7 @@ export default function RegisterPage() {
       // Email no verificado al registrar
       clearWorkspaceId()
       if (data.user?.tenant_id) setWorkspaceId(data.user.tenant_id)
-      setAuth(data.user, data.token, false, false, data.role ?? null, data.permissions ?? [])
+      setAuth(data.user, false, false, data.role ?? null, data.permissions ?? [])
       router.push("/verify-email?registered=true")
     } catch (err: any) {
       setError(err.message || t("auth.error"))

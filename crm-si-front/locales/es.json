@@ -115,6 +115,8 @@
     "settings": "Configuración",
     "profile": "Mi perfil",
     "logout": "Cerrar sesión",
+    "otherAccounts": "Otras cuentas",
+    "addAccount": "Agregar otra cuenta",
     "dashboard": "Tablero principal",
     "panelShort": "Panel",
     "chatsShort": "Chats",
@@ -610,6 +612,9 @@
   "auth": {
     "title": "BIMS",
     "subtitle": "Ingresá a tu cuenta para continuar",
+    "addAccountTitle": "Agregar otra cuenta",
+    "addAccountSubtitle": "Iniciá sesión con otra cuenta. {{email}} queda guardada para volver cuando quieras.",
+    "cancelAddAccount": "Volver a mi cuenta",
     "email": "Correo electrónico",
     "password": "Contraseña",
     "rememberMe": "Recordarme",

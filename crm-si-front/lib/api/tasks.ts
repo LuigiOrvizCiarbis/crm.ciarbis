@@ -1,5 +1,4 @@
 import { throwApiError } from "./api-error"
-import { getAuthToken } from "./auth-token"
 import type { AiBookingStatus, Task } from "@/lib/types/task"
 
 export interface TaskPayload {
@@ -24,12 +23,6 @@ export interface TaskPayload {
   ends_at?: string | null
   meeting_timezone?: string | null
   meeting_guest_email?: string | null
-}
-
-function requireToken() {
-  const token = getAuthToken()
-  if (!token) throw new Error("No authentication token found")
-  return token
 }
 
 function relationFromApi(apiTask: any): Task["relatedTo"] {
@@ -107,8 +100,6 @@ export interface TaskFilters {
 }
 
 export async function getTasks(filters?: TaskFilters): Promise<Task[]> {
-  const token = requireToken()
-
   const params = new URLSearchParams({ per_page: "100" })
   if (filters?.conversationId !== undefined) params.set("conversation_id", String(filters.conversationId))
   if (filters?.aiBookingStatus) params.set("ai_booking_status", filters.aiBookingStatus)
@@ -116,7 +107,6 @@ export async function getTasks(filters?: TaskFilters): Promise<Task[]> {
 
   const response = await fetch(`/api/tasks?${params.toString()}`, {
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
     cache: "no-store",
@@ -131,12 +121,9 @@ export async function getTasks(filters?: TaskFilters): Promise<Task[]> {
 }
 
 export async function createTask(body: TaskPayload): Promise<Task> {
-  const token = requireToken()
-
   const response = await fetch("/api/tasks", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -152,12 +139,9 @@ export async function createTask(body: TaskPayload): Promise<Task> {
 }
 
 export async function updateTask(taskId: string, body: TaskPayload): Promise<Task> {
-  const token = requireToken()
-
   const response = await fetch(`/api/tasks/${taskId}`, {
     method: "PUT",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -173,12 +157,9 @@ export async function updateTask(taskId: string, body: TaskPayload): Promise<Tas
 }
 
 export async function deleteTask(taskId: string): Promise<void> {
-  const token = requireToken()
-
   const response = await fetch(`/api/tasks/${taskId}`, {
     method: "DELETE",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
   })
@@ -199,12 +180,9 @@ async function decideAiBooking(
   action: "approve" | "reject" | "reschedule/approve" | "reschedule/reject",
   fallbackMessage: string,
 ): Promise<AiBookingDecisionResult> {
-  const token = requireToken()
-
   const response = await fetch(`/api/tasks/${taskId}/ai-booking/${action}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
   })

@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DataTable } from "@/components/ui/data-table"
-import { getAuthToken } from "@/lib/api/auth-token"
 import type { ImportFieldType } from "@/components/import/import-types"
 import { FieldTargetCombobox } from "@/components/import/field-target-combobox"
 
@@ -74,7 +73,7 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete, pro
     if (!run) return
     setDownloading(true)
     try {
-      const response = await fetch(apiBase + "/" + run.id + "/errors", { headers: { Authorization: "Bearer " + getAuthToken() } })
+      const response = await fetch(apiBase + "/" + run.id + "/errors")
       if (!response.ok) { setError("No se pudo descargar el detalle de errores"); return }
       const url = URL.createObjectURL(await response.blob())
       const link = document.createElement("a")
@@ -143,14 +142,14 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete, pro
     setBusy(true); setError("")
     const form = new FormData(); form.append("file", file); form.append("mapping", JSON.stringify(payload(proposedFields))); form.append("mode", mode); form.append("match_field", matchField); form.append("preserve_empty", preserveEmpty ? "1" : "0"); form.append("original_filename", originalName); if (sheet) form.append("sheet_name", sheet)
     try {
-      const response = await fetch(apiBase + "/" + action, { method: "POST", headers: { Authorization: "Bearer " + getAuthToken() }, body: form }), json = await response.json()
+      const response = await fetch(apiBase + "/" + action, { method: "POST", body: form }), json = await response.json()
       if (!response.ok) throw new Error(json.message || (json.errors?.mapping?.[0]) || "No se pudo procesar la importación")
       if (action === "preview") { setPreview(json.data); setStep("review") } else { setRun(json.data); setStep("queued") }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Error de conexión") } finally { setBusy(false) }
   }
   useEffect(() => {
     if (step !== "queued" || !run) return
-    const timer = window.setInterval(async () => { const response = await fetch(apiBase + "/" + run.id, { headers: { Authorization: "Bearer " + getAuthToken() } }); if (!response.ok) return; const json = await response.json(); setRun(json.data); if (["completed", "failed", "cancelled"].includes(json.data.status)) { setStep("results"); if (json.data.status === "completed") onImportComplete() } }, 1500)
+    const timer = window.setInterval(async () => { const response = await fetch(apiBase + "/" + run.id); if (!response.ok) return; const json = await response.json(); setRun(json.data); if (["completed", "failed", "cancelled"].includes(json.data.status)) { setStep("results"); if (json.data.status === "completed") onImportComplete() } }, 1500)
     return () => window.clearInterval(timer)
   }, [step, run?.id, onImportComplete, apiBase])
 
@@ -199,6 +198,6 @@ export function ImportProductsDialog({ open, onOpenChange, onImportComplete, pro
         {run.result?.error_rows_truncated && <p className="text-xs text-muted-foreground">La descarga incluye las primeras 5.000 filas con error.</p>}
       </div>}
     </> : <p className="text-destructive">{run?.error || "La importación fue cancelada."}</p>}</div>}
-    {error && <p className="flex items-center gap-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" />{error}</p>}<DialogFooter>{step === "upload" && <Button variant="outline" onClick={close}>Cancelar</Button>}{step === "mapping" && <><Button variant="outline" onClick={reset}>Cambiar archivo</Button><Button disabled={busy} onClick={() => void send("preview")}>{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Revisar</Button></>}{step === "review" && <><Button variant="outline" onClick={() => setStep("mapping")}>Volver</Button><Button disabled={busy} onClick={() => void send("queue")}>Confirmar e importar</Button></>}{step === "queued" && run?.status === "queued" && <Button variant="outline" onClick={() => fetch(apiBase + "/" + run.id + "/cancel", { method: "POST", headers: { Authorization: "Bearer " + getAuthToken() } })}>Cancelar</Button>}{step === "results" && <Button onClick={close}><CheckCircle2 className="mr-2 h-4 w-4" />Cerrar</Button>}</DialogFooter>
+    {error && <p className="flex items-center gap-2 text-sm text-destructive"><AlertCircle className="h-4 w-4" />{error}</p>}<DialogFooter>{step === "upload" && <Button variant="outline" onClick={close}>Cancelar</Button>}{step === "mapping" && <><Button variant="outline" onClick={reset}>Cambiar archivo</Button><Button disabled={busy} onClick={() => void send("preview")}>{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Revisar</Button></>}{step === "review" && <><Button variant="outline" onClick={() => setStep("mapping")}>Volver</Button><Button disabled={busy} onClick={() => void send("queue")}>Confirmar e importar</Button></>}{step === "queued" && run?.status === "queued" && <Button variant="outline" onClick={() => fetch(apiBase + "/" + run.id + "/cancel", { method: "POST" })}>Cancelar</Button>}{step === "results" && <Button onClick={close}><CheckCircle2 className="mr-2 h-4 w-4" />Cerrar</Button>}</DialogFooter>
   </DialogContent></Dialog>
 }

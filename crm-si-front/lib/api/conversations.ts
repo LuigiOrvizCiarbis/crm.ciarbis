@@ -1,5 +1,4 @@
 import type { Conversation, TranslationLanguage } from "@/data/types";
-import { getAuthToken } from "./auth-token";
 import { throwApiError } from "./api-error";
 
 function mapConversation(c: any): Conversation {
@@ -31,28 +30,20 @@ function mapConversation(c: any): Conversation {
 }
 
 export async function acknowledgeHumanHandoff(conversationId: number) {
-  const token = requireToken();
   const res = await fetch(`/api/conversations/${conversationId}/human-handoff/acknowledge`, {
-    method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    method: "POST", headers: { Accept: "application/json" },
   });
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) throwApiError(res.status, payload, "No se pudo tomar la derivación");
   return payload.data;
 }
 
-function requireToken(): string {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-  return token;
-}
-
-async function fetchConversationsPage(params: URLSearchParams, token: string) {
+async function fetchConversationsPage(params: URLSearchParams) {
   const query = params.toString();
   const response = await fetch(`/api/conversations${query ? `?${query}` : ""}`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     cache: "no-store",
   });
@@ -94,11 +85,10 @@ export async function getConversationsCursorPage(options: {
   if (options.channelId) params.set("channel_id", String(options.channelId));
   if (options.awaitingHuman) params.set("awaiting_human", "1");
 
-  const token = requireToken();
   const query = params.toString();
   const response = await fetch(`/api/conversations?${query}`, {
     method: "GET",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json" },
     cache: "no-store",
   });
   if (!response.ok) {
@@ -115,14 +105,13 @@ export async function getConversationsCursorPage(options: {
 }
 
 async function getAllConversations(params: URLSearchParams = new URLSearchParams()): Promise<Conversation[]> {
-  const token = requireToken();
   const perPage = params.get("per_page") || "100";
   const firstPageParams = new URLSearchParams(params);
 
   firstPageParams.set("page", firstPageParams.get("page") || "1");
   firstPageParams.set("per_page", perPage);
 
-  const firstPage = await fetchConversationsPage(firstPageParams, token);
+  const firstPage = await fetchConversationsPage(firstPageParams);
   if (firstPage.lastPage <= firstPage.currentPage) return firstPage.data;
 
   const remainingPages = Array.from(
@@ -135,7 +124,7 @@ async function getAllConversations(params: URLSearchParams = new URLSearchParams
       const pageParams = new URLSearchParams(params);
       pageParams.set("page", String(page));
       pageParams.set("per_page", perPage);
-      return fetchConversationsPage(pageParams, token);
+      return fetchConversationsPage(pageParams);
     })
   );
 
@@ -152,17 +141,15 @@ export async function searchConversationsByContent(
 ): Promise<Conversation[]> {
   const params = new URLSearchParams({ search: query, per_page: "50" });
   if (options.channelId) params.set("channel_id", String(options.channelId));
-  const { data } = await fetchConversationsPage(params, requireToken());
+  const { data } = await fetchConversationsPage(params);
   return data;
 }
 
 export async function getConversationUnreadCount(): Promise<number> {
-  const token = requireToken();
   const response = await fetch("/api/conversations?summary=unread_count", {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     cache: "no-store",
   });
@@ -176,12 +163,10 @@ export async function getConversationUnreadCount(): Promise<number> {
 }
 
 export async function markConversationAsRead(conversationId: number): Promise<number> {
-  const token = requireToken();
   const response = await fetch(`/api/conversations/${conversationId}/read`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
   });
 
@@ -194,12 +179,10 @@ export async function markConversationAsRead(conversationId: number): Promise<nu
 }
 
 export async function markConversationAsUnread(conversationId: number): Promise<number> {
-  const token = requireToken();
   const response = await fetch(`/api/conversations/${conversationId}/unread`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
   });
 
@@ -229,11 +212,8 @@ export async function getUserConversations(userId: number) {
 export class ConversationUnavailableError extends Error {}
 
 export async function getConversationWithMessages(conversationId: number): Promise<Conversation> {
-  const token = requireToken();
-
   const res = await fetch(`/api/conversations/${conversationId}`, {
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
   });
@@ -248,12 +228,8 @@ export async function getConversationWithMessages(conversationId: number): Promi
 }
 
 export async function getConversationMessages(conversationId: number, page: number = 1) {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const res = await fetch(`/api/conversations/${conversationId}/messages?page=${page}`, {
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
   });
@@ -265,9 +241,6 @@ export async function getConversationMessages(conversationId: number, page: numb
 }
 
 export async function updateConversationStage(conversationId: number, stage: number | string) {
-  const token = getAuthToken();
-  if (!token) throw new Error("No token found");
-
   const body = typeof stage === 'number'
     ? { pipeline_stage_id: stage }
     : { pipeline_stage_id: Number(stage) };
@@ -275,7 +248,6 @@ export async function updateConversationStage(conversationId: number, stage: num
   const res = await fetch(`/api/conversations/${conversationId}/stage`, {
     method: "PATCH",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -291,13 +263,9 @@ export async function updateConversationStage(conversationId: number, stage: num
 }
 
 export async function archiveConversation(conversationId: number, archived: boolean) {
-  const token = getAuthToken();
-  if (!token) throw new Error("No token found");
-
   const res = await fetch(`/api/conversations/${conversationId}/archive`, {
     method: "PATCH",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -314,13 +282,9 @@ export async function archiveConversation(conversationId: number, archived: bool
 }
 
 export async function setAiAutoreply(conversationId: number, enabled: boolean) {
-  const token = getAuthToken();
-  if (!token) throw new Error("No token found");
-
   const res = await fetch(`/api/conversations/${conversationId}/ai-autoreply`, {
     method: "PATCH",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -341,11 +305,9 @@ export async function translateDraft(
   content: string,
   targetLanguage: TranslationLanguage,
 ): Promise<{ translated_content: string; target_language: TranslationLanguage }> {
-  const token = requireToken();
   const res = await fetch(`/api/conversations/${conversationId}/translate-draft`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -361,11 +323,9 @@ export async function setConversationTranslationLanguage(
   conversationId: number,
   contactLanguage: TranslationLanguage,
 ): Promise<{ id: number; contact_language: TranslationLanguage }> {
-  const token = requireToken();
   const res = await fetch(`/api/conversations/${conversationId}/translation-language`, {
     method: "PATCH",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -394,12 +354,9 @@ export interface BulkConversationTagsResponse {
 export async function bulkUpdateConversationTags(
   req: BulkConversationTagsRequest,
 ): Promise<BulkConversationTagsResponse> {
-  const token = requireToken();
-
   const response = await fetch("/api/conversations/bulk-tags", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -428,12 +385,9 @@ export interface BulkAssignConversationsResponse {
 export async function bulkAssignConversations(
   req: BulkAssignConversationsRequest,
 ): Promise<BulkAssignConversationsResponse> {
-  const token = requireToken();
-
   const response = await fetch("/api/conversations/bulk-assign", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -462,12 +416,9 @@ export interface BulkBroadcastResponse {
 export async function bulkBroadcastConversations(
   req: BulkBroadcastRequest,
 ): Promise<BulkBroadcastResponse> {
-  const token = requireToken();
-
   const response = await fetch("/api/conversations/bulk-broadcast", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -496,12 +447,9 @@ export interface BulkArchiveConversationsResponse {
 export async function bulkArchiveConversations(
   req: BulkArchiveConversationsRequest,
 ): Promise<BulkArchiveConversationsResponse> {
-  const token = requireToken();
-
   const response = await fetch("/api/conversations/bulk-archive", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -530,12 +478,9 @@ export interface BulkAiAutoreplyConversationsResponse {
 export async function bulkAiAutoreplyConversations(
   req: BulkAiAutoreplyConversationsRequest,
 ): Promise<BulkAiAutoreplyConversationsResponse> {
-  const token = requireToken();
-
   const response = await fetch("/api/conversations/bulk-ai-autoreply", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -562,12 +507,9 @@ export interface BulkDeleteConversationsResponse {
 export async function bulkDeleteConversations(
   req: BulkDeleteConversationsRequest,
 ): Promise<BulkDeleteConversationsResponse> {
-  const token = requireToken();
-
   const response = await fetch("/api/conversations/bulk-delete", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -596,12 +538,9 @@ export interface BulkMarkReadConversationsResponse {
 export async function bulkMarkReadConversations(
   req: BulkMarkReadConversationsRequest,
 ): Promise<BulkMarkReadConversationsResponse> {
-  const token = requireToken();
-
   const response = await fetch("/api/conversations/bulk-read", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -617,13 +556,9 @@ export async function bulkMarkReadConversations(
 }
 
 export async function assignConversationUser(conversationId: number, userId: number) {
-  const token = getAuthToken();
-  if (!token) throw new Error("No token found");
-
   const res = await fetch(`/api/conversations/${conversationId}/users/add`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
