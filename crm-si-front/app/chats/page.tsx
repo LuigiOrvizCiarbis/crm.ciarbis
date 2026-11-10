@@ -113,6 +113,7 @@ import { getMailIntakeCount } from "@/lib/api/mail-intakes"
 import { setActiveConversationId } from "@/lib/activeConversation"
 import { useNotificationsStore } from "@/store/useNotificationsStore"
 import { useScheduledMessages } from "@/hooks/useScheduledMessages"
+import { useMessagingWindowStatus } from "@/hooks/useMessagingWindowStatus"
 import { createScheduledMessage, supportsScheduledMessages } from "@/lib/api/scheduled-messages"
 import { ScheduledMessagesBar } from "@/components/chat/ScheduledMessagesBar"
 import { EmptyState } from "@/components/EmptyState"
@@ -651,10 +652,15 @@ export default function ChatsPage() {
     [normalizeIncomingTemplateContent]
   );
 
+  // Declarado antes de handleRealTimeMessage: su lista de deps lo referencia.
+  const scheduledMessages = useScheduledMessages(selectedConversationId);
+  const { noteInbound } = scheduledMessages;
+  const windowStatus = useMessagingWindowStatus(scheduledMessages.window);
 
   const handleRealTimeMessage = useCallback((newMessage: Message) => {
     if (newMessage.direction === "inbound" && selectedConversationId === newMessage.conversation_id) {
       setAiDraft(null)
+      noteInbound(newMessage)
     }
     // 1. Actualizar el chat abierto (si coincide el ID)
     if (selectedConversationId === newMessage.conversation_id) {
@@ -719,7 +725,7 @@ export default function ChatsPage() {
       newConversations.splice(index, 1);
       return [updatedConversation, ...newConversations];
     });
-  }, [getRealtimeMessagePreview, normalizeIncomingTemplateContent, selectedConversationId]);
+  }, [getRealtimeMessagePreview, normalizeIncomingTemplateContent, selectedConversationId, noteInbound]);
 
   const handleRealTimeEdit = useCallback((updatedMsg: Message) => {
     setCurrentConversation((prev) =>
@@ -782,8 +788,6 @@ export default function ChatsPage() {
     setCurrentConversation((prev) => (prev && prev.id === data.conversation_id ? patch(prev) : prev));
     setConversations((prev) => prev.map((c) => (c.id === data.conversation_id ? patch(c) : c)));
   }, []);
-
-  const scheduledMessages = useScheduledMessages(selectedConversationId);
 
   useSSEMessages({
     conversationId: selectedConversationId,
@@ -2669,7 +2673,7 @@ export default function ChatsPage() {
                 <>
                 <ScheduledMessagesBar
                   items={scheduledMessages.items}
-                  windowExpiresAt={scheduledMessages.windowExpiresAt}
+                  windowExpiresAt={scheduledMessages.window?.expiresAt ?? null}
                   currentUserId={currentUserId}
                   onChanged={scheduledMessages.upsert}
                   onRemoved={scheduledMessages.remove}
@@ -2685,7 +2689,10 @@ export default function ChatsPage() {
                   supportsContactSharing={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   onShareContacts={handleShareContacts}
                   onSchedule={supportsScheduledMessages(activeConversation?.channel?.type) ? handleScheduleMessage : undefined}
-                  windowExpiresAt={scheduledMessages.windowExpiresAt}
+                  windowExpiresAt={scheduledMessages.window?.expiresAt ?? null}
+                  windowStatus={windowStatus}
+                  humanAgentExpiresAt={scheduledMessages.window?.humanAgentExpiresAt ?? null}
+                  channelType={activeConversation?.channel?.type}
                   editingMessage={editingMessage}
                   onCancelEdit={handleCancelEdit}
                   expansionContext={hotkeyExpansionContext}

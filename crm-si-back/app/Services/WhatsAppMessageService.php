@@ -349,6 +349,7 @@ class WhatsAppMessageService
             ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", $messagePayload);
 
         if (! $sendResponse->successful()) {
+            $this->throwIfWindowClosed($sendResponse);
             throw new \RuntimeException('Error enviando imagen por WhatsApp: '.$sendResponse->body());
         }
 
@@ -515,6 +516,7 @@ class WhatsAppMessageService
             ]);
 
         if (! $sendResponse->successful()) {
+            $this->throwIfWindowClosed($sendResponse);
             throw new \RuntimeException('Error enviando audio por WhatsApp: '.$sendResponse->body());
         }
 
@@ -1933,6 +1935,7 @@ class WhatsAppMessageService
             ]);
 
         if (! $response->successful()) {
+            $this->throwIfWindowClosed($response);
             throw new \RuntimeException('Error enviando mensaje a WhatsApp: '.$response->body());
         }
 
@@ -1994,6 +1997,7 @@ class WhatsAppMessageService
             ]);
 
         if (! $response->successful()) {
+            $this->throwIfWindowClosed($response);
             throw new \RuntimeException('Error enviando mensaje de IA a WhatsApp: '.$response->body());
         }
 
@@ -2106,5 +2110,17 @@ class WhatsAppMessageService
         }
 
         return $freshMessage;
+    }
+
+    /**
+     * 131047 (re-engagement): Meta rechazó el texto libre porque pasaron más de
+     * 24 h desde el último mensaje del contacto. Se tipa para que el usuario
+     * reciba la instrucción de usar una plantilla en vez del body crudo.
+     */
+    private function throwIfWindowClosed(\Illuminate\Http\Client\Response $response): void
+    {
+        if ((int) $response->json('error.code') === 131047) {
+            throw MetaApiException::fromGraphResponse(ChannelType::WHATSAPP, $response->json());
+        }
     }
 }

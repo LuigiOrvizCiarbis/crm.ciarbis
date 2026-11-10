@@ -513,7 +513,7 @@ class InstagramMessageService
         ];
     }
 
-    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
+    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user, ?string $messageTag = null): Message
     {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -521,7 +521,7 @@ class InstagramMessageService
         $externalId = $this->postMessage($pageId, $token, [
             'recipient' => ['id' => $recipientId],
             'message' => ['text' => $content],
-        ]);
+        ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
             'content' => $content,
@@ -537,7 +537,8 @@ class InstagramMessageService
         string $mediaUrl,
         string $mimeType,
         ?string $caption,
-        User $user
+        User $user,
+        ?string $messageTag = null,
     ): Message {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -553,7 +554,7 @@ class InstagramMessageService
                     ],
                 ],
             ],
-        ]);
+        ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
             'content' => $caption ?? '',
@@ -571,7 +572,8 @@ class InstagramMessageService
         string $localMediaPath,
         string $mediaUrl,
         string $mimeType,
-        User $user
+        User $user,
+        ?string $messageTag = null,
     ): Message {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -587,7 +589,7 @@ class InstagramMessageService
                     ],
                 ],
             ],
-        ]);
+        ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
             'content' => '',
@@ -604,11 +606,18 @@ class InstagramMessageService
      * POST al endpoint de mensajes de la página. Devuelve el message_id de Meta.
      * Mapea los errores de Graph a MetaApiException tipada.
      *
+     * $tag sólo llega en envíos inmediatos de una persona (HUMAN_AGENT); sin tag
+     * el payload sale igual que siempre, sin messaging_type.
+     *
      * @param  array<string, mixed>  $payload
      */
-    private function postMessage(string $pageId, string $token, array $payload): ?string
+    private function postMessage(string $pageId, string $token, array $payload, ?string $tag = null): ?string
     {
         $version = config('services.facebook.graph_version', 'v26.0');
+
+        if ($tag !== null) {
+            $payload = [...$payload, 'messaging_type' => 'MESSAGE_TAG', 'tag' => $tag];
+        }
 
         $response = Http::withToken($token)
             ->timeout(15)

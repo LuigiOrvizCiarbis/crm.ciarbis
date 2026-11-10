@@ -19,6 +19,7 @@ class SystemMessageSender
         private WhatsAppMessageService $whatsAppMessageService,
         private InstagramMessageService $instagramMessageService,
         private MessengerMessageService $messengerMessageService,
+        private MessagingWindowService $messagingWindow,
     ) {}
 
     public function supports(Conversation $conversation): bool
@@ -28,6 +29,7 @@ class SystemMessageSender
 
     /**
      * @throws \RuntimeException si el canal no tiene transporte o el envío falla.
+     * @throws \App\Exceptions\MetaApiException si la ventana de mensajería está cerrada.
      */
     public function send(Conversation $conversation, string $content): Message
     {
@@ -36,6 +38,8 @@ class SystemMessageSender
         if (! $service) {
             throw new \RuntimeException('Canal sin transporte de mensajes del sistema');
         }
+
+        $this->messagingWindow->assertOpen($conversation);
 
         return $service->sendSystemTextMessageFromCRM($conversation, $content);
     }

@@ -26,6 +26,7 @@ class OutboundMessageSender
         private InstagramMessageService $instagramService,
         private MessengerMessageService $messengerService,
         private MailMessageService $mailService,
+        private MessagingWindowService $messagingWindow,
     ) {}
 
     public function supports(Conversation $conversation): bool
@@ -34,7 +35,12 @@ class OutboundMessageSender
     }
 
     /**
+     * $allowHumanAgentTag sólo lo pasa el envío inmediato de una persona: fuera
+     * de las 24 h habilita el tag HUMAN_AGENT (Instagram/Messenger). Los
+     * programados lo mandan el sistema, así que exigen la ventana estándar.
+     *
      * @throws InvalidArgumentException si el canal no tiene transporte de envío
+     * @throws \App\Exceptions\MetaApiException si la ventana de mensajería está cerrada
      */
     public function send(
         Conversation $conversation,
@@ -44,22 +50,33 @@ class OutboundMessageSender
         ?string $mediaPath = null,
         ?string $mediaMime = null,
         bool $voice = false,
+        bool $allowHumanAgentTag = false,
     ): Message {
         $service = $this->serviceFor($conversation)
             ?? throw new InvalidArgumentException('Este canal no admite el envío de mensajes desde el CRM.');
 
+        $tag = null;
+        if ($allowHumanAgentTag) {
+            $tag = $this->messagingWindow->tagForHumanSend($conversation);
+        } else {
+            $this->messagingWindow->assertOpen($conversation);
+        }
+        // WhatsApp y Mail nunca reciben tag: tagForHumanSend sólo lo devuelve
+        // para Instagram/Messenger. Spread de claves string = argumento con nombre.
+        $tagArgs = $tag === null ? [] : ['messageTag' => $tag];
+
         return match ($type) {
             'image' => $service->sendImageMessageFromCRM(
-                $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $content, $user
+                $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $content, $user, ...$tagArgs
             ),
             'audio' => $service === $this->whatsAppService
                 ? $this->whatsAppService->sendAudioMessageFromCRM(
-                    $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $user, $voice
+                    $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $user, $voice, ...$tagArgs
                 )
                 : $service->sendAudioMessageFromCRM(
-                    $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $user
+                    $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $user, ...$tagArgs
                 ),
-            default => $service->sendTextMessageFromCRM($conversation, (string) $content, $user),
+            default => $service->sendTextMessageFromCRM($conversation, (string) $content, $user, ...$tagArgs),
         };
     }
 
