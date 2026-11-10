@@ -315,6 +315,43 @@ class AnthropicProvider implements AiProvider
         }
     }
 
+    public function summarize(string $content, string $systemPrompt, string $model, int $maxTokens): ?string
+    {
+        try {
+            $client = new Client(
+                apiKey: $this->apiKey,
+                requestOptions: [
+                    'transporter' => new GuzzleClient([
+                        'timeout' => (int) config('services.ai.website_context.timeout', 90),
+                    ]),
+                ],
+            );
+
+            $response = $client->messages->create(
+                model: $model,
+                maxTokens: $maxTokens,
+                system: $systemPrompt,
+                messages: [['role' => 'user', 'content' => $content]],
+                temperature: 0,
+            );
+
+            foreach ($response->content as $block) {
+                if ($block->type === 'text' && trim($block->text) !== '') {
+                    return trim($block->text);
+                }
+            }
+
+            return null;
+        } catch (\Throwable $e) {
+            Log::error('AnthropicProvider: error resumiendo texto', [
+                'model' => $model,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
     /**
      * @return array{effort: string}|null
      */
