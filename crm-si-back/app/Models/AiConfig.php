@@ -10,12 +10,15 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Config de IA por tenant (BYOK): proveedor, API key encriptada, modelo,
- * enabled y system prompt. La lee el auto-responder de conversaciones.
+ * enabled, system prompt e información del sitio web. La lee el
+ * auto-responder de conversaciones.
  *
  * @property AiProvider $provider
  * @property bool $enabled
  * @property ?string $model
  * @property ?string $system_prompt
+ * @property ?string $website_url
+ * @property ?string $website_context
  */
 class AiConfig extends Model
 {
@@ -29,6 +32,8 @@ class AiConfig extends Model
         'enabled',
         'human_handoff_enabled',
         'system_prompt',
+        'website_url',
+        'website_context',
     ];
 
     protected $hidden = [

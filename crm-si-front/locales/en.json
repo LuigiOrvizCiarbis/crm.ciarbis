@@ -1644,6 +1644,22 @@
       "testErrorNoCredit": "The provider account has insufficient balance.",
       "testErrorRateLimit": "The provider is rate limiting requests. Try again in a few seconds.",
       "testErrorUnknown": "Couldn't verify the connection.",
+      "website": {
+        "title": "Website information",
+        "hint": "Complements your instructions with data from your site (hours, branches, services, policies). Review it before saving: the AI uses it as a source of truth. Up to {{max}} characters.",
+        "urlLabel": "Website",
+        "generate": "Generate from site",
+        "generating": "Reading the site… this can take up to a minute",
+        "needsKey": "Save an API key to generate the information.",
+        "placeholder": "Generate the information from your site or write it by hand.",
+        "generated": "Information generated",
+        "generatedHint": "We read {{count}} page(s). Review the text and save to apply it.",
+        "overwriteTitle": "Replace the current information?",
+        "overwriteDescription": "The generated text replaces what is in the field. Changes don't apply until you save.",
+        "overwriteConfirm": "Replace",
+        "clear": "Clear",
+        "usage": "Website information limit usage"
+      },
       "scheduling": {
         "title": "Appointment scheduling",
         "description": "Let the assistant offer free slots from Google Calendar and book meetings with customers.",

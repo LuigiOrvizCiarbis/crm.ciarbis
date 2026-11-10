@@ -6,6 +6,7 @@ use App\Models\LinkPreview;
 use App\Support\PublicUrlFetchResult;
 use App\Support\PublicUrlGuard;
 use App\Support\PublicUrlRejectedException;
+use App\Support\UrlResolver;
 use DOMDocument;
 use DOMXPath;
 use Illuminate\Support\Facades\Storage;
@@ -112,7 +113,7 @@ class LinkPreviewService
 
         $image = $this->meta($xpath, 'og:image') ?? $this->meta($xpath, 'twitter:image');
         if ($image !== null) {
-            $image = $this->resolveUrl($image, $baseUrl);
+            $image = UrlResolver::resolve($image, $baseUrl);
         }
 
         return [
@@ -137,31 +138,6 @@ class LinkPreviewService
         $value = $node ? trim($node->textContent) : '';
 
         return $value === '' ? null : $value;
-    }
-
-    private function resolveUrl(string $url, string $baseUrl): string
-    {
-        if (parse_url($url, PHP_URL_SCHEME) !== null) {
-            return $url;
-        }
-
-        $base = parse_url($baseUrl);
-        $scheme = $base['scheme'] ?? 'https';
-        $host = $base['host'] ?? '';
-        $port = isset($base['port']) ? ':'.$base['port'] : '';
-
-        if (str_starts_with($url, '//')) {
-            return "{$scheme}:{$url}";
-        }
-
-        if (str_starts_with($url, '/')) {
-            return "{$scheme}://{$host}{$port}{$url}";
-        }
-
-        $path = $base['path'] ?? '/';
-        $dir = rtrim(substr($path, 0, (int) strrpos($path, '/') + 1), '/');
-
-        return "{$scheme}://{$host}{$port}{$dir}/{$url}";
     }
 
     /**

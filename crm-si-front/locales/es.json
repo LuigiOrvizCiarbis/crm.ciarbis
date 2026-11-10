@@ -1644,6 +1644,22 @@
       "testErrorNoCredit": "La cuenta del proveedor no tiene saldo suficiente.",
       "testErrorRateLimit": "El proveedor está limitando las solicitudes. Probá de nuevo en unos segundos.",
       "testErrorUnknown": "No se pudo verificar la conexión.",
+      "website": {
+        "title": "Información del sitio web",
+        "hint": "Complementa tus instrucciones con datos de tu sitio (horarios, sucursales, servicios, políticas). Revisalo antes de guardar: la IA lo usa como fuente de verdad. Hasta {{max}} caracteres.",
+        "urlLabel": "Sitio web",
+        "generate": "Generar desde el sitio",
+        "generating": "Leyendo el sitio… puede tardar hasta un minuto",
+        "needsKey": "Guardá una API key para generar la información.",
+        "placeholder": "Generá la información desde tu sitio o escribila a mano.",
+        "generated": "Información generada",
+        "generatedHint": "Leímos {{count}} página(s). Revisá el texto y guardá para aplicarlo.",
+        "overwriteTitle": "¿Reemplazar la información actual?",
+        "overwriteDescription": "El texto generado reemplaza lo que hay en el campo. Los cambios no se aplican hasta que guardes.",
+        "overwriteConfirm": "Reemplazar",
+        "clear": "Limpiar",
+        "usage": "Uso del límite de información del sitio"
+      },
       "scheduling": {
         "title": "Agenda de turnos",
         "description": "Permití que el asistente ofrezca horarios libres del Google Calendar y agende reuniones con los clientes.",

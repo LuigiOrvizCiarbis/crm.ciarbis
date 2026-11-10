@@ -15,6 +15,9 @@ class AiConfigController extends Controller
 {
     private const SYSTEM_PROMPT_MAX_LENGTH = 20000;
 
+    /** Tope de la información del sitio: viaja (cacheada) en cada respuesta. */
+    public const WEBSITE_CONTEXT_MAX_LENGTH = 8000;
+
     /**
      * Config de IA del tenant. Nunca devuelve la API key: solo un flag
      * has_api_key para que la UI sepa si ya hay una cargada.
@@ -53,6 +56,8 @@ class AiConfigController extends Controller
             'human_handoff_enabled' => ['sometimes', 'boolean'],
             'system_prompt' => ['nullable', 'string', 'max:'.self::SYSTEM_PROMPT_MAX_LENGTH],
             'api_key' => ['nullable', 'string', 'max:500'],
+            'website_url' => ['sometimes', 'nullable', 'string', 'max:2048', 'url:http,https'],
+            'website_context' => ['sometimes', 'nullable', 'string', 'max:'.self::WEBSITE_CONTEXT_MAX_LENGTH],
         ]);
 
         $config = AiConfig::firstOrNew(['tenant_id' => $user->tenant_id]);
@@ -64,6 +69,12 @@ class AiConfigController extends Controller
             $config->human_handoff_enabled = $validated['human_handoff_enabled'];
         }
         $config->system_prompt = $validated['system_prompt'] ?? null;
+        // Solo se tocan si vienen: los clientes que no los mandan los conservan.
+        foreach (['website_url', 'website_context'] as $field) {
+            if (array_key_exists($field, $validated)) {
+                $config->{$field} = trim((string) $validated[$field]) ?: null;
+            }
+        }
         $config->save();
 
         // La key se setea aparte (encriptada) y solo si el usuario mandó una nueva.
@@ -195,6 +206,8 @@ class AiConfigController extends Controller
                 'enabled' => false,
                 'human_handoff_enabled' => true,
                 'system_prompt' => null,
+                'website_url' => null,
+                'website_context' => null,
                 'has_api_key' => false,
             ];
         }
@@ -205,6 +218,8 @@ class AiConfigController extends Controller
             'enabled' => $config->enabled,
             'human_handoff_enabled' => $config->human_handoff_enabled ?? true,
             'system_prompt' => $config->system_prompt,
+            'website_url' => $config->website_url,
+            'website_context' => $config->website_context,
             'has_api_key' => ! empty($config->api_key),
         ];
     }
