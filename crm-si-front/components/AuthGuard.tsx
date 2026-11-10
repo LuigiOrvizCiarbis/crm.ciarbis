@@ -9,6 +9,7 @@ import { isTrialExpired } from "@/lib/trial"
 import { useConfigStore } from "@/store/useConfigStore"
 import { firstAccessibleSection } from "@/lib/section-access"
 import { clearWorkspaceId, setWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
+import { signOut } from "@/lib/account-session"
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -17,7 +18,7 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const { isAuthenticated, emailVerified, token, _hasHydrated, setEmailVerified, updateUser, setRoleAndPermissions, setWorkspaces } = useAuthStore()
+  const { isAuthenticated, emailVerified, _hasHydrated, setEmailVerified, updateUser, setRoleAndPermissions, setWorkspaces } = useAuthStore()
   const [isChecking, setIsChecking] = useState(true)
   const [hasCompletedInitialCheck, setHasCompletedInitialCheck] = useState(false)
   const [refreshNonce, setRefreshNonce] = useState(0)
@@ -33,6 +34,27 @@ export function AuthGuard({ children }: AuthGuardProps) {
     return () => window.removeEventListener("focus", refreshOnFocus)
   }, [])
 
+  // Otra pestaña cambió de cuenta o la cerró: recargar evita que esta pestaña
+  // reescriba en localStorage la sesión vieja que tiene en memoria.
+  useEffect(() => {
+    const syncAcrossTabs = (event: StorageEvent) => {
+      if (event.key !== "auth-storage") return
+      let storedUserId: number | null
+      try {
+        storedUserId = event.newValue ? JSON.parse(event.newValue)?.state?.user?.id ?? null : null
+      } catch {
+        return
+      }
+      if (storedUserId !== (useAuthStore.getState().user?.id ?? null)) {
+        window.location.reload()
+      } else {
+        void useAuthStore.persist.rehydrate()
+      }
+    }
+    window.addEventListener("storage", syncAcrossTabs)
+    return () => window.removeEventListener("storage", syncAcrossTabs)
+  }, [])
+
   useEffect(() => {
     // Esperar a que Zustand se hidrate desde localStorage
     if (!_hasHydrated) {
@@ -44,8 +66,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
         setIsChecking(true)
       }
       
-      // Si está autenticado y trata de acceder a login/register, redirigir
-      if (isAuthenticated && token && isAuthOnlyRoute) {
+      // Si está autenticado y trata de acceder a login/register, redirigir,
+      // salvo que esté agregando otra cuenta (/login?add=1).
+      const isAddingAccount = pathname === "/login" && new URLSearchParams(window.location.search).get("add") === "1"
+      if (isAuthenticated && isAuthOnlyRoute && !isAddingAccount) {
         if (emailVerified) {
           const { permissions, role } = useAuthStore.getState()
           router.replace(firstAccessibleSection(permissions, role)?.href ?? "/sin-acceso")
@@ -61,11 +85,11 @@ export function AuthGuard({ children }: AuthGuardProps) {
         return
       }
       
-      // Si hay token, verificar estado del usuario
-      if (token && !isPublicRoute) {
+      // Con sesión, verificar estado del usuario (el token viaja en la cookie httpOnly)
+      if (isAuthenticated && !isPublicRoute) {
         try {
           let res = await fetch("/api/auth/me", {
-            headers: { "Authorization": `Bearer ${token}`, ...workspaceHeaders() },
+            headers: workspaceHeaders(),
           })
 
           // Un workspace puede quedar obsoleto si el usuario cambió de cuenta,
@@ -74,15 +98,12 @@ export function AuthGuard({ children }: AuthGuardProps) {
           // válido del usuario; no corresponde invalidar su token.
           if (res.status === 403) {
             clearWorkspaceId()
-            res = await fetch("/api/auth/me", {
-              headers: { "Authorization": `Bearer ${token}` },
-            })
+            res = await fetch("/api/auth/me")
           }
           
           if (!res.ok) {
-            // Token inválido, limpiar estado y redirigir
-            useAuthStore.getState().logout()
-            router.replace("/login")
+            // Token inválido: cerrar esta cuenta y pasar a la siguiente guardada
+            await signOut()
             return
           }
 
@@ -150,7 +171,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
     pathname,
     isAuthenticated,
     emailVerified,
-    token,
     router,
     _hasHydrated,
     setEmailVerified,

@@ -1,5 +1,4 @@
 import type { ScheduledMessage } from "@/data/types";
-import { getAuthToken } from "./auth-token";
 import { throwApiError } from "./api-error";
 import { audioExtensionForMime } from "@/lib/audio";
 import { ChannelType } from "@/data/enums";
@@ -25,9 +24,7 @@ export interface ScheduleMessageInput {
 }
 
 function authHeaders(): Record<string, string> {
-  const token = getAuthToken();
-  if (!token) throw new Error("Token faltante");
-  return { Authorization: `Bearer ${token}`, Accept: "application/json" };
+  return { Accept: "application/json" };
 }
 
 function isAudioFile(file: File): boolean {

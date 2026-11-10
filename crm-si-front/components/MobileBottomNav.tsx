@@ -6,15 +6,17 @@ import { Badge } from "@/components/ui/badge"
 import { getConversationUnreadCount } from "@/lib/api/conversations"
 import { useAuthStore } from "@/store/useAuthStore"
 import { useTaskStore } from "@/store/useTaskStore"
-import { Bell, Menu, LogOut, User } from "lucide-react"
+import { Bell, Menu, LogOut, User, UserPlus } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "@/hooks/useTranslation"
 import { resolveNavigationLabel, type NavigationKey } from "@/data/navigation"
 import { accessibleNavigationItems } from "@/lib/section-access"
 import { NotificationsPanel } from "@/components/notifications/NotificationsPanel"
 import { useNotificationsStore } from "@/store/useNotificationsStore"
+import { ADD_ACCOUNT_PATH, signOut, switchToAccount } from "@/lib/account-session"
+import { SavedAccountSummary, useSavedAccounts } from "@/components/AccountSwitcherItems"
 
 interface MobileBottomNavProps {
   className?: string
@@ -49,7 +51,6 @@ const SHEET_ITEM_IDLE_CLASS = "border-border text-foreground hover:bg-accent"
 
 export function MobileBottomNav({ className }: MobileBottomNavProps) {
   const pathname = usePathname()
-  const router = useRouter()
   const { t } = useTranslation()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
@@ -58,27 +59,17 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
   const [unreadChats, setUnreadChats] = useState(0)
   const hasRequestedTasks = useRef(false)
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
-  const token = useAuthStore((state) => state.token)
   const navigationLabels = useAuthStore((state) => state.user?.tenant?.navigation_labels)
   const permissions = useAuthStore((state) => state.permissions)
   const role = useAuthStore((state) => state.role)
-  const logoutStore = useAuthStore((state) => state.logout)
+  const savedAccounts = useSavedAccounts()
   const tasks = useTaskStore((state) => state.tasks)
   const isTasksLoading = useTaskStore((state) => state.isLoading)
   const fetchTasks = useTaskStore((state) => state.fetchTasks)
 
   const handleLogout = async () => {
-    try {
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
-      })
-    } catch {
-      // Ignorar errores, cerrar sesión de todos modos
-    }
-    logoutStore()
     setIsMenuOpen(false)
-    router.replace("/login")
+    await signOut()
   }
 
   useEffect(() => {
@@ -271,6 +262,32 @@ export function MobileBottomNav({ className }: MobileBottomNavProps) {
               >
                 <User className="size-5 shrink-0" aria-hidden="true" />
                 <span className="truncate">{t("nav.profile")}</span>
+              </Link>
+              {savedAccounts.length > 0 ? (
+                <>
+                  <p className="col-span-2 pt-2 text-xs font-medium text-muted-foreground">{t("nav.otherAccounts")}</p>
+                  {savedAccounts.map((account) => (
+                    <button
+                      key={account.user.id}
+                      type="button"
+                      className={cn(SHEET_ITEM_CLASS, SHEET_ITEM_IDLE_CLASS, "col-span-2")}
+                      onClick={() => {
+                        setIsMenuOpen(false)
+                        void switchToAccount(account.user.id)
+                      }}
+                    >
+                      <SavedAccountSummary user={account.user} />
+                    </button>
+                  ))}
+                </>
+              ) : null}
+              <Link
+                href={ADD_ACCOUNT_PATH}
+                onClick={() => setIsMenuOpen(false)}
+                className={cn(SHEET_ITEM_CLASS, SHEET_ITEM_IDLE_CLASS, "col-span-2")}
+              >
+                <UserPlus className="size-5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{t("nav.addAccount")}</span>
               </Link>
               <button
                 type="button"

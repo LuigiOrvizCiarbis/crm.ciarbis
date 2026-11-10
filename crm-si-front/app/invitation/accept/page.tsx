@@ -49,7 +49,7 @@ function AcceptInvitationContent() {
     if (!token) return
     setAccepting(true)
 
-    const { token: newToken, user: newUser, workspace, role, permissions, error: err } = await acceptInvitation(token)
+    const { user: newUser, workspace, role, permissions, error: err } = await acceptInvitation(token)
     if (err) {
       setError(err)
       setAccepting(false)
@@ -60,8 +60,8 @@ function AcceptInvitationContent() {
       setWorkspaceId(workspace.id)
     }
 
-    if (newToken && newUser) {
-      setAuth(newUser, newToken, false, !!newUser.email_verified_at, role ?? null, permissions ?? [])
+    if (newUser) {
+      setAuth(newUser, false, !!newUser.email_verified_at, role ?? null, permissions ?? [])
       router.push(firstAccessibleSection(permissions ?? [], role ?? null)?.href ?? "/sin-acceso")
     }
   }

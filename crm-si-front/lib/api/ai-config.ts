@@ -1,5 +1,3 @@
-import { getAuthToken } from "./auth-token"
-
 export type AiProviderId = "claude" | "openai"
 
 export interface AiConfig {
@@ -26,11 +24,8 @@ export interface AiConfigInput {
 }
 
 export async function getAiConfig(): Promise<AiConfig | null> {
-  const token = getAuthToken()
-  if (!token) return null
-
   const res = await fetch("/api/ai-config", {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
 
@@ -44,11 +39,8 @@ export async function getAiConfig(): Promise<AiConfig | null> {
  * Devuelve [] si no hay key cargada o si el proveedor no responde.
  */
 export async function getAiModels(): Promise<string[]> {
-  const token = getAuthToken()
-  if (!token) return []
-
   const res = await fetch("/api/ai-config/models", {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
 
@@ -87,21 +79,9 @@ export interface AiTestInput {
  * backend, devuelve un resultado con error_code "unknown".
  */
 export async function testAiConfig(input: AiTestInput): Promise<AiTestResult> {
-  const token = getAuthToken()
-  if (!token) {
-    return {
-      ok: false,
-      prompt_tokens: null,
-      cache_min_tokens: null,
-      error_code: "unknown",
-      error_message: "No auth",
-    }
-  }
-
   const res = await fetch("/api/ai-config/test", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -128,13 +108,9 @@ export async function testAiConfig(input: AiTestInput): Promise<AiTestResult> {
 export async function updateAiConfig(
   input: AiConfigInput,
 ): Promise<{ data?: AiConfig; error?: string; modelVisionWarning?: string | null }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch("/api/ai-config", {
     method: "PUT",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },

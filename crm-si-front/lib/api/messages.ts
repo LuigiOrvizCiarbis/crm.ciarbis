@@ -1,5 +1,4 @@
 import { Message, MessageReaction, TranslationLanguage, SharedContact } from "@/data/types";
-import { getAuthToken } from "./auth-token";
 import { throwApiError } from "./api-error";
 import { audioExtensionForMime } from "@/lib/audio";
 import { AssetForbiddenError, AssetMissingError } from "./media-assets";
@@ -38,9 +37,6 @@ function withAudioFilename(file: File): File {
 }
 
 export async function sendMessage(conversationId: number, content: string, media?: File, voice = false) {
-  const token = getAuthToken();
-  if (!token) throw new Error("Token faltante");
-
   if (media) {
     const type = resolveMediaType(media);
     const outgoingFile = type === "audio" ? withAudioFilename(media) : media;
@@ -54,7 +50,6 @@ export async function sendMessage(conversationId: number, content: string, media
     const res = await fetch("/api/messages", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${token}`,
         Accept: "application/json",
       },
       body: formData,
@@ -74,7 +69,6 @@ export async function sendMessage(conversationId: number, content: string, media
   const res = await fetch("/api/messages", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -94,11 +88,9 @@ export async function sendMessage(conversationId: number, content: string, media
 }
 
 export async function sendContactsMessage(conversationId: number, contactIds: number[]): Promise<Message> {
-  const token = getAuthToken();
-  if (!token) throw new Error("Token faltante");
   const response = await fetch("/api/messages", {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ conversation_id: conversationId, type: "contacts", contact_ids: contactIds }),
   });
   const payload = await response.json().catch(() => ({}));
@@ -107,11 +99,9 @@ export async function sendContactsMessage(conversationId: number, contactIds: nu
 }
 
 export async function saveSharedContact(messageId: number, index: number, contactId?: number): Promise<unknown> {
-  const token = getAuthToken();
-  if (!token) throw new Error("Token faltante");
   const response = await fetch(`/api/messages/${messageId}/contacts/${index}/save`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(contactId ? { contact_id: contactId } : {}),
   });
   const payload = await response.json().catch(() => ({}));
@@ -130,9 +120,6 @@ export interface SendMailMessageInput {
 }
 
 export async function sendMailMessage(conversationId: number, input: SendMailMessageInput): Promise<Message> {
-  const token = getAuthToken();
-  if (!token) throw new Error("Token faltante");
-
   const formData = new FormData();
   formData.append("conversation_id", String(conversationId));
   formData.append("type", "mail");
@@ -145,7 +132,6 @@ export async function sendMailMessage(conversationId: number, input: SendMailMes
   const response = await fetch("/api/messages", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
     body: formData,
@@ -157,14 +143,10 @@ export async function sendMailMessage(conversationId: number, input: SendMailMes
 }
 
 export async function getMessages(): Promise<Message[]> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch("/api/messages", {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
   });
 
@@ -179,13 +161,9 @@ export async function getMessages(): Promise<Message[]> {
 }
 
 export async function editMessage(messageId: number, content: string): Promise<Message> {
-  const token = getAuthToken();
-  if (!token) throw new Error("Token faltante");
-
   const res = await fetch(`/api/messages/${messageId}`, {
     method: "PUT",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -198,13 +176,9 @@ export async function editMessage(messageId: number, content: string): Promise<M
 }
 
 export async function deleteMessage(messageId: number): Promise<void> {
-  const token = getAuthToken();
-  if (!token) throw new Error("Token faltante");
-
   const res = await fetch(`/api/messages/${messageId}`, {
     method: "DELETE",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
   });
@@ -226,13 +200,9 @@ export async function translateMessage(
   messageId: number,
   targetLanguage: TranslationLanguage,
 ): Promise<MessageTranslationResponse> {
-  const token = getAuthToken();
-  if (!token) throw new Error("Token faltante");
-
   const res = await fetch(`/api/messages/${messageId}/translation`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -250,13 +220,9 @@ export async function translateMessage(
  * Devuelve el agregado ya confirmado por el servidor.
  */
 export async function reactToMessage(messageId: number, emoji: string): Promise<MessageReaction[]> {
-  const token = getAuthToken();
-  if (!token) throw new Error("Token faltante");
-
   const res = await fetch(`/api/messages/${messageId}/reaction`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -270,16 +236,11 @@ export async function reactToMessage(messageId: number, emoji: string): Promise<
 
 /**
  * Descarga el adjunto de un mensaje (documento/video) y devuelve una URL de
- * objeto para el visor. Mismo motivo que fetchMediaAssetObjectUrl: el endpoint
- * exige el token en un header, así que un <object>/<video> no puede pedirlo
- * directo. Quien llame es responsable de URL.revokeObjectURL().
+ * objeto para el visor, igual que fetchMediaAssetObjectUrl. Quien llame es
+ * responsable de URL.revokeObjectURL().
  */
 export async function fetchMessageMediaObjectUrl(messageId: number, signal?: AbortSignal): Promise<string> {
-  const token = getAuthToken();
-  if (!token) throw new Error("Token faltante");
-
   const res = await fetch(`/api/messages/${messageId}/media`, {
-    headers: { Authorization: `Bearer ${token}` },
     signal,
   });
 
@@ -300,12 +261,8 @@ export async function fetchMessageMediaObjectUrl(messageId: number, signal?: Abo
  * en cola la resuelve; esto es sólo para el botón de reintento manual.
  */
 export async function retryLinkPreview(messageId: number): Promise<void> {
-  const token = getAuthToken();
-  if (!token) throw new Error("Token faltante");
-
   const res = await fetch(`/api/messages/${messageId}/link-preview`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
   });
 
   const payload = await res.json().catch(() => ({}));

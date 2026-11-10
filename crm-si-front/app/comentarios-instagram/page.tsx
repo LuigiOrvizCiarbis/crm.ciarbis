@@ -5,7 +5,6 @@ import { SidebarLayout } from "@/components/SidebarLayout"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { getAuthToken } from "@/lib/api/auth-token"
 import { InstagramCommentAutomations } from "@/components/InstagramCommentAutomations"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 
@@ -28,7 +27,6 @@ async function commentRequest(path: string, init?: RequestInit) {
   const response = await fetch(`/api/instagram-comments${path}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${getAuthToken()}`,
       Accept: "application/json",
       "Content-Type": "application/json",
       ...(init?.headers || {}),

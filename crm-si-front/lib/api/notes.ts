@@ -1,5 +1,4 @@
 import { throwApiError } from "./api-error"
-import { getAuthToken } from "./auth-token"
 
 export interface Note {
   id: number
@@ -16,12 +15,6 @@ export interface CreateNotePayload {
   conversation_id?: number | null
 }
 
-function requireToken() {
-  const token = getAuthToken()
-  if (!token) throw new Error("No authentication token found")
-  return token
-}
-
 function normalizeNote(apiNote: any): Note {
   return {
     id: apiNote.id,
@@ -34,8 +27,6 @@ function normalizeNote(apiNote: any): Note {
 }
 
 export async function getNotes(params: { contactId?: number; conversationId?: number } = {}): Promise<Note[]> {
-  const token = requireToken()
-
   const query = new URLSearchParams()
   query.set("per_page", "100")
   if (params.contactId) query.set("contact_id", String(params.contactId))
@@ -43,7 +34,6 @@ export async function getNotes(params: { contactId?: number; conversationId?: nu
 
   const response = await fetch(`/api/notes?${query.toString()}`, {
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
     cache: "no-store",
@@ -58,12 +48,9 @@ export async function getNotes(params: { contactId?: number; conversationId?: nu
 }
 
 export async function createNote(body: CreateNotePayload): Promise<Note> {
-  const token = requireToken()
-
   const response = await fetch("/api/notes", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -79,12 +66,9 @@ export async function createNote(body: CreateNotePayload): Promise<Note> {
 }
 
 export async function deleteNote(noteId: number): Promise<void> {
-  const token = requireToken()
-
   const response = await fetch(`/api/notes/${noteId}`, {
     method: "DELETE",
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
   })

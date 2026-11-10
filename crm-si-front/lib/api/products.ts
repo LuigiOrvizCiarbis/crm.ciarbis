@@ -1,5 +1,4 @@
 import { throwApiError } from "./api-error";
-import { getAuthToken } from "./auth-token";
 
 export interface Product {
   id: number;
@@ -22,17 +21,10 @@ export interface ProductInput {
   custom_data?: Record<string, unknown>;
 }
 
-function requireToken(): string {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-  return token;
-}
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...options,
     headers: {
-      Authorization: `Bearer ${requireToken()}`,
       Accept: "application/json",
       "Content-Type": "application/json",
       ...options.headers,
