@@ -165,6 +165,21 @@ class WhatsAppStatusWebhookTest extends TestCase
         $this->assertStringContainsString('Failed to download the media', $message->error_message);
     }
 
+    public function test_failed_status_for_closed_window_explains_how_to_reengage(): void
+    {
+        $message = $this->makeOutboundMessage('wamid.W1');
+
+        $this->postJson('/api/whatsapp-webhook', $this->statusPayload(
+            'wamid.W1',
+            'failed',
+            [['code' => 131047, 'title' => 'Re-engagement message']],
+        ))->assertOk();
+
+        $message->refresh();
+        $this->assertStringContainsString('[131047]', $message->error_message);
+        $this->assertStringContainsString('enviá una plantilla', $message->error_message);
+    }
+
     public function test_delivered_status_sets_delivered_at(): void
     {
         $message = $this->makeOutboundMessage('wamid.DELIV1');

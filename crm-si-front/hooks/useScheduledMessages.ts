@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ScheduledMessage, ScheduledMessageStatus } from "@/data/types";
-import { listScheduledMessages } from "@/lib/api/scheduled-messages";
+import type { Message, ScheduledMessage, ScheduledMessageStatus } from "@/data/types";
+import { listScheduledMessages, type MessagingWindow } from "@/lib/api/scheduled-messages";
 
 /** Estados que dejan de mostrarse en la barra: ya salió o se descartó. */
 const HIDDEN_STATUSES = new Set<ScheduledMessageStatus>(["sent", "cancelled"]);
 
 const EMPTY: ScheduledMessage[] = [];
 
+const HOUR_MS = 3_600_000;
+const STANDARD_WINDOW_MS = 24 * HOUR_MS;
+const HUMAN_AGENT_WINDOW_MS = 7 * 24 * HOUR_MS;
+
 interface ScheduledState {
   conversationId: number | null;
   items: ScheduledMessage[];
-  windowExpiresAt: string | null;
+  window: MessagingWindow | null;
 }
 
 function byScheduledFor(a: ScheduledMessage, b: ScheduledMessage): number {
@@ -18,15 +22,16 @@ function byScheduledFor(a: ScheduledMessage, b: ScheduledMessage): number {
 }
 
 /**
- * Mensajes programados de la conversación abierta. La lista se carga al
- * cambiar de chat y después se mantiene con `upsert` (respuesta de la API o
- * evento `scheduled-message.updated` de Reverb).
+ * Mensajes programados de la conversación abierta y su ventana de mensajería
+ * de Meta. La lista se carga al cambiar de chat y después se mantiene con
+ * `upsert` (respuesta de la API o evento `scheduled-message.updated` de
+ * Reverb); la ventana se reabre con `noteInbound` cuando el contacto escribe.
  *
  * El estado guarda de qué conversación es: al cambiar de chat se descarta
  * por derivación, sin resetear dentro del effect.
  */
 export function useScheduledMessages(conversationId: number | null) {
-  const [state, setState] = useState<ScheduledState>({ conversationId: null, items: EMPTY, windowExpiresAt: null });
+  const [state, setState] = useState<ScheduledState>({ conversationId: null, items: EMPTY, window: null });
 
   useEffect(() => {
     if (!conversationId) return;
@@ -38,7 +43,7 @@ export function useScheduledMessages(conversationId: number | null) {
         setState({
           conversationId,
           items: response.data.toSorted(byScheduledFor),
-          windowExpiresAt: response.windowExpiresAt,
+          window: response.window,
         });
       })
       .catch(() => {
@@ -66,12 +71,38 @@ export function useScheduledMessages(conversationId: number | null) {
     setState((current) => ({ ...current, items: current.items.filter((item) => item.id !== id) }));
   }, []);
 
+  /** Un entrante en tiempo real reabre la ventana sin volver a pedirla al back. */
+  const noteInbound = useCallback((message: Message) => {
+    setState((current) => {
+      if (message.direction !== "inbound" || current.conversationId !== message.conversation_id) return current;
+      if (!current.window?.applies) return current;
+
+      const at = Date.parse(message.created_at);
+      if (Number.isNaN(at)) return current;
+
+      const expiresAt = new Date(at + STANDARD_WINDOW_MS).toISOString();
+      if (current.window.expiresAt && Date.parse(current.window.expiresAt) >= Date.parse(expiresAt)) return current;
+
+      return {
+        ...current,
+        window: {
+          ...current.window,
+          expiresAt,
+          humanAgentExpiresAt: current.window.humanAgentEnabled
+            ? new Date(at + HUMAN_AGENT_WINDOW_MS).toISOString()
+            : null,
+        },
+      };
+    });
+  }, []);
+
   const isCurrent = conversationId !== null && state.conversationId === conversationId;
 
   return {
     items: isCurrent ? state.items : EMPTY,
-    windowExpiresAt: isCurrent ? state.windowExpiresAt : null,
+    window: isCurrent ? state.window : null,
     upsert,
     remove,
+    noteInbound,
   };
 }

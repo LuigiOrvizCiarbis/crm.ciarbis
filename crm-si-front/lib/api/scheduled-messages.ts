@@ -10,10 +10,38 @@ export function supportsScheduledMessages(channelType: ChannelType | null | unde
   return channelType != null && SCHEDULABLE_CHANNEL_TYPES.has(channelType);
 }
 
+/** Ventana de atención de Meta (MessagingWindowService::toArray). */
+export interface MessagingWindow {
+  /** false en grupos y canales que no son de Meta: no hay ventana. */
+  applies: boolean
+  /** Último entrante + 24h; null si el contacto nunca escribió. */
+  expiresAt: string | null
+  /** Tag HUMAN_AGENT habilitado (Instagram/Messenger con App Review aprobado). */
+  humanAgentEnabled: boolean
+  /** Último entrante + 7 días; null si Human Agent no aplica. */
+  humanAgentExpiresAt: string | null
+}
+
+interface MessagingWindowPayload {
+  applies: boolean
+  expires_at: string | null
+  human_agent_enabled: boolean
+  human_agent_expires_at: string | null
+}
+
 export interface ScheduledMessagesResponse {
   data: ScheduledMessage[];
-  /** Hasta cuándo se puede escribir sin plantilla (último entrante + 24h). */
-  windowExpiresAt: string | null;
+  window: MessagingWindow | null;
+}
+
+function toMessagingWindow(payload: MessagingWindowPayload | undefined): MessagingWindow | null {
+  if (!payload) return null;
+  return {
+    applies: payload.applies,
+    expiresAt: payload.expires_at,
+    humanAgentEnabled: payload.human_agent_enabled,
+    humanAgentExpiresAt: payload.human_agent_expires_at,
+  };
 }
 
 export interface ScheduleMessageInput {
@@ -57,7 +85,7 @@ export async function listScheduledMessages(conversationId: number): Promise<Sch
   const res = await fetch(`/api/conversations/${conversationId}/scheduled-messages`, { headers: authHeaders() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throwApiError(res.status, data, "No se pudieron cargar los mensajes programados");
-  return { data: data.data ?? [], windowExpiresAt: data.meta?.window_expires_at ?? null };
+  return { data: data.data ?? [], window: toMessagingWindow(data.meta?.messaging_window) };
 }
 
 export async function createScheduledMessage(

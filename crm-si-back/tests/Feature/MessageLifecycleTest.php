@@ -21,10 +21,12 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
 use Laravel\Sanctum\Sanctum;
+use Tests\Concerns\ReceivesInboundMessages;
 use Tests\TestCase;
 
 class MessageLifecycleTest extends TestCase
 {
+    use ReceivesInboundMessages;
     use RefreshDatabase;
 
     public function test_updating_latest_message_refreshes_conversation_preview(): void
@@ -185,6 +187,7 @@ class MessageLifecycleTest extends TestCase
             'contact_id' => $contact->id,
             'status' => 'open',
         ]);
+        $this->receiveInbound($conversation);
 
         return [$user, $conversation];
     }
@@ -288,7 +291,7 @@ class MessageLifecycleTest extends TestCase
 
         $response->assertStatus(422);
         $this->assertStringContainsString('formato de audio', $response->json('message'));
-        $this->assertSame(0, Message::count());
+        $this->assertSame(0, Message::outbound()->count());
     }
 
     public function test_sticker_message_updates_conversation_preview_with_sticker_label(): void

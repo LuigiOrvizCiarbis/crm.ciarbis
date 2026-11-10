@@ -557,7 +557,7 @@ class MessengerMessageService
         ];
     }
 
-    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
+    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user, ?string $messageTag = null): Message
     {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -565,7 +565,7 @@ class MessengerMessageService
         $externalId = $this->postMessage($pageId, $token, [
             'recipient' => ['id' => $recipientId],
             'message' => ['text' => $content],
-        ]);
+        ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
             'content' => $content,
@@ -581,7 +581,8 @@ class MessengerMessageService
         string $mediaUrl,
         string $mimeType,
         ?string $caption,
-        User $user
+        User $user,
+        ?string $messageTag = null,
     ): Message {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -597,7 +598,7 @@ class MessengerMessageService
                     ],
                 ],
             ],
-        ]);
+        ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
             'content' => $caption ?? '',
@@ -615,7 +616,8 @@ class MessengerMessageService
         string $localMediaPath,
         string $mediaUrl,
         string $mimeType,
-        User $user
+        User $user,
+        ?string $messageTag = null,
     ): Message {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -631,7 +633,7 @@ class MessengerMessageService
                     ],
                 ],
             ],
-        ]);
+        ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
             'content' => '',
@@ -651,11 +653,10 @@ class MessengerMessageService
      * la ventana estándar de 24h, que cubre todo el flujo del CRM (el contacto
      * escribe, el agente o la IA responde).
      *
-     * $tag queda preparado para la tag HUMAN_AGENT (extiende la ventana a 7 días
-     * para respuestas manuales de un agente). Todavía nadie lo pasa: requiere el
-     * feature aprobado en App Review, y aplicarlo a la auto-respuesta de IA sería
-     * una violación de política de Meta. Cuando esté aprobado, gatear con
-     * config('services.messenger.human_agent_enabled') desde los send* de humano.
+     * $tag sólo llega en envíos inmediatos de una persona (HUMAN_AGENT, hasta 7
+     * días): lo decide MessagingWindowService::tagForHumanSend desde
+     * OutboundMessageSender. La IA, los programados y los mensajes de sistema
+     * nunca lo pasan, por política de Meta.
      *
      * @param  array<string, mixed>  $payload
      */

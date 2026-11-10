@@ -46,7 +46,7 @@ class ScheduledMessageApiTest extends TestCase
 
         $scheduled = ScheduledMessage::firstOrFail();
         $this->assertTrue($scheduled->scheduled_for->equalTo($when));
-        $this->assertSame(0, Message::count());
+        $this->assertSame(0, Message::outbound()->count());
         Event::assertDispatched(ScheduledMessageUpdated::class);
     }
 
@@ -129,7 +129,7 @@ class ScheduledMessageApiTest extends TestCase
 
         $this->assertSame([$pending->id], array_column($response->json('data'), 'id'));
         $this->assertTrue(
-            $inbound->created_at->copy()->addHours(24)->equalTo($response->json('meta.window_expires_at'))
+            $inbound->created_at->copy()->addHours(24)->equalTo($response->json('meta.messaging_window.expires_at'))
         );
     }
 

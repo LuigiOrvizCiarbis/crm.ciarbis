@@ -46,6 +46,16 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
     setConfirmDiscard(false)
   }
 
+  // Plantilla de utilidad para retomar conversaciones de WhatsApp fuera de la
+  // ventana de 24 h. Meta decide la categoría final al revisarla.
+  const applyReengagementPreset = () => {
+    setName("retomar_conversacion"); setLanguage("es_AR"); setCategory("UTILITY")
+    setHeaderFormat("NONE"); setHeaderText(""); setHeaderFile(null)
+    setBody("Hola {{nombre}}, te escribimos por la consulta que nos dejaste. Para continuar con la atención, respondé este mensaje."); setFooter("")
+    setExamples({ nombre: "Juan" })
+    setButtons([{ type: "QUICK_REPLY", text: "Continuar" }])
+  }
+
   const requestClose = () => {
     // Cerrar a mitad del envío borraría el formulario sin saber si Meta lo recibió.
     if (submitting) return
@@ -100,6 +110,10 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
             <DialogHeader className="border-b border-border px-6 py-4">
               <DialogTitle>Nueva plantilla</DialogTitle>
               <DialogDescription>Se enviará a revisión de Meta antes de poder usarse en una difusión.</DialogDescription>
+              <div className="flex flex-col items-start gap-1.5 pt-2">
+                <Button variant="outline" size="sm" type="button" onClick={applyReengagementPreset}>Usar plantilla de reenganche</Button>
+                <p className="text-xs text-muted-foreground">Sirve para retomar conversaciones de WhatsApp después de 24 h. Meta define la categoría final: si el texto es promocional la pasa a Marketing.</p>
+              </div>
             </DialogHeader>
 
             <div className="grid flex-1 gap-6 overflow-y-auto px-6 py-6 lg:grid-cols-[1.3fr_0.7fr]">

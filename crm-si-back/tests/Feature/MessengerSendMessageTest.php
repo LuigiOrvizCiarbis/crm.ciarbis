@@ -22,10 +22,12 @@ use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
+use Tests\Concerns\ReceivesInboundMessages;
 use Tests\TestCase;
 
 class MessengerSendMessageTest extends TestCase
 {
+    use ReceivesInboundMessages;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -51,7 +53,7 @@ class MessengerSendMessageTest extends TestCase
             'content' => 'Hola por Messenger',
         ])->assertStatus(201);
 
-        $message = Message::first();
+        $message = Message::outbound()->first();
         $this->assertSame(MessageDirection::OUTBOUND, $message->direction);
         $this->assertSame('fb_mid_1', $message->external_id);
         $this->assertSame('Hola por Messenger', $message->content);
@@ -85,7 +87,7 @@ class MessengerSendMessageTest extends TestCase
             'image' => UploadedFile::fake()->image('foto.jpg'),
         ])->assertStatus(201);
 
-        $this->assertSame(MessageType::Image, Message::first()->message_type);
+        $this->assertSame(MessageType::Image, Message::outbound()->first()->message_type);
 
         Http::assertSent(function ($request) {
             $url = $request['message']['attachment']['payload']['url'] ?? '';
@@ -130,7 +132,7 @@ class MessengerSendMessageTest extends TestCase
 
         $response->assertStatus(422);
         $this->assertStringContainsString('desconectado', $response->json('message'));
-        $this->assertSame(0, Message::count());
+        $this->assertSame(0, Message::outbound()->count());
     }
 
     public function test_window_closed_error_maps_to_422_with_facebook_name(): void
@@ -153,7 +155,7 @@ class MessengerSendMessageTest extends TestCase
         $response->assertStatus(422);
         $this->assertStringContainsString('ventana de 24 horas', $response->json('message'));
         $this->assertStringContainsString('Facebook', $response->json('message'));
-        $this->assertSame(0, Message::count());
+        $this->assertSame(0, Message::outbound()->count());
     }
 
     public function test_invalid_token_error_maps_to_422_reconnect(): void
@@ -197,7 +199,7 @@ class MessengerSendMessageTest extends TestCase
 
         $response->assertStatus(422);
         $this->assertStringContainsString('no admite el envío', $response->json('message'));
-        $this->assertSame(0, Message::count());
+        $this->assertSame(0, Message::outbound()->count());
         Http::assertNothingSent();
     }
 
@@ -242,6 +244,7 @@ class MessengerSendMessageTest extends TestCase
             'contact_id' => $contact->id,
             'status' => 'open',
         ]);
+        $this->receiveInbound($conversation);
 
         return [$user, $conversation, $channel];
     }
