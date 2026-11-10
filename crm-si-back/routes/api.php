@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AiConfigController;
 use App\Http\Controllers\Api\AiSchedulingConfigController;
+use App\Http\Controllers\Api\AiWebsiteContextController;
 use App\Http\Controllers\Api\AutomationController;
 use App\Http\Controllers\Api\AutomationRunController;
 use App\Http\Controllers\Api\BillingConfigController;
@@ -549,6 +550,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('ai-config/models', [AiConfigController::class, 'models']);
     Route::post('ai-config/test', [AiConfigController::class, 'test']);
     Route::put('ai-config', [AiConfigController::class, 'update']);
+    // Borrador de "información del sitio" generado desde la URL del tenant.
+    Route::post('ai-config/website-context', AiWebsiteContextController::class);
     // Agenda de turnos de la IA (horarios, modo de aprobación, calendario por defecto).
     Route::get('ai-config/scheduling', [AiSchedulingConfigController::class, 'show']);
     Route::put('ai-config/scheduling', [AiSchedulingConfigController::class, 'update']);

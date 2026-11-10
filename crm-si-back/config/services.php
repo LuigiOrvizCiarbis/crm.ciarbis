@@ -73,6 +73,19 @@ return [
             'openai' => env('AI_OPENAI_TRANSLATION_MODEL', 'gpt-5-mini'),
             'claude' => env('AI_CLAUDE_TRANSLATION_MODEL', 'claude-haiku-4-5-20251001'),
         ],
+        // Generación de "información del sitio": misma key BYOK, modelo económico.
+        'website_context_models' => [
+            'openai' => env('AI_OPENAI_WEBSITE_CONTEXT_MODEL', 'gpt-5-mini'),
+            'claude' => env('AI_CLAUDE_WEBSITE_CONTEXT_MODEL', 'claude-haiku-4-5-20251001'),
+        ],
+        'website_context' => [
+            // Timeout del request al proveedor para redactar la información.
+            'timeout' => env('AI_WEBSITE_CONTEXT_TIMEOUT', 90),
+            // Páginas internas a leer además de la URL ingresada.
+            'max_pages' => env('AI_WEBSITE_CONTEXT_MAX_PAGES', 10),
+            // Tiempo máximo (segundos) de lectura del sitio antes de cortar.
+            'crawl_budget_seconds' => env('AI_WEBSITE_CONTEXT_CRAWL_BUDGET', 25),
+        ],
         // Extracción de datos desde documentos. Al documento se le saca el texto
         // localmente con pdftotext y se manda TEXTO al modelo (no el PDF), así
         // cualquier modelo de texto sirve y el costo baja ~10x contra visión.

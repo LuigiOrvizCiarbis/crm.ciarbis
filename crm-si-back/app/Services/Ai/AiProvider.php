@@ -82,6 +82,13 @@ interface AiProvider
     public function translate(string $content, string $systemPrompt, string $model): ?string;
 
     /**
+     * Redacta un texto largo a partir de un contenido fuente, en un request
+     * único sin herramientas (p. ej. resumir un sitio web). Nunca lanza: ante
+     * error loguea y devuelve null.
+     */
+    public function summarize(string $content, string $systemPrompt, string $model, int $maxTokens): ?string;
+
+    /**
      * Lista los modelos de chat disponibles para la API key del tenant.
      *
      * Consulta el endpoint de modelos del proveedor. Nunca lanza: ante cualquier
