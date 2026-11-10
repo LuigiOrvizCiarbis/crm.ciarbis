@@ -9,6 +9,7 @@ use App\Http\Requests\UpdateScheduledMessageRequest;
 use App\Http\Resources\ScheduledMessageResource;
 use App\Models\Conversation;
 use App\Models\ScheduledMessage;
+use App\Services\MessagingWindowService;
 use App\Services\ScheduledMessageService;
 use Illuminate\Http\JsonResponse;
 use InvalidArgumentException;
@@ -18,7 +19,10 @@ class ScheduledMessageController extends Controller
     /** Los fallidos se siguen mostrando un tiempo para poder reprogramarlos. */
     private const FAILED_VISIBLE_DAYS = 7;
 
-    public function __construct(private ScheduledMessageService $service) {}
+    public function __construct(
+        private ScheduledMessageService $service,
+        private MessagingWindowService $messagingWindow,
+    ) {}
 
     public function index(Conversation $conversation): JsonResponse
     {
@@ -37,7 +41,7 @@ class ScheduledMessageController extends Controller
         return response()->json([
             'data' => ScheduledMessageResource::collection($scheduledMessages)->resolve(),
             'meta' => [
-                'window_expires_at' => $this->service->windowExpiresAt($conversation->loadMissing('channel'))?->toIso8601String(),
+                'messaging_window' => $this->messagingWindow->toArray($conversation->loadMissing('channel')),
             ],
         ]);
     }

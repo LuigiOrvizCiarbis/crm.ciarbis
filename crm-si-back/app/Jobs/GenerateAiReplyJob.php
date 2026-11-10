@@ -12,6 +12,7 @@ use App\Services\HumanHandoffService;
 use App\Services\InstagramMessageService;
 use App\Services\MailMessageService;
 use App\Services\MessengerMessageService;
+use App\Services\MessagingWindowService;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -60,6 +61,7 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
         MailMessageService $mailMessageService,
         HumanHandoffService $humanHandoffService,
         AiTypingIndicatorService $aiTypingIndicatorService,
+        MessagingWindowService $messagingWindow,
     ): void {
         try {
             $this->typingMessageId = null;
@@ -70,6 +72,7 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
                 $messengerMessageService,
                 $mailMessageService,
                 $humanHandoffService,
+                $messagingWindow,
             );
         } finally {
             $aiTypingIndicatorService->stop($this->conversationId, $this->typingMessageId);
@@ -83,6 +86,7 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
         MessengerMessageService $messengerMessageService,
         MailMessageService $mailMessageService,
         HumanHandoffService $humanHandoffService,
+        MessagingWindowService $messagingWindow,
     ): void {
         $conversation = Conversation::withoutGlobalScopes()->find($this->conversationId);
 
@@ -112,6 +116,14 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
                 'conversation_id' => $conversation->id,
                 'tenant_id' => $conversation->tenant_id,
             ]);
+
+            return;
+        }
+
+        // Fuera de la ventana de Meta la IA no puede escribir (y el tag
+        // HUMAN_AGENT le está prohibido): se corta antes de pagar el LLM.
+        if (! $messagingWindow->isOpen($conversation)) {
+            $this->handOffClosedWindow($conversation, $humanHandoffService);
 
             return;
         }
@@ -209,6 +221,24 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
             ? 'I’m passing your message to a team member, who will reply here shortly.'
             : 'Le paso tu consulta a una persona del equipo. En breve te responden por acá.');
         $service?->sendSystemTextMessageFromCRM($conversation, $ack);
+    }
+
+    /**
+     * Deriva a una persona sin escribirle al contacto: con la ventana cerrada
+     * cualquier envío del sistema sería rechazado por Meta.
+     */
+    private function handOffClosedWindow(Conversation $conversation, HumanHandoffService $humanHandoffService): void
+    {
+        $lastInbound = $conversation->messages()->where('direction', 'inbound')->latest('id')->first();
+        $humanHandoffService->create(
+            $conversation,
+            $lastInbound,
+            'messaging_window_closed',
+            'Pasaron más de 24 h desde el último mensaje del contacto y la IA ya no puede responder. Respondé manualmente desde el CRM.',
+            'es',
+        );
+
+        Log::info('GenerateAiReplyJob: ventana de mensajería cerrada, se deriva a humano', ['conversation_id' => $conversation->id]);
     }
 
     private function systemMessageService(

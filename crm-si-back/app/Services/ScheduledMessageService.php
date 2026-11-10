@@ -6,11 +6,9 @@ use App\Enums\ChannelType;
 use App\Enums\ScheduledMessageStatus;
 use App\Events\ScheduledMessageUpdated;
 use App\Models\Conversation;
-use App\Models\Message;
 use App\Models\ScheduledMessage;
 use App\Models\User;
 use Carbon\CarbonImmutable;
-use Carbon\CarbonInterface;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
@@ -27,9 +25,6 @@ class ScheduledMessageService
     public const MAX_CONTENT_LENGTH = 4096;
 
     public const MAX_DAYS_AHEAD = 60;
-
-    /** Ventana de atención de Meta: sólo se puede escribir libre hasta 24h después del último entrante. */
-    private const MESSAGING_WINDOW_HOURS = 24;
 
     public function __construct(private VoiceTranscoder $voiceTranscoder) {}
 
@@ -100,27 +95,6 @@ class ScheduledMessageService
         $this->transition($scheduledMessage, $cancellable, ['status' => ScheduledMessageStatus::Cancelled]);
         $scheduledMessage->refresh()->deleteMedia();
         $this->announce($scheduledMessage);
-    }
-
-    /**
-     * Hasta cuándo se puede escribir sin plantilla. Null si el contacto nunca
-     * escribió o el canal no tiene ventana (sólo aplica a Meta).
-     */
-    public function windowExpiresAt(Conversation $conversation): ?CarbonInterface
-    {
-        if (! in_array($conversation->channel?->type, OutboundMessageSender::SCHEDULABLE_CHANNELS, true)) {
-            return null;
-        }
-
-        $lastInbound = Message::query()
-            ->where('conversation_id', $conversation->id)
-            ->inbound()
-            ->latest('created_at')
-            ->value('created_at');
-
-        return $lastInbound !== null
-            ? CarbonImmutable::parse($lastInbound)->addHours(self::MESSAGING_WINDOW_HOURS)
-            : null;
     }
 
     private function ensureSchedulable(Conversation $conversation, string $type, bool $voice, ?UploadedFile $file): void

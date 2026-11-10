@@ -42,7 +42,7 @@ class SendScheduledMessageJobTest extends TestCase
         SendScheduledMessageJob::dispatchSync($scheduled->id);
 
         $scheduled->refresh();
-        $message = Message::firstOrFail();
+        $message = Message::outbound()->firstOrFail();
         $this->assertSame(ScheduledMessageStatus::Sent, $scheduled->status);
         $this->assertSame($message->id, $scheduled->message_id);
         $this->assertNotNull($scheduled->sent_at);
@@ -68,7 +68,7 @@ class SendScheduledMessageJobTest extends TestCase
         $this->assertSame(ScheduledMessageStatus::Failed, $scheduled->status);
         $this->assertSame('window_closed', $scheduled->error_reason);
         $this->assertStringContainsString('24 horas', $scheduled->error_message);
-        $this->assertSame(0, Message::count());
+        $this->assertSame(0, Message::outbound()->count());
         $this->assertTrue(UserNotification::query()
             ->where('user_id', $user->id)
             ->where('type', NotificationType::SCHEDULED_MESSAGE_FAILED->value)

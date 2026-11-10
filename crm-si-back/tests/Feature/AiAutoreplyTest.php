@@ -23,11 +23,13 @@ use App\Services\HumanHandoffService;
 use App\Services\InstagramMessageService;
 use App\Services\MailMessageService;
 use App\Services\MessengerMessageService;
+use App\Services\MessagingWindowService;
 use App\Services\SystemMessageSender;
 use App\Services\WhatsAppMessageService;
 use App\Services\WhatsAppTemplateService;
 use App\Support\PermissionCatalog;
 use App\Support\RoleProvisioner;
+use Carbon\CarbonInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
@@ -37,10 +39,12 @@ use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
+use Tests\Concerns\ReceivesInboundMessages;
 use Tests\TestCase;
 
 class AiAutoreplyTest extends TestCase
 {
+    use ReceivesInboundMessages;
     use RefreshDatabase;
 
     private const PHONE_NUMBER_ID = 'PHONE_TEST_1';
@@ -263,6 +267,7 @@ class AiAutoreplyTest extends TestCase
             app(MailMessageService::class),
             app(HumanHandoffService::class),
             app(AiTypingIndicatorService::class),
+            app(MessagingWindowService::class),
         );
     }
 
@@ -348,6 +353,7 @@ class AiAutoreplyTest extends TestCase
             app(MailMessageService::class),
             app(HumanHandoffService::class),
             app(AiTypingIndicatorService::class),
+            app(MessagingWindowService::class),
         );
     }
 
@@ -377,6 +383,7 @@ class AiAutoreplyTest extends TestCase
             app(MailMessageService::class),
             app(HumanHandoffService::class),
             app(AiTypingIndicatorService::class),
+            app(MessagingWindowService::class),
         );
     }
 
@@ -400,6 +407,7 @@ class AiAutoreplyTest extends TestCase
             app(MailMessageService::class),
             app(HumanHandoffService::class),
             app(AiTypingIndicatorService::class),
+            app(MessagingWindowService::class),
         );
     }
 
@@ -428,7 +436,27 @@ class AiAutoreplyTest extends TestCase
             app(MailMessageService::class),
             app(HumanHandoffService::class),
             app(AiTypingIndicatorService::class),
+            app(MessagingWindowService::class),
         );
+    }
+
+    public function test_job_hands_off_to_a_human_when_the_messaging_window_is_closed(): void
+    {
+        [, $conversation] = $this->createConversationSetup(aiEnabled: true, lastInboundAt: now()->subHours(25));
+
+        $this->mock(AiReplyService::class, function ($mock) {
+            $mock->shouldNotReceive('decide');
+        });
+
+        $this->mock(WhatsAppMessageService::class, function ($mock) {
+            $mock->shouldNotReceive('sendSystemTextMessageFromCRM');
+        });
+
+        $this->runJob($conversation);
+
+        $conversation->refresh();
+        $this->assertFalse($conversation->ai_autoreply_enabled);
+        $this->assertSame('messaging_window_closed', $conversation->humanHandoffs()->sole()->reason);
     }
 
     public function test_toggle_endpoint_updates_conversation(): void
@@ -529,6 +557,7 @@ class AiAutoreplyTest extends TestCase
             app(MailMessageService::class),
             app(HumanHandoffService::class),
             app(AiTypingIndicatorService::class),
+            app(MessagingWindowService::class),
         );
     }
 
@@ -537,7 +566,7 @@ class AiAutoreplyTest extends TestCase
      *
      * @return array{0: User, 1: Conversation}
      */
-    private function createConversationSetup(bool $aiEnabled): array
+    private function createConversationSetup(bool $aiEnabled, ?CarbonInterface $lastInboundAt = null): array
     {
         [$user, $channel] = $this->createChannelSetup(aiDefault: false);
 
@@ -555,6 +584,7 @@ class AiAutoreplyTest extends TestCase
             'status' => 'open',
             'ai_autoreply_enabled' => $aiEnabled,
         ]);
+        $this->receiveInbound($conversation, $lastInboundAt);
 
         return [$user, $conversation];
     }

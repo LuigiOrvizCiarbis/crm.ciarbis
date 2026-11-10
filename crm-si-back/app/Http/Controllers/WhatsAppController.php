@@ -1557,7 +1557,11 @@ class WhatsAppController extends Controller
 
         foreach ($errors as $error) {
             $code = $error['code'] ?? null;
-            $detail = $error['error_data']['details'] ?? $error['message'] ?? $error['title'] ?? null;
+            // 131047: ventana de 24 h vencida. El detalle de Meta no le dice al
+            // usuario qué hacer; el nuestro sí.
+            $detail = (int) ($error['code'] ?? 0) === 131047
+                ? 'Pasaron más de 24 horas desde el último mensaje del contacto: enviá una plantilla para retomar la conversación.'
+                : ($error['error_data']['details'] ?? $error['message'] ?? $error['title'] ?? null);
 
             $label = trim(($code !== null ? "[{$code}] " : '').(string) $detail);
 

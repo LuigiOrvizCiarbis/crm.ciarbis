@@ -17,10 +17,13 @@ use Spatie\Permission\PermissionRegistrar;
 
 /**
  * Tenant con roles provisionados + conversación de Messenger (PAGE_1/PSID_1),
- * el canal más simple de fakear con Http::fake.
+ * el canal más simple de fakear con Http::fake. La conversación arranca con un
+ * mensaje entrante recién recibido: ventana de mensajería abierta.
  */
 trait BuildsMessengerConversation
 {
+    use ReceivesInboundMessages;
+
     /**
      * @return array{0: User, 1: Conversation, 2: Tenant}
      */
@@ -60,6 +63,7 @@ trait BuildsMessengerConversation
             'contact_id' => $contact->id,
             'status' => 'open',
         ]);
+        $this->receiveInbound($conversation);
 
         return [$user, $conversation, $tenant];
     }

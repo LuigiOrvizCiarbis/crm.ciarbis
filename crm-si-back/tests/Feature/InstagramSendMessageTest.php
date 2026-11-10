@@ -2,17 +2,11 @@
 
 namespace Tests\Feature;
 
-use App\Enums\ChannelType;
 use App\Enums\MessageDirection;
 use App\Enums\TemplateCategory;
 use App\Enums\TemplateStatus;
-use App\Models\Channel;
-use App\Models\Contact;
-use App\Models\Conversation;
-use App\Models\InstagramConfig;
 use App\Models\Message;
 use App\Models\Tenant;
-use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
 use App\Support\PermissionCatalog;
@@ -24,10 +18,12 @@ use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
+use Tests\Concerns\BuildsInstagramConversation;
 use Tests\TestCase;
 
 class InstagramSendMessageTest extends TestCase
 {
+    use BuildsInstagramConversation;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -55,7 +51,7 @@ class InstagramSendMessageTest extends TestCase
 
         $response->assertStatus(201);
 
-        $message = Message::first();
+        $message = Message::outbound()->first();
         $this->assertSame(MessageDirection::OUTBOUND, $message->direction);
         $this->assertSame('ig_mid_1', $message->external_id);
         $this->assertSame('Hola por IG', $message->content);
@@ -86,7 +82,7 @@ class InstagramSendMessageTest extends TestCase
 
         $response->assertStatus(422);
         $this->assertStringContainsString('ventana de 24 horas', $response->json('message'));
-        $this->assertSame(0, Message::count());
+        $this->assertSame(0, Message::outbound()->count());
     }
 
     public function test_closed_window_with_oauth_type_is_classified_as_window_not_token(): void
@@ -184,51 +180,6 @@ class InstagramSendMessageTest extends TestCase
 
         $response->assertStatus(422);
         $this->assertStringContainsString('WhatsApp', $response->json('message'));
-    }
-
-    /**
-     * @return array{0: User, 1: Conversation}
-     */
-    private function createInstagramConversation(): array
-    {
-        $tenant = $this->seedTenantWithRoles();
-        $user = User::factory()->create(['tenant_id' => $tenant->id]);
-        $user->assignRole('Owner');
-
-        $config = InstagramConfig::create([
-            'tenant_id' => $tenant->id,
-            'ig_user_id' => 'IG_BIZ_1',
-            'page_id' => 'PAGE_1',
-            'webhook_object_id' => 'IG_BIZ_1',
-            'username' => 'acme',
-            'page_access_token' => Crypt::encryptString('PAGE_TOKEN'),
-        ]);
-
-        $channel = Channel::create([
-            'tenant_id' => $tenant->id,
-            'user_id' => $user->id,
-            'instagram_config_id' => $config->id,
-            'type' => ChannelType::INSTAGRAM,
-            'external_id' => 'IG_BIZ_1',
-            'name' => '@acme',
-            'status' => 'active',
-        ]);
-
-        $contact = Contact::create([
-            'tenant_id' => $tenant->id,
-            'name' => 'Fulano IG',
-            'source' => 'instagram',
-            'external_id' => 'IGSID_1',
-        ]);
-
-        $conversation = Conversation::create([
-            'tenant_id' => $tenant->id,
-            'channel_id' => $channel->id,
-            'contact_id' => $contact->id,
-            'status' => 'open',
-        ]);
-
-        return [$user, $conversation];
     }
 
     private function seedTenantWithRoles(): Tenant

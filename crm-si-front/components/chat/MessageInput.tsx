@@ -21,7 +21,10 @@ import { VoiceRecorder } from "./VoiceRecorder"
 import { AudioPlayer } from "./AudioPlayer"
 import { ContactShareDialog } from "./ContactShareDialog"
 import { ScheduleMessagePicker } from "./ScheduleMessagePicker"
+import { MessagingWindowBanner } from "./MessagingWindowBanner"
 import { useComposerStore } from "@/store/useComposerStore"
+import type { MessagingWindowStatus } from "@/hooks/useMessagingWindowStatus"
+import type { ChannelType } from "@/data/enums"
 
 const TemplatePicker = dynamic(
   () => import("./TemplatePicker").then(m => m.TemplatePicker),
@@ -53,6 +56,10 @@ interface MessageInputProps {
   /** Devuelve true si se programó, para limpiar el composer sólo en ese caso. */
   onSchedule?: (content: string, scheduledFor: Date, media?: File) => Promise<boolean>
   windowExpiresAt?: string | null
+  /** "closed" bloquea el texto libre; las plantillas siguen disponibles. */
+  windowStatus?: MessagingWindowStatus
+  humanAgentExpiresAt?: string | null
+  channelType?: ChannelType
 }
 
 interface SlashState {
@@ -84,6 +91,9 @@ export function MessageInput({
   onShareContacts,
   onSchedule,
   windowExpiresAt,
+  windowStatus,
+  humanAgentExpiresAt,
+  channelType,
 }: MessageInputProps) {
   const { t } = useTranslation()
   const { addToast } = useToast()
@@ -114,6 +124,8 @@ export function MessageInput({
   const [isScheduleSheetOpen, setIsScheduleSheetOpen] = useState(false)
 
   const isEditing = !!editingMessage
+  const composerDisabled = disabled || windowStatus === "closed"
+  const canOpenTemplates = !!(supportsTemplates && channelId && conversationId && onSendTemplate)
   const isAudio = !!selectedMedia?.type.startsWith("audio/")
 
   useEffect(() => {
@@ -341,8 +353,8 @@ export function MessageInput({
   }
 
   const canSend = isAudio ? selectedMedia : value.trim() || selectedMedia
-  const emojiPickerDisabled = disabled || isAudio
-  const canSchedule = !!onSchedule && !isEditing && !disabled && !!canSend
+  const emojiPickerDisabled = composerDisabled || isAudio
+  const canSchedule = !!onSchedule && !isEditing && !composerDisabled && !!canSend
 
   const handleEmojiSelect = (emoji: string) => {
     const input = inputRef.current
@@ -439,13 +451,13 @@ export function MessageInput({
       label: t("chats.attachImage"),
       Icon: ImageIcon,
       tone: "bg-primary/10 text-primary",
-      disabled: disabled,
+      disabled: composerDisabled,
       onClick: () => {
         setIsActionsOpen(false)
         fileInputRef.current?.click()
       },
     },
-    ...(supportsTemplates && channelId && conversationId && onSendTemplate
+    ...(canOpenTemplates
       ? [{
           key: "template",
           label: t("chats.templates"),
@@ -463,7 +475,7 @@ export function MessageInput({
       label: "Compartir contactos",
       Icon: UserRound,
       tone: "bg-primary/10 text-primary",
-      disabled,
+      disabled: composerDisabled,
       onClick: () => { setIsActionsOpen(false); setIsContactShareOpen(true) },
     }] : []),
     {
@@ -482,7 +494,7 @@ export function MessageInput({
       label: t("chats.translateAction"),
       Icon: Languages,
       tone: translatedLanguage ? "bg-primary/10 text-primary" : "bg-muted text-foreground",
-      disabled: disabled,
+      disabled: composerDisabled,
       onClick: () => {
         setIsActionsOpen(false)
         setIsTranslationSheetOpen(true)
@@ -504,7 +516,7 @@ export function MessageInput({
       label: t("chats.aiDraftGenerate"),
       Icon: Sparkles,
       tone: "bg-ai/10 text-ai",
-      disabled,
+      disabled: composerDisabled,
       onClick: () => {
         setIsActionsOpen(false)
         if (aiDraft?.status === "pending") onCancelAiDraft?.()
@@ -516,6 +528,14 @@ export function MessageInput({
 
   return (
     <div className="border-t border-border bg-card sticky bottom-0 md:relative">
+      {channelType != null && (windowStatus === "closed" || windowStatus === "human_agent") && (
+        <MessagingWindowBanner
+          status={windowStatus}
+          channelType={channelType}
+          humanAgentExpiresAt={humanAgentExpiresAt ?? null}
+          onOpenTemplates={canOpenTemplates ? () => setIsTemplateDialogOpen(true) : undefined}
+        />
+      )}
       {/* Edit mode banner */}
       {isEditing && (
         <div className="px-4 pt-3 flex items-center gap-2 text-sm text-muted-foreground">
@@ -682,7 +702,7 @@ export function MessageInput({
                 variant="ghost"
                 size="sm"
                 className="hidden shrink-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5"
-                disabled={disabled}
+                disabled={composerDisabled}
                 onClick={() => fileInputRef.current?.click()}
                 aria-label={t("chats.attachFile")}
               >
@@ -720,7 +740,7 @@ export function MessageInput({
                   variant="ghost"
                   size="sm"
                   className="hidden shrink-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5"
-                  disabled={disabled}
+                  disabled={composerDisabled}
                   onClick={() => setIsContactShareOpen(true)}
                   aria-label="Compartir contactos"
                   title="Compartir contactos"
@@ -733,7 +753,7 @@ export function MessageInput({
                   <Button
                     variant="ghost"
                     size="sm"
-                    disabled={disabled}
+                    disabled={composerDisabled}
                     aria-label={t("chats.translateDraft")}
                     title={t("chats.translateDraft")}
                     className={`h-10 w-10 shrink-0 p-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5 ${
@@ -757,7 +777,7 @@ export function MessageInput({
                   variant="ghost"
                   size="sm"
                   className={`h-10 w-10 shrink-0 p-0 sm:h-8 sm:w-8 ${aiDraft?.content ? "bg-ai/10 text-ai hover:bg-ai/15 hover:text-ai" : ""}`}
-                  disabled={disabled}
+                  disabled={composerDisabled}
                   onClick={() => {
                     if (aiDraft?.status === "pending") onCancelAiDraft?.()
                     else if (aiDraft?.content) onUseAiDraft?.()
@@ -791,7 +811,7 @@ export function MessageInput({
               onBlur={() => requestAnimationFrame(closeHotkeyDropdown)}
               onKeyDown={handleKeyDown}
               onKeyUp={stopPropagation}
-              disabled={disabled || isAudio}
+              disabled={composerDisabled || isAudio}
             />
             {isHotkeyDropdownOpen && (
               <HotkeyAutocomplete
@@ -824,7 +844,7 @@ export function MessageInput({
           {supportsVoice && !isEditing && !selectedMedia && (
             <VoiceRecorder
               conversationId={conversationId}
-              disabled={disabled}
+              disabled={composerDisabled}
               canRecord={!value.trim()}
               onActiveChange={setIsVoiceComposerActive}
               onSend={(file) => onSend("", file, true)}
@@ -854,14 +874,14 @@ export function MessageInput({
             size="sm"
             className="h-10 w-10 shrink-0 p-0 sm:h-8 sm:w-auto sm:px-3"
             onClick={handleSend}
-            disabled={disabled || !canSend}
+            disabled={composerDisabled || !canSend}
             aria-label={isEditing ? t("chats.save") : t("chats.send")}
           >
             {isEditing ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
           </Button>}
         </div>
       </div>
-      {supportsContactSharing && onShareContacts && <ContactShareDialog open={isContactShareOpen} onOpenChange={setIsContactShareOpen} onSend={onShareContacts} disabled={disabled} />}
+      {supportsContactSharing && onShareContacts && <ContactShareDialog open={isContactShareOpen} onOpenChange={setIsContactShareOpen} onSend={onShareContacts} disabled={composerDisabled} />}
     </div>
   )
 }

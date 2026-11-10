@@ -33,6 +33,8 @@ const EXPECTED_BUSINESS_PATTERNS = [
   /validation/i,
   /validaci[oó]n/i,
   /trial_expired/i,
+  /ventana de 24 horas/i,
+  /plantilla aprobada/i,
 ];
 
 export function isExpectedBusinessErrorMessage(message: unknown) {

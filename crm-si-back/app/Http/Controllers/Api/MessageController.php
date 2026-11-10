@@ -225,7 +225,8 @@ class MessageController extends Controller
                 $path = $file->store("messages/{$tenantId}", 'public');
 
                 $message = $this->sender->send(
-                    $conversation, $request->user(), 'image', $data['content'] ?? null, $path, $file->getMimeType()
+                    $conversation, $request->user(), 'image', $data['content'] ?? null, $path, $file->getMimeType(),
+                    allowHumanAgentTag: true,
                 );
             } elseif ($type === 'audio' && $request->hasFile('audio')) {
                 $file = $request->file('audio');
@@ -241,7 +242,8 @@ class MessageController extends Controller
 
                     $message = $this->sender->send(
                         $conversation, $request->user(), 'audio', null, $path,
-                        $voice ? 'audio/ogg' : ($file->getMimeType() ?: 'audio/mpeg'), $voice
+                        $voice ? 'audio/ogg' : ($file->getMimeType() ?: 'audio/mpeg'), $voice,
+                        allowHumanAgentTag: true,
                     );
                 } finally {
                     if ($voicePath !== null && is_file($voicePath)) {
@@ -249,7 +251,7 @@ class MessageController extends Controller
                     }
                 }
             } else {
-                $message = $this->sender->send($conversation, $request->user(), 'text', $data['content']);
+                $message = $this->sender->send($conversation, $request->user(), 'text', $data['content'], allowHumanAgentTag: true);
             }
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
