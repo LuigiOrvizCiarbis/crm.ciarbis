@@ -1,4 +1,4 @@
-import { getAuthToken, setWorkspaceId, workspaceHeaders } from "./auth-token"
+import { setWorkspaceId, workspaceHeaders } from "./auth-token"
 
 export interface WorkspaceSummary {
   id: number
@@ -15,10 +15,8 @@ export interface WorkspaceSummary {
 }
 
 export async function getWorkspaces(): Promise<WorkspaceSummary[]> {
-  const token = getAuthToken()
-  if (!token) return []
   const response = await fetch("/api/workspaces", {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...workspaceHeaders() },
+    headers: { Accept: "application/json", ...workspaceHeaders() },
     cache: "no-store",
   })
   if (!response.ok) return []
@@ -26,11 +24,9 @@ export async function getWorkspaces(): Promise<WorkspaceSummary[]> {
 }
 
 export async function createWorkspace(name: string): Promise<{ data?: WorkspaceSummary; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No autenticado" }
   const response = await fetch("/api/workspaces", {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json", ...workspaceHeaders() },
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...workspaceHeaders() },
     body: JSON.stringify({ name }),
   })
   const payload = await response.json().catch(() => ({}))
@@ -50,9 +46,8 @@ function readError(payload: any, fallback: string): string {
   return String(firstError || payload?.message || fallback)
 }
 
-function authedHeaders(token: string): HeadersInit {
+function authedHeaders(): HeadersInit {
   return {
-    Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
     Accept: "application/json",
     ...workspaceHeaders(),
@@ -63,12 +58,9 @@ export async function renameWorkspace(
   id: number,
   name: string,
 ): Promise<{ data?: WorkspaceSummary; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No autenticado" }
-
   const response = await fetch(`/api/workspaces/${id}`, {
     method: "PATCH",
-    headers: authedHeaders(token),
+    headers: authedHeaders(),
     body: JSON.stringify({ name }),
   })
   const payload = await response.json().catch(() => ({}))
@@ -86,12 +78,9 @@ export async function deactivateWorkspace(
   nameConfirmation: string,
   password: string,
 ): Promise<{ message?: string; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No autenticado" }
-
   const response = await fetch(`/api/workspaces/${id}`, {
     method: "DELETE",
-    headers: authedHeaders(token),
+    headers: authedHeaders(),
     body: JSON.stringify({ name_confirmation: nameConfirmation, password }),
   })
   const payload = await response.json().catch(() => ({}))
@@ -100,12 +89,9 @@ export async function deactivateWorkspace(
 }
 
 export async function restoreWorkspace(id: number): Promise<{ message?: string; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No autenticado" }
-
   const response = await fetch(`/api/workspaces/${id}/restore`, {
     method: "POST",
-    headers: authedHeaders(token),
+    headers: authedHeaders(),
   })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) return { error: readError(payload, "No se pudo restaurar el workspace.") }
@@ -113,12 +99,9 @@ export async function restoreWorkspace(id: number): Promise<{ message?: string; 
 }
 
 export async function leaveWorkspace(id: number): Promise<{ message?: string; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No autenticado" }
-
   const response = await fetch(`/api/workspaces/${id}/leave`, {
     method: "POST",
-    headers: authedHeaders(token),
+    headers: authedHeaders(),
   })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) return { error: readError(payload, "No se pudo salir del workspace.") }

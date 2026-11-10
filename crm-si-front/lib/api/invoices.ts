@@ -1,4 +1,4 @@
-import { getAuthToken, workspaceHeaders } from "@/lib/api/auth-token"
+import { workspaceHeaders } from "@/lib/api/auth-token"
 import { throwApiError } from "@/lib/api/api-error"
 
 export interface InvoiceRecord {
@@ -36,9 +36,7 @@ export interface InvoiceTemplateProvisioningRecord {
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = getAuthToken()
-  if (!token) throw new Error("No hay sesión activa")
-  const response = await fetch(path, { ...init, headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json", ...workspaceHeaders(), ...init?.headers }, cache: "no-store" })
+  const response = await fetch(path, { ...init, headers: { Accept: "application/json", "Content-Type": "application/json", ...workspaceHeaders(), ...init?.headers }, cache: "no-store" })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) throwApiError(response.status, payload, "No se pudo completar la operación")
   return payload as T

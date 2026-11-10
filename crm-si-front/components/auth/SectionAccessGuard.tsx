@@ -3,9 +3,10 @@
 import Link from "next/link"
 import { LockKeyhole, LogOut, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
 import { useAuthStore } from "@/store/useAuthStore"
 import { firstAccessibleSection, sectionForPath, canAccessSection } from "@/lib/section-access"
+import { signOut } from "@/lib/account-session"
 
 export function SectionAccessGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -19,10 +20,8 @@ export function SectionAccessGuard({ children }: { children: React.ReactNode }) 
 }
 
 export function AccessDenied() {
-  const router = useRouter()
   const permissions = useAuthStore((state) => state.permissions)
   const role = useAuthStore((state) => state.role)
-  const logout = useAuthStore((state) => state.logout)
   const fallback = firstAccessibleSection(permissions, role)
   return (
     <main className="flex min-h-[60vh] items-center justify-center p-6">
@@ -32,7 +31,7 @@ export function AccessDenied() {
         <div className="flex justify-center gap-2">
           {fallback ? <Link href={fallback.href}><Button>Ir a {fallback.key === "chats" ? "Chats" : "una sección permitida"}</Button></Link> : null}
           <Link href="/perfil"><Button variant="outline"><User className="mr-2 h-4 w-4" />Perfil</Button></Link>
-          <Button variant="ghost" onClick={() => { logout(); router.replace("/login") }}><LogOut className="mr-2 h-4 w-4" />Salir</Button>
+          <Button variant="ghost" onClick={() => void signOut()}><LogOut className="mr-2 h-4 w-4" />Salir</Button>
         </div>
       </div>
     </main>

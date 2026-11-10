@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { proxyToLaravel } from "@/lib/api/proxy-helper"
+import { respondWithIssuedToken } from "@/lib/auth-session"
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,7 +11,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(body),
     })
 
-    return NextResponse.json(data, { status })
+    return respondWithIssuedToken(request, data, status)
   } catch (error: any) {
     console.error("[Auth Register Error]:", error)
     return NextResponse.json(

@@ -1,5 +1,3 @@
-import { getAuthToken } from "./auth-token"
-
 export interface PlanFeature {
   key: string
   /** Fallback en español definido en la DB; el front intenta primero la traducción por key. */
@@ -42,9 +40,7 @@ function mapPlan(raw: RawPlan): Plan {
 
 export async function getPlans(): Promise<Plan[]> {
   // Catálogo público: se consulta con o sin sesión (la landing linkea a /pricing).
-  const token = getAuthToken()
   const headers: Record<string, string> = { Accept: "application/json" }
-  if (token) headers.Authorization = `Bearer ${token}`
 
   const res = await fetch("/api/plans", {
     headers,

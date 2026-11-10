@@ -115,6 +115,8 @@
     "settings": "Settings",
     "profile": "My profile",
     "logout": "Log out",
+    "otherAccounts": "Other accounts",
+    "addAccount": "Add another account",
     "dashboard": "Main Dashboard",
     "panelShort": "Panel",
     "chatsShort": "Chats",
@@ -610,6 +612,9 @@
   "auth": {
     "title": "BIMS",
     "subtitle": "Sign in to your account to continue",
+    "addAccountTitle": "Add another account",
+    "addAccountSubtitle": "Sign in with another account. {{email}} stays saved so you can switch back anytime.",
+    "cancelAddAccount": "Back to my account",
     "email": "Email address",
     "password": "Password",
     "rememberMe": "Remember me",

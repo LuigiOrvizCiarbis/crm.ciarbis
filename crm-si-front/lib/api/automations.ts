@@ -1,4 +1,3 @@
-import { getAuthToken } from "./auth-token"
 import { throwApiError } from "./api-error"
 
 export type AutomationStatus = "draft" | "active" | "paused"
@@ -72,11 +71,9 @@ export interface AutomationPayload {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = getAuthToken()
-  if (!token) throw new Error("No authentication token found")
   const response = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...init.headers },
+    headers: { "Content-Type": "application/json", ...init.headers },
   })
   const data = response.status === 204 ? null : await response.json().catch(() => ({}))
   if (!response.ok) throwApiError(response.status, data, "Error al procesar la automatización")
@@ -84,16 +81,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const getAutomations = async () => {
-  const token = getAuthToken()
-  if (!token) throw new Error("No authentication token found")
-
   const all: AutomationRule[] = []
   let page = 1
   let lastPage = 1
 
   do {
     const response = await fetch(`/api/automations?per_page=100&page=${page}`, {
-      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+      headers: { Accept: "application/json" },
     })
     const payload = await response.json().catch(() => ({}))
     if (!response.ok) throwApiError(response.status, payload, "Error al cargar automatizaciones")

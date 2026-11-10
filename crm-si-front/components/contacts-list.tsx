@@ -19,7 +19,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, Tags, FileText, Paperclip, RotateCcw, Trash2, Pencil } from "lucide-react"
 import type { RangeFilterValue } from "./contacts/RangeFilterMenu"
 import { BulkFieldsDialog } from "./contacts/bulk-fields-dialog"
-import { getAuthToken, getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
+import { getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
 import { ContactPipelineDialog } from "@/components/contact-pipeline-dialog"
 import { updateContact, type ContactAvatar as ContactAvatarPayload, type ContactAvatarSource, type ContactUpdate } from "@/lib/api/contacts"
 import { ContactAvatarActions } from "@/components/contact-avatar-actions"
@@ -503,9 +503,8 @@ export function ContactsList({
     setLoading(true)
     setError(null)
     try {
-      const token = getAuthToken()
       const response = await fetch(`/api/contacts?${contactsQuery}`, {
-        headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+        headers: workspaceHeaders(),
         signal: controller.signal,
       })
       if (!response.ok) throw new Error("No se pudieron cargar los contactos.")
@@ -587,12 +586,10 @@ export function ContactsList({
     const method = isEdit ? "PUT" : "POST"
 
     try {
-      const token = getAuthToken()
       const response = await fetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
           ...workspaceHeaders(),
         },
         body: JSON.stringify({
@@ -665,10 +662,9 @@ export function ContactsList({
     if (!deleteContact) return
     setDeleting(true)
     try {
-      const token = getAuthToken()
       const response = await fetch(`/api/contacts/${deleteContact.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+        headers: workspaceHeaders(),
       })
       if (!response.ok) throw new Error(String(response.status))
       setDeleteContact(null)
@@ -685,12 +681,11 @@ export function ContactsList({
     if (ids.length === 0) return
     setBulkDeleting(true)
     try {
-      const token = getAuthToken()
       const results = await Promise.allSettled(
         ids.map((id) =>
           fetch(`/api/contacts/${id}`, {
             method: "DELETE",
-            headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+            headers: workspaceHeaders(),
           }).then((response) => {
             if (!response.ok) throw new Error(String(response.status))
             return response

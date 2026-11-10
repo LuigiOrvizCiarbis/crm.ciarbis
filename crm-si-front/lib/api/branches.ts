@@ -1,4 +1,3 @@
-import { getAuthToken } from "./auth-token"
 
 export interface Branch {
   id: number
@@ -38,11 +37,8 @@ export interface BranchPayload {
 }
 
 export async function getBranches(): Promise<Branch[]> {
-  const token = getAuthToken()
-  if (!token) return []
-
   const res = await fetch("/api/branches", {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
 
@@ -52,11 +48,8 @@ export async function getBranches(): Promise<Branch[]> {
 }
 
 export async function getBranch(id: number): Promise<{ data?: Branch; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch(`/api/branches/${id}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
 
@@ -66,13 +59,9 @@ export async function getBranch(id: number): Promise<{ data?: Branch; error?: st
 }
 
 export async function createBranch(payload: BranchPayload): Promise<{ data?: Branch; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch("/api/branches", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -88,13 +77,9 @@ export async function updateBranch(
   id: number,
   payload: BranchPayload,
 ): Promise<{ data?: Branch; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch(`/api/branches/${id}`, {
     method: "PATCH",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -107,12 +92,9 @@ export async function updateBranch(
 }
 
 export async function deleteBranch(id: number): Promise<{ error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch(`/api/branches/${id}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
   })
 
   if (!res.ok) {
@@ -126,11 +108,8 @@ export async function getBranchStats(
   id: number,
   rango: 7 | 30 | 90 = 30,
 ): Promise<{ data?: BranchStats; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch(`/api/branches/${id}/stats?rango=${rango}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
 
@@ -143,13 +122,9 @@ export async function assignUserBranch(
   userId: number,
   branchId: number | null,
 ): Promise<{ data?: any; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch(`/api/users/${userId}/branch`, {
     method: "PATCH",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -165,13 +140,9 @@ export async function assignChannelBranch(
   channelId: number,
   branchId: number | null,
 ): Promise<{ data?: any; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch(`/api/channels/${channelId}/branch`, {
     method: "PATCH",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },

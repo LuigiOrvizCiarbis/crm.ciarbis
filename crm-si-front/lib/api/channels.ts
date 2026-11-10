@@ -1,5 +1,5 @@
 import { Channel } from "@/data/types";
-import { getAuthToken, workspaceHeaders } from "./auth-token";
+import { workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 import { ChannelError } from "@/lib/channel-error";
 
@@ -24,16 +24,12 @@ export interface MailConnectPayload {
  * 409 de casilla duplicada que se traduce con clave propia.
  */
 export async function connectMailChannel(payload: MailConnectPayload): Promise<Channel> {
-  const token = getAuthToken();
-  if (!token) throw new ChannelError({ code: "channelErrorSessionExpired" });
-
   let response: Response;
   try {
     response = await fetch("/api/mail-auth", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(payload),
     });
@@ -59,16 +55,12 @@ export async function connectMailChannel(payload: MailConnectPayload): Promise<C
  * y responde enseguida: la llegada de los mensajes es asincrónica (websocket).
  */
 export async function syncMailChannel(channelId: number): Promise<void> {
-  const token = getAuthToken();
-  if (!token) throw new ChannelError({ code: "channelErrorSessionExpired" });
-
   let response: Response;
   try {
     response = await fetch(`/api/mail-sync/${channelId}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
       },
     });
   } catch {
@@ -84,14 +76,10 @@ export async function syncMailChannel(channelId: number): Promise<void> {
 }
 
 export async function getChannels(): Promise<Channel[]> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch("/api/channels", {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
       ...workspaceHeaders(),
     },
   });
@@ -117,11 +105,9 @@ export interface ChannelHandoffSettings {
  * canal (sólo números en la app WhatsApp Business).
  */
 export async function updateChannelHandoffSettings(id: number, settings: ChannelHandoffSettings): Promise<Channel> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
   const response = await fetch(`/api/channels/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
   });
   const data = await response.json().catch(() => ({}));
@@ -164,11 +150,8 @@ export interface ContactSync {
 }
 
 export async function getContactSync(channelId: number): Promise<ContactSync> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch(`/api/channels/${channelId}/contact-sync`, {
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json" },
   });
 
   if (!response.ok) {
@@ -180,12 +163,9 @@ export async function getContactSync(channelId: number): Promise<ContactSync> {
 }
 
 export async function retryContactSync(channelId: number): Promise<void> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch(`/api/channels/${channelId}/contact-sync/retry`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json" },
   });
 
   if (!response.ok) {
@@ -203,12 +183,9 @@ export async function retryContactSync(channelId: number): Promise<void> {
  * siempre pese a que el mensaje de error invita a reintentar.
  */
 export async function retryHistorySync(channelId: number): Promise<void> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch(`/api/channels/${channelId}/contact-sync/retry-history`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json" },
   });
 
   if (!response.ok) {
@@ -218,14 +195,10 @@ export async function retryHistorySync(channelId: number): Promise<void> {
 }
 
 export async function updateChannelName(id: number, name: string): Promise<Channel> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch(`/api/channels/${id}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ name }),
   });
@@ -253,14 +226,10 @@ export interface DisconnectChannelResult {
  * otro canal, o que la revocación remota no se pudo confirmar.
  */
 export async function disconnectChannel(id: number): Promise<DisconnectChannelResult> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch(`/api/channels/${id}/disconnect`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
   });
 
@@ -295,14 +264,10 @@ export interface BusinessVerification {
 export async function getBusinessVerification(
   channelId: number
 ): Promise<BusinessVerification> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const response = await fetch(`/api/channels/${channelId}/business-verification`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
   });
 

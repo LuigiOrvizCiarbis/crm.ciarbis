@@ -1,4 +1,3 @@
-import { getAuthToken } from "./auth-token"
 import { throwApiError } from "./api-error"
 
 export interface MediaAsset {
@@ -11,15 +10,11 @@ export interface MediaAsset {
 }
 
 export async function uploadMediaAsset(file: File): Promise<MediaAsset> {
-  const token = getAuthToken()
-  if (!token) throw new Error("No authentication token found")
-
   const formData = new FormData()
   formData.append("file", file)
 
   const res = await fetch("/api/media-assets", {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
     body: formData,
   })
 
@@ -59,14 +54,9 @@ export class AssetForbiddenError extends Error {
   }
 }
 
-function authHeader(): HeadersInit {
-  const token = getAuthToken()
-  return { Authorization: token ? `Bearer ${token}` : "" }
-}
-
 export async function fetchMediaAssetMeta(assetId: number): Promise<MediaAssetMeta> {
   const res = await fetch(`/api/media-assets/${assetId}/meta`, {
-    headers: { ...authHeader(), Accept: "application/json" },
+    headers: { Accept: "application/json" },
   })
 
   if (res.status === 404) throw new AssetMissingError()
@@ -81,16 +71,13 @@ export async function fetchMediaAssetMeta(assetId: number): Promise<MediaAssetMe
 /**
  * Descarga el archivo y devuelve una URL de objeto para el visor.
  *
- * El endpoint exige el token en un header y un <object data="..."> no puede
- * mandarlo: el navegador pediría la URL sin credenciales. Por eso se baja con
- * fetch autenticado y se le da al visor un blob:, que vive sólo en esta pestaña
- * y muere al revocarlo.
+ * Se baja con fetch (la sesión viaja en la cookie httpOnly) y se le da al visor
+ * un blob:, que vive sólo en esta pestaña y muere al revocarlo.
  *
  * Quien llame es responsable de URL.revokeObjectURL() al desmontar.
  */
 export async function fetchMediaAssetObjectUrl(assetId: number, signal?: AbortSignal): Promise<string> {
   const res = await fetch(`/api/media-assets/${assetId}/download`, {
-    headers: authHeader(),
     signal,
   })
 

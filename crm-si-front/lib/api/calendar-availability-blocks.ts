@@ -1,4 +1,4 @@
-import { getAuthToken, workspaceHeaders } from "./auth-token"
+import { workspaceHeaders } from "./auth-token"
 
 export interface CalendarAvailabilityBlock {
   id: string
@@ -37,15 +37,12 @@ export class CalendarBlockApiError extends Error {
 }
 
 export async function calendarRequest<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const token = getAuthToken()
-  if (!token) throw new CalendarBlockApiError("Tu sesión venció. Volvé a iniciar sesión.", 401)
   let response: Response
   try {
     response = await fetch(url, {
       ...options,
       cache: "no-store",
       headers: {
-        Authorization: `Bearer ${token}`,
         Accept: "application/json",
         ...workspaceHeaders(),
         ...(options.body ? { "Content-Type": "application/json" } : {}),

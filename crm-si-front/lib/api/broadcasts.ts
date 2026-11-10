@@ -1,4 +1,3 @@
-import { getAuthToken } from "./auth-token"
 import { throwApiError } from "./api-error"
 
 export type BroadcastStatus = "scheduled" | "processing" | "completed" | "partial" | "failed" | "cancelled"
@@ -98,17 +97,10 @@ export interface BroadcastPayload {
   acknowledge_messaging_limit?: boolean
 }
 
-function token(): string {
-  const value = getAuthToken()
-  if (!value) throw new Error("No authentication token found")
-  return value
-}
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...options,
     headers: {
-      Authorization: `Bearer ${token()}`,
       Accept: "application/json",
       "Content-Type": "application/json",
       ...options.headers,
@@ -203,7 +195,6 @@ export async function createBroadcast(payload: BroadcastPayload): Promise<Broadc
   const response = await fetch("/api/broadcasts", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token()}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
