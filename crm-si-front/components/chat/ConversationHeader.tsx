@@ -140,7 +140,8 @@ export function ConversationHeader({
               fallbackClassName="text-sm font-semibold"
             />
           )}
-          <div className="flex-1 min-w-0">
+          {/* Contenedor propio: el badge del anuncio se adapta al ancho que le dejan las acciones, no al de la ventana. */}
+          <div className="@container flex-1 min-w-0">
             <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
               {isEditingName ? (
                 <div className="flex min-w-0 flex-1 items-center gap-1">
@@ -204,15 +205,24 @@ export function ConversationHeader({
                   title={`${t("chats.leadScore")}: ${leadScore}/100 - ${t("chats.leadScoreHint")}`}
                 />
               )}
+            </div>
+            {/* El anuncio va junto al teléfono: en la fila del nombre competía con las acciones y lo truncaba.
+                Si no entra al lado del número queda solo el ícono, y si tampoco entra se oculta
+                (el anuncio sigue en el panel del contacto). */}
+            <div className="mt-0.5 flex min-w-0 items-center gap-2">
+              <p className="min-w-0 truncate text-xs text-muted-foreground">
+                {isGroup
+                  ? `${conversation.group?.total_participant_count ?? 0} participantes`
+                  : conversation.contact?.phone || t("chats.online")}
+              </p>
               {!isGroup && adReferral && (
-                <AdReferralBadge referral={adReferral} className="hidden sm:inline-flex" />
+                <AdReferralBadge
+                  referral={adReferral}
+                  className="hidden @min-[8.5rem]:inline-flex"
+                  labelClassName="sr-only @min-[12.5rem]:not-sr-only"
+                />
               )}
             </div>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {isGroup
-                ? `${conversation.group?.total_participant_count ?? 0} participantes`
-                : conversation.contact?.phone || t("chats.online")}
-            </p>
           </div>
         </div>
         {/* Panel angosto (teléfono, o laptop con la bandeja abierta): a la vista quedan buscar en el hilo

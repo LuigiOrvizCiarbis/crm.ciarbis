@@ -824,6 +824,8 @@
     "fromAd": "Ad",
     "fromPost": "Post",
     "adIdLabel": "Ad {{id}}",
+    "adsFilter": "Ads",
+    "adsFilterHint": "Show only chats that came from a Meta ad or post",
     "online": "Online",
     "back": "Back to conversations",
     "contactInfo": "Contact information",
