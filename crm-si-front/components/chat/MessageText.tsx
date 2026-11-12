@@ -12,6 +12,22 @@ const LINK_REGEX = /(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+|[\w.+-]+@[\w-]+\.[a-z
 
 const TRAILING_PUNCTUATION = /[.,;:!?)\]}'"]+$/
 
+// overflow-wrap en vez de break-all: el link baja entero de línea y sólo se
+// corta si no entra en una línea completa.
+const LINK_BASE_CLASS =
+  "rounded-sm font-medium underline underline-offset-[3px] [overflow-wrap:anywhere] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+
+/**
+ * Sobre la burbuja propia (fondo de acción) el cian sería invisible: ahí el
+ * link conserva el color del texto y se distingue por peso y subrayado.
+ */
+function linkClass(onAccent: boolean): string {
+  const tone = onAccent
+    ? "text-current decoration-current/60 hover:decoration-current"
+    : "text-primary decoration-primary/40 hover:decoration-primary"
+  return `${LINK_BASE_CLASS} ${tone}`
+}
+
 /** Sólo estos esquemas se dejan navegar; nunca javascript:/data:. */
 function isSafeHref(href: string): boolean {
   try {
@@ -34,7 +50,7 @@ function buildHref(match: string): string {
  * Recorta puntuación final que suele quedar pegada al link ("visitá x.com.")
  * sin perderla del texto visible.
  */
-function autolinkSegment(text: string, keyPrefix: string): ReactNode {
+function autolinkSegment(text: string, keyPrefix: string, onAccent: boolean): ReactNode {
   // split con un regex de un solo grupo de captura intercala texto/match:
   // índices pares son texto plano, impares son lo que matcheó LINK_REGEX.
   const parts = text.split(LINK_REGEX)
@@ -57,7 +73,7 @@ function autolinkSegment(text: string, keyPrefix: string): ReactNode {
           href={href}
           target="_blank"
           rel="noopener noreferrer nofollow"
-          className="break-all underline underline-offset-2 hover:opacity-80"
+          className={linkClass(onAccent)}
           onClick={(e) => e.stopPropagation()}
         >
           {linkText}
@@ -87,13 +103,16 @@ export function MessageText({
   query,
   activeMatchKey,
   matchKeyPrefix,
+  onAccent = false,
 }: {
   content: string
   query: string
   activeMatchKey: string | null
   matchKeyPrefix: string
+  /** El texto va sobre el color de acción (burbuja propia). */
+  onAccent?: boolean
 }): ReactNode {
   return highlightText(content, query, activeMatchKey, matchKeyPrefix, (part, key) => (
-    <Fragment key={key}>{autolinkSegment(part, key)}</Fragment>
+    <Fragment key={key}>{autolinkSegment(part, key, onAccent)}</Fragment>
   ))
 }
