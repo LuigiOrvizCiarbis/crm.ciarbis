@@ -39,6 +39,14 @@ export function FlowPickerDialog({ open, onOpenChange, channelId, onSend, disabl
   const [header, setHeader] = useState("")
   const [footer, setFooter] = useState("")
 
+  const applyFlow = (flow: WhatsAppFlow | undefined) => {
+    setFlowId(flow ? String(flow.id) : "")
+    setHeader(flow?.send_defaults.header ?? "")
+    setBody(flow?.send_defaults.body ?? "")
+    setFooter(flow?.send_defaults.footer ?? "")
+    setCta(flow?.send_defaults.cta ?? "")
+  }
+
   useEffect(() => {
     if (!open) return
     setLoading(true)
@@ -46,7 +54,9 @@ export function FlowPickerDialog({ open, onOpenChange, channelId, onSend, disabl
     getFlows(channelId, { sendable: true })
       .then((items) => {
         setFlows(items)
-        setFlowId((current) => items.some((flow) => String(flow.id) === current) ? current : "")
+        // Una sola opción: queda elegida y con sus textos, lista para enviar.
+        if (items.length === 1) applyFlow(items[0])
+        else applyFlow(undefined)
       })
       .catch(() => {
         setFlows([])
@@ -54,18 +64,6 @@ export function FlowPickerDialog({ open, onOpenChange, channelId, onSend, disabl
       })
       .finally(() => setLoading(false))
   }, [open, channelId, reloadKey])
-
-  useEffect(() => {
-    if (open) setCta((current) => current || t("chats.flows.ctaDefault"))
-  }, [open, t])
-
-  const reset = () => {
-    setFlowId("")
-    setBody("")
-    setCta("")
-    setHeader("")
-    setFooter("")
-  }
 
   const canSend = !!flowId && !!body.trim() && !!cta.trim() && !disabled && !sending
 
@@ -80,7 +78,7 @@ export function FlowPickerDialog({ open, onOpenChange, channelId, onSend, disabl
         ...(header.trim() ? { header: header.trim() } : {}),
         ...(footer.trim() ? { footer: footer.trim() } : {}),
       })
-      reset()
+      applyFlow(undefined)
       onOpenChange(false)
     } catch (error) {
       addToast({ type: "error", title: t("chats.flows.sendError"), description: error instanceof Error ? error.message : undefined })
@@ -108,12 +106,13 @@ export function FlowPickerDialog({ open, onOpenChange, channelId, onSend, disabl
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="flow-picker-flow">{t("chats.flows.flow")}</Label>
-            <Select value={flowId} onValueChange={setFlowId}>
+            <Select value={flowId} onValueChange={(value) => applyFlow(flows.find((flow) => String(flow.id) === value))}>
               <SelectTrigger id="flow-picker-flow" className="w-full"><SelectValue placeholder={t("chats.flows.selectFlow")} /></SelectTrigger>
               <SelectContent>
                 {flows.map((flow) => <SelectItem key={flow.id} value={String(flow.id)}>{flow.name}{flow.status !== "PUBLISHED" ? ` (${flow.status})` : ""}</SelectItem>)}
               </SelectContent>
             </Select>
+            {flowId ? <p className="text-xs text-muted-foreground">{t("chats.flows.defaultsHint")}</p> : null}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="flow-picker-header">{t("chats.flows.header")}</Label>

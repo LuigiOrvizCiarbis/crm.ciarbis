@@ -29,6 +29,31 @@ class FlowDefinitionValidatorTest extends TestCase
         $this->assertArrayHasKey('screens.0.blocks.0.key', $errors);
     }
 
+    public function test_keys_starting_with_required_are_rejected(): void
+    {
+        $errors = $this->validate([$this->screen([$this->question('requerido'), $this->question('required_doc')])]);
+
+        $this->assertSame(['screens.0.blocks.1.key'], array_keys($errors));
+    }
+
+    public function test_a_question_mapped_to_a_required_crm_field_must_be_required(): void
+    {
+        ContactField::create([
+            'tenant_id' => $this->tenant->id,
+            'key' => 'dni',
+            'label' => 'DNI',
+            'type' => ContactFieldType::Text,
+            'is_required' => true,
+            'display_order' => 1,
+        ]);
+        $block = ['required' => false, 'maps_to' => 'custom_data.dni'] + $this->question('dni');
+
+        $this->assertArrayHasKey('screens.0.blocks.0.required', $this->validate([$this->screen([$block])]));
+
+        $block['required'] = true;
+        $this->assertSame([], $this->validate([$this->screen([$block])]));
+    }
+
     public function test_choice_mapped_to_a_select_field_must_use_its_choices(): void
     {
         ContactField::create([

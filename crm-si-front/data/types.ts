@@ -240,12 +240,21 @@ export interface WhatsAppFlow {
   screens: string[]
   has_published_version: boolean
   has_builder_definition: boolean
+  /** Textos con los que se envía; el backend completa los que falten. */
+  send_defaults: WhatsAppFlowSendDefaults
   synced_at: string | null
   published_at: string | null
   updated_at: string | null
   /** Sólo en el detalle (`getFlow`). */
   flow_json?: string | null
   builder_definition?: FlowDefinition | null
+}
+
+export interface WhatsAppFlowSendDefaults {
+  header: string | null
+  body: string
+  footer: string | null
+  cta: string
 }
 
 export interface WhatsAppFlowEncryptionStatus {
@@ -272,6 +281,8 @@ export type MessageInteractive =
       flow_name: string | null
       session_id: number | null
       response: Record<string, unknown>
+      /** Respuestas que no se pudieron guardar en el contacto (clave → motivo). */
+      mapping_errors?: Record<string, string>
     }
 
 export interface WhatsAppTemplate {

@@ -19,6 +19,7 @@ import {
   OPTION_COUNT_MAX,
   OPTION_TITLE_MAX,
   TEXT_MAX,
+  hasForbiddenKeyPrefix,
   isChoiceBlock,
   isQuestionBlock,
   isReservedKey,
@@ -88,6 +89,12 @@ export function validateDefinition(
 
       if (!KEY_PATTERN.test(block.key)) add(`${path}.key`, t("flows.builder.errors.keyFormat"));
       else if (isReservedKey(block.key)) add(`${path}.key`, t("flows.builder.errors.keyReserved"));
+      else if (hasForbiddenKeyPrefix(block.key)) add(`${path}.key`, t("flows.builder.errors.keyRequiredPrefix"));
+
+      const requiredField = fields?.find((field) => field.key === customFieldKey(block.maps_to));
+      if (requiredField?.is_required && !block.required) {
+        add(`${path}.required`, t("flows.builder.errors.requiredInCrm", { field: requiredField.label }));
+      }
 
       if ("helper_text" in block && block.helper_text) {
         checkLength(`${path}.helper_text`, block.helper_text, HELPER_TEXT_MAX, false);

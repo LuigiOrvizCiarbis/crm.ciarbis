@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { ChevronDown, Lock, Plus, Trash2, TriangleAlert, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -211,9 +211,17 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, onChange
     onChange({ ...block, label, key: keyTouched ? block.key : keyFromLabel(label, otherKeys) })
   }
 
+  const requiredInCrm = (maps_to: string | null | undefined) => findField(contactFields, customFieldKey(maps_to))?.is_required === true
+  const lockRequired = requiredInCrm(block.maps_to)
+
+  // Una definición cargada inconsistente se corrige apenas se abre el bloque.
+  useEffect(() => {
+    if (lockRequired && !block.required) onChange({ ...block, required: true })
+  }, [lockRequired, block, onChange])
+
   const setTarget = (value: string) => {
     const maps_to = value === NONE ? null : (value as MapsTo)
-    const next = { ...block, maps_to } as QuestionBlock
+    const next = { ...block, maps_to, ...(requiredInCrm(maps_to) ? { required: true } : {}) } as QuestionBlock
     const locked = isChoiceBlock(next) ? lockedOptions(next, contactFields) : null
     onChange(locked && isChoiceBlock(next) ? { ...next, options: locked } : next)
   }
@@ -302,15 +310,20 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, onChange
         <OptionsEditor block={block} uid={uid} errors={errors} contactFields={contactFields} onChange={onChange} t={t} />
       ) : null}
 
-      <div className="flex items-center justify-between gap-3">
-        <Label htmlFor={`${uid}-required`} className="text-sm">
-          {t("flows.builder.block.required")}
-        </Label>
-        <Switch
-          id={`${uid}-required`}
-          checked={block.required}
-          onCheckedChange={(required) => onChange({ ...block, required })}
-        />
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor={`${uid}-required`} className="text-sm">
+            {t("flows.builder.block.required")}
+          </Label>
+          <Switch
+            id={`${uid}-required`}
+            checked={block.required}
+            disabled={lockRequired}
+            onCheckedChange={(required) => onChange({ ...block, required })}
+          />
+        </div>
+        {lockRequired ? <p className="text-xs text-muted-foreground">{t("flows.builder.block.requiredInCrm")}</p> : null}
+        <FieldErrorText errors={errors.required} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -318,6 +331,7 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, onChange
           id={`${uid}-maps-to`}
           label={t("flows.builder.block.mapsTo")}
           errors={errors.maps_to}
+          hint={block.maps_to ? t("flows.builder.block.mapsToHint") : undefined}
         >
           <Select value={block.maps_to ?? NONE} onValueChange={setTarget}>
             <SelectTrigger id={`${uid}-maps-to`} className="w-full" aria-invalid={!!errors.maps_to}>

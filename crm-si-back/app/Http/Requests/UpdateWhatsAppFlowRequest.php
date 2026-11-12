@@ -26,6 +26,11 @@ class UpdateWhatsAppFlowRequest extends FormRequest
             'field_mappings' => ['sometimes', 'array', 'max:50'],
             'field_mappings.*.response_key' => ['required', 'string', 'max:120', 'regex:/^[A-Za-z0-9_.]+$/'],
             'field_mappings.*.target' => ['required', 'string', 'max:150', 'regex:/^(contact\.name|contact\.email|custom_data\.[A-Za-z0-9_]+)$/'],
+            'send_defaults' => ['sometimes', 'array'],
+            'send_defaults.header' => ['nullable', 'string', 'max:60'],
+            'send_defaults.body' => ['required_with:send_defaults', 'string', 'max:1024'],
+            'send_defaults.footer' => ['nullable', 'string', 'max:60'],
+            'send_defaults.cta' => ['required_with:send_defaults', 'string', 'max:30'],
         ];
     }
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { CalendarClock, Info } from "lucide-react"
+import { CalendarClock } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,8 +19,6 @@ interface AppointmentSettingsProps {
   appointment: AppointmentConfig | null
   /** Preguntas de texto largo que pueden usarse como motivo del turno. */
   reasonCandidates: LongTextBlock[]
-  /** null mientras no se sabe (o si no se pudo consultar). */
-  encryptionConfigured: boolean | null
   errors: Record<string, string[]>
   onChange: (appointment: AppointmentConfig | null) => void
 }
@@ -38,7 +36,6 @@ const TEXT_FIELDS: Array<{ field: TextField; max?: number }> = [
 export function AppointmentSettings({
   appointment,
   reasonCandidates,
-  encryptionConfigured,
   errors,
   onChange,
 }: AppointmentSettingsProps) {
@@ -67,12 +64,6 @@ export function AppointmentSettings({
 
       {appointment ? (
         <div className="space-y-4">
-          {encryptionConfigured === false ? (
-            <p className="flex gap-1.5 rounded-md bg-muted/60 px-2.5 py-2 text-xs text-muted-foreground">
-              <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-              {t("flows.builder.appointment.encryptionHint")}
-            </p>
-          ) : null}
           <p className="text-xs text-muted-foreground">{t("flows.builder.appointment.agendaHint")}</p>
           <FieldErrorText errors={errors[""]} />
 

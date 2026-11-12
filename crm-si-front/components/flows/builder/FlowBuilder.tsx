@@ -145,9 +145,9 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
     }
   }, [channelId, flow])
 
-  // Sólo la reserva de turno necesita el endpoint cifrado: el aviso se consulta cuando se activa.
+  // Todo formulario del constructor usa el endpoint cifrado: se avisa si el canal todavía no lo tiene.
   useEffect(() => {
-    if (!hasAppointment || channelId === null || encryptionConfigured !== null) return
+    if (channelId === null || encryptionConfigured !== null) return
     let cancelled = false
     getFlowEncryption(channelId)
       .then((status) => {
@@ -157,7 +157,7 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
     return () => {
       cancelled = true
     }
-  }, [hasAppointment, channelId, encryptionConfigured])
+  }, [channelId, encryptionConfigured])
 
   useEffect(() => {
     if (!dirty) return
@@ -401,7 +401,6 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
       <AppointmentSettings
         appointment={definition.appointment}
         reasonCandidates={reasonCandidates}
-        encryptionConfigured={encryptionConfigured}
         errors={errors.appointment}
         onChange={(appointment) => {
           setServerErrors((previous) => ({ ...previous, appointment: {} }))
@@ -539,6 +538,7 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
             <Notice tone="warning">{t("flows.builder.notEditable", { status: t(`flows.builder.status.${flow.status}`) })}</Notice>
           ) : null}
           {editable && flow?.status === "PUBLISHED" ? <Notice>{t("flows.builder.publishedEditHint")}</Notice> : null}
+          {editable && encryptionConfigured === false ? <Notice>{t("flows.builder.encryptionHint")}</Notice> : null}
           {errors.global.length > 0 ? <Notice tone="error">{[...new Set(errors.global)].join(" ")}</Notice> : null}
           {clientErrorCount > 0 ? (
             <Notice tone="error" action={{ label: t("flows.builder.goToError"), onClick: goToFirstError }}>
