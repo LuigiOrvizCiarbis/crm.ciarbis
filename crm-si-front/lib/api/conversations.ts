@@ -26,6 +26,7 @@ function mapConversation(c: any): Conversation {
     tags: c.tags,
     matchedMessageSnippet: c.matched_message_snippet ?? undefined,
     humanHandoff: c.human_handoff ?? null,
+    adReferral: c.ad_referral ?? null,
   };
 }
 

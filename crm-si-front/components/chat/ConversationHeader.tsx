@@ -10,8 +10,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Conversation } from "@/data/types"
+import { AdReferral, Conversation } from "@/data/types"
 import { useEffect, useRef, useState } from "react"
+import { AdReferralBadge } from "./AdReferralBadge"
 import { ContactHistoryDrawer } from "./ContactHistoryDrawer"
 import { ContactTimeline } from "./timeline/ContactTimeline"
 import { NewTaskModal } from "@/components/tasks/NewTaskModal"
@@ -30,6 +31,8 @@ interface ConversationHeaderProps {
   onRenameGroup?: (subject: string) => Promise<void> | void
   onToggleAiAutoreply?: (enabled: boolean) => Promise<void> | void
   onSearchMessages: () => void
+  /** Último anuncio de origen; viene del detalle de la conversación, no de la lista. */
+  adReferral?: AdReferral | null
 }
 
 export function ConversationHeader({
@@ -41,6 +44,7 @@ export function ConversationHeader({
   onRenameGroup,
   onToggleAiAutoreply,
   onSearchMessages,
+  adReferral,
 }: ConversationHeaderProps) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [timelineOpen, setTimelineOpen] = useState(false)
@@ -199,6 +203,9 @@ export function ConversationHeader({
                   className="hidden cursor-help sm:inline-flex"
                   title={`${t("chats.leadScore")}: ${leadScore}/100 - ${t("chats.leadScoreHint")}`}
                 />
+              )}
+              {!isGroup && adReferral && (
+                <AdReferralBadge referral={adReferral} className="hidden sm:inline-flex" />
               )}
             </div>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">

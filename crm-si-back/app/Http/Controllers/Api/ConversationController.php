@@ -6,6 +6,7 @@ use App\Enums\MessageDirection;
 use App\Enums\SenderType;
 use App\Events\ManualAiDraftUpdated;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\AdReferralResource;
 use App\Jobs\SendBroadcastMessageJob;
 use App\Models\Channel;
 use App\Models\Contact;
@@ -268,6 +269,9 @@ class ConversationController extends Controller
         $data = $conversation->toArray();
         $data['assigned_to'] = $conversation->assigned_to;
         $data['human_handoff'] = $conversation->activeHumanHandoff;
+        $data['ad_referral'] = $conversation->latestAdReferral
+            ? AdReferralResource::make($conversation->latestAdReferral)->resolve()
+            : null;
         if ($conversation->relationLoaded('whatsappGroup') && $conversation->whatsappGroup) {
             $data['group'] = $conversation->whatsappGroup;
         }
