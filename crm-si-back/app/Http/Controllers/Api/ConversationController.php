@@ -57,6 +57,8 @@ class ConversationController extends Controller
                 'whatsappGroup:id,conversation_id,subject,status,group_id,total_participant_count,invite_link',
                 'activeHumanHandoff',
                 'latestAdReferral',
+                // Sólo los ids: la bandeja filtra por cualquier anuncio del historial del chat.
+                'adReferrals:id,conversation_id,ad_id',
             ])
             ->withCount(['messages as unread_count' => function ($query) {
                 $query->where('direction', MessageDirection::INBOUND)
@@ -210,6 +212,7 @@ class ConversationController extends Controller
                 'ai_autoreply_enabled' => (bool) $conversation->ai_autoreply_enabled,
                 'human_handoff' => $conversation->activeHumanHandoff,
                 'ad_referral' => $this->adReferralPayload($conversation),
+                'ad_ids' => $conversation->adReferrals->pluck('ad_id')->filter()->unique()->values(),
                 'contact_language' => $conversation->contact_language,
                 'created_at' => $conversation->created_at,
                 'updated_at' => $conversation->updated_at,
@@ -272,6 +275,7 @@ class ConversationController extends Controller
         $data['assigned_to'] = $conversation->assigned_to;
         $data['human_handoff'] = $conversation->activeHumanHandoff;
         $data['ad_referral'] = $this->adReferralPayload($conversation);
+        $data['ad_ids'] = $conversation->adReferrals()->whereNotNull('ad_id')->distinct()->pluck('ad_id');
         if ($conversation->relationLoaded('whatsappGroup') && $conversation->whatsappGroup) {
             $data['group'] = $conversation->whatsappGroup;
         }
