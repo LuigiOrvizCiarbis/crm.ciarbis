@@ -6,17 +6,15 @@ use App\Automation\AutomationContext;
 use App\Automation\Contracts\ActionHandler;
 use App\Automation\Exceptions\ActionSkippedException;
 use App\Automation\Exceptions\AmbiguousDeliveryException;
-use App\Automation\Exceptions\RetryableActionException;
+use App\Automation\Handlers\Concerns\SendsWhatsAppAutomationMessages;
 use App\Enums\ChannelType;
 use App\Enums\ContactFieldType;
 use App\Models\AutomationAction;
 use App\Models\AutomationRun;
 use App\Models\Channel;
-use App\Models\Contact;
 use App\Models\ContactField;
 use App\Models\Conversation;
 use App\Models\MediaAsset;
-use App\Models\PipelineStage;
 use App\Models\WhatsAppTemplate;
 use App\Services\WhatsAppTemplateService;
 use App\Support\PublicUrlGuard;
@@ -24,10 +22,11 @@ use App\Support\PublicUrlRejectedException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\RateLimiter;
 
 class WhatsAppTemplateActionHandler implements ActionHandler
 {
+    use SendsWhatsAppAutomationMessages;
+
     public function __construct(
         private AutomationContext $context,
         private WhatsAppTemplateService $templates,
@@ -145,31 +144,16 @@ class WhatsAppTemplateActionHandler implements ActionHandler
             throw new ActionSkippedException('incompatible_branch');
         }
 
-        $conversation = Conversation::firstOrCreate(
-            ['tenant_id' => $run->tenant_id, 'contact_id' => $contact->id, 'channel_id' => $channel->id],
-            [
-                'status' => 'open',
-                'branch_id' => $contact->branch_id ?? $channel->branch_id,
-                'pipeline_stage_id' => PipelineStage::where('tenant_id', $run->tenant_id)->whereHas('pipeline', fn ($query) => $query->where('is_default', true))->orderByDesc('is_default')->orderBy('sort_order')->value('id'),
-                'ai_autoreply_enabled' => (bool) $channel->whatsappConfig?->ai_autoreply_default,
-            ],
-        );
-
+        $conversation = $this->conversationFor($run, $contact, $channel);
         $components = $this->renderParameters($action, $run, $template);
-        $rateKey = "automation-whatsapp:{$channel->whatsapp_config_id}";
-        if (! RateLimiter::attempt($rateKey, 80, fn () => true, 60)) {
-            throw new RetryableActionException('whatsapp_rate_limit');
-        }
+        $this->throttleWhatsApp($channel);
 
         try {
             $message = $this->templates->sendSystemTemplateMessage($conversation, $template, $components);
         } catch (ConnectionException $exception) {
             throw new AmbiguousDeliveryException('meta_timeout_after_send', previous: $exception);
         } catch (\RuntimeException $exception) {
-            if (str_contains($exception->getMessage(), '429') || preg_match('/\b5\d\d\b/', $exception->getMessage())) {
-                throw new RetryableActionException($exception->getMessage(), previous: $exception);
-            }
-            throw $exception;
+            $this->rethrowSendFailure($exception);
         }
 
         return ['message_id' => $message->id, 'external_id' => $message->external_id, 'conversation_id' => $conversation->id];
@@ -187,18 +171,6 @@ class WhatsAppTemplateActionHandler implements ActionHandler
         }
 
         return [$channel, $template];
-    }
-
-    private function contact(AutomationRun $run)
-    {
-        $context = $this->context->forRun($run);
-        $contactId = Arr::get($context, 'contact.id');
-        $contact = Contact::withoutGlobalScopes()->where('tenant_id', $run->tenant_id)->find($contactId);
-        if (! $contact) {
-            throw new ActionSkippedException('contact_not_found');
-        }
-
-        return $contact;
     }
 
     private function mediaAssetUrl(mixed $mediaAssetId, int $tenantId): ?string

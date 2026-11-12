@@ -15,6 +15,7 @@ use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
 use App\Services\Concerns\ResolvesWhatsAppCredentials;
+use App\Services\Flows\WhatsAppFlowSessionService;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -343,6 +344,7 @@ class WhatsAppTemplateService
     ): Message {
         $components = $this->resolvePersonalizationTokens($components, $conversation);
         $components = $this->ensureDocumentFilename($components, $template);
+        [$components, $flowSession] = app(WhatsAppFlowSessionService::class)->attachToTemplate($conversation, $template, $components);
 
         $channel = $conversation->channel;
         if (! $channel) {
@@ -398,6 +400,7 @@ class WhatsAppTemplateService
             // matchean este mensaje y los fallos quedan invisibles.
             'external_id' => $response->json('messages.0.id'),
         ]);
+        $flowSession?->update(['message_id' => $message->id]);
 
         $conversation->update([
             'last_message_at' => $message->created_at,

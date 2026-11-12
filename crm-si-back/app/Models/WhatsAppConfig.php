@@ -87,6 +87,10 @@ class WhatsAppConfig extends Model
         'is_on_biz_app_checked_at',
         'groups_eligibility_checked_at',
         'groups_eligibility_error',
+        'flows_private_key',
+        'flows_public_key',
+        'flows_public_key_uploaded_at',
+        'flows_endpoint_token',
     ];
 
     protected $casts = [
@@ -104,6 +108,7 @@ class WhatsAppConfig extends Model
         'groups_eligibility_checked_at' => 'datetime',
         'is_on_biz_app' => 'boolean',
         'is_on_biz_app_checked_at' => 'datetime',
+        'flows_public_key_uploaded_at' => 'datetime',
     ];
 
     /**
@@ -123,6 +128,7 @@ class WhatsAppConfig extends Model
     protected $hidden = [
         'bussines_token',
         'registration_pin',
+        'flows_private_key',
     ];
 
     /**
@@ -139,6 +145,42 @@ class WhatsAppConfig extends Model
     public function templates(): HasMany
     {
         return $this->hasMany(WhatsAppTemplate::class);
+    }
+
+    public function flows(): HasMany
+    {
+        return $this->hasMany(WhatsAppFlow::class);
+    }
+
+    public function getDecryptedFlowsPrivateKey(): ?string
+    {
+        if (! $this->flows_private_key) {
+            return null;
+        }
+
+        try {
+            return Crypt::decryptString($this->flows_private_key);
+        } catch (\Exception $e) {
+            Log::error('Error decrypting flows private key for config '.$this->id, [
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * URL pública del endpoint de datos de WhatsApp Flows de este número.
+     * El prefijo difiere de las rutas autenticadas `whatsapp-flows/{flow}` a
+     * propósito, para que nunca choquen.
+     */
+    public function flowsEndpointUrl(): ?string
+    {
+        if (! $this->flows_endpoint_token) {
+            return null;
+        }
+
+        return rtrim((string) config('app.url'), '/').'/api/whatsapp-flow-endpoint/'.$this->flows_endpoint_token;
     }
 
     public function getDecryptedToken(): ?string

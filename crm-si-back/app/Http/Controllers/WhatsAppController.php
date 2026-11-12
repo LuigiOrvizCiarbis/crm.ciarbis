@@ -21,6 +21,7 @@ use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
 use App\Models\WhatsAppWebhookReceipt;
+use App\Services\Flows\WhatsAppFlowService;
 use App\Services\HumanHandoffService;
 use App\Services\WhatsAppBusinessVerificationService;
 use App\Services\WhatsAppContactSyncService;
@@ -1355,6 +1356,8 @@ class WhatsAppController extends Controller
             $this->groupWebhookService->handleStatusUpdate($value);
         } elseif ($field === 'message_template_status_update') {
             $this->handleTemplateStatusUpdate($value);
+        } elseif ($field === 'flows') {
+            app(WhatsAppFlowService::class)->handleWebhook($value);
         }
     }
 

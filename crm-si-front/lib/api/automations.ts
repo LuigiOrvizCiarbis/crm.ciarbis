@@ -15,12 +15,15 @@ export interface AutomationCondition {
 export interface AutomationAction {
   id?: number
   position?: number
-  type: "whatsapp_template" | "instagram_private_reply"
+  type: "whatsapp_template" | "instagram_private_reply" | "send_whatsapp_flow"
   config: {
     channel_id?: number
     template_id?: number
     parameters?: Array<{ component?: string; name?: string; source: "literal" | "field" | "media_asset"; value?: string; path?: string; fallback?: string; media_asset_id?: number }>
     message?: string
+    whatsapp_flow_id?: number
+    body?: string
+    cta?: string
   }
 }
 

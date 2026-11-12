@@ -1234,6 +1234,32 @@
     "facebookLoadingTitle": "Preparando Facebook",
     "facebookLoadingDesc": "La conexión con Facebook se está cargando. Intentá de nuevo en unos segundos.",
     "contactsSent": "Contactos enviados",
+    "flows": {
+      "send": "Enviar formulario",
+      "windowClosed": "Fuera de la ventana de 24 h: usá una plantilla con botón de formulario",
+      "description": "Enviá un formulario de WhatsApp para que el contacto lo complete sin salir del chat.",
+      "flow": "Formulario",
+      "selectFlow": "Seleccioná un formulario",
+      "body": "Mensaje",
+      "cta": "Texto del botón",
+      "ctaDefault": "Completar",
+      "header": "Encabezado (opcional)",
+      "footer": "Pie (opcional)",
+      "empty": "No hay formularios publicados para este canal",
+      "loading": "Cargando formularios",
+      "loadError": "No se pudieron cargar los formularios.",
+      "retry": "Reintentar",
+      "cancel": "Cancelar",
+      "submit": "Enviar",
+      "sent": "Formulario enviado",
+      "sendError": "No se pudo enviar el formulario",
+      "flowLabel": "Formulario · {{name}}",
+      "responseLabel": "Respuesta · {{name}}",
+      "defaultName": "Formulario",
+      "emptyResponse": "Sin datos",
+      "yes": "Sí",
+      "no": "No"
+    },
     "contactsSendError": "No se pudieron enviar los contactos",
     "contactSaved": "Contacto guardado",
     "contactSaveError": "No se pudo guardar el contacto",
@@ -1326,7 +1352,8 @@
         "conversationCreated": "Conversación creada",
         "stageChanged": "Etapa modificada",
         "statusChanged": "Estado modificado",
-        "dateReached": "Fecha alcanzada"
+        "dateReached": "Fecha alcanzada",
+        "flowResponse": "Respuesta de formulario de WhatsApp"
       },
       "actions": "acciones",
       "executions": "ejecuciones",
@@ -1370,7 +1397,7 @@
       "maxOccurrences": "Máximo",
       "every": "Cada",
       "noConditions": "Sin condiciones, la automatización se ejecuta en cada evento del disparador.",
-      "actionIncomplete": "Cada acción necesita un canal y una plantilla.",
+      "actionIncomplete": "Completá los campos obligatorios de cada acción.",
       "group": "Grupo",
       "value": "Valor",
       "valueList": "Valor 1, valor 2",
@@ -1382,6 +1409,14 @@
       "removeAction": "Quitar acción",
       "removeParameter": "Quitar parámetro",
       "whatsappTemplate": "Enviar plantilla de WhatsApp",
+      "whatsappFlow": "Enviar formulario de WhatsApp",
+      "actionType": "Tipo de acción",
+      "flow": "Formulario",
+      "selectFlow": "Seleccionar formulario",
+      "noFlows": "Este canal no tiene formularios disponibles para enviar.",
+      "flowBody": "Texto del mensaje",
+      "flowCta": "Texto del botón (máx. 30)",
+      "flowCtaPlaceholder": "Completar",
       "channel": "Canal fijo",
       "selectChannel": "Seleccionar canal",
       "template": "Plantilla aprobada",
@@ -1916,6 +1951,10 @@
         "title": "Automatizaciones",
         "description": "Secuencias que arrancan solas con eventos del CRM."
       },
+      "flows": {
+        "title": "Formularios de WhatsApp",
+        "description": "Formularios interactivos que el contacto completa dentro de WhatsApp."
+      },
       "billing": {
         "title": "Cobranza",
         "description": "Plantillas de WhatsApp para avisar vencimientos y reclamar pagos."
@@ -2041,6 +2080,7 @@
       "automations": "Automatizaciones",
       "billing": "Facturación",
       "templates": "Plantillas de WhatsApp",
+      "flows": "Formularios de WhatsApp",
       "whatsapp_groups": "Grupos de WhatsApp",
       "analytics": "Analíticas",
       "users": "Usuarios",
@@ -2137,6 +2177,9 @@
       "templates.create": "Crear plantillas de WhatsApp",
       "templates.delete": "Eliminar plantillas de WhatsApp",
       "templates.send": "Enviar plantillas",
+      "flows.view": "Ver formularios de WhatsApp",
+      "flows.manage": "Gestionar formularios de WhatsApp",
+      "flows.send": "Enviar formularios de WhatsApp",
       "whatsapp_groups.view": "Ver grupos de WhatsApp",
       "whatsapp_groups.create": "Crear grupos de WhatsApp",
       "whatsapp_groups.update": "Editar grupos de WhatsApp",
@@ -2607,6 +2650,371 @@
   "tasks": {
     "list": {
       "empty": "No hay tareas para mostrar."
+    }
+  },
+  "flows": {
+    "settings": {
+      "description": "Armá formularios que el contacto completa sin salir de WhatsApp. Las respuestas llegan al chat y pueden completar los datos del contacto.",
+      "newFlow": "Nuevo formulario",
+      "channelsError": "No se pudieron cargar los canales",
+      "loadError": "No se pudieron cargar los formularios",
+      "noChannels": "Conectá un número de WhatsApp para crear formularios.",
+      "channel": "Número de WhatsApp",
+      "selectChannel": "Elegí un número",
+      "listTitle": "Formularios",
+      "importJson": "Importar JSON",
+      "sync": "Sincronizar",
+      "synced": "Formularios sincronizados: {{count}}",
+      "syncError": "No se pudieron sincronizar los formularios",
+      "empty": "Todavía no hay formularios en este número.",
+      "previewError": "No se pudo abrir la vista previa",
+      "published": "«{{name}}» publicado",
+      "publishError": "No se pudo publicar el formulario",
+      "cloned": "Se creó «{{name}}»",
+      "cloneError": "No se pudo duplicar el formulario",
+      "deprecated": "«{{name}}» deprecado",
+      "deprecateError": "No se pudo deprecar el formulario",
+      "deleted": "«{{name}}» eliminado",
+      "deleteError": "No se pudo eliminar el formulario",
+      "hasPublishedVersion": "Tiene versión publicada",
+      "usesEndpoint": "Usa endpoint",
+      "builderBadge": "Constructor",
+      "validationErrorsCount": "Errores: {{count}}",
+      "encryption": {
+        "title": "Cifrado del número",
+        "description": "Los formularios que consultan datos del CRM (precarga, turnos) necesitan una clave pública subida a Meta para este número.",
+        "setup": "Configurar cifrado",
+        "reupload": "Volver a subir clave",
+        "loadError": "No se pudo cargar el estado del cifrado",
+        "setupDone": "Clave pública subida a Meta",
+        "setupError": "No se pudo configurar el cifrado",
+        "configured": "Configurado",
+        "notConfigured": "Sin configurar",
+        "signatureValid": "Firma válida",
+        "signatureInvalid": "Firma: {{status}}",
+        "uploadedAt": "Subida el {{date}}",
+        "endpointUrl": "URL del endpoint de datos",
+        "copy": "Copiar URL",
+        "copied": "URL copiada",
+        "copyError": "No se pudo copiar la URL"
+      },
+      "status": {
+        "DRAFT": "Borrador",
+        "PUBLISHED": "Publicado",
+        "DEPRECATED": "Deprecado",
+        "BLOCKED": "Bloqueado",
+        "THROTTLED": "Limitado"
+      },
+      "categories": {
+        "SIGN_UP": "Registro",
+        "SIGN_IN": "Inicio de sesión",
+        "APPOINTMENT_BOOKING": "Reserva de turnos",
+        "LEAD_GENERATION": "Captura de datos",
+        "CONTACT_US": "Contacto",
+        "CUSTOMER_SUPPORT": "Atención al cliente",
+        "SURVEY": "Encuesta",
+        "OTHER": "Otro"
+      },
+      "actions": {
+        "edit": "Editar",
+        "more": "Más acciones para {{name}}",
+        "preview": "Vista previa",
+        "publish": "Publicar",
+        "editJson": "Editar JSON",
+        "mapping": "Mapeo de campos",
+        "clone": "Duplicar",
+        "deprecate": "Deprecar",
+        "delete": "Eliminar"
+      },
+      "clone": {
+        "title": "Duplicar formulario",
+        "description": "Se crea un borrador nuevo en Meta con el mismo contenido.",
+        "name": "Nombre",
+        "defaultName": "{{name}} (copia)"
+      },
+      "confirm": {
+        "edit": {
+          "title": "¿Editar «{{name}}»?",
+          "description": "Al editarlo vuelve a borrador. Los envíos nuevos siguen usando la última versión publicada hasta que lo publiques de nuevo.",
+          "action": "Editar"
+        },
+        "deprecate": {
+          "title": "¿Deprecar «{{name}}»?",
+          "description": "No se va a poder enviar más ni volver a publicar. Los mensajes ya enviados siguen funcionando.",
+          "action": "Deprecar"
+        },
+        "delete": {
+          "title": "¿Eliminar «{{name}}»?",
+          "description": "Se borra el borrador en Meta y en el CRM. No se puede deshacer.",
+          "action": "Eliminar"
+        }
+      },
+      "new": {
+        "title": "Nuevo formulario",
+        "description": "Elegí cómo arrancar. Después podés cambiar todo en el constructor.",
+        "blank": {
+          "title": "En blanco",
+          "description": "Una pantalla con el nombre del contacto para empezar de cero."
+        },
+        "leadCapture": {
+          "title": "Captura de datos",
+          "description": "Nombre, email, teléfono y consulta, guardados en el contacto."
+        },
+        "appointment": {
+          "title": "Reserva de turno",
+          "description": "Datos del contacto y elección de día y horario con la agenda del asistente."
+        }
+      },
+      "json": {
+        "importTitle": "Importar formulario desde JSON",
+        "editTitle": "Editar JSON del formulario",
+        "description": "Pegá el Flow JSON de Meta. Se valida al guardar y Meta devuelve los errores que encuentre.",
+        "loadError": "No se pudo cargar el formulario",
+        "builderWarning": "Si guardás cambios en el JSON, este formulario ya no se va a poder abrir en el constructor visual.",
+        "name": "Nombre",
+        "categories": "Categorías",
+        "json": "Flow JSON",
+        "invalidJson": "El JSON no es válido: {{detail}}",
+        "saved": "Formulario guardado",
+        "savedWithErrors": "Guardado con {{count}} errores de Meta",
+        "saveError": "No se pudo guardar el formulario",
+        "validationErrors": "Meta encontró {{count}} errores",
+        "line": "Línea {{line}}",
+        "helpTitle": "Cómo conectar el JSON con el CRM",
+        "helpIntro": "Si el formulario declara data_api_version, el CRM le asigna su endpoint de datos. En cada acción data_exchange, el payload indica qué hacer:",
+        "helpActions": "qué hace el CRM. Valores:",
+        "helpNextScreen": "id de la pantalla a la que navegar después de la acción.",
+        "helpPrefill": "Claves de precarga que el CRM completa si la pantalla las declara en data:",
+        "helpAppointment": "appointment_dates devuelve available_dates; appointment_slots (con date) devuelve available_slots y selected_date; book_appointment (con slot y opcionalmente appointment_email y appointment_reason) reserva el turno.",
+        "helpRouting": "complete cierra el formulario. Si usás data_api_version, el JSON también necesita routing_model."
+      },
+      "mapping": {
+        "title": "Mapeo de campos · {{name}}",
+        "description": "Elegí qué respuestas se guardan en el contacto cuando llega el formulario completo.",
+        "responseKey": "Clave de la respuesta",
+        "responseKeyPlaceholder": "ej. email",
+        "invalidKey": "Sólo letras, números, guion bajo y punto.",
+        "target": "Guardar en",
+        "selectTarget": "Elegí un campo",
+        "contactGroup": "Contacto",
+        "contactName": "Nombre",
+        "contactEmail": "Email",
+        "customGroup": "Campos personalizados",
+        "remove": "Quitar fila",
+        "add": "Agregar campo",
+        "hint": "La clave es el nombre del dato en la respuesta del formulario (el payload de la acción complete).",
+        "fieldsError": "No se pudieron cargar los campos del contacto",
+        "saved": "Mapeo guardado",
+        "saveError": "No se pudo guardar el mapeo"
+      }
+    },
+    "builder": {
+      "title": "Constructor de formularios",
+      "back": "Volver a formularios",
+      "name": "Nombre del formulario",
+      "namePlaceholder": "Nombre del formulario",
+      "categoriesLabel": "Categorías",
+      "unsaved": "Cambios sin guardar",
+      "saveDraft": "Guardar borrador",
+      "publish": "Publicar",
+      "metaPreview": "Vista previa de Meta",
+      "metaPreviewSavedHint": "Muestra la última versión guardada",
+      "cancel": "Cancelar",
+      "close": "Cerrar",
+      "addBlock": "Agregar bloque",
+      "goToError": "Ver",
+      "viewDetail": "Ver detalle",
+      "clientErrors": "Errores por corregir antes de guardar: {{count}}",
+      "metaErrorsBanner": "Meta reportó observaciones en el formulario ({{count}}). No se puede publicar hasta corregirlas.",
+      "notEditable": "Este formulario está en estado «{{status}}» y no se puede editar. Duplicalo desde la configuración para crear una nueva versión.",
+      "publishedEditHint": "Al editarlo vuelve a borrador. Los envíos nuevos siguen usando la última versión publicada hasta que lo publiques de nuevo.",
+      "status": {
+        "NEW": "Nuevo",
+        "DRAFT": "Borrador",
+        "PUBLISHED": "Publicado",
+        "DEPRECATED": "Deprecado",
+        "BLOCKED": "Bloqueado",
+        "THROTTLED": "Limitado"
+      },
+      "categories": {
+        "SIGN_UP": "Registro",
+        "SIGN_IN": "Inicio de sesión",
+        "APPOINTMENT_BOOKING": "Reserva de turnos",
+        "LEAD_GENERATION": "Captura de clientes potenciales",
+        "CONTACT_US": "Contacto",
+        "CUSTOMER_SUPPORT": "Atención al cliente",
+        "SURVEY": "Encuesta",
+        "OTHER": "Otro"
+      },
+      "tabs": {
+        "screens": "Pantallas",
+        "edit": "Editar",
+        "preview": "Vista previa"
+      },
+      "screens": {
+        "title": "Pantallas",
+        "add": "Agregar pantalla",
+        "max": "Llegaste al máximo de {{max}} pantallas.",
+        "untitled": "Sin título",
+        "blockCount": "Bloques: {{count}}",
+        "hasErrors": "Tiene errores",
+        "remove": "Eliminar pantalla",
+        "reorder": "Reordenar pantalla"
+      },
+      "screen": {
+        "title": "Título de la pantalla {{n}}",
+        "blocks": "Bloques",
+        "footerLabel": "Texto del botón final",
+        "footerHintNext": "Lleva a la pantalla siguiente.",
+        "footerHintLast": "Envía el formulario.",
+        "footerHintAppointment": "Lleva a la elección del día del turno."
+      },
+      "blockGroups": {
+        "text": "Texto",
+        "questions": "Preguntas"
+      },
+      "blockTypes": {
+        "heading": "Título",
+        "subheading": "Subtítulo",
+        "body": "Párrafo",
+        "caption": "Nota",
+        "short_text": "Texto corto",
+        "long_text": "Texto largo",
+        "dropdown": "Lista desplegable",
+        "single_choice": "Opción única",
+        "multiple_choice": "Opción múltiple",
+        "date": "Fecha",
+        "opt_in": "Aceptación"
+      },
+      "inputTypes": {
+        "text": "Texto",
+        "email": "Email",
+        "number": "Número",
+        "phone": "Teléfono"
+      },
+      "defaults": {
+        "screenTitle": "Nueva pantalla",
+        "footerLabel": "Continuar",
+        "heading": "Título",
+        "subheading": "Subtítulo",
+        "body": "Escribí el texto acá.",
+        "caption": "Nota",
+        "short_text": "Pregunta",
+        "long_text": "Comentarios",
+        "dropdown": "Elegí una opción",
+        "single_choice": "Elegí una opción",
+        "multiple_choice": "Elegí las opciones",
+        "date": "Fecha",
+        "opt_in": "Acepto los términos y condiciones",
+        "option1": "Opción 1",
+        "option2": "Opción 2",
+        "optionN": "Opción {{n}}"
+      },
+      "block": {
+        "untitled": "Sin texto",
+        "hasErrors": "Tiene errores",
+        "remove": "Eliminar bloque",
+        "reorder": "Reordenar bloque",
+        "text": "Texto",
+        "label": "Pregunta",
+        "key": "Nombre interno",
+        "keyHint": "Identifica la respuesta en el chat y en las automatizaciones.",
+        "inputType": "Tipo de dato",
+        "helperText": "Texto de ayuda (opcional)",
+        "required": "Obligatoria",
+        "options": "Opciones",
+        "optionLabel": "Opción {{n}}",
+        "addOption": "Agregar opción",
+        "removeOption": "Quitar opción",
+        "optionsLocked": "Las opciones son las del campo «{{field}}» y no se pueden editar.",
+        "mapsTo": "Guardar en",
+        "mapsToNone": "No guardar",
+        "prefill": "Precargar con"
+      },
+      "targets": {
+        "contactName": "Nombre del contacto",
+        "contactEmail": "Email del contacto",
+        "missing": "Campo inexistente ({{key}})"
+      },
+      "prefill": {
+        "none": "Ninguno",
+        "contactName": "Nombre del contacto",
+        "contactEmail": "Email del contacto",
+        "contactPhone": "Teléfono del contacto"
+      },
+      "appointment": {
+        "title": "Reserva de turno al final",
+        "description": "Después de la última pantalla, la persona elige día y horario de la agenda del asistente.",
+        "agendaHint": "Usa la agenda de turnos del asistente: tiene que estar activa y con un calendario conectado.",
+        "encryptionHint": "Al guardar se configura el cifrado del número automáticamente.",
+        "reasonHint": "Se usa como motivo del turno.",
+        "noReason": "Sin motivo",
+        "fields": {
+          "date_screen_title": "Título de la pantalla de fecha",
+          "date_label": "Etiqueta de la fecha",
+          "slot_screen_title": "Título de la pantalla de horario",
+          "slot_label": "Etiqueta del horario",
+          "confirm_label": "Texto del botón de confirmación",
+          "reason_key": "Pregunta con el motivo"
+        }
+      },
+      "preview": {
+        "screens": "Pantalla de la vista previa",
+        "date": "Fecha",
+        "slot": "Horario",
+        "continue": "Continuar",
+        "optional": "(opcional)",
+        "managedBy": "Gestionado por la empresa",
+        "sampleOptions": "Opciones de ejemplo: las reales salen de la agenda.",
+        "note": "Vista aproximada. Usá 'Vista previa de Meta' para ver la versión exacta."
+      },
+      "errors": {
+        "required": "Completá este campo.",
+        "tooLong": "Máximo {{max}} caracteres.",
+        "categoriesRequired": "Elegí al menos una categoría.",
+        "screensCount": "El formulario necesita entre 1 y {{max}} pantallas.",
+        "screenEmpty": "Agregá al menos un bloque a esta pantalla.",
+        "noQuestions": "El formulario necesita al menos una pregunta.",
+        "optInMax": "Máximo {{max}} casillas de aceptación por pantalla.",
+        "keyFormat": "Usá minúsculas sin acentos, números y _, empezando con una letra (máx. 40).",
+        "keyReserved": "Este nombre interno está reservado. Elegí otro.",
+        "keyDuplicate": "Otra pregunta ya usa este nombre interno.",
+        "optionsCount": "Agregá entre 1 y {{max}} opciones.",
+        "optionId": "Cada opción tiene que tener un texto distinto.",
+        "optionsLocked": "Las opciones tienen que ser exactamente las del campo elegido en «Guardar en». Volvé a elegirlo para actualizarlas.",
+        "prefillInvalid": "Esta precarga no está disponible para la pregunta.",
+        "mapsToInvalid": "Este destino no es compatible con la pregunta.",
+        "reasonKey": "Elegí una pregunta de texto largo."
+      },
+      "toasts": {
+        "saved": "Formulario guardado",
+        "savedWithMetaErrors": "Formulario guardado con observaciones de Meta ({{count}})",
+        "saveError": "No se pudo guardar el formulario",
+        "published": "Formulario publicado",
+        "publishError": "No se pudo publicar el formulario",
+        "previewError": "No se pudo abrir la vista previa de Meta",
+        "loadError": "No se pudo cargar el formulario"
+      },
+      "publishConfirm": {
+        "title": "¿Publicar el formulario?",
+        "description": "Una vez publicado se puede enviar a cualquier contacto. Si después lo editás, vuelve a borrador y los envíos siguen usando esta versión hasta que lo publiques de nuevo."
+      },
+      "metaErrors": {
+        "title": "Observaciones de Meta",
+        "description": "Meta revisó el formulario guardado y encontró estos problemas. Corregilos y guardá de nuevo para poder publicarlo.",
+        "line": "línea {{line}}"
+      },
+      "leaveConfirm": {
+        "title": "¿Salir sin guardar?",
+        "description": "Tenés cambios sin guardar en este formulario. Si salís ahora, se pierden.",
+        "stay": "Seguir editando",
+        "leave": "Salir sin guardar"
+      },
+      "removeScreenConfirm": {
+        "title": "¿Eliminar la pantalla?",
+        "description": "Se elimina «{{title}}» con todos sus bloques.",
+        "confirm": "Eliminar"
+      }
     }
   }
 }

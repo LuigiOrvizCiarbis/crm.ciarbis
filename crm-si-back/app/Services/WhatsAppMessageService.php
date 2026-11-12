@@ -28,6 +28,7 @@ use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Services\Concerns\ResolvesWhatsAppChannel;
 use App\Services\Concerns\ResolvesWhatsAppCredentials;
+use App\Services\Flows\FlowResponseService;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Crypt;
@@ -73,6 +74,7 @@ class WhatsAppMessageService
             $messageData = $messages[0];
             if ($this->isSiCrmAlertsPhone($messageData['from'] ?? null)) {
                 Log::info('WhatsApp alert interno ignorado por el pipeline de clientes', ['phone' => $messageData['from']]);
+
                 return null;
             }
             $contactData = $value['contacts'][0] ?? null;
@@ -116,6 +118,19 @@ class WhatsAppMessageService
                 $this->handleIncomingReaction($messageData, $contactData, $channel);
 
                 return null;
+            }
+
+            // Respuesta de un formulario de WhatsApp (Flow): se guarda con su
+            // resumen legible y los datos estructurados en `interactive`.
+            $flowReply = ($messageType === 'interactive' && ($messageData['interactive']['type'] ?? null) === 'nfm_reply')
+                ? app(FlowResponseService::class)->parse(
+                    $messageData['interactive']['nfm_reply'] ?? [],
+                    (int) $channel->whatsapp_config_id,
+                    $messageData['context']['id'] ?? null,
+                )
+                : null;
+            if ($flowReply !== null) {
+                $messageType = 'flow_response';
             }
 
             // WhatsApp entrega respuestas rápidas como `button` o como
@@ -186,7 +201,7 @@ class WhatsAppMessageService
                 }
             }
 
-            $message = $this->createMessage([
+            $messageAttributes = [
                 'tenant_id' => $tenantId,
                 'conversation_id' => $conversationId,
                 'sender_type' => SenderType::CONTACT,
@@ -200,9 +215,21 @@ class WhatsAppMessageService
                 'direction' => MessageDirection::INBOUND,
                 'external_id' => $messageData['id'] ?? null,
                 'delivered_at' => $this->parseWebhookTimestamp($messageData['timestamp'] ?? null),
-            ]);
+            ];
 
-            if ($interaction !== null) {
+            if ($flowReply !== null) {
+                $messageAttributes = array_merge($messageAttributes, [
+                    'content' => $flowReply->content,
+                    'message_type' => MessageType::FlowResponse->value,
+                    'interactive' => $flowReply->interactive,
+                ]);
+            }
+
+            $message = $this->createMessage($messageAttributes);
+
+            if ($flowReply !== null) {
+                app(FlowResponseService::class)->complete($flowReply, $message, $contact, $conversation);
+            } elseif ($interaction !== null) {
                 $this->recordReplyInteraction($message, $interaction);
             } else {
                 $this->recordGenericReplyInteraction($message, $messageData);
@@ -570,6 +597,7 @@ class WhatsAppMessageService
             'video',
             'location',
             'contacts',
+            'flow_response',
         ], true);
     }
 
@@ -1120,7 +1148,7 @@ class WhatsAppMessageService
     /**
      * @return array{to: string, recipient_type: string, business_phone_id: string, business_token: string}
      */
-    private function resolveOutboundWhatsAppContext(Conversation $conversation): array
+    public function resolveOutboundWhatsAppContext(Conversation $conversation): array
     {
         $channel = $conversation->channel;
         if (! $channel) {
@@ -2117,7 +2145,7 @@ class WhatsAppMessageService
      * 24 h desde el último mensaje del contacto. Se tipa para que el usuario
      * reciba la instrucción de usar una plantilla en vez del body crudo.
      */
-    private function throwIfWindowClosed(\Illuminate\Http\Client\Response $response): void
+    public function throwIfWindowClosed(\Illuminate\Http\Client\Response $response): void
     {
         if ((int) $response->json('error.code') === 131047) {
             throw MetaApiException::fromGraphResponse(ChannelType::WHATSAPP, $response->json());
