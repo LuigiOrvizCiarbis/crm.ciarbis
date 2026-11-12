@@ -1234,6 +1234,32 @@
     "facebookLoadingTitle": "Getting Facebook ready",
     "facebookLoadingDesc": "The Facebook connection is still loading. Try again in a few seconds.",
     "contactsSent": "Contacts sent",
+    "flows": {
+      "send": "Send form",
+      "windowClosed": "Outside the 24h window: use a template with a form button",
+      "description": "Send a WhatsApp form so the contact can fill it in without leaving the chat.",
+      "flow": "Form",
+      "selectFlow": "Select a form",
+      "body": "Message",
+      "cta": "Button text",
+      "ctaDefault": "Fill in",
+      "header": "Header (optional)",
+      "footer": "Footer (optional)",
+      "empty": "There are no published forms for this channel",
+      "loading": "Loading forms",
+      "loadError": "Could not load the forms.",
+      "retry": "Retry",
+      "cancel": "Cancel",
+      "submit": "Send",
+      "sent": "Form sent",
+      "sendError": "Could not send the form",
+      "flowLabel": "Form · {{name}}",
+      "responseLabel": "Response · {{name}}",
+      "defaultName": "Form",
+      "emptyResponse": "No data",
+      "yes": "Yes",
+      "no": "No"
+    },
     "contactsSendError": "Could not send the contacts",
     "contactSaved": "Contact saved",
     "contactSaveError": "Could not save the contact",
@@ -1326,7 +1352,8 @@
         "conversationCreated": "Conversation created",
         "stageChanged": "Stage changed",
         "statusChanged": "Status changed",
-        "dateReached": "Date reached"
+        "dateReached": "Date reached",
+        "flowResponse": "WhatsApp Flow response"
       },
       "actions": "actions",
       "executions": "runs",
@@ -1370,7 +1397,7 @@
       "maxOccurrences": "Maximum",
       "every": "Every",
       "noConditions": "Without conditions, the automation runs on every trigger event.",
-      "actionIncomplete": "Each action needs a channel and a template.",
+      "actionIncomplete": "Fill in the required fields of each action.",
       "group": "Group",
       "value": "Value",
       "valueList": "Value 1, value 2",
@@ -1382,6 +1409,14 @@
       "removeAction": "Remove action",
       "removeParameter": "Remove parameter",
       "whatsappTemplate": "Send WhatsApp template",
+      "whatsappFlow": "Send WhatsApp Flow",
+      "actionType": "Action type",
+      "flow": "Flow",
+      "selectFlow": "Select flow",
+      "noFlows": "This channel has no flows available to send.",
+      "flowBody": "Message text",
+      "flowCta": "Button text (max. 30)",
+      "flowCtaPlaceholder": "Fill in",
       "channel": "Fixed channel",
       "selectChannel": "Select channel",
       "template": "Approved template",
@@ -1916,6 +1951,10 @@
         "title": "Automations",
         "description": "Sequences that start on their own from CRM events."
       },
+      "flows": {
+        "title": "WhatsApp Flows",
+        "description": "Interactive forms contacts fill out inside WhatsApp."
+      },
       "billing": {
         "title": "Collections",
         "description": "WhatsApp templates for due-date reminders and payment requests."
@@ -2041,6 +2080,7 @@
       "automations": "Automations",
       "billing": "Billing",
       "templates": "WhatsApp templates",
+      "flows": "WhatsApp Flows",
       "whatsapp_groups": "WhatsApp groups",
       "analytics": "Analytics",
       "users": "Users",
@@ -2137,6 +2177,9 @@
       "templates.create": "Create WhatsApp templates",
       "templates.delete": "Delete WhatsApp templates",
       "templates.send": "Send templates",
+      "flows.view": "View WhatsApp Flows",
+      "flows.manage": "Manage WhatsApp Flows",
+      "flows.send": "Send WhatsApp Flows",
       "whatsapp_groups.view": "View WhatsApp groups",
       "whatsapp_groups.create": "Create WhatsApp groups",
       "whatsapp_groups.update": "Edit WhatsApp groups",
@@ -2607,6 +2650,371 @@
   "tasks": {
     "list": {
       "empty": "No tasks to show."
+    }
+  },
+  "flows": {
+    "settings": {
+      "description": "Build forms contacts complete without leaving WhatsApp. Responses show up in the chat and can fill in contact data.",
+      "newFlow": "New flow",
+      "channelsError": "Couldn't load channels",
+      "loadError": "Couldn't load flows",
+      "noChannels": "Connect a WhatsApp number to create flows.",
+      "channel": "WhatsApp number",
+      "selectChannel": "Choose a number",
+      "listTitle": "Flows",
+      "importJson": "Import JSON",
+      "sync": "Sync",
+      "synced": "Flows synced: {{count}}",
+      "syncError": "Couldn't sync flows",
+      "empty": "There are no flows on this number yet.",
+      "previewError": "Couldn't open the preview",
+      "published": "\"{{name}}\" published",
+      "publishError": "Couldn't publish the flow",
+      "cloned": "\"{{name}}\" created",
+      "cloneError": "Couldn't duplicate the flow",
+      "deprecated": "\"{{name}}\" deprecated",
+      "deprecateError": "Couldn't deprecate the flow",
+      "deleted": "\"{{name}}\" deleted",
+      "deleteError": "Couldn't delete the flow",
+      "hasPublishedVersion": "Has published version",
+      "usesEndpoint": "Uses endpoint",
+      "builderBadge": "Builder",
+      "validationErrorsCount": "Errors: {{count}}",
+      "encryption": {
+        "title": "Number encryption",
+        "description": "Flows that query CRM data (prefill, appointments) need a public key uploaded to Meta for this number.",
+        "setup": "Set up encryption",
+        "reupload": "Re-upload key",
+        "loadError": "Couldn't load the encryption status",
+        "setupDone": "Public key uploaded to Meta",
+        "setupError": "Couldn't set up encryption",
+        "configured": "Configured",
+        "notConfigured": "Not configured",
+        "signatureValid": "Valid signature",
+        "signatureInvalid": "Signature: {{status}}",
+        "uploadedAt": "Uploaded {{date}}",
+        "endpointUrl": "Data endpoint URL",
+        "copy": "Copy URL",
+        "copied": "URL copied",
+        "copyError": "Couldn't copy the URL"
+      },
+      "status": {
+        "DRAFT": "Draft",
+        "PUBLISHED": "Published",
+        "DEPRECATED": "Deprecated",
+        "BLOCKED": "Blocked",
+        "THROTTLED": "Throttled"
+      },
+      "categories": {
+        "SIGN_UP": "Sign up",
+        "SIGN_IN": "Sign in",
+        "APPOINTMENT_BOOKING": "Appointment booking",
+        "LEAD_GENERATION": "Lead generation",
+        "CONTACT_US": "Contact us",
+        "CUSTOMER_SUPPORT": "Customer support",
+        "SURVEY": "Survey",
+        "OTHER": "Other"
+      },
+      "actions": {
+        "edit": "Edit",
+        "more": "More actions for {{name}}",
+        "preview": "Preview",
+        "publish": "Publish",
+        "editJson": "Edit JSON",
+        "mapping": "Field mapping",
+        "clone": "Duplicate",
+        "deprecate": "Deprecate",
+        "delete": "Delete"
+      },
+      "clone": {
+        "title": "Duplicate flow",
+        "description": "A new draft with the same content is created in Meta.",
+        "name": "Name",
+        "defaultName": "{{name}} (copy)"
+      },
+      "confirm": {
+        "edit": {
+          "title": "Edit \"{{name}}\"?",
+          "description": "Editing it turns it back into a draft. New sends keep using the last published version until you publish it again.",
+          "action": "Edit"
+        },
+        "deprecate": {
+          "title": "Deprecate \"{{name}}\"?",
+          "description": "It can no longer be sent or republished. Messages already sent keep working.",
+          "action": "Deprecate"
+        },
+        "delete": {
+          "title": "Delete \"{{name}}\"?",
+          "description": "The draft is deleted in Meta and in the CRM. This can't be undone.",
+          "action": "Delete"
+        }
+      },
+      "new": {
+        "title": "New flow",
+        "description": "Choose how to start. You can change everything later in the builder.",
+        "blank": {
+          "title": "Blank",
+          "description": "One screen with the contact's name to start from scratch."
+        },
+        "leadCapture": {
+          "title": "Lead capture",
+          "description": "Name, email, phone and inquiry, saved to the contact."
+        },
+        "appointment": {
+          "title": "Appointment booking",
+          "description": "Contact details plus day and time picked from the assistant's calendar."
+        }
+      },
+      "json": {
+        "importTitle": "Import flow from JSON",
+        "editTitle": "Edit flow JSON",
+        "description": "Paste Meta's Flow JSON. It's validated on save and Meta returns any errors it finds.",
+        "loadError": "Couldn't load the flow",
+        "builderWarning": "If you save changes to the JSON, this flow can no longer be opened in the visual builder.",
+        "name": "Name",
+        "categories": "Categories",
+        "json": "Flow JSON",
+        "invalidJson": "The JSON is invalid: {{detail}}",
+        "saved": "Flow saved",
+        "savedWithErrors": "Saved with {{count}} errors from Meta",
+        "saveError": "Couldn't save the flow",
+        "validationErrors": "Meta found {{count}} errors",
+        "line": "Line {{line}}",
+        "helpTitle": "How to connect the JSON to the CRM",
+        "helpIntro": "If the flow declares data_api_version, the CRM assigns it its data endpoint. In each data_exchange action, the payload says what to do:",
+        "helpActions": "what the CRM does. Values:",
+        "helpNextScreen": "id of the screen to navigate to after the action.",
+        "helpPrefill": "Prefill keys the CRM fills in when the screen declares them in data:",
+        "helpAppointment": "appointment_dates returns available_dates; appointment_slots (with date) returns available_slots and selected_date; book_appointment (with slot and optionally appointment_email and appointment_reason) books the appointment.",
+        "helpRouting": "complete closes the flow. If you use data_api_version, the JSON also needs a routing_model."
+      },
+      "mapping": {
+        "title": "Field mapping · {{name}}",
+        "description": "Choose which responses are saved to the contact when the completed flow arrives.",
+        "responseKey": "Response key",
+        "responseKeyPlaceholder": "e.g. email",
+        "invalidKey": "Only letters, numbers, underscore and dot.",
+        "target": "Save to",
+        "selectTarget": "Choose a field",
+        "contactGroup": "Contact",
+        "contactName": "Name",
+        "contactEmail": "Email",
+        "customGroup": "Custom fields",
+        "remove": "Remove row",
+        "add": "Add field",
+        "hint": "The key is the name of the value in the flow response (the payload of the complete action).",
+        "fieldsError": "Couldn't load contact fields",
+        "saved": "Mapping saved",
+        "saveError": "Couldn't save the mapping"
+      }
+    },
+    "builder": {
+      "title": "Form builder",
+      "back": "Back to forms",
+      "name": "Form name",
+      "namePlaceholder": "Form name",
+      "categoriesLabel": "Categories",
+      "unsaved": "Unsaved changes",
+      "saveDraft": "Save draft",
+      "publish": "Publish",
+      "metaPreview": "Meta preview",
+      "metaPreviewSavedHint": "Shows the last saved version",
+      "cancel": "Cancel",
+      "close": "Close",
+      "addBlock": "Add block",
+      "goToError": "Show",
+      "viewDetail": "View details",
+      "clientErrors": "Errors to fix before saving: {{count}}",
+      "metaErrorsBanner": "Meta reported issues in this form ({{count}}). It can't be published until they're fixed.",
+      "notEditable": "This form is \"{{status}}\" and can't be edited. Duplicate it from settings to create a new version.",
+      "publishedEditHint": "Editing it turns it back into a draft. New sends keep using the last published version until you publish again.",
+      "status": {
+        "NEW": "New",
+        "DRAFT": "Draft",
+        "PUBLISHED": "Published",
+        "DEPRECATED": "Deprecated",
+        "BLOCKED": "Blocked",
+        "THROTTLED": "Throttled"
+      },
+      "categories": {
+        "SIGN_UP": "Sign up",
+        "SIGN_IN": "Sign in",
+        "APPOINTMENT_BOOKING": "Appointment booking",
+        "LEAD_GENERATION": "Lead generation",
+        "CONTACT_US": "Contact us",
+        "CUSTOMER_SUPPORT": "Customer support",
+        "SURVEY": "Survey",
+        "OTHER": "Other"
+      },
+      "tabs": {
+        "screens": "Screens",
+        "edit": "Edit",
+        "preview": "Preview"
+      },
+      "screens": {
+        "title": "Screens",
+        "add": "Add screen",
+        "max": "You reached the maximum of {{max}} screens.",
+        "untitled": "Untitled",
+        "blockCount": "Blocks: {{count}}",
+        "hasErrors": "Has errors",
+        "remove": "Delete screen",
+        "reorder": "Reorder screen"
+      },
+      "screen": {
+        "title": "Screen {{n}} title",
+        "blocks": "Blocks",
+        "footerLabel": "Final button text",
+        "footerHintNext": "Goes to the next screen.",
+        "footerHintLast": "Submits the form.",
+        "footerHintAppointment": "Goes to the appointment date selection."
+      },
+      "blockGroups": {
+        "text": "Text",
+        "questions": "Questions"
+      },
+      "blockTypes": {
+        "heading": "Heading",
+        "subheading": "Subheading",
+        "body": "Paragraph",
+        "caption": "Caption",
+        "short_text": "Short text",
+        "long_text": "Long text",
+        "dropdown": "Dropdown",
+        "single_choice": "Single choice",
+        "multiple_choice": "Multiple choice",
+        "date": "Date",
+        "opt_in": "Opt-in"
+      },
+      "inputTypes": {
+        "text": "Text",
+        "email": "Email",
+        "number": "Number",
+        "phone": "Phone"
+      },
+      "defaults": {
+        "screenTitle": "New screen",
+        "footerLabel": "Continue",
+        "heading": "Heading",
+        "subheading": "Subheading",
+        "body": "Write your text here.",
+        "caption": "Note",
+        "short_text": "Question",
+        "long_text": "Comments",
+        "dropdown": "Choose an option",
+        "single_choice": "Choose an option",
+        "multiple_choice": "Choose the options",
+        "date": "Date",
+        "opt_in": "I accept the terms and conditions",
+        "option1": "Option 1",
+        "option2": "Option 2",
+        "optionN": "Option {{n}}"
+      },
+      "block": {
+        "untitled": "No text",
+        "hasErrors": "Has errors",
+        "remove": "Delete block",
+        "reorder": "Reorder block",
+        "text": "Text",
+        "label": "Question",
+        "key": "Internal name",
+        "keyHint": "Identifies the answer in the chat and in automations.",
+        "inputType": "Data type",
+        "helperText": "Helper text (optional)",
+        "required": "Required",
+        "options": "Options",
+        "optionLabel": "Option {{n}}",
+        "addOption": "Add option",
+        "removeOption": "Remove option",
+        "optionsLocked": "Options come from the \"{{field}}\" field and can't be edited.",
+        "mapsTo": "Save to",
+        "mapsToNone": "Don't save",
+        "prefill": "Prefill with"
+      },
+      "targets": {
+        "contactName": "Contact name",
+        "contactEmail": "Contact email",
+        "missing": "Missing field ({{key}})"
+      },
+      "prefill": {
+        "none": "None",
+        "contactName": "Contact name",
+        "contactEmail": "Contact email",
+        "contactPhone": "Contact phone"
+      },
+      "appointment": {
+        "title": "Appointment booking at the end",
+        "description": "After the last screen, the person picks a day and time from the assistant's schedule.",
+        "agendaHint": "Uses the assistant's appointment schedule: it must be enabled with a connected calendar.",
+        "encryptionHint": "Saving sets up the number's encryption automatically.",
+        "reasonHint": "Used as the appointment reason.",
+        "noReason": "No reason",
+        "fields": {
+          "date_screen_title": "Date screen title",
+          "date_label": "Date label",
+          "slot_screen_title": "Time screen title",
+          "slot_label": "Time label",
+          "confirm_label": "Confirmation button text",
+          "reason_key": "Question with the reason"
+        }
+      },
+      "preview": {
+        "screens": "Preview screen",
+        "date": "Date",
+        "slot": "Time",
+        "continue": "Continue",
+        "optional": "(optional)",
+        "managedBy": "Managed by the business",
+        "sampleOptions": "Sample options: the real ones come from the schedule.",
+        "note": "Approximate view. Use 'Meta preview' to see the exact version."
+      },
+      "errors": {
+        "required": "Fill in this field.",
+        "tooLong": "Up to {{max}} characters.",
+        "categoriesRequired": "Pick at least one category.",
+        "screensCount": "The form needs between 1 and {{max}} screens.",
+        "screenEmpty": "Add at least one block to this screen.",
+        "noQuestions": "The form needs at least one question.",
+        "optInMax": "Up to {{max}} opt-in checkboxes per screen.",
+        "keyFormat": "Use lowercase letters without accents, numbers and _, starting with a letter (max. 40).",
+        "keyReserved": "This internal name is reserved. Pick another one.",
+        "keyDuplicate": "Another question already uses this internal name.",
+        "optionsCount": "Add between 1 and {{max}} options.",
+        "optionId": "Each option needs a different text.",
+        "optionsLocked": "Options must match the field chosen in \"Save to\" exactly. Pick it again to refresh them.",
+        "prefillInvalid": "This prefill isn't available for the question.",
+        "mapsToInvalid": "This destination isn't compatible with the question.",
+        "reasonKey": "Pick a long text question."
+      },
+      "toasts": {
+        "saved": "Form saved",
+        "savedWithMetaErrors": "Form saved with Meta issues ({{count}})",
+        "saveError": "Couldn't save the form",
+        "published": "Form published",
+        "publishError": "Couldn't publish the form",
+        "previewError": "Couldn't open the Meta preview",
+        "loadError": "Couldn't load the form"
+      },
+      "publishConfirm": {
+        "title": "Publish the form?",
+        "description": "Once published it can be sent to any contact. If you edit it later, it turns back into a draft and sends keep using this version until you publish again."
+      },
+      "metaErrors": {
+        "title": "Meta issues",
+        "description": "Meta reviewed the saved form and found these problems. Fix them and save again to publish it.",
+        "line": "line {{line}}"
+      },
+      "leaveConfirm": {
+        "title": "Leave without saving?",
+        "description": "This form has unsaved changes. If you leave now, they'll be lost.",
+        "stay": "Keep editing",
+        "leave": "Leave without saving"
+      },
+      "removeScreenConfirm": {
+        "title": "Delete the screen?",
+        "description": "\"{{title}}\" will be deleted with all its blocks.",
+        "confirm": "Delete"
+      }
     }
   }
 }

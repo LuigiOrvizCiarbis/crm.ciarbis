@@ -27,8 +27,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/Toast"
-import { Channel, WhatsAppTemplate } from "@/data/types"
+import { Channel, WhatsAppFlow, WhatsAppTemplate } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
 import {
   activateAutomation,
@@ -50,6 +51,7 @@ import { getChannels } from "@/lib/api/channels"
 import { getContactFields, type ContactFieldsResponse } from "@/lib/api/contact-fields"
 import { uploadMediaAsset } from "@/lib/api/media-assets"
 import { getManagedTemplates } from "@/lib/api/templates"
+import { getFlows } from "@/lib/api/whatsapp-flows"
 import { cn } from "@/lib/utils"
 
 type LeafCondition = { field: string; operator: string; value: string }
@@ -63,6 +65,7 @@ const triggers = [
   ["conversation.stage_changed", "stageChanged"],
   ["conversation.status_changed", "statusChanged"],
   ["date.reached", "dateReached"],
+  ["whatsapp_flow.response_received", "flowResponse"],
 ] as const
 
 const operators = ["equals", "not_equals", "contains", "empty", "not_empty", "greater_than", "less_than", "in", "has_tag", "stage_is"]
@@ -198,6 +201,7 @@ export function AutomationsSettings() {
   const [channels, setChannels] = useState<Channel[]>([])
   const [contactFields, setContactFields] = useState<ContactFieldsResponse>({ data: [], standard: [] })
   const [templates, setTemplates] = useState<Record<number, WhatsAppTemplate[]>>({})
+  const [flows, setFlows] = useState<Record<number, WhatsAppFlow[]>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [builderOpen, setBuilderOpen] = useState(false)
@@ -215,7 +219,9 @@ export function AutomationsSettings() {
       return [...new Set(Intl.supportedValuesOf("timeZone").map(normalizeTimezone))].sort()
     } catch { return [] }
   }, [])
-  const actionsReady = form.actions.every((action) => Boolean(action.config.channel_id && action.config.template_id))
+  const actionsReady = form.actions.every((action) => action.type === "send_whatsapp_flow"
+    ? Boolean(action.config.channel_id && action.config.whatsapp_flow_id && action.config.body?.trim() && action.config.cta?.trim())
+    : Boolean(action.config.channel_id && action.config.template_id))
   const contactFieldOptions = useMemo(() => [
     ...contactFields.standard.map((field) => ({ value: field.key, label: field.label })),
     ...contactFields.data.map((field) => ({ value: `custom_data.${field.key}`, label: field.label })),
@@ -299,6 +305,16 @@ export function AutomationsSettings() {
     }
   }
 
+  const loadFlows = async (channelId: number) => {
+    if (flows[channelId]) return
+    try {
+      const data = await getFlows(channelId, { sendable: true })
+      setFlows((current) => ({ ...current, [channelId]: data }))
+    } catch (error) {
+      addToast({ type: "error", title: t("common.error"), description: error instanceof Error ? error.message : undefined })
+    }
+  }
+
   const openCreate = () => {
     setEditing(null)
     setForm(initialPayload())
@@ -314,10 +330,16 @@ export function AutomationsSettings() {
       trigger_config: rule.trigger_config,
       conditions: rule.conditions,
       timezone: rule.timezone,
-      actions: rule.actions.map((action) => ({ type: action.type, config: { ...action.config, parameters: action.config.parameters ?? [] } })),
+      actions: rule.actions.map((action) => ({ type: action.type, config: action.type === "send_whatsapp_flow" ? { ...action.config } : { ...action.config, parameters: action.config.parameters ?? [] } })),
     })
     setConditionGroup(toConditionGroup(rule.conditions))
-    rule.actions.forEach((action) => { if (action.config.channel_id) void loadTemplates(action.config.channel_id) })
+    rule.actions.forEach((action) => {
+      if (!action.config.channel_id) return
+      if (action.type === "send_whatsapp_flow") void loadFlows(action.config.channel_id)
+      else void loadTemplates(action.config.channel_id)
+    })
+    const triggerChannelId = Number(rule.trigger_config.channel_id)
+    if (rule.trigger_type === "whatsapp_flow.response_received" && triggerChannelId) void loadFlows(triggerChannelId)
     setBuilderOpen(true)
   }
 
@@ -449,7 +471,7 @@ export function AutomationsSettings() {
             </div>
 
             <BuilderStep number="1" title={t("settings.automations.trigger")} icon={Play}>
-              <TriggerEditor form={form} onChange={setForm} fieldOptions={contactFieldOptions} dateFieldOptions={dateFieldOptions} t={t} />
+              <TriggerEditor form={form} onChange={setForm} fieldOptions={contactFieldOptions} dateFieldOptions={dateFieldOptions} channels={channels} flows={flows} onLoadFlows={loadFlows} t={t} />
             </BuilderStep>
 
             <BuilderStep number="2" title={t("settings.automations.conditions")} icon={Braces} optional={t("settings.automations.optional")}>
@@ -465,9 +487,11 @@ export function AutomationsSettings() {
                     action={action}
                     channels={channels}
                     templates={templates}
+                    flows={flows}
                     documentFieldOptions={documentFieldOptions}
                     t={t}
                     onLoadTemplates={loadTemplates}
+                    onLoadFlows={loadFlows}
                     onChange={(next) => setForm((current) => ({ ...current, actions: current.actions.map((item, itemIndex) => itemIndex === index ? next : item) }))}
                     onRemove={() => setForm((current) => ({ ...current, actions: current.actions.filter((_, itemIndex) => itemIndex !== index) }))}
                   />
@@ -490,7 +514,7 @@ export function AutomationsSettings() {
   )
 }
 
-function TriggerEditor({ form, onChange, fieldOptions, dateFieldOptions: rawDateFieldOptions, t }: { form: AutomationPayload; onChange: (value: AutomationPayload) => void; fieldOptions: Array<{ value: string; label: string }>; dateFieldOptions: Array<{ value: string; label: string }>; t: (key: string) => string }) {
+function TriggerEditor({ form, onChange, fieldOptions, dateFieldOptions: rawDateFieldOptions, channels, flows, onLoadFlows, t }: { form: AutomationPayload; onChange: (value: AutomationPayload) => void; fieldOptions: Array<{ value: string; label: string }>; dateFieldOptions: Array<{ value: string; label: string }>; channels: Channel[]; flows: Record<number, WhatsAppFlow[]>; onLoadFlows: (channelId: number) => Promise<void>; t: (key: string) => string }) {
   const config = form.trigger_config
   const setConfig = (patch: Record<string, unknown>) => onChange({ ...form, trigger_config: { ...config, ...patch } })
   const watchedField = String(config.field ?? "")
@@ -524,6 +548,19 @@ function TriggerEditor({ form, onChange, fieldOptions, dateFieldOptions: rawDate
             <Input value={watchedField} onChange={(event) => setConfig({ field: event.target.value })} placeholder="custom_data.fecha_renovacion" />
           )}
         </Field>
+      ) : null}
+      {form.trigger_type === "whatsapp_flow.response_received" ? (
+        <>
+          <Field label={t("settings.automations.channel")}>
+            <Select value={config.channel_id ? String(config.channel_id) : ""} onValueChange={(value) => { const channelId = Number(value); setConfig({ channel_id: channelId, whatsapp_flow_id: undefined }); void onLoadFlows(channelId) }}>
+              <SelectTrigger><SelectValue placeholder={t("settings.automations.selectChannel")} /></SelectTrigger>
+              <SelectContent>{channels.map((channel) => <SelectItem key={channel.id} value={String(channel.id)}>{channel.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </Field>
+          <Field label={t("settings.automations.flow")}>
+            <FlowSelect channelId={Number(config.channel_id ?? 0)} value={Number(config.whatsapp_flow_id ?? 0)} flows={flows} onChange={(flowId) => setConfig({ whatsapp_flow_id: flowId })} t={t} />
+          </Field>
+        </>
       ) : null}
       {form.trigger_type === "date.reached" ? (
         <>
@@ -589,7 +626,25 @@ function ConditionEditor({ group, onChange, fieldOptions, t, depth = 0 }: { grou
 
 type DocumentFieldOption = { path: string; label: string; type: string }
 
-function ActionEditor({ index, action, channels, templates, documentFieldOptions, onLoadTemplates, onChange, onRemove, t }: { index: number; action: AutomationAction; channels: Channel[]; templates: Record<number, WhatsAppTemplate[]>; documentFieldOptions: DocumentFieldOption[]; onLoadTemplates: (id: number) => Promise<void>; onChange: (action: AutomationAction) => void; onRemove: () => void; t: (key: string) => string }) {
+function FlowSelect({ channelId, value, flows, onChange, t }: { channelId: number; value: number; flows: Record<number, WhatsAppFlow[]>; onChange: (flowId: number) => void; t: (key: string) => string }) {
+  const options = channelId ? flows[channelId] : undefined
+  return (
+    <>
+      <Select disabled={!channelId} value={value ? String(value) : ""} onValueChange={(next) => onChange(Number(next))}>
+        <SelectTrigger><SelectValue placeholder={t("settings.automations.selectFlow")} /></SelectTrigger>
+        <SelectContent>
+          {(options ?? []).map((flow) => <SelectItem key={flow.id} value={String(flow.id)}>{flow.name} · {flow.status}</SelectItem>)}
+          {/* Un formulario guardado que ya no es enviable (deprecado, bloqueado)
+              no viene en la lista: se muestra crudo para no perderlo al guardar. */}
+          {value > 0 && options && !options.some((flow) => flow.id === value) ? <SelectItem value={String(value)}>#{value}</SelectItem> : null}
+        </SelectContent>
+      </Select>
+      {options && options.length === 0 ? <span className="block text-xs font-normal text-muted-foreground">{t("settings.automations.noFlows")}</span> : null}
+    </>
+  )
+}
+
+function ActionEditor({ index, action, channels, templates, flows, documentFieldOptions, onLoadTemplates, onLoadFlows, onChange, onRemove, t }: { index: number; action: AutomationAction; channels: Channel[]; templates: Record<number, WhatsAppTemplate[]>; flows: Record<number, WhatsAppFlow[]>; documentFieldOptions: DocumentFieldOption[]; onLoadTemplates: (id: number) => Promise<void>; onLoadFlows: (id: number) => Promise<void>; onChange: (action: AutomationAction) => void; onRemove: () => void; t: (key: string) => string }) {
   const config = action.config
   const parameters = config.parameters ?? []
   const selectedTemplate = (templates[config.channel_id ?? 0] ?? []).find((item) => item.id === config.template_id)
@@ -601,7 +656,33 @@ function ActionEditor({ index, action, channels, templates, documentFieldOptions
   const headerMediaMissing = Boolean(config.template_id) && headerMediaFormat !== null && headerParamCount !== 1
   return (
     <div className="relative rounded-xl border border-border bg-card p-4 shadow-sm">
-      <div className="mb-4 flex items-center justify-between"><div className="flex items-center gap-2"><span className="flex size-6 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold">{index + 1}</span><p className="text-sm font-medium">{t("settings.automations.whatsappTemplate")}</p></div><Button variant="ghost" size="icon" aria-label={t("settings.automations.removeAction")} disabled={index === 0} className="text-muted-foreground hover:text-destructive" onClick={onRemove}><Trash2 className="size-4" /></Button></div>
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="flex size-6 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold">{index + 1}</span>
+          <Select value={action.type} onValueChange={(type: AutomationAction["type"]) => { if (type !== action.type) onChange({ type, config: type === "send_whatsapp_flow" ? {} : { parameters: [] } }) }}>
+            <SelectTrigger className="h-8 min-w-56" aria-label={t("settings.automations.actionType")}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="whatsapp_template">{t("settings.automations.whatsappTemplate")}</SelectItem>
+              <SelectItem value="send_whatsapp_flow">{t("settings.automations.whatsappFlow")}</SelectItem>
+              {action.type === "instagram_private_reply" ? <SelectItem value="instagram_private_reply">{action.type}</SelectItem> : null}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button variant="ghost" size="icon" aria-label={t("settings.automations.removeAction")} disabled={index === 0} className="text-muted-foreground hover:text-destructive" onClick={onRemove}><Trash2 className="size-4" /></Button>
+      </div>
+      {action.type === "send_whatsapp_flow" ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label={t("settings.automations.channel")}><Select value={config.channel_id ? String(config.channel_id) : ""} onValueChange={(value) => { const channelId = Number(value); onChange({ ...action, config: { ...config, channel_id: channelId, whatsapp_flow_id: undefined } }); void onLoadFlows(channelId) }}><SelectTrigger><SelectValue placeholder={t("settings.automations.selectChannel")} /></SelectTrigger><SelectContent>{channels.map((channel) => <SelectItem key={channel.id} value={String(channel.id)}>{channel.name}</SelectItem>)}</SelectContent></Select></Field>
+          <Field label={t("settings.automations.flow")}>
+            <FlowSelect channelId={config.channel_id ?? 0} value={config.whatsapp_flow_id ?? 0} flows={flows} onChange={(flowId) => onChange({ ...action, config: { ...config, whatsapp_flow_id: flowId } })} t={t} />
+          </Field>
+          <div className="md:col-span-2">
+            <Field label={t("settings.automations.flowBody")}><Textarea rows={3} maxLength={1024} value={config.body ?? ""} onChange={(event) => onChange({ ...action, config: { ...config, body: event.target.value } })} /></Field>
+          </div>
+          <Field label={t("settings.automations.flowCta")}><Input maxLength={30} value={config.cta ?? ""} onChange={(event) => onChange({ ...action, config: { ...config, cta: event.target.value } })} placeholder={t("settings.automations.flowCtaPlaceholder")} /></Field>
+        </div>
+      ) : (
+      <>
       <div className="grid gap-4 md:grid-cols-2">
         <Field label={t("settings.automations.channel")}><Select value={config.channel_id ? String(config.channel_id) : ""} onValueChange={(value) => { const channelId = Number(value); onChange({ ...action, config: { ...config, channel_id: channelId, template_id: undefined } }); void onLoadTemplates(channelId) }}><SelectTrigger><SelectValue placeholder={t("settings.automations.selectChannel")} /></SelectTrigger><SelectContent>{channels.map((channel) => <SelectItem key={channel.id} value={String(channel.id)}>{channel.name}</SelectItem>)}</SelectContent></Select></Field>
         <Field label={t("settings.automations.template")}><Select disabled={!config.channel_id} value={config.template_id ? String(config.template_id) : ""} onValueChange={(value) => { const templateId = Number(value); const template = (templates[config.channel_id ?? 0] ?? []).find((item) => item.id === templateId); const autofilled = parametersForTemplate(template); onChange({ ...action, config: { ...config, template_id: templateId, parameters: parameters.length ? parameters : autofilled } }) }}><SelectTrigger><SelectValue placeholder={t("settings.automations.selectTemplate")} /></SelectTrigger><SelectContent>{(templates[config.channel_id ?? 0] ?? []).map((template) => <SelectItem key={template.id} value={String(template.id)}>{template.name} · {template.language}</SelectItem>)}</SelectContent></Select></Field>
@@ -612,6 +693,8 @@ function ActionEditor({ index, action, channels, templates, documentFieldOptions
         {headerMediaMissing && <p className="mb-3 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{t("settings.automations.headerMediaMissing")}</p>}
         <div className="space-y-2">{parameters.map((parameter, parameterIndex) => <ParameterRow key={parameterIndex} parameter={parameter} documentFieldOptions={documentFieldOptions} onChange={(next) => onChange({ ...action, config: { ...config, parameters: parameters.map((item, itemIndex) => itemIndex === parameterIndex ? next : item) } })} onRemove={() => onChange({ ...action, config: { ...config, parameters: parameters.filter((_, itemIndex) => itemIndex !== parameterIndex) } })} t={t} />)}</div>
       </div>
+      </>
+      )}
     </div>
   )
 }

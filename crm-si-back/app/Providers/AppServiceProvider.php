@@ -7,6 +7,8 @@ use App\Automation\Handlers\DateTriggerHandler;
 use App\Automation\Handlers\EventTriggerHandler;
 use App\Automation\Handlers\InstagramCommentKeywordTriggerHandler;
 use App\Automation\Handlers\InstagramPrivateReplyActionHandler;
+use App\Automation\Handlers\WhatsAppFlowActionHandler;
+use App\Automation\Handlers\WhatsAppFlowResponseTriggerHandler;
 use App\Automation\Handlers\WhatsAppTemplateActionHandler;
 use App\Models\Branch;
 use App\Models\Channel;
@@ -21,6 +23,7 @@ use App\Models\ScheduledMessage;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Models\User;
+use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppGroup;
 use App\Models\WhatsAppTemplate;
 use App\Observers\ContactAutomationObserver;
@@ -40,6 +43,7 @@ use App\Policies\ScheduledMessagePolicy;
 use App\Policies\TagPolicy;
 use App\Policies\TaskPolicy;
 use App\Policies\UserPolicy;
+use App\Policies\WhatsAppFlowPolicy;
 use App\Policies\WhatsAppGroupPolicy;
 use App\Policies\WhatsAppTemplatePolicy;
 use App\Support\CurrentWorkspace;
@@ -72,10 +76,12 @@ class AppServiceProvider extends ServiceProvider
                 new EventTriggerHandler('conversation.status_changed', 'Estado de conversación modificado', 'conversation'),
                 new InstagramCommentKeywordTriggerHandler,
                 new DateTriggerHandler,
+                new WhatsAppFlowResponseTriggerHandler,
             ],
             actions: [
                 $app->make(WhatsAppTemplateActionHandler::class),
                 $app->make(InstagramPrivateReplyActionHandler::class),
+                $app->make(WhatsAppFlowActionHandler::class),
             ],
         ));
     }
@@ -121,6 +127,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(User::class, UserPolicy::class);
         Gate::policy(WhatsAppGroup::class, WhatsAppGroupPolicy::class);
         Gate::policy(WhatsAppTemplate::class, WhatsAppTemplatePolicy::class);
+        Gate::policy(WhatsAppFlow::class, WhatsAppFlowPolicy::class);
 
         // Owner bypasses every gate within their tenant.
         //
