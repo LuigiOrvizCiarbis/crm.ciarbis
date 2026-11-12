@@ -102,6 +102,13 @@ export interface AdReferral {
   referred_at: string
 }
 
+/** Anuncio por el que entraron chats visibles para el usuario: opción del filtro por anuncio. */
+export interface ConversationAd {
+  ad_id: string
+  headline: string | null
+  source_type: AdReferral["source_type"]
+}
+
 export interface Conversation {
   id: number
   channelId: number
@@ -142,6 +149,8 @@ export interface Conversation {
   } | null
   /** Último anuncio de Meta por el que entró la conversación (bandeja y detalle). */
   adReferral?: AdReferral | null
+  /** Ids de todos los anuncios por los que entró, no sólo el último: los usa el filtro por anuncio. */
+  adIds?: string[]
 }
 
 export interface Tag {

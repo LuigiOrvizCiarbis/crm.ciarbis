@@ -1,4 +1,4 @@
-import type { Conversation, TranslationLanguage } from "@/data/types";
+import type { Conversation, ConversationAd, TranslationLanguage } from "@/data/types";
 import { throwApiError } from "./api-error";
 
 function mapConversation(c: any): Conversation {
@@ -27,6 +27,7 @@ function mapConversation(c: any): Conversation {
     matchedMessageSnippet: c.matched_message_snippet ?? undefined,
     humanHandoff: c.human_handoff ?? null,
     adReferral: c.ad_referral ?? null,
+    adIds: c.ad_ids ?? [],
   };
 }
 
@@ -161,6 +162,17 @@ export async function getConversationUnreadCount(): Promise<number> {
   }
 
   return Number(payload.data?.unread_count ?? 0);
+}
+
+/** Anuncios de Meta por los que entraron los chats visibles, del más reciente al más viejo. */
+export async function getConversationAds(): Promise<ConversationAd[]> {
+  const response = await fetch("/api/conversations/ads", {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throwApiError(response.status, payload, "Error al cargar anuncios");
+  return payload.data ?? [];
 }
 
 export async function markConversationAsRead(conversationId: number): Promise<number> {
