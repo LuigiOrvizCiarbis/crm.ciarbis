@@ -76,6 +76,11 @@ class AdReferralAttributionTest extends TestCase
             ->assertJsonPath('data.ad_referral.headline', 'Promo verano')
             ->assertJsonMissingPath('data.ad_referral.ctwa_clid');
 
+        $this->getJson('/api/conversations')
+            ->assertOk()
+            ->assertJsonPath('data.0.ad_referral.ad_id', 'AD_123')
+            ->assertJsonPath('data.0.ad_referral.source_type', 'ad');
+
         $this->getJson("/api/contacts/{$referral->contact_id}")
             ->assertOk()
             ->assertJsonPath('data.ad_referrals.0.ad_id', 'AD_123');
@@ -106,6 +111,10 @@ class AdReferralAttributionTest extends TestCase
         $this->getJson("/api/conversations/{$conversation->id}")
             ->assertOk()
             ->assertJsonPath('data.ad_referral', null);
+
+        $this->getJson('/api/conversations')
+            ->assertOk()
+            ->assertJsonPath('data.0.ad_referral', null);
     }
 
     public function test_messenger_ad_referral_in_message_is_recorded(): void

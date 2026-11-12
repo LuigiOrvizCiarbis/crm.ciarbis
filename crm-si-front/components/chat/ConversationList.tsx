@@ -6,7 +6,7 @@ import { LeadScoreBadge } from "@/components/Badges"
 import { PlatformIcon } from "@/components/chat/PlatformIcon"
 import { EmptyState } from "@/components/EmptyState"
 import { SkeletonList } from "@/components/Skeleton"
-import { AlertCircle, Bot, Check, Loader2, MessageSquare, Users } from "lucide-react"
+import { AlertCircle, Bot, Check, Loader2, Megaphone, MessageSquare, Users } from "lucide-react"
 import { Conversation, Channel } from "@/data/types"
 import { channelTypeToFilterType } from "@/data/enums"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -58,6 +58,10 @@ const ConversationCard = memo(function ConversationCard({
   const leadScore = conversation.leadScore ?? null
   const unreadCount = conversation.unread_count ?? 0
   const isUnread = unreadCount > 0 || Boolean(conversation.unread) || Boolean(conversation.manual_unread)
+  const adReferral = isGroup ? null : conversation.adReferral
+  const adReferralLabel = adReferral
+    ? [t(adReferral.source_type === "post" ? "chats.fromPost" : "chats.fromAd"), adReferral.headline].filter(Boolean).join(": ")
+    : null
   const unreadSrText = isUnread
     ? unreadCount > 0
       ? t("chats.unreadBadgeAria", { count: unreadCount })
@@ -163,6 +167,12 @@ const ConversationCard = memo(function ConversationCard({
                 <Bot className="size-3.5 shrink-0 text-ai" role="img" aria-label={t("chats.list.aiOn")}>
                   <title>{t("chats.list.aiOn")}</title>
                 </Bot>
+              )}
+              {/* Solo el ícono: un pill con texto le quitaría lugar al nombre en la tarjeta. */}
+              {adReferralLabel && (
+                <Megaphone className="size-3.5 shrink-0 text-primary" role="img" aria-label={adReferralLabel}>
+                  <title>{adReferralLabel}</title>
+                </Megaphone>
               )}
               {leadScore != null && leadScore > 0 && (
                 <LeadScoreBadge

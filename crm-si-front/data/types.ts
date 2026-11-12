@@ -140,7 +140,7 @@ export interface Conversation {
     assigned_to?: number | null
     notifications?: Array<{ destination_type: string; status: string; error?: string | null }>
   } | null
-  /** Último anuncio de origen; solo viene en el detalle (GET /conversations/{id}). */
+  /** Último anuncio de Meta por el que entró la conversación (bandeja y detalle). */
   adReferral?: AdReferral | null
 }
 
