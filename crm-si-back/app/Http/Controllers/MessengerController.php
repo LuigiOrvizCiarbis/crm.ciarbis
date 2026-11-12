@@ -8,6 +8,7 @@ use App\Http\Requests\MessengerChannelStoreRequest;
 use App\Models\Channel;
 use App\Models\MessengerConfig;
 use App\Models\Scopes\TenantScope;
+use App\Services\Channels\MessengerWebhookSubscriber;
 use App\Services\MessengerMessageService;
 use App\Support\MetaOAuth;
 use Illuminate\Http\JsonResponse;
@@ -274,7 +275,7 @@ class MessengerController extends Controller
         });
 
         $warnings = [];
-        if (! $this->subscribeToWebhooks($page['page_id'], $page['page_access_token'])) {
+        if (! app(MessengerWebhookSubscriber::class)->subscribe($page['page_id'], $page['page_access_token'])) {
             $warnings[] = 'No se pudo suscribir a los webhooks de Meta. Los mensajes entrantes pueden no llegar.';
         }
 
@@ -283,42 +284,6 @@ class MessengerController extends Controller
             'message' => 'Página de Facebook conectada exitosamente.',
             'warnings' => $warnings,
         ], 200);
-    }
-
-    /**
-     * Suscribe la app a los webhooks de la página.
-     *
-     * `message_echoes` es obligatorio y es un field SEPARADO en Messenger (en
-     * Instagram los echoes vienen dentro de `messages`). Sin él no llegan los
-     * mensajes que un agente escribe desde la app de Messenger, y la IA seguiría
-     * respondiendo por encima de una persona: el handoff se rompe en silencio.
-     */
-    private function subscribeToWebhooks(string $pageId, string $pageToken): bool
-    {
-        $version = config('services.facebook.graph_version', 'v26.0');
-
-        try {
-            $response = Http::withToken($pageToken)
-                ->timeout(15)
-                ->post("https://graph.facebook.com/{$version}/{$pageId}/subscribed_apps", [
-                    'subscribed_fields' => 'messages,message_echoes,messaging_postbacks',
-                ]);
-
-            if (! $response->successful()) {
-                Log::error('Messenger subscribeToWebhooks failed', [
-                    'status' => $response->status(),
-                    'error' => MetaOAuth::describeMetaError($response->json()),
-                ]);
-
-                return false;
-            }
-
-            return true;
-        } catch (\Throwable $e) {
-            Log::error('Messenger subscribeToWebhooks exception', MetaOAuth::describeException($e));
-
-            return false;
-        }
     }
 
     public function webhook(Request $request): Response|JsonResponse

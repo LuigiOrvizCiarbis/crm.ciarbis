@@ -73,7 +73,10 @@ class MessengerMessageService
         try {
             $message = $event['message'] ?? null;
             if (! is_array($message)) {
-                // Eventos de delivery/read/reaction/postback: fuera de alcance.
+                // Eventos de delivery/read/reaction/postback: fuera de alcance,
+                // salvo el referral de anuncio en un hilo ya existente.
+                $this->recordStandaloneAdReferral($entryId, $event);
+
                 return null;
             }
 
@@ -111,7 +114,7 @@ class MessengerMessageService
 
             $extracted = $this->extractContent($message, $tenantId);
 
-            return $this->createMessage([
+            $created = $this->createMessage([
                 'tenant_id' => $tenantId,
                 'conversation_id' => $conversation->getKey(),
                 'sender_type' => SenderType::CONTACT,
@@ -125,6 +128,12 @@ class MessengerMessageService
                 'external_id' => $mid,
                 'delivered_at' => now(),
             ], $isEcho);
+
+            if ($created && ! $isEcho) {
+                $this->recordMessageAdReferral($message, $event, $created, $contact, $conversation);
+            }
+
+            return $created;
         } catch (\Throwable $e) {
             Log::error('Error procesando mensaje de Messenger: '.$e->getMessage(), [
                 'entry_id' => $entryId,
@@ -132,6 +141,89 @@ class MessengerMessageService
 
             return null;
         }
+    }
+
+    /**
+     * Primer mensaje de un Click-to-Messenger: el anuncio viene en `message.referral`.
+     *
+     * @param  array<string, mixed>  $message
+     * @param  array<string, mixed>  $event
+     */
+    private function recordMessageAdReferral(array $message, array $event, Message $created, Contact $contact, Conversation $conversation): void
+    {
+        $recorder = app(AdReferralRecorder::class);
+        $attributes = $recorder->fromMetaMessaging((array) ($message['referral'] ?? []));
+        if ($attributes === null) {
+            return;
+        }
+
+        $recorder->record(
+            $attributes,
+            'facebook',
+            'facebook:'.($created->external_id ?? $created->id),
+            $contact,
+            $conversation,
+            $created,
+            $recorder->referredAtFromMillis($event['timestamp'] ?? null),
+        );
+    }
+
+    /**
+     * Un contacto que ya tenía hilo con la página y vuelve a entrar desde un
+     * anuncio dispara `messaging_referrals` (o `postback.referral` desde el
+     * botón Empezar) sin mensaje. Solo se registra sobre conversaciones
+     * existentes: no se crea una conversación vacía en la bandeja.
+     *
+     * @param  array<string, mixed>  $event
+     */
+    private function recordStandaloneAdReferral(?string $entryId, array $event): void
+    {
+        $referral = $event['referral'] ?? data_get($event, 'postback.referral');
+        if (! is_array($referral)) {
+            return;
+        }
+
+        $recorder = app(AdReferralRecorder::class);
+        $attributes = $recorder->fromMetaMessaging($referral);
+        if ($attributes === null) {
+            return;
+        }
+
+        $channel = $this->resolveChannel($entryId, $event['recipient']['id'] ?? null);
+        $psid = $event['sender']['id'] ?? null;
+        if (! $channel || ! $psid) {
+            return;
+        }
+
+        $contact = Contact::where('tenant_id', $channel->tenant_id)
+            ->where('source', 'facebook')
+            ->where('external_id', $psid)
+            ->first();
+        $conversation = $contact
+            ? Conversation::where('tenant_id', $channel->tenant_id)
+                ->where('contact_id', $contact->id)
+                ->where('channel_id', $channel->id)
+                ->first()
+            : null;
+
+        if (! $contact || ! $conversation) {
+            Log::info('Messenger referral sin conversación previa, ignorado', [
+                'psid' => $psid,
+                'channel_id' => $channel->id,
+            ]);
+
+            return;
+        }
+
+        $recorder->record(
+            $attributes,
+            'facebook',
+            'facebook:referral:'.$psid.':'.($event['timestamp'] ?? now()->getTimestampMs()),
+            $contact,
+            $conversation,
+            null,
+            $recorder->referredAtFromMillis($event['timestamp'] ?? null),
+        );
     }
 
     /**

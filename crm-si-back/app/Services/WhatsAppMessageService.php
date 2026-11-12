@@ -202,6 +202,10 @@ class WhatsAppMessageService
                 'delivered_at' => $this->parseWebhookTimestamp($messageData['timestamp'] ?? null),
             ]);
 
+            if ($groupWaId === null && is_array($messageData['referral'] ?? null)) {
+                $this->recordAdReferral($messageData, $messageId, $contact, $conversation, $message);
+            }
+
             if ($interaction !== null) {
                 $this->recordReplyInteraction($message, $interaction);
             } else {
@@ -293,6 +297,25 @@ class WhatsAppMessageService
                 'status' => 'active',
                 'display_name' => $contact->name,
             ]
+        );
+    }
+
+    private function recordAdReferral(array $messageData, ?string $messageId, Contact $contact, Conversation $conversation, Message $message): void
+    {
+        $recorder = app(AdReferralRecorder::class);
+        $attributes = $recorder->fromWhatsApp($messageData['referral']);
+        if ($attributes === null) {
+            return;
+        }
+
+        $recorder->record(
+            $attributes,
+            'whatsapp',
+            'whatsapp:'.($messageId ?? $message->id),
+            $contact,
+            $conversation,
+            $message,
+            $this->parseWebhookTimestamp($messageData['timestamp'] ?? null),
         );
     }
 

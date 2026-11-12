@@ -2580,6 +2580,8 @@ export default function ChatsPage() {
                 onRenameGroup={handleRenameGroup}
                 onToggleAiAutoreply={handleToggleAiAutoreply}
                 onSearchMessages={() => handleThreadSearchOpenChange(true)}
+                // El anuncio solo viene en el detalle: la lista no lo trae y activeConversation la prefiere.
+                adReferral={currentConversation.id === activeConversation.id ? currentConversation.adReferral ?? null : null}
               />
               {currentConversation?.id === selectedConversationId && (
                 <HumanHandoffBanner

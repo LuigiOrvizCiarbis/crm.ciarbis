@@ -96,7 +96,7 @@ class InstagramMessageService
 
             $extracted = $this->extractContent($message, $channel, $tenantId);
 
-            return $this->createMessage([
+            $created = $this->createMessage([
                 'tenant_id' => $tenantId,
                 'conversation_id' => $conversation->getKey(),
                 'sender_type' => SenderType::CONTACT,
@@ -110,6 +110,12 @@ class InstagramMessageService
                 'external_id' => $mid,
                 'delivered_at' => now(),
             ], $isEcho);
+
+            if ($created && ! $isEcho) {
+                $this->recordMessageAdReferral($message, $event, $created, $contact, $conversation);
+            }
+
+            return $created;
         } catch (\Throwable $e) {
             Log::error('Error procesando mensaje de Instagram: '.$e->getMessage(), [
                 'entry_id' => $entryId,
@@ -117,6 +123,33 @@ class InstagramMessageService
 
             return null;
         }
+    }
+
+    /**
+     * Primer mensaje de un Click-to-Instagram-Direct: el anuncio viene en
+     * `message.referral`. El evento `messaging_referral` de IG solo cubre
+     * links ig.me, que no son anuncios, así que no hay handler aparte.
+     *
+     * @param  array<string, mixed>  $message
+     * @param  array<string, mixed>  $event
+     */
+    private function recordMessageAdReferral(array $message, array $event, Message $created, Contact $contact, Conversation $conversation): void
+    {
+        $recorder = app(AdReferralRecorder::class);
+        $attributes = $recorder->fromMetaMessaging((array) ($message['referral'] ?? []));
+        if ($attributes === null) {
+            return;
+        }
+
+        $recorder->record(
+            $attributes,
+            'instagram',
+            'instagram:'.($created->external_id ?? $created->id),
+            $contact,
+            $conversation,
+            $created,
+            $recorder->referredAtFromMillis($event['timestamp'] ?? null),
+        );
     }
 
     /**

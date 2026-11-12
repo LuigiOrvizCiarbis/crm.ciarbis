@@ -84,6 +84,23 @@ export interface WhatsAppGroupSummary {
   invite_link: string | null
 }
 
+/** Entrada de un contacto desde un anuncio de Meta (CTWA / Messenger / Instagram). */
+export interface AdReferral {
+  id: number
+  platform: "whatsapp" | "facebook" | "instagram"
+  source_type: "ad" | "post"
+  ad_id: string | null
+  ref: string | null
+  headline: string | null
+  body: string | null
+  source_url: string | null
+  media_type: string | null
+  media_url: string | null
+  conversation_id: number | null
+  channel_id: number
+  referred_at: string
+}
+
 export interface Conversation {
   id: number
   channelId: number
@@ -122,6 +139,8 @@ export interface Conversation {
     assigned_to?: number | null
     notifications?: Array<{ destination_type: string; status: string; error?: string | null }>
   } | null
+  /** Último anuncio de origen; solo viene en el detalle (GET /conversations/{id}). */
+  adReferral?: AdReferral | null
 }
 
 export interface Tag {
