@@ -824,6 +824,8 @@
     "fromAd": "Anuncio",
     "fromPost": "Publicación",
     "adIdLabel": "Anuncio {{id}}",
+    "adsFilter": "Anuncios",
+    "adsFilterHint": "Mostrar solo los chats que llegaron desde un anuncio o una publicación de Meta",
     "online": "En línea",
     "back": "Volver a conversaciones",
     "contactInfo": "Información del contacto",
