@@ -11,6 +11,8 @@ enum MessageType: string
     case Audio = 'audio';
     case Video = 'video';
     case Contacts = 'contacts';
+    case Flow = 'flow';
+    case FlowResponse = 'flow_response';
 
     public static function values(): array
     {
@@ -27,6 +29,8 @@ enum MessageType: string
             self::Audio => 'Audio',
             self::Video => 'Video',
             self::Contacts => 'Contactos',
+            self::Flow => 'Formulario',
+            self::FlowResponse => 'Respuesta de formulario',
         };
     }
 }

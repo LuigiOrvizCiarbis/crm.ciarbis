@@ -34,6 +34,7 @@ import {
 import { MessageText } from "./MessageText"
 import { LinkPreviewCard } from "./LinkPreviewCard"
 import { AudioPlayer } from "./AudioPlayer"
+import { FlowMessageCard } from "./FlowMessageCard"
 
 export interface TranslationState {
   content?: string
@@ -113,8 +114,9 @@ export const MessageBubble = memo(function MessageBubble({
   // endpoint autenticado /api/messages/{id}/media, así que basta con el tipo.
   const isDocument = msg.message_type === "document"
   const isContacts = msg.message_type === "contacts" && Array.isArray(msg.contacts)
+  const isFlow = msg.message_type === "flow" || msg.message_type === "flow_response"
 
-  const parsed = !isImage && !isSticker && !isAudio && !isVideo && !isDocument && !isContacts && !isDeleted
+  const parsed = !isImage && !isSticker && !isAudio && !isVideo && !isDocument && !isContacts && !isFlow && !isDeleted
     ? parseTemplateContent(msg.content || "")
     : { isTemplate: false, title: "", body: "" }
 
@@ -403,6 +405,8 @@ export const MessageBubble = memo(function MessageBubble({
         </div>
       ))}
     </div>
+  ) : isFlow ? (
+    <FlowMessageCard message={msg} isUser={isUser} />
   ) : parsed.isTemplate ? (
     <div className="space-y-1">
       <span className="text-xs font-medium opacity-75">{parsed.title}</span>

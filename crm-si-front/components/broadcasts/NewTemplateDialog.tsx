@@ -9,9 +9,19 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/Toast"
 import { createTemplate, uploadTemplateHeader } from "@/lib/api/templates"
+import { getFlows } from "@/lib/api/whatsapp-flows"
+import type { WhatsAppFlow } from "@/data/types"
 
 type HeaderFormat = "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT"
-type ButtonDraft = { type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER"; text: string; url?: string; phone_number?: string }
+type ButtonDraft = {
+  type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER" | "FLOW"
+  text: string
+  url?: string
+  phone_number?: string
+  flow_id?: string
+  flow_action?: "navigate" | "data_exchange"
+  navigate_screen?: string
+}
 
 interface NewTemplateDialogProps {
   open: boolean
@@ -32,12 +42,45 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
   const [footer, setFooter] = useState("")
   const [examples, setExamples] = useState<Record<string, string>>({})
   const [buttons, setButtons] = useState<ButtonDraft[]>([])
+  const [publishedFlows, setPublishedFlows] = useState<WhatsAppFlow[] | null>(null)
+  const [flowsLoading, setFlowsLoading] = useState(false)
+  const hasFlowButton = buttons.some((button) => button.type === "FLOW")
   const [submitting, setSubmitting] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const variables = useMemo(() => [...new Set(Array.from(body.matchAll(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g)).map((match) => match[1]))], [body])
   const hasDraft = Boolean(name || body.trim() || footer.trim() || headerFile || headerText.trim() || buttons.length > 0)
 
   useEffect(() => setExamples((current) => Object.fromEntries(variables.map((variable) => [variable, current[variable] || ""]))), [variables])
+
+  // Los formularios se cargan recién cuando hay un botón FLOW, y se descartan
+  // al cambiar de canal porque pertenecen a la cuenta de WhatsApp del canal.
+  useEffect(() => { setPublishedFlows(null) }, [channelId])
+  useEffect(() => {
+    if (!open || !hasFlowButton || publishedFlows !== null || flowsLoading) return
+    setFlowsLoading(true)
+    getFlows(channelId)
+      .then((flows) => setPublishedFlows(flows.filter((flow) => flow.status === "PUBLISHED")))
+      .catch((error: unknown) => {
+        setPublishedFlows([])
+        addToast({ type: "error", title: error instanceof Error ? error.message : "No se pudieron cargar los formularios" })
+      })
+      .finally(() => setFlowsLoading(false))
+  }, [open, hasFlowButton, publishedFlows, flowsLoading, channelId, addToast])
+
+  const updateButton = (index: number, patch: Partial<ButtonDraft>) =>
+    setButtons((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item))
+
+  const changeButtonType = (index: number, type: ButtonDraft["type"]) =>
+    setButtons((current) => current.map((item, itemIndex) => itemIndex === index
+      ? type === "FLOW"
+        ? { type, text: item.text, flow_action: "navigate" }
+        : { type, text: item.text, ...(type === "URL" && item.url ? { url: item.url } : {}), ...(type === "PHONE_NUMBER" && item.phone_number ? { phone_number: item.phone_number } : {}) }
+      : item))
+
+  const selectFlow = (index: number, flowId: string) => {
+    const flow = publishedFlows?.find((item) => item.meta_flow_id === flowId)
+    updateButton(index, { flow_id: flowId || undefined, navigate_screen: flow?.screens[0] })
+  }
 
   const reset = () => {
     setName(""); setLanguage("es_AR"); setCategory("UTILITY")
@@ -69,6 +112,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
     if (!body.trim()) return addToast({ type: "error", title: "El cuerpo de la plantilla es obligatorio." })
     if (variables.some((variable) => !examples[variable]?.trim())) return addToast({ type: "error", title: "Agregá un ejemplo para cada variable." })
     if (headerFormat !== "NONE" && headerFormat !== "TEXT" && !headerFile) return addToast({ type: "error", title: "Seleccioná el archivo de ejemplo del encabezado." })
+    if (buttons.some((button) => button.type === "FLOW" && !button.flow_id)) return addToast({ type: "error", title: "Elegí un formulario publicado para el botón de formulario." })
     setSubmitting(true)
     try {
       let headerHandle: string | undefined
@@ -78,7 +122,16 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
       if (headerHandle) components.push({ type: "HEADER", format: headerFormat, example: { header_handle: [headerHandle] } })
       components.push({ type: "BODY", text: body.trim(), ...(variables.length ? { example: { body_text_named_params: variables.map((param_name) => ({ param_name, example: examples[param_name].trim() })) } } : {}) })
       if (footer.trim()) components.push({ type: "FOOTER", text: footer.trim() })
-      if (buttons.length) components.push({ type: "BUTTONS", buttons: buttons.map(({ type, text, url, phone_number }) => ({ type, text, ...(url ? { url } : {}), ...(phone_number ? { phone_number } : {}) })) })
+      if (buttons.length) components.push({
+        type: "BUTTONS",
+        buttons: buttons.map(({ type, text, url, phone_number, flow_id, flow_action, navigate_screen }) => ({
+          type,
+          text,
+          ...(url ? { url } : {}),
+          ...(phone_number ? { phone_number } : {}),
+          ...(type === "FLOW" ? { flow_id, flow_action: flow_action ?? "navigate", ...(flow_action !== "data_exchange" && navigate_screen ? { navigate_screen } : {}) } : {}),
+        })),
+      })
       await createTemplate(channelId, { name: name.trim(), language, category, parameter_format: "named", components })
       addToast({ type: "success", title: "Plantilla enviada a revisión de Meta." })
       reset()
@@ -200,29 +253,75 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
                       </Button>
                     )}
                   </div>
-                  {buttons.map((button, index) => (
+                  {buttons.map((button, index) => {
+                    const selectedFlow = publishedFlows?.find((flow) => flow.meta_flow_id === button.flow_id)
+                    const otherFlowButton = buttons.some((item, itemIndex) => itemIndex !== index && item.type === "FLOW")
+                    return (
                     <div key={index} className="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-[140px_1fr_auto]">
                       <select
                         value={button.type}
-                        onChange={(event) => setButtons((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, type: event.target.value as ButtonDraft["type"] } : item))}
+                        onChange={(event) => changeButtonType(index, event.target.value as ButtonDraft["type"])}
                         className="h-10 rounded-md border border-input bg-background px-2 text-sm"
                       >
                         <option value="QUICK_REPLY">Respuesta rápida</option>
                         <option value="URL">URL</option>
                         <option value="PHONE_NUMBER">Teléfono</option>
+                        <option value="FLOW" disabled={otherFlowButton}>Formulario</option>
                       </select>
-                      <Input value={button.text} onChange={(event) => setButtons((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, text: event.target.value } : item))} placeholder="Texto del botón" />
+                      <Input value={button.text} onChange={(event) => updateButton(index, { text: event.target.value })} placeholder="Texto del botón" />
                       {button.type === "URL" && (
-                        <Input value={button.url || ""} onChange={(event) => setButtons((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, url: event.target.value } : item))} placeholder="https://…" />
+                        <Input value={button.url || ""} onChange={(event) => updateButton(index, { url: event.target.value })} placeholder="https://…" />
                       )}
                       {button.type === "PHONE_NUMBER" && (
-                        <Input value={button.phone_number || ""} onChange={(event) => setButtons((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, phone_number: event.target.value } : item))} placeholder="54911…" />
+                        <Input value={button.phone_number || ""} onChange={(event) => updateButton(index, { phone_number: event.target.value })} placeholder="54911…" />
                       )}
                       <Button type="button" variant="ghost" size="icon" onClick={() => setButtons((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={button.text ? `Quitar botón ${button.text}` : `Quitar botón ${index + 1}`}>
                         <X className="size-4" aria-hidden="true" />
                       </Button>
+                      {button.type === "FLOW" && (
+                        <div className="grid gap-2 sm:col-span-3 sm:grid-cols-3">
+                          <label className="block space-y-1 text-xs font-medium text-muted-foreground">
+                            Formulario publicado
+                            <select
+                              value={button.flow_id || ""}
+                              disabled={flowsLoading}
+                              onChange={(event) => selectFlow(index, event.target.value)}
+                              className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                            >
+                              <option value="">{flowsLoading ? "Cargando…" : publishedFlows?.length === 0 ? "No hay formularios publicados" : "Elegí un formulario"}</option>
+                              {(publishedFlows ?? []).map((flow) => <option key={flow.id} value={flow.meta_flow_id}>{flow.name}</option>)}
+                            </select>
+                          </label>
+                          <label className="block space-y-1 text-xs font-medium text-muted-foreground">
+                            Acción al abrir
+                            <select
+                              value={button.flow_action || "navigate"}
+                              onChange={(event) => updateButton(index, { flow_action: event.target.value as ButtonDraft["flow_action"] })}
+                              className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                            >
+                              <option value="navigate">Abrir una pantalla</option>
+                              <option value="data_exchange">Consultar al CRM</option>
+                            </select>
+                          </label>
+                          {(button.flow_action ?? "navigate") === "navigate" && (
+                            <label className="block space-y-1 text-xs font-medium text-muted-foreground">
+                              Pantalla inicial
+                              <select
+                                value={button.navigate_screen || ""}
+                                disabled={!selectedFlow || selectedFlow.screens.length === 0}
+                                onChange={(event) => updateButton(index, { navigate_screen: event.target.value || undefined })}
+                                className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                              >
+                                {(selectedFlow?.screens ?? []).length === 0 && <option value="">Primera pantalla</option>}
+                                {(selectedFlow?.screens ?? []).map((screen) => <option key={screen} value={screen}>{screen}</option>)}
+                              </select>
+                            </label>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
 
