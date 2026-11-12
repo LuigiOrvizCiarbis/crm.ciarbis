@@ -1245,7 +1245,7 @@
       "selectFlow": "Select a form",
       "body": "Message",
       "cta": "Button text",
-      "ctaDefault": "Fill in",
+      "defaultsHint": "Prefilled with this form's default message. You can edit it before sending.",
       "header": "Header (optional)",
       "footer": "Footer (optional)",
       "empty": "There are no published forms for this channel",
@@ -1261,7 +1261,8 @@
       "defaultName": "Form",
       "emptyResponse": "No data",
       "yes": "Yes",
-      "no": "No"
+      "no": "No",
+      "mappingErrorsTitle": "Not saved to the contact"
     },
     "contactsSendError": "Could not send the contacts",
     "contactSaved": "Contact saved",
@@ -2728,6 +2729,7 @@
         "publish": "Publish",
         "editJson": "Edit JSON",
         "mapping": "Field mapping",
+        "sendDefaults": "Send message",
         "clone": "Duplicate",
         "deprecate": "Deprecate",
         "delete": "Delete"
@@ -2793,6 +2795,12 @@
         "helpPrefill": "Prefill keys the CRM fills in when the screen declares them in data:",
         "helpAppointment": "appointment_dates returns available_dates; appointment_slots (with date) returns available_slots and selected_date; book_appointment (with slot and optionally appointment_email and appointment_reason) books the appointment.",
         "helpRouting": "complete closes the flow. If you use data_api_version, the JSON also needs a routing_model."
+      },
+      "sendDefaults": {
+        "title": "Send message · {{name}}",
+        "description": "Texts prefilled when this form is sent from the chat. Agents can change them before sending.",
+        "saved": "Send message saved",
+        "saveError": "Couldn't save the send message"
       },
       "mapping": {
         "title": "Field mapping · {{name}}",
@@ -2935,7 +2943,9 @@
         "optionsLocked": "Options come from the \"{{field}}\" field and can't be edited.",
         "mapsTo": "Save to",
         "mapsToNone": "Don't save",
-        "prefill": "Prefill with"
+        "prefill": "Prefill with",
+        "requiredInCrm": "Required in the CRM.",
+        "mapsToHint": "The answer is validated with the CRM rules inside the form and saved to the contact as each screen is completed."
       },
       "targets": {
         "contactName": "Contact name",
@@ -2952,7 +2962,6 @@
         "title": "Appointment booking at the end",
         "description": "After the last screen, the person picks a day and time from the assistant's schedule.",
         "agendaHint": "Uses the assistant's appointment schedule: it must be enabled with a connected calendar.",
-        "encryptionHint": "Saving sets up the number's encryption automatically.",
         "reasonHint": "Used as the appointment reason.",
         "noReason": "No reason",
         "fields": {
@@ -2990,7 +2999,9 @@
         "optionsLocked": "Options must match the field chosen in \"Save to\" exactly. Pick it again to refresh them.",
         "prefillInvalid": "This prefill isn't available for the question.",
         "mapsToInvalid": "This destination isn't compatible with the question.",
-        "reasonKey": "Pick a long text question."
+        "reasonKey": "Pick a long text question.",
+        "keyRequiredPrefix": "The internal name can't start with “required”.",
+        "requiredInCrm": "The field “{{field}}” is required in the CRM: the question must be required."
       },
       "toasts": {
         "saved": "Form saved",
@@ -3020,7 +3031,8 @@
         "title": "Delete the screen?",
         "description": "\"{{title}}\" will be deleted with all its blocks.",
         "confirm": "Delete"
-      }
+      },
+      "encryptionHint": "Saving sets up the number's encryption automatically."
     }
   }
 }

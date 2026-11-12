@@ -674,7 +674,10 @@ function ActionEditor({ index, action, channels, templates, flows, documentField
         <div className="grid gap-4 md:grid-cols-2">
           <Field label={t("settings.automations.channel")}><Select value={config.channel_id ? String(config.channel_id) : ""} onValueChange={(value) => { const channelId = Number(value); onChange({ ...action, config: { ...config, channel_id: channelId, whatsapp_flow_id: undefined } }); void onLoadFlows(channelId) }}><SelectTrigger><SelectValue placeholder={t("settings.automations.selectChannel")} /></SelectTrigger><SelectContent>{channels.map((channel) => <SelectItem key={channel.id} value={String(channel.id)}>{channel.name}</SelectItem>)}</SelectContent></Select></Field>
           <Field label={t("settings.automations.flow")}>
-            <FlowSelect channelId={config.channel_id ?? 0} value={config.whatsapp_flow_id ?? 0} flows={flows} onChange={(flowId) => onChange({ ...action, config: { ...config, whatsapp_flow_id: flowId } })} t={t} />
+            <FlowSelect channelId={config.channel_id ?? 0} value={config.whatsapp_flow_id ?? 0} flows={flows} onChange={(flowId) => {
+              const defaults = flows[config.channel_id ?? 0]?.find((flow) => flow.id === flowId)?.send_defaults
+              onChange({ ...action, config: { ...config, whatsapp_flow_id: flowId, body: config.body?.trim() ? config.body : defaults?.body, cta: config.cta?.trim() ? config.cta : defaults?.cta } })
+            }} t={t} />
           </Field>
           <div className="md:col-span-2">
             <Field label={t("settings.automations.flowBody")}><Textarea rows={3} maxLength={1024} value={config.body ?? ""} onChange={(event) => onChange({ ...action, config: { ...config, body: event.target.value } })} /></Field>

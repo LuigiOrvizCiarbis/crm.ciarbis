@@ -12,6 +12,7 @@ import {
   KeyRound,
   Link2,
   Loader2,
+  MessageSquareText,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -24,6 +25,7 @@ import {
 import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { FlowFieldMappingDialog } from "@/components/config/flows/FlowFieldMappingDialog"
 import { FlowJsonDialog } from "@/components/config/flows/FlowJsonDialog"
+import { FlowSendDefaultsDialog } from "@/components/config/flows/FlowSendDefaultsDialog"
 import { NewFlowDialog } from "@/components/config/flows/NewFlowDialog"
 import { FLOW_STATUS_CLASS, isFlowEditable } from "@/components/config/flows/flow-labels"
 import {
@@ -114,6 +116,7 @@ export function WhatsAppFlowsCard() {
   const [newOpen, setNewOpen] = useState(false)
   const [jsonDialog, setJsonDialog] = useState<JsonDialogState>(null)
   const [mappingFlow, setMappingFlow] = useState<WhatsAppFlow | null>(null)
+  const [defaultsFlow, setDefaultsFlow] = useState<WhatsAppFlow | null>(null)
   const [cloneTarget, setCloneTarget] = useState<WhatsAppFlow | null>(null)
   const [cloneName, setCloneName] = useState("")
   const [confirm, setConfirm] = useState<Confirmation | null>(null)
@@ -589,6 +592,10 @@ export function WhatsAppFlowsCard() {
                                     {t("flows.settings.actions.mapping")}
                                   </DropdownMenuItem>
                                 )}
+                                <DropdownMenuItem onSelect={() => setDefaultsFlow(flow)}>
+                                  <MessageSquareText className="size-4" />
+                                  {t("flows.settings.actions.sendDefaults")}
+                                </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onSelect={() => {
                                     setCloneName(
@@ -650,6 +657,12 @@ export function WhatsAppFlowsCard() {
       <FlowFieldMappingDialog
         flow={mappingFlow}
         onOpenChange={(open) => !open && setMappingFlow(null)}
+        onSaved={upsertFlow}
+      />
+
+      <FlowSendDefaultsDialog
+        flow={defaultsFlow}
+        onOpenChange={(open) => !open && setDefaultsFlow(null)}
         onSaved={upsertFlow}
       />
 

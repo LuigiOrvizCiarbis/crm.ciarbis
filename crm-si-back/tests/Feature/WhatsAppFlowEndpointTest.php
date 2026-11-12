@@ -3,16 +3,19 @@
 namespace Tests\Feature;
 
 use App\Enums\ChannelType;
+use App\Enums\ContactFieldType;
 use App\Enums\UserRole;
 use App\Enums\WhatsAppFlowStatus;
 use App\Models\Channel;
 use App\Models\Contact;
+use App\Models\ContactField;
 use App\Models\Conversation;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppFlowSession;
+use App\Services\Flows\Builder\FlowDefinitionCompiler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Testing\TestResponse;
@@ -110,6 +113,108 @@ class WhatsAppFlowEndpointTest extends TestCase
             ]]]],
             $this->decrypt($response->getContent(), $aesKey, $iv),
         );
+    }
+
+    public function test_builder_screen_saves_valid_answers_and_returns_crm_errors_on_the_same_screen(): void
+    {
+        $session = $this->builderSession();
+        Contact::create(['tenant_id' => $session->tenant_id, 'name' => 'Otro', 'phone' => '5491100000000', 'source' => 'whatsapp', 'custom_data' => ['dni' => '999']]);
+
+        [$response, $aesKey, $iv] = $this->submit($session, 'PANTALLA_A', ['next_screen' => 'PANTALLA_B', 'correo' => 'ana@x.com', 'dni' => '999']);
+
+        $this->assertSame(
+            ['screen' => 'PANTALLA_A', 'data' => [
+                'error_message' => 'DNI: ya está registrado para otro contacto.',
+                'correo' => 'ana@x.com',
+                'dni' => '999',
+            ]],
+            $this->decrypt($response->getContent(), $aesKey, $iv),
+        );
+        $contact = $session->contact->fresh();
+        $this->assertSame('ana@x.com', $contact->email);
+        $this->assertSame('123', $contact->custom_data['dni']);
+    }
+
+    public function test_builder_screens_advance_and_the_last_one_closes_with_every_answer(): void
+    {
+        $session = $this->builderSession();
+
+        [$response, $aesKey, $iv] = $this->submit($session, 'PANTALLA_A', ['next_screen' => 'PANTALLA_B', 'correo' => 'ana@x.com', 'dni' => '456']);
+
+        $this->assertSame(['screen' => 'PANTALLA_B', 'data' => ['nota' => '']], $this->decrypt($response->getContent(), $aesKey, $iv));
+        $this->assertSame('456', $session->contact->fresh()->custom_data['dni']);
+
+        [$response, $aesKey, $iv] = $this->submit($session, 'PANTALLA_B', ['nota' => 'Hola']);
+
+        $this->assertSame(
+            ['screen' => 'SUCCESS', 'data' => ['extension_message_response' => ['params' => [
+                'flow_token' => $session->flow_token,
+                'correo' => 'ana@x.com',
+                'dni' => '456',
+                'nota' => 'Hola',
+            ]]]],
+            $this->decrypt($response->getContent(), $aesKey, $iv),
+        );
+    }
+
+    public function test_builder_init_restores_saved_answers_before_the_contact_prefill(): void
+    {
+        $session = $this->builderSession();
+        $session->update(['data' => ['correo' => 'guardado@x.com']]);
+
+        [$response, $aesKey, $iv] = $this->send(['version' => '3.0', 'action' => 'INIT', 'flow_token' => $session->flow_token]);
+
+        $this->assertSame(
+            ['screen' => 'PANTALLA_A', 'data' => ['correo' => 'guardado@x.com', 'dni' => '123']],
+            $this->decrypt($response->getContent(), $aesKey, $iv),
+        );
+    }
+
+    /**
+     * Formulario del constructor de dos pantallas: correo → email del contacto
+     * y dni (precargado) → campo único `dni`; después una nota sin mapear.
+     */
+    private function builderSession(): WhatsAppFlowSession
+    {
+        $session = $this->context();
+        ContactField::create([
+            'tenant_id' => $session->tenant_id,
+            'key' => 'dni',
+            'label' => 'DNI',
+            'type' => ContactFieldType::Text,
+            'is_unique' => true,
+            'display_order' => 1,
+        ]);
+        $definition = ['schema' => 1, 'appointment' => null, 'screens' => [
+            ['title' => 'Datos', 'footer_label' => 'Seguir', 'blocks' => [
+                ['type' => 'short_text', 'key' => 'correo', 'label' => 'Email', 'input_type' => 'email', 'required' => true, 'prefill' => 'contact_email', 'maps_to' => 'contact.email'],
+                ['type' => 'short_text', 'key' => 'dni', 'label' => 'DNI', 'input_type' => 'text', 'required' => true, 'prefill' => 'cf_dni', 'maps_to' => 'custom_data.dni'],
+            ]],
+            ['title' => 'Más', 'footer_label' => 'Enviar', 'blocks' => [
+                ['type' => 'long_text', 'key' => 'nota', 'label' => 'Nota', 'required' => false],
+            ]],
+        ]];
+        $compiled = (new FlowDefinitionCompiler)->compile($definition);
+        $session->flow->update([
+            'builder_definition' => $definition,
+            'field_mappings' => $compiled->fieldMappings,
+            'flow_json' => json_encode($compiled->flowJson),
+            'data_api_version' => FlowDefinitionCompiler::DATA_API_VERSION,
+        ]);
+
+        return $session->fresh();
+    }
+
+    /** @return array{0: TestResponse, 1: string, 2: string} */
+    private function submit(WhatsAppFlowSession $session, string $screen, array $data): array
+    {
+        return $this->send([
+            'version' => '3.0',
+            'action' => 'data_exchange',
+            'screen' => $screen,
+            'flow_token' => $session->flow_token,
+            'data' => ['crm_action' => 'submit_screen'] + $data,
+        ]);
     }
 
     private function context(): WhatsAppFlowSession

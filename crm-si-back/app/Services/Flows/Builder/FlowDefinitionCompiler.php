@@ -6,10 +6,15 @@ namespace App\Services\Flows\Builder;
  * Compila la definición del constructor visual a Flow JSON de Meta.
  * Asume una definición ya validada por FlowDefinitionValidator.
  *
- * Las claves que usa el endpoint (`crm_action`, `next_screen`, `date`,
- * `slot`, `appointment_*`) y los nombres de datos de las pantallas de turno
- * (`available_dates`, `available_slots`, `selected_date`) son el contrato con
- * FlowEndpointHandler.
+ * Todas las pantallas pasan por el endpoint del CRM (`data_exchange` con
+ * `crm_action: submit_screen`): ahí se validan las respuestas con las reglas
+ * del CRM, se guarda el progreso y se decide la pantalla siguiente. Los
+ * textos se restauran con `init-value` desde los datos de la pantalla, que
+ * arma FlowEndpointHandler con lo ya respondido o la precarga del contacto.
+ *
+ * Las claves `crm_action`, `next_screen`, `date` y `slot`, y los datos de las
+ * pantallas de turno (`available_dates`, `available_slots`, `selected_date`)
+ * son el contrato con FlowEndpointHandler.
  */
 class FlowDefinitionCompiler
 {
@@ -17,9 +22,14 @@ class FlowDefinitionCompiler
 
     public const DATA_API_VERSION = '4.0';
 
+    public const SUBMIT_ACTION = 'submit_screen';
+
     public const DATE_SCREEN = 'TURNO_FECHA';
 
     public const SLOT_SCREEN = 'TURNO_HORARIO';
+
+    /** Preguntas cuya respuesta se restaura al volver a abrir el formulario. */
+    public const RESTORABLE_TYPES = ['short_text', 'long_text'];
 
     private const COMPONENTS = [
         'heading' => 'TextHeading',
@@ -43,30 +53,15 @@ class FlowDefinitionCompiler
         ],
     ];
 
-    /** @var array<string, int> key de pregunta → índice de pantalla */
-    private array $questionScreens = [];
-
     public function compile(array $definition): CompiledFlow
     {
         $screens = $definition['screens'];
         $appointment = $definition['appointment'] ?? null;
-        $this->questionScreens = [];
-        $prefillKeys = [];
         $mappings = [];
 
-        foreach ($screens as $i => $screen) {
+        foreach ($screens as $screen) {
             foreach ($screen['blocks'] as $block) {
-                if (! $this->isQuestion($block)) {
-                    continue;
-                }
-
-                $this->questionScreens[$block['key']] = $i;
-
-                if (! empty($block['prefill'])) {
-                    $prefillKeys[$block['prefill']] = true;
-                }
-
-                if (! empty($block['maps_to'])) {
+                if ($this->isQuestion($block) && ! empty($block['maps_to'])) {
                     $mappings[] = ['response_key' => $block['key'], 'target' => $block['maps_to']];
                 }
             }
@@ -76,21 +71,21 @@ class FlowDefinitionCompiler
         $last = count($screens) - 1;
 
         foreach ($screens as $i => $screen) {
-            $compiled[] = $this->compileScreen($screen, $i, $i === $last, $appointment, array_keys($prefillKeys));
+            $next = $i < $last ? self::screenId($i + 1) : ($appointment !== null ? self::DATE_SCREEN : null);
+            $compiled[] = $this->compileScreen($screen, $i, $next);
         }
-
-        $flowJson = ['version' => self::FLOW_JSON_VERSION];
 
         if ($appointment !== null) {
             $compiled[] = $this->dateScreen($appointment);
-            $compiled[] = $this->slotScreen($appointment, $screens);
-            $flowJson['data_api_version'] = self::DATA_API_VERSION;
-            $flowJson['routing_model'] = $this->routingModel(count($screens));
+            $compiled[] = $this->slotScreen($appointment);
         }
 
-        $flowJson['screens'] = $compiled;
-
-        return new CompiledFlow($flowJson, $mappings);
+        return new CompiledFlow([
+            'version' => self::FLOW_JSON_VERSION,
+            'data_api_version' => self::DATA_API_VERSION,
+            'routing_model' => $this->routingModel(count($screens), $appointment !== null),
+            'screens' => $compiled,
+        ], $mappings);
     }
 
     public static function screenId(int $index): string
@@ -99,21 +94,45 @@ class FlowDefinitionCompiler
         return 'PANTALLA_'.chr(ord('A') + $index);
     }
 
-    /** @param  list<string>  $prefillKeys */
-    private function compileScreen(array $screen, int $index, bool $isLast, ?array $appointment, array $prefillKeys): array
+    /** Índice de una pantalla de preguntas a partir de su id, o null. */
+    public static function screenIndex(string $screenId): ?int
     {
-        $children = array_map(fn (array $block) => $this->compileBlock($block, $index), $screen['blocks']);
-        $children[] = $this->footer($screen['footer_label'], $this->footerAction($index, $isLast, $appointment));
+        return preg_match('/^PANTALLA_([A-Z])$/', $screenId, $match) === 1 ? ord($match[1]) - ord('A') : null;
+    }
+
+    /** @param  ?string  $next  pantalla siguiente; null si esta pantalla cierra el formulario */
+    private function compileScreen(array $screen, int $index, ?string $next): array
+    {
+        $children = [];
+        $answers = [];
+        $data = [];
+
+        foreach ($screen['blocks'] as $block) {
+            $children[] = $this->compileBlock($block);
+
+            if (! $this->isQuestion($block)) {
+                continue;
+            }
+
+            $answers[$block['key']] = '${form.'.$block['key'].'}';
+
+            if (in_array($block['type'], self::RESTORABLE_TYPES, true)) {
+                $data[$block['key']] = ['type' => 'string', '__example__' => ''];
+            }
+        }
+
+        $payload = ['crm_action' => self::SUBMIT_ACTION] + ($next !== null ? ['next_screen' => $next] : []) + $answers;
+        $children[] = $this->footer($screen['footer_label'], ['name' => 'data_exchange', 'payload' => $payload]);
 
         $compiled = ['id' => self::screenId($index), 'title' => $screen['title']];
 
-        if ($isLast && $appointment === null) {
+        if ($next === null) {
             $compiled['terminal'] = true;
             $compiled['success'] = true;
         }
 
-        if ($index === 0 && $prefillKeys !== []) {
-            $compiled['data'] = array_fill_keys($prefillKeys, ['type' => 'string', '__example__' => '']);
+        if ($data !== []) {
+            $compiled['data'] = $data;
         }
 
         $compiled['layout'] = ['type' => 'SingleColumnLayout', 'children' => $children];
@@ -121,27 +140,7 @@ class FlowDefinitionCompiler
         return $compiled;
     }
 
-    private function footerAction(int $index, bool $isLast, ?array $appointment): array
-    {
-        if (! $isLast) {
-            return [
-                'name' => 'navigate',
-                'next' => ['type' => 'screen', 'name' => self::screenId($index + 1)],
-                'payload' => new \stdClass,
-            ];
-        }
-
-        if ($appointment === null) {
-            return ['name' => 'complete', 'payload' => $this->answersPayload($index)];
-        }
-
-        return [
-            'name' => 'data_exchange',
-            'payload' => ['crm_action' => 'appointment_dates', 'next_screen' => self::DATE_SCREEN] + $this->answersPayload($index),
-        ];
-    }
-
-    private function compileBlock(array $block, int $screenIndex): array
+    private function compileBlock(array $block): array
     {
         $type = $block['type'];
         $component = ['type' => self::COMPONENTS[$type]];
@@ -171,39 +170,11 @@ class FlowDefinitionCompiler
             );
         }
 
-        if (! empty($block['prefill'])) {
-            $component['init-value'] = $screenIndex === 0
-                ? '${data.'.$block['prefill'].'}'
-                : '${screen.'.self::screenId(0).'.data.'.$block['prefill'].'}';
+        if (in_array($type, self::RESTORABLE_TYPES, true)) {
+            $component['init-value'] = '${data.'.$block['key'].'}';
         }
 
         return $component;
-    }
-
-    /**
-     * Payload con todas las respuestas del formulario, referenciadas desde la
-     * pantalla $fromScreen (o desde una pantalla de turno si es null).
-     *
-     * @return array<string, string>
-     */
-    private function answersPayload(?int $fromScreen): array
-    {
-        $payload = [];
-
-        foreach (array_keys($this->questionScreens) as $key) {
-            $payload[$key] = $this->answerRef($key, $fromScreen);
-        }
-
-        return $payload;
-    }
-
-    private function answerRef(string $key, ?int $fromScreen): string
-    {
-        $screen = $this->questionScreens[$key];
-
-        return $screen === $fromScreen
-            ? '${form.'.$key.'}'
-            : '${screen.'.self::screenId($screen).'.form.'.$key.'}';
     }
 
     private function dateScreen(array $appointment): array
@@ -231,19 +202,9 @@ class FlowDefinitionCompiler
         ];
     }
 
-    private function slotScreen(array $appointment, array $screens): array
+    /** El email y el motivo del turno los toma el endpoint de las respuestas guardadas. */
+    private function slotScreen(array $appointment): array
     {
-        $payload = ['crm_action' => 'book_appointment', 'slot' => '${form.slot}'];
-        $emailKey = $this->keyMappedTo($screens, 'contact.email');
-
-        if ($emailKey !== null) {
-            $payload['appointment_email'] = $this->answerRef($emailKey, null);
-        }
-
-        if (! empty($appointment['reason_key'])) {
-            $payload['appointment_reason'] = $this->answerRef($appointment['reason_key'], null);
-        }
-
         return [
             'id' => self::SLOT_SCREEN,
             'title' => $appointment['slot_screen_title'],
@@ -256,38 +217,32 @@ class FlowDefinitionCompiler
                 'type' => 'SingleColumnLayout',
                 'children' => [
                     $this->dynamicDropdown('slot', $appointment['slot_label'], '${data.available_slots}'),
-                    $this->footer($appointment['confirm_label'], ['name' => 'data_exchange', 'payload' => $payload]),
+                    $this->footer($appointment['confirm_label'], [
+                        'name' => 'data_exchange',
+                        'payload' => ['crm_action' => 'book_appointment', 'slot' => '${form.slot}'],
+                    ]),
                 ],
             ],
         ];
     }
 
     /** @return array<string, list<string>> */
-    private function routingModel(int $screenCount): array
+    private function routingModel(int $screenCount, bool $withAppointment): array
     {
         $routes = [];
 
-        for ($i = 0; $i < $screenCount; $i++) {
-            $routes[self::screenId($i)] = [$i === $screenCount - 1 ? self::DATE_SCREEN : self::screenId($i + 1)];
+        for ($i = 0; $i < $screenCount - 1; $i++) {
+            $routes[self::screenId($i)] = [self::screenId($i + 1)];
         }
 
-        $routes[self::DATE_SCREEN] = [self::SLOT_SCREEN];
-        $routes[self::SLOT_SCREEN] = [];
+        $routes[self::screenId($screenCount - 1)] = $withAppointment ? [self::DATE_SCREEN] : [];
+
+        if ($withAppointment) {
+            $routes[self::DATE_SCREEN] = [self::SLOT_SCREEN];
+            $routes[self::SLOT_SCREEN] = [];
+        }
 
         return $routes;
-    }
-
-    private function keyMappedTo(array $screens, string $target): ?string
-    {
-        foreach ($screens as $screen) {
-            foreach ($screen['blocks'] as $block) {
-                if (($block['maps_to'] ?? null) === $target) {
-                    return $block['key'];
-                }
-            }
-        }
-
-        return null;
     }
 
     private function isQuestion(array $block): bool

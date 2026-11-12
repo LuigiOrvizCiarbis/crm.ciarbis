@@ -1,4 +1,4 @@
-import { KEY_MAX, isReservedKey } from "./limits";
+import { KEY_MAX, RESERVED_KEY_PREFIX, hasForbiddenKeyPrefix, isReservedKey } from "./limits";
 
 const FALLBACK_PREFIX = "campo_";
 
@@ -18,7 +18,8 @@ export function keyFromLabel(label: string, existingKeys: Iterable<string>): str
     .replace(/^_+|_+$/g, "")
     .slice(0, KEY_MAX);
 
-  if (!/^[a-z]/.test(base)) {
+  // Un prefijo prohibido o reservado no se arregla con sufijos: se antepone `campo_`.
+  if (!/^[a-z]/.test(base) || hasForbiddenKeyPrefix(base) || base.startsWith(RESERVED_KEY_PREFIX)) {
     base = `${FALLBACK_PREFIX}${base}`.slice(0, KEY_MAX);
   }
   base = base.replace(/_+$/, "");

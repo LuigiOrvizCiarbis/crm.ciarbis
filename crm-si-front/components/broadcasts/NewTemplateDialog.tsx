@@ -77,9 +77,14 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
         : { type, text: item.text, ...(type === "URL" && item.url ? { url: item.url } : {}), ...(type === "PHONE_NUMBER" && item.phone_number ? { phone_number: item.phone_number } : {}) }
       : item))
 
+  // La acción sale del formulario: con endpoint, Meta lo abre consultando al
+  // CRM (precarga y turnos); sin endpoint, abre su primera pantalla. Abrir en
+  // otra pantalla rompería formularios que dependen de las anteriores.
   const selectFlow = (index: number, flowId: string) => {
     const flow = publishedFlows?.find((item) => item.meta_flow_id === flowId)
-    updateButton(index, { flow_id: flowId || undefined, navigate_screen: flow?.screens[0] })
+    updateButton(index, flow?.uses_endpoint
+      ? { flow_id: flowId || undefined, flow_action: "data_exchange", navigate_screen: undefined }
+      : { flow_id: flowId || undefined, flow_action: "navigate", navigate_screen: flow?.screens[0] })
   }
 
   const reset = () => {
@@ -254,7 +259,6 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
                     )}
                   </div>
                   {buttons.map((button, index) => {
-                    const selectedFlow = publishedFlows?.find((flow) => flow.meta_flow_id === button.flow_id)
                     const otherFlowButton = buttons.some((item, itemIndex) => itemIndex !== index && item.type === "FLOW")
                     return (
                     <div key={index} className="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-[140px_1fr_auto]">
@@ -279,7 +283,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
                         <X className="size-4" aria-hidden="true" />
                       </Button>
                       {button.type === "FLOW" && (
-                        <div className="grid gap-2 sm:col-span-3 sm:grid-cols-3">
+                        <div className="sm:col-span-3">
                           <label className="block space-y-1 text-xs font-medium text-muted-foreground">
                             Formulario publicado
                             <select
@@ -292,31 +296,6 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
                               {(publishedFlows ?? []).map((flow) => <option key={flow.id} value={flow.meta_flow_id}>{flow.name}</option>)}
                             </select>
                           </label>
-                          <label className="block space-y-1 text-xs font-medium text-muted-foreground">
-                            Acción al abrir
-                            <select
-                              value={button.flow_action || "navigate"}
-                              onChange={(event) => updateButton(index, { flow_action: event.target.value as ButtonDraft["flow_action"] })}
-                              className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
-                            >
-                              <option value="navigate">Abrir una pantalla</option>
-                              <option value="data_exchange">Consultar al CRM</option>
-                            </select>
-                          </label>
-                          {(button.flow_action ?? "navigate") === "navigate" && (
-                            <label className="block space-y-1 text-xs font-medium text-muted-foreground">
-                              Pantalla inicial
-                              <select
-                                value={button.navigate_screen || ""}
-                                disabled={!selectedFlow || selectedFlow.screens.length === 0}
-                                onChange={(event) => updateButton(index, { navigate_screen: event.target.value || undefined })}
-                                className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
-                              >
-                                {(selectedFlow?.screens ?? []).length === 0 && <option value="">Primera pantalla</option>}
-                                {(selectedFlow?.screens ?? []).map((screen) => <option key={screen} value={screen}>{screen}</option>)}
-                              </select>
-                            </label>
-                          )}
                         </div>
                       )}
                     </div>

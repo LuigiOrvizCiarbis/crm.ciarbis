@@ -1245,7 +1245,7 @@
       "selectFlow": "Seleccioná un formulario",
       "body": "Mensaje",
       "cta": "Texto del botón",
-      "ctaDefault": "Completar",
+      "defaultsHint": "Precargado con el mensaje predeterminado del formulario. Podés editarlo antes de enviar.",
       "header": "Encabezado (opcional)",
       "footer": "Pie (opcional)",
       "empty": "No hay formularios publicados para este canal",
@@ -1261,7 +1261,8 @@
       "defaultName": "Formulario",
       "emptyResponse": "Sin datos",
       "yes": "Sí",
-      "no": "No"
+      "no": "No",
+      "mappingErrorsTitle": "No se guardó en el contacto"
     },
     "contactsSendError": "No se pudieron enviar los contactos",
     "contactSaved": "Contacto guardado",
@@ -2728,6 +2729,7 @@
         "publish": "Publicar",
         "editJson": "Editar JSON",
         "mapping": "Mapeo de campos",
+        "sendDefaults": "Mensaje de envío",
         "clone": "Duplicar",
         "deprecate": "Deprecar",
         "delete": "Eliminar"
@@ -2793,6 +2795,12 @@
         "helpPrefill": "Claves de precarga que el CRM completa si la pantalla las declara en data:",
         "helpAppointment": "appointment_dates devuelve available_dates; appointment_slots (con date) devuelve available_slots y selected_date; book_appointment (con slot y opcionalmente appointment_email y appointment_reason) reserva el turno.",
         "helpRouting": "complete cierra el formulario. Si usás data_api_version, el JSON también necesita routing_model."
+      },
+      "sendDefaults": {
+        "title": "Mensaje de envío · {{name}}",
+        "description": "Textos que se precargan al enviar este formulario desde el chat. El agente puede cambiarlos antes de enviar.",
+        "saved": "Mensaje de envío guardado",
+        "saveError": "No se pudo guardar el mensaje de envío"
       },
       "mapping": {
         "title": "Mapeo de campos · {{name}}",
@@ -2935,7 +2943,9 @@
         "optionsLocked": "Las opciones son las del campo «{{field}}» y no se pueden editar.",
         "mapsTo": "Guardar en",
         "mapsToNone": "No guardar",
-        "prefill": "Precargar con"
+        "prefill": "Precargar con",
+        "requiredInCrm": "Obligatorio en el CRM.",
+        "mapsToHint": "La respuesta se valida con las reglas del CRM dentro del formulario y se guarda en el contacto al completar cada pantalla."
       },
       "targets": {
         "contactName": "Nombre del contacto",
@@ -2952,7 +2962,6 @@
         "title": "Reserva de turno al final",
         "description": "Después de la última pantalla, la persona elige día y horario de la agenda del asistente.",
         "agendaHint": "Usa la agenda de turnos del asistente: tiene que estar activa y con un calendario conectado.",
-        "encryptionHint": "Al guardar se configura el cifrado del número automáticamente.",
         "reasonHint": "Se usa como motivo del turno.",
         "noReason": "Sin motivo",
         "fields": {
@@ -2990,7 +2999,9 @@
         "optionsLocked": "Las opciones tienen que ser exactamente las del campo elegido en «Guardar en». Volvé a elegirlo para actualizarlas.",
         "prefillInvalid": "Esta precarga no está disponible para la pregunta.",
         "mapsToInvalid": "Este destino no es compatible con la pregunta.",
-        "reasonKey": "Elegí una pregunta de texto largo."
+        "reasonKey": "Elegí una pregunta de texto largo.",
+        "keyRequiredPrefix": "El nombre interno no puede empezar con «required».",
+        "requiredInCrm": "El campo «{{field}}» es obligatorio en el CRM: la pregunta tiene que ser obligatoria."
       },
       "toasts": {
         "saved": "Formulario guardado",
@@ -3020,7 +3031,8 @@
         "title": "¿Eliminar la pantalla?",
         "description": "Se elimina «{{title}}» con todos sus bloques.",
         "confirm": "Eliminar"
-      }
+      },
+      "encryptionHint": "Al guardar se configura el cifrado del número automáticamente."
     }
   }
 }
