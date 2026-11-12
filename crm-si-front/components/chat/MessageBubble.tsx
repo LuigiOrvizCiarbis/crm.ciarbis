@@ -327,6 +327,7 @@ export const MessageBubble = memo(function MessageBubble({
           query={normalizedQuery}
           activeMatchKey={activeMatchKey}
           matchKeyPrefix={matchKeyPrefix}
+          onAccent={onAccent}
         />
       </p>
     </div>
@@ -340,6 +341,7 @@ export const MessageBubble = memo(function MessageBubble({
             query={normalizedQuery}
             activeMatchKey={activeMatchKey}
             matchKeyPrefix={matchKeyPrefix}
+            onAccent={onAccent}
           />
         </p>
       )}
@@ -354,6 +356,7 @@ export const MessageBubble = memo(function MessageBubble({
             query={normalizedQuery}
             activeMatchKey={activeMatchKey}
             matchKeyPrefix={matchKeyPrefix}
+            onAccent={onAccent}
           />
         </p>
       )}
@@ -370,6 +373,7 @@ export const MessageBubble = memo(function MessageBubble({
             query={normalizedQuery}
             activeMatchKey={activeMatchKey}
             matchKeyPrefix={matchKeyPrefix}
+            onAccent={onAccent}
           />
         </p>
       )}
@@ -389,6 +393,7 @@ export const MessageBubble = memo(function MessageBubble({
             query={normalizedQuery}
             activeMatchKey={activeMatchKey}
             matchKeyPrefix={matchKeyPrefix}
+            onAccent={onAccent}
           />
         </p>
       )}
@@ -417,6 +422,7 @@ export const MessageBubble = memo(function MessageBubble({
             query={normalizedQuery}
             activeMatchKey={activeMatchKey}
             matchKeyPrefix={matchKeyPrefix}
+            onAccent={onAccent}
           />
         </p>
       )}
@@ -429,6 +435,7 @@ export const MessageBubble = memo(function MessageBubble({
           query={normalizedQuery}
           activeMatchKey={activeMatchKey}
           matchKeyPrefix={matchKeyPrefix}
+          onAccent={onAccent}
         />
       </p>
       {msg.link_preview && <LinkPreviewCard preview={msg.link_preview} isUser={isUser} />}
@@ -501,6 +508,7 @@ export const MessageBubble = memo(function MessageBubble({
                   query=""
                   activeMatchKey={null}
                   matchKeyPrefix={`${matchKeyPrefix}-translation`}
+                  onAccent={onAccent}
                 />
               </p>
             )}
