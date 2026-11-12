@@ -98,4 +98,31 @@ class WhatsAppTemplate extends Model
 
         return in_array($format, ['DOCUMENT', 'IMAGE', 'VIDEO'], true) ? $format : null;
     }
+
+    /**
+     * Primer botón FLOW del template. El índice es su posición dentro de
+     * `buttons`, que es lo que Meta exige al enviar el componente del botón.
+     *
+     * @return array{index: int, flow_id: ?string, flow_name: ?string}|null
+     */
+    public function flowButton(): ?array
+    {
+        foreach ($this->components ?? [] as $component) {
+            if (strtoupper($component['type'] ?? '') !== 'BUTTONS') {
+                continue;
+            }
+
+            foreach (array_values($component['buttons'] ?? []) as $index => $button) {
+                if (strtoupper($button['type'] ?? '') === 'FLOW') {
+                    return [
+                        'index' => $index,
+                        'flow_id' => isset($button['flow_id']) ? (string) $button['flow_id'] : null,
+                        'flow_name' => isset($button['flow_name']) ? (string) $button['flow_name'] : null,
+                    ];
+                }
+            }
+        }
+
+        return null;
+    }
 }

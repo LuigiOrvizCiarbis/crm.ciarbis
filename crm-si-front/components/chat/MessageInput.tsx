@@ -8,7 +8,7 @@ import { EmojiPicker } from "./EmojiPicker"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useToast } from "@/components/Toast"
-import { Paperclip, Smile, Send, X, Pencil, Check, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound, CalendarClock } from "lucide-react"
+import { Paperclip, Smile, Send, X, Pencil, Check, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound, CalendarClock, ClipboardList } from "lucide-react"
 import { KeyboardEvent, SyntheticEvent, useMemo, useRef, useState, useEffect } from "react"
 import dynamic from "next/dynamic"
 import Image from "next/image"
@@ -20,6 +20,9 @@ import type { ManualAiDraft } from "@/lib/api/manual-ai-drafts"
 import { VoiceRecorder } from "./VoiceRecorder"
 import { AudioPlayer } from "./AudioPlayer"
 import { ContactShareDialog } from "./ContactShareDialog"
+import { FlowPickerDialog } from "./FlowPickerDialog"
+import { usePermission } from "@/hooks/usePermission"
+import type { SendFlowInput } from "@/lib/api/whatsapp-flows"
 import { ScheduleMessagePicker } from "./ScheduleMessagePicker"
 import { MessagingWindowBanner } from "./MessagingWindowBanner"
 import { useComposerStore } from "@/store/useComposerStore"
@@ -53,6 +56,8 @@ interface MessageInputProps {
   supportsVoice?: boolean
   supportsContactSharing?: boolean
   onShareContacts?: (ids: number[]) => void | Promise<void>
+  supportsFlows?: boolean
+  onSendFlow?: (input: SendFlowInput) => Promise<void>
   /** Devuelve true si se programó, para limpiar el composer sólo en ese caso. */
   onSchedule?: (content: string, scheduledFor: Date, media?: File) => Promise<boolean>
   windowExpiresAt?: string | null
@@ -89,6 +94,8 @@ export function MessageInput({
   supportsVoice = false,
   supportsContactSharing = false,
   onShareContacts,
+  supportsFlows = false,
+  onSendFlow,
   onSchedule,
   windowExpiresAt,
   windowStatus,
@@ -97,6 +104,7 @@ export function MessageInput({
 }: MessageInputProps) {
   const { t } = useTranslation()
   const { addToast } = useToast()
+  const hasFlowSendPermission = usePermission("flows.send")
   // El borrador vive en el store del composer: escribir no re-renderiza la página.
   const value = useComposerStore((state) => state.draft)
   const onChange = useComposerStore((state) => state.setDraft)
@@ -122,10 +130,12 @@ export function MessageInput({
   const [isContactShareOpen, setIsContactShareOpen] = useState(false)
   const [isScheduleOpen, setIsScheduleOpen] = useState(false)
   const [isScheduleSheetOpen, setIsScheduleSheetOpen] = useState(false)
+  const [isFlowDialogOpen, setIsFlowDialogOpen] = useState(false)
 
   const isEditing = !!editingMessage
   const composerDisabled = disabled || windowStatus === "closed"
   const canOpenTemplates = !!(supportsTemplates && channelId && conversationId && onSendTemplate)
+  const canSendFlows = !!(supportsFlows && channelId && onSendFlow) && hasFlowSendPermission
   const isAudio = !!selectedMedia?.type.startsWith("audio/")
 
   useEffect(() => {
@@ -478,6 +488,14 @@ export function MessageInput({
       disabled: composerDisabled,
       onClick: () => { setIsActionsOpen(false); setIsContactShareOpen(true) },
     }] : []),
+    ...(canSendFlows ? [{
+      key: "flow",
+      label: t("chats.flows.send"),
+      Icon: ClipboardList,
+      tone: "bg-primary/10 text-primary",
+      disabled: disabled || windowStatus === "closed",
+      onClick: () => { setIsActionsOpen(false); setIsFlowDialogOpen(true) },
+    }] : []),
     {
       key: "emoji",
       label: t("chats.emojiPickerTitle"),
@@ -734,6 +752,20 @@ export function MessageInput({
                   </span>
                 </>
               )}
+              {canSendFlows && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="hidden shrink-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5"
+                  disabled={disabled || windowStatus === "closed"}
+                  onClick={() => setIsFlowDialogOpen(true)}
+                  aria-label={t("chats.flows.send")}
+                  title={windowStatus === "closed" ? t("chats.flows.windowClosed") : t("chats.flows.send")}
+                >
+                  <ClipboardList className="w-4 h-4" />
+                </Button>
+              )}
               {supportsContactSharing && onShareContacts && (
                 <Button
                   type="button"
@@ -882,6 +914,7 @@ export function MessageInput({
         </div>
       </div>
       {supportsContactSharing && onShareContacts && <ContactShareDialog open={isContactShareOpen} onOpenChange={setIsContactShareOpen} onSend={onShareContacts} disabled={composerDisabled} />}
+      {canSendFlows && channelId && onSendFlow && <FlowPickerDialog open={isFlowDialogOpen} onOpenChange={setIsFlowDialogOpen} channelId={channelId} onSend={onSendFlow} disabled={disabled || windowStatus === "closed"} />}
     </div>
   )
 }

@@ -56,6 +56,7 @@ use App\Http\Controllers\Api\TaskAiBookingController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\WebhookEndpointController;
+use App\Http\Controllers\Api\WhatsAppFlowController;
 use App\Http\Controllers\Api\WhatsAppGroupController;
 use App\Http\Controllers\Api\WhatsAppGroupInvitationController;
 use App\Http\Controllers\Api\WhatsAppTemplateController;
@@ -67,6 +68,7 @@ use App\Http\Controllers\InstagramController;
 use App\Http\Controllers\MailController;
 use App\Http\Controllers\MessengerController;
 use App\Http\Controllers\WhatsAppController;
+use App\Http\Controllers\WhatsAppFlowEndpointController;
 use App\Http\Resources\UserResource;
 use App\Models\Invitation;
 use App\Models\Scopes\TenantScope;
@@ -730,6 +732,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('channels/{channel}/templates/media', [WhatsAppTemplateController::class, 'uploadTemplateMedia']);
     Route::post('channels/{channel}/media', [WhatsAppTemplateController::class, 'uploadMedia']);
     Route::post('conversations/{conversation}/send-template', [WhatsAppTemplateController::class, 'send']);
+    Route::get('channels/{channel}/flows', [WhatsAppFlowController::class, 'index']);
+    Route::post('channels/{channel}/flows', [WhatsAppFlowController::class, 'store']);
+    Route::post('channels/{channel}/flows/sync', [WhatsAppFlowController::class, 'sync']);
+    Route::get('channels/{channel}/flows/encryption', [WhatsAppFlowController::class, 'encryptionStatus']);
+    Route::post('channels/{channel}/flows/encryption', [WhatsAppFlowController::class, 'setupEncryption']);
+    Route::get('whatsapp-flows/{whatsappFlow}', [WhatsAppFlowController::class, 'show']);
+    Route::put('whatsapp-flows/{whatsappFlow}', [WhatsAppFlowController::class, 'update']);
+    Route::delete('whatsapp-flows/{whatsappFlow}', [WhatsAppFlowController::class, 'destroy']);
+    Route::post('whatsapp-flows/{whatsappFlow}/publish', [WhatsAppFlowController::class, 'publish']);
+    Route::post('whatsapp-flows/{whatsappFlow}/deprecate', [WhatsAppFlowController::class, 'deprecate']);
+    Route::post('whatsapp-flows/{whatsappFlow}/clone', [WhatsAppFlowController::class, 'clone']);
+    Route::get('whatsapp-flows/{whatsappFlow}/preview', [WhatsAppFlowController::class, 'preview']);
+    Route::post('conversations/{conversation}/send-flow', [WhatsAppFlowController::class, 'send']);
     Route::get('conversations/{conversation}/scheduled-messages', [ScheduledMessageController::class, 'index']);
     Route::post('conversations/{conversation}/scheduled-messages', [ScheduledMessageController::class, 'store']);
     Route::put('scheduled-messages/{scheduledMessage}', [ScheduledMessageController::class, 'update']);
@@ -748,6 +763,8 @@ Route::get('invitations/by-token/{token}', [InvitationController::class, 'showBy
 Route::get('plans', [PlanController::class, 'index']);
 
 Route::match(['get', 'post'], 'whatsapp-webhook', [WhatsAppController::class, 'webhook']);
+
+Route::post('whatsapp-flow-endpoint/{token}', WhatsAppFlowEndpointController::class);
 
 Route::match(['get', 'post'], 'instagram-webhook', [InstagramController::class, 'webhook']);
 

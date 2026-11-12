@@ -76,6 +76,7 @@ import {
 } from "@/components/ui/alert-dialog"
 
 import { sendMessage, sendContactsMessage, saveSharedContact, sendMailMessage, editMessage, deleteMessage, translateMessage, reactToMessage, type SendMailMessageInput } from "@/lib/api/messages"
+import { sendFlowMessage, type SendFlowInput } from "@/lib/api/whatsapp-flows"
 import { ConversationHeader } from "@/components/chat/ConversationHeader"
 import { PendingAiBookingsBanner } from "@/components/chat/PendingAiBookingsBanner"
 import { HumanHandoffBanner } from "@/components/chat/HumanHandoffBanner"
@@ -1838,6 +1839,22 @@ export default function ChatsPage() {
     }
   }
 
+  const handleSendFlow = async (input: SendFlowInput) => {
+    if (!selectedConversationId) return
+    const conversationId = selectedConversationId
+    const savedMessage = await sendFlowMessage(conversationId, input)
+    setCurrentConversation((prev) => prev && prev.id === conversationId ? { ...prev, aiAutoreplyEnabled: false, messages: [...(prev.messages || []), savedMessage] } : prev)
+    setConversations((prev) => {
+      const index = prev.findIndex((conversation) => conversation.id === conversationId)
+      if (index < 0) return prev
+      const next = [...prev]
+      const current = next[index]
+      next.splice(index, 1)
+      return [{ ...current, last_message: savedMessage.content, updated_at: savedMessage.created_at, aiAutoreplyEnabled: false }, ...next]
+    })
+    addToast({ type: "success", title: t("chats.flows.sent") })
+  }
+
   const handleSaveSharedContact = useCallback(async (message: Message, index: number) => {
     try {
       await saveSharedContact(message.id, index)
@@ -2690,6 +2707,8 @@ export default function ChatsPage() {
                   supportsVoice={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   supportsContactSharing={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   onShareContacts={handleShareContacts}
+                  supportsFlows={activeConversation?.channel?.type === ChannelType.WHATSAPP}
+                  onSendFlow={handleSendFlow}
                   onSchedule={supportsScheduledMessages(activeConversation?.channel?.type) ? handleScheduleMessage : undefined}
                   windowExpiresAt={scheduledMessages.window?.expiresAt ?? null}
                   windowStatus={windowStatus}

@@ -1,4 +1,5 @@
 import { ChannelType } from "./enums"
+import type { FlowDefinition } from "@/lib/flow-builder/types"
 
 export type TranslationLanguage = "es" | "en" | "pt" | "fr" | "it" | "de" | "zh"
 
@@ -183,8 +184,95 @@ export interface TemplateComponent {
   text?: string
   format?: string
   parameters?: { type: string; text?: string }[]
-  buttons?: { type: string; text: string; url?: string; phone_number?: string }[]
+  buttons?: {
+    /** QUICK_REPLY | URL | PHONE_NUMBER | COPY_CODE | FLOW */
+    type: string
+    text: string
+    url?: string
+    phone_number?: string
+    flow_id?: string
+    flow_action?: "navigate" | "data_exchange"
+    navigate_screen?: string
+  }[]
 }
+
+export type WhatsAppFlowStatus = "DRAFT" | "PUBLISHED" | "DEPRECATED" | "BLOCKED" | "THROTTLED"
+
+export type WhatsAppFlowCategory =
+  | "SIGN_UP"
+  | "SIGN_IN"
+  | "APPOINTMENT_BOOKING"
+  | "LEAD_GENERATION"
+  | "CONTACT_US"
+  | "CUSTOMER_SUPPORT"
+  | "SURVEY"
+  | "OTHER"
+
+export interface WhatsAppFlowFieldMapping {
+  response_key: string
+  target: string
+}
+
+export interface WhatsAppFlowValidationError {
+  error?: string
+  error_type?: string
+  message: string
+  line_start?: number
+  line_end?: number
+  column_start?: number
+  column_end?: number
+  pointers?: unknown[]
+}
+
+export interface WhatsAppFlow {
+  id: number
+  whatsapp_config_id: number
+  meta_flow_id: string
+  name: string
+  status: WhatsAppFlowStatus
+  categories: WhatsAppFlowCategory[]
+  json_version: string | null
+  data_api_version: string | null
+  uses_endpoint: boolean
+  endpoint_uri: string | null
+  validation_errors: WhatsAppFlowValidationError[]
+  field_mappings: WhatsAppFlowFieldMapping[]
+  screens: string[]
+  has_published_version: boolean
+  has_builder_definition: boolean
+  synced_at: string | null
+  published_at: string | null
+  updated_at: string | null
+  /** Sólo en el detalle (`getFlow`). */
+  flow_json?: string | null
+  builder_definition?: FlowDefinition | null
+}
+
+export interface WhatsAppFlowEncryptionStatus {
+  configured: boolean
+  uploaded_at: string | null
+  endpoint_url: string | null
+  signature_status: string | null
+}
+
+export type MessageInteractive =
+  | {
+      kind: "flow"
+      whatsapp_flow_id: number
+      flow_name: string
+      session_id: number
+      body: string
+      cta: string
+      header?: string | null
+      footer?: string | null
+    }
+  | {
+      kind: "flow_response"
+      whatsapp_flow_id: number | null
+      flow_name: string | null
+      session_id: number | null
+      response: Record<string, unknown>
+    }
 
 export interface WhatsAppTemplate {
   id: number
@@ -228,8 +316,9 @@ export interface Message {
   id: number
   conversation_id: number
   content: string
-  message_type?: "text" | "image" | "sticker" | "document" | "audio" | "video" | "contacts"
+  message_type?: "text" | "image" | "sticker" | "document" | "audio" | "video" | "contacts" | "flow" | "flow_response"
   contacts?: SharedContact[] | null
+  interactive?: MessageInteractive | null
   media_url?: string | null
   media_full_url?: string | null
   media_mime_type?: string | null
