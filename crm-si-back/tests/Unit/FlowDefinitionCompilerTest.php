@@ -30,7 +30,7 @@ class FlowDefinitionCompilerTest extends TestCase
         $this->assertSame('7.3', $json['version']);
         $this->assertArrayNotHasKey('data_api_version', $json);
         $this->assertArrayNotHasKey('routing_model', $json);
-        $this->assertSame('PANTALLA_1', $screen['id']);
+        $this->assertSame('PANTALLA_A', $screen['id']);
         $this->assertTrue($screen['terminal']);
         $this->assertSame(['contact_name', 'contact_email'], array_keys($screen['data']));
         $this->assertSame('${data.contact_name}', $children[0]['init-value']);
@@ -65,11 +65,11 @@ class FlowDefinitionCompilerTest extends TestCase
         $second = $json['screens'][1]['layout']['children'];
 
         $this->assertSame('navigate', $first[1]['on-click-action']['name']);
-        $this->assertSame(['type' => 'screen', 'name' => 'PANTALLA_2'], $first[1]['on-click-action']['next']);
+        $this->assertSame(['type' => 'screen', 'name' => 'PANTALLA_B'], $first[1]['on-click-action']['next']);
         $this->assertSame('{}', json_encode($first[1]['on-click-action']['payload']));
-        $this->assertSame('${screen.PANTALLA_1.data.contact_email}', $second[0]['init-value']);
+        $this->assertSame('${screen.PANTALLA_A.data.contact_email}', $second[0]['init-value']);
         $this->assertSame(
-            ['nombre' => '${screen.PANTALLA_1.form.nombre}', 'nota' => '${form.nota}'],
+            ['nombre' => '${screen.PANTALLA_A.form.nombre}', 'nota' => '${form.nota}'],
             $second[1]['on-click-action']['payload'],
         );
         $this->assertArrayNotHasKey('terminal', $json['screens'][0]);
@@ -101,7 +101,7 @@ class FlowDefinitionCompilerTest extends TestCase
 
         $this->assertSame('4.0', $json['data_api_version']);
         $this->assertSame([
-            'PANTALLA_1' => ['TURNO_FECHA'],
+            'PANTALLA_A' => ['TURNO_FECHA'],
             'TURNO_FECHA' => ['TURNO_HORARIO'],
             'TURNO_HORARIO' => [],
         ], $json['routing_model']);
@@ -112,8 +112,8 @@ class FlowDefinitionCompilerTest extends TestCase
         $this->assertSame([
             'crm_action' => 'book_appointment',
             'slot' => '${form.slot}',
-            'appointment_email' => '${screen.PANTALLA_1.form.email}',
-            'appointment_reason' => '${screen.PANTALLA_1.form.motivo}',
+            'appointment_email' => '${screen.PANTALLA_A.form.email}',
+            'appointment_reason' => '${screen.PANTALLA_A.form.motivo}',
         ], $slotFooter['payload']);
     }
 
