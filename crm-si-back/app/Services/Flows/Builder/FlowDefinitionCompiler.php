@@ -95,7 +95,8 @@ class FlowDefinitionCompiler
 
     public static function screenId(int $index): string
     {
-        return 'PANTALLA_'.($index + 1);
+        // Meta sólo admite letras y guiones bajos en el id de pantalla.
+        return 'PANTALLA_'.chr(ord('A') + $index);
     }
 
     /** @param  list<string>  $prefillKeys */
