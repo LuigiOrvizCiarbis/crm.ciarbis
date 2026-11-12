@@ -1,3 +1,4 @@
+import type { AdReferral } from "@/data/types";
 import { workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 import type { Tag } from "./tags";
@@ -60,6 +61,7 @@ export interface Contact {
   tags?: Tag[]
   pipeline_stage?: ContactPipelineStage | null
   assigned_user?: ContactAssignedUser | null
+  ad_referrals?: AdReferral[]
 }
 
 export interface GetContactsParams {

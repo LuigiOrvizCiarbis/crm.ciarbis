@@ -93,6 +93,11 @@ class Contact extends Model
         return $this->hasMany(Conversation::class);
     }
 
+    public function adReferrals(): HasMany
+    {
+        return $this->hasMany(AdReferral::class);
+    }
+
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);

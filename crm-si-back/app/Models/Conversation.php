@@ -105,6 +105,11 @@ class Conversation extends Model
         return $this->hasOne(WhatsAppGroup::class);
     }
 
+    public function latestAdReferral(): HasOne
+    {
+        return $this->hasOne(AdReferral::class)->latestOfMany('referred_at');
+    }
+
     public function isGroup(): bool
     {
         return $this->kind === 'group';

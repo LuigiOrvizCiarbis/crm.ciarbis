@@ -274,6 +274,11 @@ class ContactController extends Controller
             'conversations' => fn ($c) => $c->latest('last_message_at')
                 ->with(['pipelineStage:id,name', 'assignedUser:id,name,email'])
                 ->limit(5),
+            // whereHas aplica el BranchScope de Conversation; los huérfanos (conversación borrada) quedan visibles.
+            'adReferrals' => fn ($q) => $q
+                ->where(fn ($q) => $q->whereNull('conversation_id')->orWhereHas('conversation'))
+                ->orderByDesc('referred_at')->orderByDesc('id')
+                ->limit(10),
         ]);
 
         return response()->json(['data' => new ContactResource($contact)]);
