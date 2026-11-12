@@ -28,6 +28,7 @@ class WhatsAppFlowResource extends JsonResource
             'screens' => $this->screenIds(),
             'has_published_version' => $this->hasPublishedVersion(),
             'has_builder_definition' => $this->builder_definition !== null,
+            'send_defaults' => $this->sendDefaults(),
             'synced_at' => $this->synced_at?->toIso8601String(),
             'published_at' => $this->published_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),

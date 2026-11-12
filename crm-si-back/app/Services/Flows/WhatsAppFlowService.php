@@ -178,6 +178,7 @@ class WhatsAppFlowService
         $copy->forceFill([
             'builder_definition' => $flow->builder_definition,
             'field_mappings' => $flow->field_mappings,
+            'send_defaults' => $flow->send_defaults,
         ])->save();
 
         return $copy;

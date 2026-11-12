@@ -15,7 +15,12 @@ class FlowDefinitionValidator
 {
     public const MAX_SCREENS = 10;
 
-    public const RESERVED_KEYS = ['crm_action', 'next_screen', 'flow_token', 'date', 'slot'];
+    /**
+     * Claves que usa el endpoint o Meta en los datos de pantalla. Las
+     * respuestas de texto también son datos de pantalla (init-value), por eso
+     * no pueden empezar con `required` (Meta lo prohíbe).
+     */
+    public const RESERVED_KEYS = ['crm_action', 'next_screen', 'flow_token', 'date', 'slot', 'error_message'];
 
     public const TEXT_TYPES = ['heading' => 80, 'subheading' => 80, 'body' => 4096, 'caption' => 409];
 
@@ -195,6 +200,12 @@ class FlowDefinitionValidator
             return;
         }
 
+        if (str_starts_with($key, 'required')) {
+            $this->add("{$path}.key", 'El nombre interno no puede empezar con «required».');
+
+            return;
+        }
+
         if (isset($keys[$key])) {
             $this->add("{$path}.key", "El nombre interno «{$key}» ya se usa en otra pregunta.");
 
@@ -292,6 +303,10 @@ class FlowDefinitionValidator
         if (in_array($field->type, [ContactFieldType::Select, ContactFieldType::MultiSelect], true)
             && ! $this->optionsMatchChoices($block['options'] ?? [], $field->options['choices'] ?? [])) {
             $this->add("{$path}.options", "Las opciones tienen que ser las del campo «{$field->label}».");
+        }
+
+        if ($field->is_required && ($block['required'] ?? false) !== true) {
+            $this->add("{$path}.required", "El campo «{$field->label}» es obligatorio en el CRM: la pregunta tiene que ser obligatoria.");
         }
     }
 

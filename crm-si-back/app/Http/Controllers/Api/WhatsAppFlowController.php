@@ -145,6 +145,10 @@ class WhatsAppFlowController extends Controller
                 $flow->forceFill(['field_mappings' => array_values($request->validated('field_mappings'))])->save();
             }
 
+            if ($request->has('send_defaults')) {
+                $flow->forceFill(['send_defaults' => $request->validated('send_defaults')])->save();
+            }
+
             return response()->json(['data' => new WhatsAppFlowResource($flow)]);
         });
     }

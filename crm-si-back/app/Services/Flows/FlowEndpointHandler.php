@@ -23,6 +23,7 @@ class FlowEndpointHandler
     public function __construct(
         private readonly WhatsAppFlowSessionService $sessions,
         private readonly FlowAppointmentProvider $appointments,
+        private readonly FlowContactUpdater $contactUpdater,
     ) {}
 
     public function handle(WhatsAppConfig $config, array $request): FlowEndpointResult
@@ -62,8 +63,8 @@ class FlowEndpointHandler
         $entry = $flow->entryScreen() ?? self::FALLBACK_SCREEN;
 
         return FlowEndpointResult::payload(match ($action) {
-            'INIT' => $this->screenResponse($flow, $entry, $this->prefill($session, $entry)),
-            'BACK' => $this->screenResponse($flow, $screen ?? $entry, $this->prefill($session, $screen ?? $entry)),
+            'INIT' => $this->screenResponse($flow, $entry, $this->sessions->screenData($session, $entry)),
+            'BACK' => $this->screenResponse($flow, $screen ?? $entry, $this->sessions->screenData($session, $screen ?? $entry)),
             'data_exchange' => $this->dataExchange($session, $screen ?? $entry, $data),
             default => $this->errorResponse($session, $screen ?? $entry, 'Acción no soportada.'),
         });
@@ -88,6 +89,7 @@ class FlowEndpointHandler
         try {
             return match ($action) {
                 null, 'prefill' => $this->navigate($session, $next, []),
+                FlowDefinitionCompiler::SUBMIT_ACTION => $this->submitScreen($session, $screen, $next, Arr::except($data, self::ROUTING_KEYS)),
                 'appointment_dates' => $this->navigate($session, $next, [
                     'available_dates' => $this->appointments->dates($conversation),
                 ]),
@@ -104,13 +106,41 @@ class FlowEndpointHandler
         }
     }
 
+    /**
+     * Pantalla del constructor: guarda en el contacto lo que pasa las reglas
+     * del CRM y, si algo no las pasa, devuelve la misma pantalla con el aviso.
+     * Sin `next_screen` la pantalla cierra el formulario.
+     */
+    private function submitScreen(WhatsAppFlowSession $session, string $screen, ?string $next, array $answers): array
+    {
+        $contact = $session->conversation?->contact;
+        $errors = $contact !== null ? $this->contactUpdater->apply($session->flow, $contact, $answers) : [];
+
+        if ($errors !== []) {
+            return $this->errorResponse($session, $screen, implode(' ', $errors));
+        }
+
+        return match ($next) {
+            null => $this->complete($session, []),
+            FlowDefinitionCompiler::DATE_SCREEN => $this->navigate($session, $next, [
+                'available_dates' => $this->appointments->dates($session->conversation),
+            ]),
+            default => $this->navigate($session, $next, []),
+        };
+    }
+
     private function bookAppointment(WhatsAppFlowSession $session, array $data): array
     {
+        $answers = $session->data ?? [];
+        $flow = $session->flow;
+        $emailKey = collect($flow->field_mappings ?? [])->firstWhere('target', 'contact.email')['response_key'] ?? null;
+        $reasonKey = $flow->builder_definition['appointment']['reason_key'] ?? null;
+
         $task = $this->appointments->book(
             $session->conversation,
             (string) ($data['slot'] ?? ''),
-            $this->optionalString($data['appointment_email'] ?? null),
-            $this->optionalString($data['appointment_reason'] ?? null),
+            $this->optionalString($data['appointment_email'] ?? ($emailKey !== null ? $answers[$emailKey] ?? null : null)),
+            $this->optionalString($data['appointment_reason'] ?? ($reasonKey !== null ? $answers[$reasonKey] ?? null : null)),
         );
 
         return $this->complete($session, [
@@ -122,7 +152,7 @@ class FlowEndpointHandler
 
     private function navigate(WhatsAppFlowSession $session, string $screen, array $extra): array
     {
-        return $this->screenResponse($session->flow, $screen, array_merge($this->prefill($session, $screen), $extra));
+        return $this->screenResponse($session->flow, $screen, array_merge($this->sessions->screenData($session, $screen), $extra));
     }
 
     private function complete(WhatsAppFlowSession $session, array $extra): array
@@ -142,7 +172,7 @@ class FlowEndpointHandler
         return $this->screenResponse(
             $session->flow,
             $screen,
-            ['error_message' => $message] + $this->appointmentOptions($session, $screen) + $this->prefill($session, $screen),
+            ['error_message' => $message] + $this->appointmentOptions($session, $screen) + $this->sessions->screenData($session, $screen),
         );
     }
 
@@ -182,11 +212,6 @@ class FlowEndpointHandler
         }
 
         return ['screen' => $screenId, 'data' => $data === [] ? new \stdClass : $data];
-    }
-
-    private function prefill(WhatsAppFlowSession $session, string $screen): array
-    {
-        return $this->sessions->prefillData($session->flow, $session->conversation?->contact, $screen);
     }
 
     private function findSession(WhatsAppConfig $config, string $token): ?WhatsAppFlowSession

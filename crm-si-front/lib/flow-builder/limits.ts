@@ -16,8 +16,10 @@ export const NAME_MAX = 200;
 export const KEY_MAX = 40;
 export const KEY_PATTERN = /^[a-z][a-z0-9_]{0,39}$/;
 /** Claves que usa el endpoint de datos y se mezclan con las respuestas en la sesión. */
-export const RESERVED_KEYS: readonly string[] = ["crm_action", "next_screen", "flow_token", "date", "slot"];
+export const RESERVED_KEYS: readonly string[] = ["crm_action", "next_screen", "flow_token", "date", "slot", "error_message"];
 export const RESERVED_KEY_PREFIX = "appointment_";
+/** Meta rechaza claves de datos de pantalla que empiezan con "required". */
+export const FORBIDDEN_KEY_PREFIX = "required";
 
 export const TEXT_MAX: Record<TextBlock["type"], number> = {
   heading: 80,
@@ -73,4 +75,8 @@ export function isChoiceBlock(block: FlowBlock): block is ChoiceBlock {
 
 export function isReservedKey(key: string): boolean {
   return RESERVED_KEYS.includes(key) || key.startsWith(RESERVED_KEY_PREFIX);
+}
+
+export function hasForbiddenKeyPrefix(key: string): boolean {
+  return key.startsWith(FORBIDDEN_KEY_PREFIX);
 }

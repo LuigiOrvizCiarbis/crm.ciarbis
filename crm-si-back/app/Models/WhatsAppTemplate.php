@@ -102,8 +102,9 @@ class WhatsAppTemplate extends Model
     /**
      * Primer botón FLOW del template. El índice es su posición dentro de
      * `buttons`, que es lo que Meta exige al enviar el componente del botón.
+     * Meta devuelve `flow_action` en mayúsculas al sincronizar; se normaliza.
      *
-     * @return array{index: int, flow_id: ?string, flow_name: ?string}|null
+     * @return array{index: int, flow_id: ?string, flow_name: ?string, flow_action: string, navigate_screen: ?string}|null
      */
     public function flowButton(): ?array
     {
@@ -118,6 +119,8 @@ class WhatsAppTemplate extends Model
                         'index' => $index,
                         'flow_id' => isset($button['flow_id']) ? (string) $button['flow_id'] : null,
                         'flow_name' => isset($button['flow_name']) ? (string) $button['flow_name'] : null,
+                        'flow_action' => strtolower((string) ($button['flow_action'] ?? 'navigate')),
+                        'navigate_screen' => filled($button['navigate_screen'] ?? null) ? (string) $button['navigate_screen'] : null,
                     ];
                 }
             }
