@@ -1,6 +1,6 @@
 "use client"
 
-import { ClipboardList } from "lucide-react"
+import { ClipboardList, TriangleAlert } from "lucide-react"
 import type { Message } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
 
@@ -45,6 +45,7 @@ export function FlowMessageCard({ message, isUser }: FlowMessageCardProps) {
   }
 
   const entries = Object.entries(interactive.response ?? {})
+  const mappingErrors = Object.entries(interactive.mapping_errors ?? {})
   return (
     <div className="space-y-1.5">
       <span className="flex items-center gap-1 text-xs font-medium opacity-75">
@@ -63,6 +64,21 @@ export function FlowMessageCard({ message, isUser }: FlowMessageCardProps) {
           ))}
         </dl>
       )}
+      {mappingErrors.length > 0 ? (
+        <div role="note" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-900 dark:text-amber-200">
+          <p className="flex items-center gap-1 font-medium">
+            <TriangleAlert className="size-3 shrink-0" aria-hidden="true" />
+            {t("chats.flows.mappingErrorsTitle")}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {mappingErrors.map(([key, error]) => (
+              <li key={key} className="[overflow-wrap:anywhere]">
+                <span className="font-mono">{key}</span>: {error}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   )
 }

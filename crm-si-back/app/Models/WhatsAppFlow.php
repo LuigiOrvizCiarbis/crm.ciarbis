@@ -14,6 +14,10 @@ class WhatsAppFlow extends Model
 
     protected $table = 'whatsapp_flows';
 
+    public const DEFAULT_SEND_BODY = 'Tocá el botón para completar el formulario.';
+
+    public const DEFAULT_SEND_CTA = 'Completar';
+
     protected $fillable = [
         'tenant_id',
         'whatsapp_config_id',
@@ -30,6 +34,7 @@ class WhatsAppFlow extends Model
         'synced_at',
         'published_at',
         'builder_definition',
+        'send_defaults',
     ];
 
     protected $casts = [
@@ -38,6 +43,7 @@ class WhatsAppFlow extends Model
         'validation_errors' => 'array',
         'field_mappings' => 'array',
         'builder_definition' => 'array',
+        'send_defaults' => 'array',
         'synced_at' => 'datetime',
         'published_at' => 'datetime',
     ];
@@ -61,6 +67,32 @@ class WhatsAppFlow extends Model
         $decoded = json_decode($this->flow_json, true);
 
         return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * Textos del mensaje con el que se envía el formulario. Sin textos
+     * guardados, el cuerpo es el primer título del constructor (si lo hay).
+     *
+     * @return array{header: ?string, body: string, footer: ?string, cta: string}
+     */
+    public function sendDefaults(): array
+    {
+        $stored = $this->send_defaults ?? [];
+
+        return [
+            'header' => filled($stored['header'] ?? null) ? $stored['header'] : null,
+            'body' => filled($stored['body'] ?? null) ? $stored['body'] : ($this->firstHeading() ?? self::DEFAULT_SEND_BODY),
+            'footer' => filled($stored['footer'] ?? null) ? $stored['footer'] : null,
+            'cta' => filled($stored['cta'] ?? null) ? $stored['cta'] : self::DEFAULT_SEND_CTA,
+        ];
+    }
+
+    private function firstHeading(): ?string
+    {
+        $blocks = $this->builder_definition['screens'][0]['blocks'] ?? [];
+        $heading = collect($blocks)->first(fn ($block) => ($block['type'] ?? null) === 'heading' && filled($block['text'] ?? null));
+
+        return $heading['text'] ?? null;
     }
 
     /** @return list<string> */

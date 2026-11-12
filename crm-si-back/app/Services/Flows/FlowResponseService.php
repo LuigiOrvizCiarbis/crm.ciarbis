@@ -4,16 +4,12 @@ namespace App\Services\Flows;
 
 use App\Jobs\EvaluateAutomationEventJob;
 use App\Models\Contact;
-use App\Models\ContactField;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppFlowSession;
-use App\Rules\ValidContactCustomData;
-use App\Support\ContactCustomDataNormalizer;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
 /**
@@ -24,6 +20,8 @@ use Illuminate\Support\Str;
 class FlowResponseService
 {
     private const MAX_CONTENT_LINES = 20;
+
+    public function __construct(private readonly FlowContactUpdater $contactUpdater) {}
 
     public function parse(array $nfmReply, int $whatsappConfigId, ?string $contextMessageId): ParsedFlowResponse
     {
@@ -63,7 +61,17 @@ class FlowResponseService
             ]);
         }
 
-        $this->applyFieldMappings($session->flow, $contact, $parsed->response);
+        $mappingErrors = $this->contactUpdater->apply($session->flow, $contact, $parsed->response);
+
+        // Las pantallas ya se validaron en el endpoint; si algo igual falla
+        // (p. ej. otro contacto tomó el valor único), el agente lo ve en el chat.
+        if ($mappingErrors !== []) {
+            Log::warning('Flow response: respuestas no guardadas en el contacto', [
+                'contact_id' => $contact->id,
+                'errors' => $mappingErrors,
+            ]);
+            $message->update(['interactive' => [...($message->interactive ?? []), 'mapping_errors' => $mappingErrors]]);
+        }
 
         EvaluateAutomationEventJob::dispatch($conversation->tenant_id, [
             'id' => (string) Str::uuid(),
@@ -120,55 +128,5 @@ class FlowResponseService
             $value === null => '',
             default => (string) $value,
         };
-    }
-
-    private function applyFieldMappings(WhatsAppFlow $flow, Contact $contact, array $response): void
-    {
-        $tenantId = (int) $contact->tenant_id;
-        $custom = [];
-
-        foreach ($flow->field_mappings ?? [] as $mapping) {
-            $value = data_get($response, $mapping['response_key'] ?? '');
-
-            if ($value === null || $value === '') {
-                continue;
-            }
-
-            $target = (string) ($mapping['target'] ?? '');
-
-            if ($target === 'contact.name' && is_scalar($value)) {
-                $contact->name = Str::limit((string) $value, 255, '');
-            } elseif ($target === 'contact.email' && filter_var($value, FILTER_VALIDATE_EMAIL)) {
-                $contact->email = (string) $value;
-            } elseif (str_starts_with($target, 'custom_data.')) {
-                $custom[substr($target, strlen('custom_data.'))] = $value;
-            }
-        }
-
-        if ($custom !== []) {
-            $custom = ContactCustomDataNormalizer::normalize($custom, $tenantId);
-            $known = ContactField::forTenant($tenantId)->pluck('key')->all();
-            $custom = Arr::only($custom, $known);
-        }
-
-        if ($custom !== []) {
-            $validator = Validator::make(
-                ['custom_data' => $custom],
-                ['custom_data' => ['array', new ValidContactCustomData($contact->id, array_keys($custom), $tenantId)]],
-            );
-
-            if ($validator->fails()) {
-                Log::warning('Flow response: campos personalizados no aplicados', [
-                    'errors' => $validator->errors()->toArray(),
-                    'contact_id' => $contact->id,
-                ]);
-            } else {
-                $contact->custom_data = array_merge($contact->custom_data ?? [], $custom);
-            }
-        }
-
-        if ($contact->isDirty()) {
-            $contact->save();
-        }
     }
 }

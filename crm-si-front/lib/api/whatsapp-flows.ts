@@ -4,6 +4,7 @@ import type {
   WhatsAppFlowCategory,
   WhatsAppFlowEncryptionStatus,
   WhatsAppFlowFieldMapping,
+  WhatsAppFlowSendDefaults,
 } from "@/data/types";
 import type { FlowDefinition } from "@/lib/flow-builder/types";
 import { workspaceHeaders } from "./auth-token";
@@ -42,6 +43,7 @@ export type UpdateFlowPatch = Partial<{
   flow_json: string;
   builder_definition: FlowDefinition;
   field_mappings: WhatsAppFlowFieldMapping[];
+  send_defaults: WhatsAppFlowSendDefaults;
 }>;
 
 function jsonHeaders(): HeadersInit {

@@ -85,6 +85,7 @@ class WhatsAppFlowManagementTest extends TestCase
         ]);
 
         Sanctum::actingAs($this->user);
+        Http::preventStrayRequests();
     }
 
     public function test_creating_a_flow_from_json_stores_the_meta_flow_as_draft(): void
@@ -159,6 +160,32 @@ class WhatsAppFlowManagementTest extends TestCase
             && $request['interactive']['action']['parameters']['flow_action_payload']['screen'] === 'DATOS');
     }
 
+    public function test_resending_a_flow_resumes_the_unfinished_answers_of_the_contact(): void
+    {
+        $this->inboundMessage();
+        $flow = $this->publishedFlow('flow-1');
+        $previous = WhatsAppFlowSession::create([
+            'tenant_id' => $this->conversation->tenant_id,
+            'whatsapp_flow_id' => $flow->id,
+            'conversation_id' => $this->conversation->id,
+            'contact_id' => $this->conversation->contact_id,
+            'flow_token' => 'token-previo',
+            'status' => WhatsAppFlowSession::STATUS_PENDING,
+            'data' => ['correo' => 'ana@x.com'],
+            'expires_at' => now()->subDay(),
+        ]);
+        Http::fake(['https://graph.facebook.com/*/123456789/messages' => Http::response(['messages' => [['id' => 'wamid.flow-2']]])]);
+
+        $this->postJson("/api/conversations/{$this->conversation->id}/send-flow", [
+            'whatsapp_flow_id' => $flow->id,
+            'body' => 'Seguí donde quedaste',
+            'cta' => 'Completar',
+        ])->assertCreated();
+
+        $session = WhatsAppFlowSession::whereKeyNot($previous->id)->sole();
+        $this->assertSame(['correo' => 'ana@x.com'], $session->data);
+    }
+
     public function test_sending_a_template_with_a_flow_button_injects_the_session_token(): void
     {
         $this->publishedFlow('flow-1');
@@ -174,7 +201,7 @@ class WhatsAppFlowManagementTest extends TestCase
                 ['type' => 'BODY', 'text' => 'Completá el alta'],
                 ['type' => 'BUTTONS', 'buttons' => [
                     ['type' => 'URL', 'text' => 'Web', 'url' => 'https://example.com'],
-                    ['type' => 'FLOW', 'text' => 'Abrir', 'flow_id' => 'flow-1'],
+                    ['type' => 'FLOW', 'text' => 'Abrir', 'flow_id' => 'flow-1', 'flow_action' => 'NAVIGATE'],
                 ]],
             ],
         ]);
@@ -190,14 +217,35 @@ class WhatsAppFlowManagementTest extends TestCase
         Http::assertSent(fn (Request $request) => collect($request['template']['components'] ?? [])->contains(
             fn ($component) => ($component['sub_type'] ?? null) === 'flow'
                 && $component['index'] === '1'
-                && $component['parameters'][0]['action']['flow_token'] === $session->flow_token,
+                && $component['parameters'][0]['action']['flow_token'] === $session->flow_token
+                && $component['parameters'][0]['action']['flow_action_data'] === ['contact_name' => 'Jane Doe'],
         ));
+    }
+
+    public function test_send_defaults_are_saved_locally_without_touching_meta(): void
+    {
+        Http::fake();
+        $flow = $this->publishedFlow('flow-1');
+
+        $this->getJson("/api/whatsapp-flows/{$flow->id}")
+            ->assertJsonPath('data.send_defaults.body', WhatsAppFlow::DEFAULT_SEND_BODY)
+            ->assertJsonPath('data.send_defaults.cta', WhatsAppFlow::DEFAULT_SEND_CTA);
+
+        $this->putJson("/api/whatsapp-flows/{$flow->id}", [
+            'send_defaults' => ['header' => null, 'body' => 'Completá tus datos', 'footer' => null, 'cta' => 'Abrir'],
+        ])->assertOk()
+            ->assertJsonPath('data.send_defaults.body', 'Completá tus datos')
+            ->assertJsonPath('data.send_defaults.cta', 'Abrir')
+            ->assertJsonPath('data.status', 'PUBLISHED');
+
+        Http::assertNothingSent();
     }
 
     private function fakeGraphFlow(string $metaFlowId): void
     {
         Http::fake([
             'https://graph.facebook.com/*/waba-test/flows' => Http::response(['id' => $metaFlowId, 'success' => true]),
+            'https://graph.facebook.com/*/123456789/whatsapp_business_encryption' => Http::response(['success' => true]),
             "https://graph.facebook.com/*/{$metaFlowId}/assets*" => Http::response(['data' => []]),
             "https://graph.facebook.com/*/{$metaFlowId}*" => Http::response([
                 'id' => $metaFlowId,

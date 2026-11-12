@@ -11,15 +11,15 @@ use PHPUnit\Framework\TestCase;
  */
 class FlowDefinitionCompilerTest extends TestCase
 {
-    public function test_lead_capture_compiles_to_a_single_terminal_screen(): void
+    public function test_single_screen_submits_its_answers_to_the_endpoint_and_closes(): void
     {
         $compiled = (new FlowDefinitionCompiler)->compile($this->definition([[
             'title' => 'Tus datos',
             'footer_label' => 'Enviar',
             'blocks' => [
                 ['type' => 'short_text', 'key' => 'nombre', 'label' => 'Nombre', 'input_type' => 'text', 'required' => true, 'prefill' => 'contact_name', 'maps_to' => 'contact.name'],
-                ['type' => 'short_text', 'key' => 'email', 'label' => 'Email', 'input_type' => 'email', 'required' => true, 'prefill' => 'contact_email', 'maps_to' => 'contact.email'],
-                ['type' => 'long_text', 'key' => 'consulta', 'label' => 'Consulta', 'required' => false],
+                ['type' => 'short_text', 'key' => 'email', 'label' => 'Email', 'input_type' => 'email', 'required' => true, 'maps_to' => 'contact.email'],
+                ['type' => 'dropdown', 'key' => 'plan', 'label' => 'Plan', 'required' => false, 'options' => [['id' => 'Pro', 'title' => 'Pro']]],
             ],
         ]]));
 
@@ -28,20 +28,20 @@ class FlowDefinitionCompilerTest extends TestCase
         $children = $screen['layout']['children'];
 
         $this->assertSame('7.3', $json['version']);
-        $this->assertArrayNotHasKey('data_api_version', $json);
-        $this->assertArrayNotHasKey('routing_model', $json);
+        $this->assertSame('4.0', $json['data_api_version']);
+        $this->assertSame(['PANTALLA_A' => []], $json['routing_model']);
         $this->assertSame('PANTALLA_A', $screen['id']);
         $this->assertTrue($screen['terminal']);
-        $this->assertSame(['contact_name', 'contact_email'], array_keys($screen['data']));
-        $this->assertSame('${data.contact_name}', $children[0]['init-value']);
-        $this->assertSame('TextInput', $children[0]['type']);
-        $this->assertSame('TextArea', $children[2]['type']);
+        // Sólo los textos se restauran: sus respuestas son datos de la pantalla.
+        $this->assertSame(['nombre', 'email'], array_keys($screen['data']));
+        $this->assertSame('${data.nombre}', $children[0]['init-value']);
+        $this->assertArrayNotHasKey('init-value', $children[2]);
         $this->assertSame([
             'type' => 'Footer',
             'label' => 'Enviar',
             'on-click-action' => [
-                'name' => 'complete',
-                'payload' => ['nombre' => '${form.nombre}', 'email' => '${form.email}', 'consulta' => '${form.consulta}'],
+                'name' => 'data_exchange',
+                'payload' => ['crm_action' => 'submit_screen', 'nombre' => '${form.nombre}', 'email' => '${form.email}', 'plan' => '${form.plan}'],
             ],
         ], $children[3]);
         $this->assertSame([
@@ -50,33 +50,32 @@ class FlowDefinitionCompilerTest extends TestCase
         ], $compiled->fieldMappings);
     }
 
-    public function test_two_screens_navigate_and_reference_answers_globally(): void
+    public function test_each_screen_submits_only_its_own_answers_and_names_the_next_one(): void
     {
         $json = (new FlowDefinitionCompiler)->compile($this->definition([
             ['title' => 'Uno', 'footer_label' => 'Seguir', 'blocks' => [
-                ['type' => 'short_text', 'key' => 'nombre', 'label' => 'Nombre', 'input_type' => 'text', 'required' => true, 'prefill' => 'contact_name'],
+                ['type' => 'short_text', 'key' => 'nombre', 'label' => 'Nombre', 'input_type' => 'text', 'required' => true],
             ]],
             ['title' => 'Dos', 'footer_label' => 'Enviar', 'blocks' => [
-                ['type' => 'long_text', 'key' => 'nota', 'label' => 'Nota', 'required' => false, 'prefill' => 'contact_email'],
+                ['type' => 'long_text', 'key' => 'nota', 'label' => 'Nota', 'required' => false],
             ]],
         ]))->flowJson;
 
         $first = $json['screens'][0]['layout']['children'];
         $second = $json['screens'][1]['layout']['children'];
 
-        $this->assertSame('navigate', $first[1]['on-click-action']['name']);
-        $this->assertSame(['type' => 'screen', 'name' => 'PANTALLA_B'], $first[1]['on-click-action']['next']);
-        $this->assertSame('{}', json_encode($first[1]['on-click-action']['payload']));
-        $this->assertSame('${screen.PANTALLA_A.data.contact_email}', $second[0]['init-value']);
+        $this->assertSame(['PANTALLA_A' => ['PANTALLA_B'], 'PANTALLA_B' => []], $json['routing_model']);
         $this->assertSame(
-            ['nombre' => '${screen.PANTALLA_A.form.nombre}', 'nota' => '${form.nota}'],
-            $second[1]['on-click-action']['payload'],
+            ['crm_action' => 'submit_screen', 'next_screen' => 'PANTALLA_B', 'nombre' => '${form.nombre}'],
+            $first[1]['on-click-action']['payload'],
         );
+        $this->assertSame(['crm_action' => 'submit_screen', 'nota' => '${form.nota}'], $second[1]['on-click-action']['payload']);
+        $this->assertSame('${data.nota}', $second[0]['init-value']);
         $this->assertArrayNotHasKey('terminal', $json['screens'][0]);
         $this->assertTrue($json['screens'][1]['terminal']);
     }
 
-    public function test_appointment_adds_endpoint_screens_and_routing(): void
+    public function test_appointment_follows_the_last_screen_and_books_from_saved_answers(): void
     {
         $definition = $this->definition([[
             'title' => 'Tus datos',
@@ -99,22 +98,16 @@ class FlowDefinitionCompilerTest extends TestCase
         $footer = $json['screens'][0]['layout']['children'][2]['on-click-action'];
         $slotFooter = $json['screens'][2]['layout']['children'][1]['on-click-action'];
 
-        $this->assertSame('4.0', $json['data_api_version']);
         $this->assertSame([
             'PANTALLA_A' => ['TURNO_FECHA'],
             'TURNO_FECHA' => ['TURNO_HORARIO'],
             'TURNO_HORARIO' => [],
         ], $json['routing_model']);
-        $this->assertSame('data_exchange', $footer['name']);
-        $this->assertSame('appointment_dates', $footer['payload']['crm_action']);
+        $this->assertArrayNotHasKey('terminal', $json['screens'][0]);
+        $this->assertSame('submit_screen', $footer['payload']['crm_action']);
         $this->assertSame('TURNO_FECHA', $footer['payload']['next_screen']);
         $this->assertSame(['TURNO_FECHA', 'TURNO_HORARIO'], array_column(array_slice($json['screens'], 1), 'id'));
-        $this->assertSame([
-            'crm_action' => 'book_appointment',
-            'slot' => '${form.slot}',
-            'appointment_email' => '${screen.PANTALLA_A.form.email}',
-            'appointment_reason' => '${screen.PANTALLA_A.form.motivo}',
-        ], $slotFooter['payload']);
+        $this->assertSame(['crm_action' => 'book_appointment', 'slot' => '${form.slot}'], $slotFooter['payload']);
     }
 
     private function definition(array $screens): array
