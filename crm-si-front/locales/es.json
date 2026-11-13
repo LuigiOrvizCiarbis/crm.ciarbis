@@ -2840,8 +2840,18 @@
         "hint": "La clave es el nombre del dato en la respuesta del formulario (el payload de la acción complete).",
         "fieldsError": "No se pudieron cargar los campos del contacto",
         "saved": "Mapeo guardado",
-        "saveError": "No se pudo guardar el mapeo"
+        "saveError": "No se pudo guardar el mapeo",
+        "createField": "Crear campo nuevo…",
+        "newFieldChoicesHint": "Una por línea. Tienen que coincidir con los valores que manda el formulario."
       }
+    },
+    "fieldCreate": {
+      "title": "Nuevo campo del contacto",
+      "description": "Se agrega a la ficha de todos los contactos y la respuesta del formulario se guarda ahí. Podés editarlo después en Configuración → Campos personalizados.",
+      "submit": "Crear campo",
+      "created": "Campo «{{label}}» creado",
+      "error": "No se pudo crear el campo",
+      "choicesRequired": "Agregá al menos una opción."
     },
     "builder": {
       "title": "Constructor de formularios",
@@ -2987,7 +2997,11 @@
         "mapsToNone": "No guardar",
         "prefill": "Precargar con",
         "requiredInCrm": "Obligatorio en el CRM.",
-        "mapsToHint": "La respuesta se valida con las reglas del CRM dentro del formulario y se guarda en el contacto al completar cada pantalla."
+        "mapsToHint": "La respuesta se valida con las reglas del CRM dentro del formulario y se guarda en el contacto al completar cada pantalla.",
+        "mapsToOptional": "Opcional. Elegí un campo sólo si el dato tiene que quedar en la ficha del contacto; la respuesta completa igual se ve en el chat.",
+        "mapsToCreate": "Crear campo nuevo…",
+        "mapsToCreateFirst": "Crear un campo para guardarla…",
+        "newFieldChoicesHint": "Una por línea. Pasan a ser las opciones de la pregunta."
       },
       "targets": {
         "contactName": "Nombre del contacto",
