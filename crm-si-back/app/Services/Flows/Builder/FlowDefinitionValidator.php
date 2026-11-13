@@ -87,6 +87,13 @@ class FlowDefinitionValidator
             $this->add('screens', 'El formulario necesita al menos una pregunta.');
         }
 
+        // Los caminos se validan sobre pantallas y bloques bien formados: con
+        // datos de otro tipo (bloques que no son lista, ids que no son texto)
+        // recorrerlos fallaría en vez de devolver los errores ya encontrados.
+        if ($this->errors === []) {
+            $this->validateRoutes($screens);
+        }
+
         $appointment = $definition['appointment'] ?? null;
 
         if ($appointment !== null) {
@@ -332,6 +339,12 @@ class FlowDefinitionValidator
             return false;
         }
 
+        foreach ($options as $option) {
+            if (! is_array($option) || ! is_string($option['id'] ?? null) || ! is_string($option['title'] ?? null)) {
+                return false;
+            }
+        }
+
         $actual = array_map(fn ($o) => [(string) ($o['id'] ?? ''), (string) ($o['title'] ?? '')], $options);
         $expected = array_map(fn ($c) => [(string) $c, (string) $c], array_values($choices));
         sort($actual);
@@ -368,6 +381,106 @@ class FlowDefinitionValidator
 
         if (! $schedulingEnabled) {
             $this->add('appointment', 'Para reservar turnos primero activá la agenda de turnos del asistente.');
+        }
+    }
+
+    /**
+     * Ids de pantalla, destinos (`next`) y preguntas que eligen el camino
+     * (`branches`). Sólo se salta hacia adelante, así no hay ciclos, que Meta
+     * no admite en el routing_model.
+     */
+    private function validateRoutes(array $screens): void
+    {
+        $ids = [];
+
+        foreach ($screens as $i => $screen) {
+            $id = is_array($screen) ? ($screen['id'] ?? null) : null;
+
+            if ($id === null) {
+                continue;
+            }
+
+            if (! is_string($id) || ! preg_match('/^[A-Za-z0-9_-]{1,40}$/', $id) || isset($ids[$id])) {
+                $this->add("screens.{$i}.id", 'Identificador de pantalla inválido o repetido.');
+            } else {
+                $ids[$id] = $i;
+            }
+        }
+
+        foreach ($screens as $i => $screen) {
+            if (! is_array($screen)) {
+                continue;
+            }
+
+            if (array_key_exists('next', $screen)) {
+                $this->validateTarget($screen['next'], $i, $ids, "screens.{$i}.next");
+            }
+
+            $branching = 0;
+
+            foreach ($screen['blocks'] ?? [] as $j => $block) {
+                if (! is_array($block) || ! isset($block['branches']) || $block['branches'] === []) {
+                    continue;
+                }
+
+                $path = "screens.{$i}.blocks.{$j}.branches";
+                $branching++;
+
+                if (! in_array($block['type'] ?? null, FlowDefinitionRoutes::BRANCHING_TYPES, true) || ! is_array($block['branches'])) {
+                    $this->add($path, 'Esta pregunta no puede cambiar el camino.');
+
+                    continue;
+                }
+
+                if ($branching > 1) {
+                    $this->add($path, 'Sólo una pregunta por pantalla puede cambiar el camino.');
+                }
+
+                $optionIds = array_map(fn ($option) => (string) ($option['id'] ?? ''), is_array($block['options'] ?? null) ? $block['options'] : []);
+
+                foreach ($block['branches'] as $optionId => $target) {
+                    if (! in_array((string) $optionId, $optionIds, true)) {
+                        $this->add($path, 'La regla apunta a una opción que ya no existe.');
+                    } else {
+                        $this->validateTarget($target, $i, $ids, $path);
+                    }
+                }
+            }
+        }
+
+        // La alcanzabilidad se recorre sobre caminos sin otros errores.
+        if ($this->errors !== []) {
+            return;
+        }
+
+        $reachable = FlowDefinitionRoutes::fromDefinition(['screens' => $screens])->reachable();
+
+        foreach (array_keys($screens) as $i) {
+            if ($i > 0 && ! isset($reachable[$i])) {
+                $this->add("screens.{$i}", 'Ninguna respuesta lleva a esta pantalla.');
+            }
+        }
+    }
+
+    /** @param  array<string, int>  $ids  id de pantalla → índice */
+    private function validateTarget(mixed $target, int $from, array $ids, string $path): void
+    {
+        if ($target === FlowDefinitionRoutes::FOLLOWING || $target === FlowDefinitionRoutes::END) {
+            return;
+        }
+
+        if (! is_string($target) || ! str_starts_with($target, FlowDefinitionRoutes::SCREEN_PREFIX)) {
+            $this->add($path, 'Destino inválido.');
+
+            return;
+        }
+
+        $index = $ids[substr($target, strlen(FlowDefinitionRoutes::SCREEN_PREFIX))] ?? null;
+
+        if ($index === null) {
+            $this->add($path, 'La pantalla de destino ya no existe.');
+        } elseif ($index <= $from) {
+            $this->add($path, 'Sólo se puede saltar a una pantalla posterior.');
         }
     }
 

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\WhatsAppFlowStatus;
 use App\Models\Concerns\BelongsToTenant;
+use App\Services\Flows\FlowVersion;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -35,6 +36,7 @@ class WhatsAppFlow extends Model
         'published_at',
         'builder_definition',
         'send_defaults',
+        'published_version',
     ];
 
     protected $casts = [
@@ -44,6 +46,7 @@ class WhatsAppFlow extends Model
         'field_mappings' => 'array',
         'builder_definition' => 'array',
         'send_defaults' => 'array',
+        'published_version' => 'array',
         'synced_at' => 'datetime',
         'published_at' => 'datetime',
     ];
@@ -56,17 +59,6 @@ class WhatsAppFlow extends Model
     public function sessions(): HasMany
     {
         return $this->hasMany(WhatsAppFlowSession::class);
-    }
-
-    public function decodedJson(): ?array
-    {
-        if ($this->flow_json === null) {
-            return null;
-        }
-
-        $decoded = json_decode($this->flow_json, true);
-
-        return is_array($decoded) ? $decoded : null;
     }
 
     /**
@@ -95,46 +87,36 @@ class WhatsAppFlow extends Model
         return $heading['text'] ?? null;
     }
 
-    /** @return list<string> */
-    public function screenIds(): array
+    /** Versión que se está editando (la que se publica). */
+    public function draftVersion(): FlowVersion
     {
-        return array_values(array_filter(
-            array_column($this->decodedJson()['screens'] ?? [], 'id'),
-            'is_string',
-        ));
-    }
-
-    public function entryScreen(): ?string
-    {
-        return $this->screenIds()[0] ?? null;
+        return new FlowVersion($this->flow_json, $this->builder_definition, $this->field_mappings ?? [], $this->data_api_version);
     }
 
     /**
-     * Claves del objeto `data` declarado por la pantalla. Null significa
-     * "desconocido" (no hay Flow JSON local): quien lo use no debe filtrar.
-     *
-     * @return list<string>|null
+     * Versión que corre el cliente. Meta sigue sirviendo la última versión
+     * publicada hasta que se publique de nuevo, aunque el borrador cambie; sólo
+     * un formulario nunca publicado (envíos de prueba en `mode=draft`) corre el
+     * borrador. Los mapeos de un formulario por JSON no viajan en el Flow JSON
+     * y se aplican siempre los vigentes.
      */
-    public function declaredDataKeys(string $screenId): ?array
+    public function liveVersion(): FlowVersion
     {
-        $json = $this->decodedJson();
-
-        if ($json === null) {
-            return null;
+        if (! $this->hasPublishedVersion() || ! is_array($this->published_version)) {
+            return $this->draftVersion();
         }
 
-        foreach ($json['screens'] ?? [] as $screen) {
-            if (($screen['id'] ?? null) === $screenId) {
-                return array_map('strval', array_keys(is_array($screen['data'] ?? null) ? $screen['data'] : []));
-            }
-        }
+        $published = FlowVersion::fromSnapshot($this->published_version);
 
-        return [];
+        return $published->definition !== null
+            ? $published
+            : new FlowVersion($published->flowJson, null, $this->field_mappings ?? [], $published->dataApiVersion);
     }
 
-    public function usesEndpoint(): bool
+    /** Guarda el borrador actual como la versión publicada. No guarda el modelo. */
+    public function rememberPublishedVersion(): void
     {
-        return $this->data_api_version !== null;
+        $this->published_version = $this->draftVersion()->toSnapshot();
     }
 
     public function hasPublishedVersion(): bool

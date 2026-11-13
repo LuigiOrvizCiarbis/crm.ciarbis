@@ -77,12 +77,14 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated }: 
         : { type, text: item.text, ...(type === "URL" && item.url ? { url: item.url } : {}), ...(type === "PHONE_NUMBER" && item.phone_number ? { phone_number: item.phone_number } : {}) }
       : item))
 
-  // La acción sale del formulario: con endpoint, Meta lo abre consultando al
-  // CRM (precarga y turnos); sin endpoint, abre su primera pantalla. Abrir en
-  // otra pantalla rompería formularios que dependen de las anteriores.
+  // La acción sale del formulario. Los del constructor abren su primera
+  // pantalla sin consultar al CRM (la precarga llega con el envío). Los de JSON
+  // con endpoint abren consultando al CRM (precarga y turnos); sin endpoint,
+  // abren su primera pantalla. Abrir en otra pantalla rompería formularios que
+  // dependen de las anteriores.
   const selectFlow = (index: number, flowId: string) => {
     const flow = publishedFlows?.find((item) => item.meta_flow_id === flowId)
-    updateButton(index, flow?.uses_endpoint
+    updateButton(index, flow?.uses_endpoint && !flow.has_builder_definition
       ? { flow_id: flowId || undefined, flow_action: "data_exchange", navigate_screen: undefined }
       : { flow_id: flowId || undefined, flow_action: "navigate", navigate_screen: flow?.screens[0] })
   }

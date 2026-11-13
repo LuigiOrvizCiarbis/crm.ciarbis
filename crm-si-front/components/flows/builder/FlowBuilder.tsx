@@ -51,6 +51,7 @@ import {
   type GroupedErrors,
 } from "@/lib/flow-builder/errors"
 import { NAME_MAX, isQuestionBlock } from "@/lib/flow-builder/limits"
+import { newScreenId, usesEndpoint } from "@/lib/flow-builder/routing"
 import type { FlowBlock, FlowScreen, LongTextBlock } from "@/lib/flow-builder/types"
 import { charCount, validateDefinition } from "@/lib/flow-builder/validate"
 import { cn } from "@/lib/utils"
@@ -233,6 +234,7 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
 
   const addScreen = () => {
     const screen: FlowScreen = {
+      id: newScreenId(screens.map((item) => item.id)),
       uid: newUid(),
       title: t("flows.builder.defaults.screenTitle"),
       footer_label: t("flows.builder.defaults.footerLabel"),
@@ -392,6 +394,7 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
       <ScreenList
         screens={screens}
         selectedIndex={selectedIndex}
+        hasAppointment={hasAppointment}
         errors={errors}
         onSelect={selectScreen}
         onAdd={addScreen}
@@ -415,7 +418,7 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
       key={selectedScreen.uid}
       screen={selectedScreen}
       index={selectedIndex}
-      isLast={selectedIndex === screens.length - 1}
+      screens={screens}
       hasAppointment={hasAppointment}
       errors={errors}
       contactFields={contactFields}
@@ -538,7 +541,7 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
             <Notice tone="warning">{t("flows.builder.notEditable", { status: t(`flows.builder.status.${flow.status}`) })}</Notice>
           ) : null}
           {editable && flow?.status === "PUBLISHED" ? <Notice>{t("flows.builder.publishedEditHint")}</Notice> : null}
-          {editable && encryptionConfigured === false ? <Notice>{t("flows.builder.encryptionHint")}</Notice> : null}
+          {editable && encryptionConfigured === false && usesEndpoint(definition) ? <Notice>{t("flows.builder.encryptionHint")}</Notice> : null}
           {errors.global.length > 0 ? <Notice tone="error">{[...new Set(errors.global)].join(" ")}</Notice> : null}
           {clientErrorCount > 0 ? (
             <Notice tone="error" action={{ label: t("flows.builder.goToError"), onClick: goToFirstError }}>

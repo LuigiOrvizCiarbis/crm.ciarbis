@@ -16,6 +16,7 @@ use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppFlowSession;
 use App\Services\Flows\Builder\FlowDefinitionCompiler;
+use App\Services\Flows\WhatsAppFlowSessionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Testing\TestResponse;
@@ -157,6 +158,49 @@ class WhatsAppFlowEndpointTest extends TestCase
         );
     }
 
+    public function test_a_published_flow_edited_in_draft_keeps_routing_by_the_published_version(): void
+    {
+        $session = $this->builderSession();
+        $flow = $session->flow;
+        $flow->forceFill(['published_at' => now()]);
+        $flow->rememberPublishedVersion();
+        $flow->save();
+
+        // Borrador sin publicar: la primera pantalla ahora cierra el formulario.
+        $draft = $flow->builder_definition;
+        $draft['screens'][0]['next'] = 'end';
+        $flow->update([
+            'status' => WhatsAppFlowStatus::Draft,
+            'builder_definition' => $draft,
+            'flow_json' => json_encode((new FlowDefinitionCompiler)->compile($draft)->flowJson),
+        ]);
+
+        [$response, $aesKey, $iv] = $this->submit($session->fresh(), 'PANTALLA_A', ['correo' => 'ana@x.com', 'dni' => '456']);
+
+        $this->assertSame(['screen' => 'PANTALLA_B', 'data' => ['nota' => '']], $this->decrypt($response->getContent(), $aesKey, $iv));
+    }
+
+    public function test_answers_saved_before_the_path_was_recorded_are_kept(): void
+    {
+        $text = fn (string $key) => ['type' => 'short_text', 'key' => $key, 'label' => ucfirst($key), 'input_type' => 'text', 'required' => true];
+        $session = $this->builderSession(['schema' => 1, 'appointment' => null, 'screens' => [
+            ['title' => 'Empresa', 'footer_label' => 'Seguir', 'blocks' => [$text('empresa')]],
+            ['title' => 'Cargo', 'footer_label' => 'Seguir', 'blocks' => [$text('cargo')]],
+            ['title' => 'Nota', 'footer_label' => 'Enviar', 'blocks' => [$text('nota')]],
+        ]]);
+        // Respondida antes de que se registrara el recorrido.
+        $session->update(['data' => ['empresa' => 'Acme'], 'progress' => null]);
+        $sessions = app(WhatsAppFlowSessionService::class);
+
+        $this->assertSame(['empresa' => 'Acme'], $sessions->pathAnswers($session->fresh()));
+
+        $this->submit($session, 'PANTALLA_B', ['cargo' => 'Dueña']);
+
+        $session->refresh();
+        $this->assertSame(['PANTALLA_A', 'PANTALLA_B'], $session->progress['path']);
+        $this->assertSame(['empresa' => 'Acme', 'cargo' => 'Dueña'], $sessions->pathAnswers($session));
+    }
+
     public function test_builder_init_restores_saved_answers_before_the_contact_prefill(): void
     {
         $session = $this->builderSession();
@@ -170,11 +214,49 @@ class WhatsAppFlowEndpointTest extends TestCase
         );
     }
 
+    public function test_branching_follows_the_answer_and_drops_answers_from_an_abandoned_path(): void
+    {
+        $session = $this->builderSession(['schema' => 1, 'appointment' => null, 'screens' => [
+            ['id' => 'inicio', 'title' => 'Inicio', 'footer_label' => 'Seguir', 'blocks' => [[
+                'type' => 'single_choice', 'key' => 'cliente', 'label' => '¿Sos cliente?', 'required' => true,
+                'options' => [['id' => 'si', 'title' => 'Sí'], ['id' => 'no', 'title' => 'No']],
+                'branches' => ['si' => 'screen:numero', 'no' => 'screen:alta'],
+            ]]],
+            ['id' => 'numero', 'next' => 'end', 'title' => 'Número', 'footer_label' => 'Enviar', 'blocks' => [
+                ['type' => 'short_text', 'key' => 'numero', 'label' => 'Número', 'input_type' => 'text', 'required' => true],
+            ]],
+            ['id' => 'alta', 'title' => 'Alta', 'footer_label' => 'Enviar', 'blocks' => [
+                ['type' => 'short_text', 'key' => 'empresa', 'label' => 'Empresa', 'input_type' => 'text', 'required' => true],
+            ]],
+        ]]);
+
+        // La primera pantalla no declara datos: responde `data: {}`.
+        [$response, $aesKey, $iv] = $this->send(['version' => '3.0', 'action' => 'INIT', 'flow_token' => $session->flow_token]);
+        $response->assertOk();
+        $this->assertSame('{"screen":"PANTALLA_A","data":{}}', $this->decryptRaw($response->getContent(), $aesKey, $iv));
+
+        [$response, $aesKey, $iv] = $this->submit($session, 'PANTALLA_A', ['cliente' => 'no']);
+        $this->assertSame('PANTALLA_C', $this->decrypt($response->getContent(), $aesKey, $iv)['screen']);
+        $this->submit($session, 'PANTALLA_C', ['empresa' => 'Acme']);
+
+        // Volvió atrás y cambió la respuesta: el camino de "No" se descarta.
+        [$response, $aesKey, $iv] = $this->submit($session, 'PANTALLA_A', ['cliente' => 'si']);
+        $this->assertSame(['screen' => 'PANTALLA_B', 'data' => ['numero' => '']], $this->decrypt($response->getContent(), $aesKey, $iv));
+
+        [$response, $aesKey, $iv] = $this->submit($session, 'PANTALLA_B', ['numero' => '77']);
+
+        $this->assertSame(
+            ['flow_token' => $session->flow_token, 'cliente' => 'si', 'numero' => '77'],
+            $this->decrypt($response->getContent(), $aesKey, $iv)['data']['extension_message_response']['params'],
+        );
+        $this->assertSame(['PANTALLA_A', 'PANTALLA_B'], $session->fresh()->progress['path']);
+    }
+
     /**
-     * Formulario del constructor de dos pantallas: correo → email del contacto
-     * y dni (precargado) → campo único `dni`; después una nota sin mapear.
+     * Formulario del constructor. Por defecto, dos pantallas: correo → email
+     * del contacto y dni (precargado) → campo único `dni`; después una nota.
      */
-    private function builderSession(): WhatsAppFlowSession
+    private function builderSession(?array $definition = null): WhatsAppFlowSession
     {
         $session = $this->context();
         ContactField::create([
@@ -185,7 +267,7 @@ class WhatsAppFlowEndpointTest extends TestCase
             'is_unique' => true,
             'display_order' => 1,
         ]);
-        $definition = ['schema' => 1, 'appointment' => null, 'screens' => [
+        $definition ??= ['schema' => 1, 'appointment' => null, 'screens' => [
             ['title' => 'Datos', 'footer_label' => 'Seguir', 'blocks' => [
                 ['type' => 'short_text', 'key' => 'correo', 'label' => 'Email', 'input_type' => 'email', 'required' => true, 'prefill' => 'contact_email', 'maps_to' => 'contact.email'],
                 ['type' => 'short_text', 'key' => 'dni', 'label' => 'DNI', 'input_type' => 'text', 'required' => true, 'prefill' => 'cf_dni', 'maps_to' => 'custom_data.dni'],
@@ -315,12 +397,17 @@ class WhatsAppFlowEndpointTest extends TestCase
         return 'sha256='.hash_hmac('sha256', $raw, self::SECRET);
     }
 
-    private function decrypt(string $body, string $aesKey, string $iv): array
+    private function decryptRaw(string $body, string $aesKey, string $iv): string
     {
         $decoded = base64_decode($body);
         $plain = openssl_decrypt(substr($decoded, 0, -16), 'aes-128-gcm', $aesKey, OPENSSL_RAW_DATA, ~$iv, substr($decoded, -16));
         $this->assertNotFalse($plain, 'La respuesta no se pudo descifrar con el IV invertido.');
 
-        return json_decode($plain, true);
+        return $plain;
+    }
+
+    private function decrypt(string $body, string $aesKey, string $iv): array
+    {
+        return json_decode($this->decryptRaw($body, $aesKey, $iv), true);
     }
 }

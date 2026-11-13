@@ -40,7 +40,14 @@ class WhatsAppFlowService
 
             foreach ($response->json('data', []) as $item) {
                 $seen[] = (string) $item['id'];
-                $this->upsert($config, $tenantId, $item, $this->downloadFlowJson($config, (string) $item['id']));
+                $flowJson = $this->downloadFlowJson($config, (string) $item['id']);
+                $flow = $this->upsert($config, $tenantId, $item, $flowJson);
+
+                // Fuera de borrador, el JSON de Meta es el que corre el cliente.
+                if ($flowJson !== null && $flow->status !== WhatsAppFlowStatus::Draft) {
+                    $flow->rememberPublishedVersion();
+                    $flow->save();
+                }
             }
 
             $nextUrl = $response->json('paging.next');
@@ -128,7 +135,7 @@ class WhatsAppFlowService
     {
         $config = $flow->whatsappConfig;
 
-        if ($flow->usesEndpoint()) {
+        if ($flow->draftVersion()->usesEndpoint()) {
             if (! $this->encryption->isConfigured($config)) {
                 throw new InvalidArgumentException('Configurá el cifrado del número antes de publicar un formulario con endpoint.');
             }
@@ -141,7 +148,11 @@ class WhatsAppFlowService
         $response = $this->client($config)->post($this->graph("{$flow->meta_flow_id}/publish"));
         $this->ensureSuccessful($response);
 
-        return $this->refresh($config, $flow->tenant_id, $flow->meta_flow_id, $flow->flow_json);
+        $published = $this->refresh($config, $flow->tenant_id, $flow->meta_flow_id, $flow->flow_json);
+        $published->rememberPublishedVersion();
+        $published->save();
+
+        return $published;
     }
 
     public function deprecate(WhatsAppFlow $flow): WhatsAppFlow
