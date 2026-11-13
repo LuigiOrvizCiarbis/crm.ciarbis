@@ -151,14 +151,6 @@ class FlowContactUpdater
     /** Etiqueta de la pregunta en el constructor; si no, la clave. */
     private function label(FlowVersion $version, string $key): string
     {
-        foreach ($version->definition['screens'] ?? [] as $screen) {
-            foreach ($screen['blocks'] ?? [] as $block) {
-                if (($block['key'] ?? null) === $key && filled($block['label'] ?? null)) {
-                    return (string) $block['label'];
-                }
-            }
-        }
-
-        return $key;
+        return $version->questionLabels()[$key] ?? $key;
     }
 }
