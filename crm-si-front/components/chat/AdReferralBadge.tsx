@@ -6,10 +6,12 @@ import { cn } from "@/lib/utils"
 interface AdReferralBadgeProps {
   referral: AdReferral
   className?: string
+  /** Permite ocultar el texto visualmente (queda para lectores de pantalla) cuando falta espacio. */
+  labelClassName?: string
 }
 
 /** Pill del anuncio de Meta por el que entró la conversación; enlaza al anuncio si Meta mandó la URL. */
-export function AdReferralBadge({ referral, className }: AdReferralBadgeProps) {
+export function AdReferralBadge({ referral, className, labelClassName }: AdReferralBadgeProps) {
   const { t } = useTranslation()
   const label = t(referral.source_type === "post" ? "chats.fromPost" : "chats.fromAd")
   const title = referral.headline ?? t("chats.adIdLabel", { id: referral.ad_id ?? "—" })
@@ -20,7 +22,7 @@ export function AdReferralBadge({ referral, className }: AdReferralBadgeProps) {
   const content = (
     <>
       <Megaphone className="size-3" aria-hidden="true" />
-      {label}
+      <span className={labelClassName}>{label}</span>
     </>
   )
 

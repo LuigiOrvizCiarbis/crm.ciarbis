@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Services\Channels\MessengerWebhookSubscriber;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -76,6 +77,11 @@ class AdReferralAttributionTest extends TestCase
             ->assertJsonPath('data.ad_referral.headline', 'Promo verano')
             ->assertJsonMissingPath('data.ad_referral.ctwa_clid');
 
+        $this->getJson('/api/conversations')
+            ->assertOk()
+            ->assertJsonPath('data.0.ad_referral.ad_id', 'AD_123')
+            ->assertJsonPath('data.0.ad_referral.source_type', 'ad');
+
         $this->getJson("/api/contacts/{$referral->contact_id}")
             ->assertOk()
             ->assertJsonPath('data.ad_referrals.0.ad_id', 'AD_123');
@@ -106,6 +112,10 @@ class AdReferralAttributionTest extends TestCase
         $this->getJson("/api/conversations/{$conversation->id}")
             ->assertOk()
             ->assertJsonPath('data.ad_referral', null);
+
+        $this->getJson('/api/conversations')
+            ->assertOk()
+            ->assertJsonPath('data.0.ad_referral', null);
     }
 
     public function test_messenger_ad_referral_in_message_is_recorded(): void
@@ -246,6 +256,61 @@ class AdReferralAttributionTest extends TestCase
         $this->assertSame(['AD_NORTH', 'AD_ORPHAN'], $adIds);
     }
 
+    public function test_conversation_list_exposes_every_ad_of_the_chat_history(): void
+    {
+        $channel = $this->makeWhatsAppChannel();
+        $contact = Contact::create(['tenant_id' => $channel->tenant_id, 'name' => 'Lead', 'source' => 'whatsapp']);
+        $conversation = Conversation::create([
+            'tenant_id' => $channel->tenant_id,
+            'channel_id' => $channel->id,
+            'contact_id' => $contact->id,
+            'status' => 'open',
+        ]);
+        $this->makeReferral($channel, $contact, $conversation->id, 'AD_OLD', referredAt: now()->subDay());
+        $this->makeReferral($channel, $contact, $conversation->id, 'AD_NEW');
+        $this->makeReferral($channel, $contact, $conversation->id, 'AD_NEW');
+
+        Sanctum::actingAs($this->makeOwner($channel->tenant_id));
+
+        $list = $this->getJson('/api/conversations')
+            ->assertOk()
+            ->assertJsonPath('data.0.ad_referral.ad_id', 'AD_NEW');
+        $this->assertEqualsCanonicalizing(['AD_OLD', 'AD_NEW'], $list->json('data.0.ad_ids'));
+
+        $detail = $this->getJson("/api/conversations/{$conversation->id}")->assertOk();
+        $this->assertEqualsCanonicalizing(['AD_OLD', 'AD_NEW'], $detail->json('data.ad_ids'));
+    }
+
+    public function test_ads_list_groups_visible_referrals_by_ad_newest_first(): void
+    {
+        $channel = $this->makeWhatsAppChannel();
+        $tenantId = $channel->tenant_id;
+        $north = Branch::create(['tenant_id' => $tenantId, 'name' => 'North']);
+        $south = Branch::create(['tenant_id' => $tenantId, 'name' => 'South']);
+        $member = User::factory()->create(['tenant_id' => $tenantId, 'branch_id' => $north->id]);
+        $member->syncRoles(['Member']);
+
+        $contact = Contact::create(['tenant_id' => $tenantId, 'name' => 'Lead', 'source' => 'whatsapp']);
+        $visible = $this->makeBranchConversation($channel, $contact, $north, $member->id);
+        $other = $this->makeBranchConversation($channel, $contact, $north, $member->id);
+        $hidden = $this->makeBranchConversation($channel, $contact, $south, null);
+
+        $this->makeReferral($channel, $contact, $visible->id, 'AD_SUMMER', 'Promo verano', now()->subDays(3));
+        $this->makeReferral($channel, $contact, $other->id, 'AD_SUMMER', 'Promo verano', now()->subDay());
+        $this->makeReferral($channel, $contact, $visible->id, 'AD_WINTER', referredAt: now()->subDays(2));
+        $this->makeReferral($channel, $contact, $hidden->id, 'AD_SOUTH');
+        $this->makeReferral($channel, $contact, null, 'AD_ORPHAN');
+
+        Sanctum::actingAs($member);
+
+        $this->getJson('/api/conversations/ads')
+            ->assertOk()
+            ->assertExactJson(['data' => [
+                ['ad_id' => 'AD_SUMMER', 'headline' => 'Promo verano', 'source_type' => 'ad'],
+                ['ad_id' => 'AD_WINTER', 'headline' => null, 'source_type' => 'ad'],
+            ]]);
+    }
+
     private function makeBranchConversation(Channel $channel, Contact $contact, Branch $branch, ?int $assignedTo): Conversation
     {
         return Conversation::create([
@@ -258,8 +323,14 @@ class AdReferralAttributionTest extends TestCase
         ]);
     }
 
-    private function makeReferral(Channel $channel, Contact $contact, ?int $conversationId, string $adId): void
-    {
+    private function makeReferral(
+        Channel $channel,
+        Contact $contact,
+        ?int $conversationId,
+        string $adId,
+        ?string $headline = null,
+        ?Carbon $referredAt = null,
+    ): void {
         AdReferral::create([
             'tenant_id' => $channel->tenant_id,
             'channel_id' => $channel->id,
@@ -268,8 +339,9 @@ class AdReferralAttributionTest extends TestCase
             'platform' => 'whatsapp',
             'source_type' => 'ad',
             'ad_id' => $adId,
-            'dedupe_key' => 'test:'.$adId,
-            'referred_at' => now(),
+            'headline' => $headline,
+            'dedupe_key' => 'test:'.$adId.':'.uniqid(),
+            'referred_at' => $referredAt ?? now(),
         ]);
     }
 

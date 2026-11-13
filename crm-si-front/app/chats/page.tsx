@@ -95,6 +95,7 @@ import { ChannelHeader } from "@/components/chat/AccountHeader"
 import { useConversationFilters } from "@/hooks/useConversationFilters"
 import { TagFilterMenu } from "@/components/tags/TagFilterMenu"
 import { StageFilterMenu, matchesStageFilter, stageKeysOf } from "@/components/chat/StageFilterMenu"
+import { AdFilterMenu, adKeysOf, matchesAdFilter } from "@/components/chat/AdFilterMenu"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useSSEMessages, type MessageStatusUpdate, type MessageReactionUpdate, type HumanHandoffUpdate } from "@/hooks/useSSEMessages"
 import { useTenantSSE } from "@/hooks/useTenantSSE"
@@ -368,6 +369,7 @@ export default function ChatsPage() {
   const [activeFilter, setActiveFilter] = useState<FilterType>("todos")
   const [tagFilterSlugs, setTagFilterSlugs] = useState<string[]>([])
   const [stageFilter, setStageFilter] = useState<string[]>([])
+  const [adFilter, setAdFilter] = useState<string[]>([])
   const [viewType, setViewType] = useState<ConversationView>("inbox")
   const [mailReviewCount, setMailReviewCount] = useState(0)
   const [searchQuery, setSearchQuery] = useState("")
@@ -910,27 +912,45 @@ export default function ChatsPage() {
   })
 
   const tagFilteredConversations = useMemo(() => {
-    if (tagFilterSlugs.length === 0 && stageFilter.length === 0) return filteredConversations
+    if (tagFilterSlugs.length === 0 && stageFilter.length === 0 && adFilter.length === 0) return filteredConversations
 
     const selected = new Set(tagFilterSlugs)
     const stages = new Set(stageFilter)
+    const ads = new Set(adFilter)
     return filteredConversations.filter((conversation) => (
       (selected.size === 0 || conversation.tags?.some((tag) => selected.has(tag.slug)))
       && matchesStageFilter(conversation, stages)
+      && matchesAdFilter(conversation, ads)
     ))
-  }, [filteredConversations, tagFilterSlugs, stageFilter])
+  }, [filteredConversations, tagFilterSlugs, stageFilter, adFilter])
 
   // Chats por etapa con todos los filtros menos el de etapas: lo que mostraría elegirla.
   const stageFilterCounts = useMemo(() => {
     const selectedTags = new Set(tagFilterSlugs)
+    const ads = new Set(adFilter)
     const counts = new Map<string, number>()
     filteredConversations.forEach((conversation) => {
       if (selectedTags.size > 0 && !conversation.tags?.some((tag) => selectedTags.has(tag.slug))) return
+      if (!matchesAdFilter(conversation, ads)) return
       if (!matchesConversationView(conversation, viewType)) return
       stageKeysOf(conversation).forEach((key) => counts.set(key, (counts.get(key) ?? 0) + 1))
     })
     return counts
-  }, [filteredConversations, tagFilterSlugs, viewType])
+  }, [filteredConversations, tagFilterSlugs, adFilter, viewType])
+
+  // Chats por anuncio con todos los filtros menos el de anuncios: lo que mostraría elegirlo.
+  const adFilterCounts = useMemo(() => {
+    const selectedTags = new Set(tagFilterSlugs)
+    const stages = new Set(stageFilter)
+    const counts = new Map<string, number>()
+    filteredConversations.forEach((conversation) => {
+      if (selectedTags.size > 0 && !conversation.tags?.some((tag) => selectedTags.has(tag.slug))) return
+      if (!matchesStageFilter(conversation, stages)) return
+      if (!matchesConversationView(conversation, viewType)) return
+      adKeysOf(conversation).forEach((key) => counts.set(key, (counts.get(key) ?? 0) + 1))
+    })
+    return counts
+  }, [filteredConversations, tagFilterSlugs, stageFilter, viewType])
 
   const conversationViewCounts = useMemo(() => ({
     inbox: tagFilteredConversations.filter((conversation) => matchesConversationView(conversation, "inbox")).length,
@@ -1001,6 +1021,7 @@ export default function ChatsPage() {
     const visibleIds = new Set(visibleConversations.map((c) => c.id))
     const tagSet = new Set(tagFilterSlugs)
     const stageSet = new Set(stageFilter)
+    const adSet = new Set(adFilter)
     const targetType = filterTypeToChannelType(activeFilter)
     const matchingChannelIds = targetType
       ? new Set(channels.filter((ch) => ch.type === targetType).map((ch) => ch.id))
@@ -1011,9 +1032,10 @@ export default function ChatsPage() {
       if (matchingChannelIds && !matchingChannelIds.has(conversation.channelId)) return false
       if (tagSet.size > 0 && !conversation.tags?.some((tag) => tagSet.has(tag.slug))) return false
       if (!matchesStageFilter(conversation, stageSet)) return false
+      if (!matchesAdFilter(conversation, adSet)) return false
       return matchesConversationView(conversation, viewType)
     })
-  }, [messageSearchResults, visibleConversations, searchQuery, activeFilter, channels, tagFilterSlugs, stageFilter, viewType])
+  }, [messageSearchResults, visibleConversations, searchQuery, activeFilter, channels, tagFilterSlugs, stageFilter, adFilter, viewType])
 
   // Channels and the first lightweight cursor page are independent.
   useEffect(() => {
@@ -2236,6 +2258,13 @@ export default function ChatsPage() {
           resultCount={visibleConversations.length}
           onShowResults={() => setIsChannelsSheetOpen(false)}
         />
+        <AdFilterMenu
+          selected={adFilter}
+          onChange={setAdFilter}
+          counts={adFilterCounts}
+          resultCount={visibleConversations.length}
+          onShowResults={() => setIsChannelsSheetOpen(false)}
+        />
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -2564,7 +2593,7 @@ export default function ChatsPage() {
                 emptyState={
                   searchQuery
                     ? { title: t("chats.noSearchResults"), description: t("chats.noSearchResultsDesc") }
-                    : tagFilterSlugs.length > 0 || stageFilter.length > 0 || groupsOnly
+                    : tagFilterSlugs.length > 0 || stageFilter.length > 0 || groupsOnly || adFilter.length > 0
                     ? {
                         title: t("chats.noSearchResults"),
                         description: t("chats.noFilterMatchesDesc"),
@@ -2574,6 +2603,7 @@ export default function ChatsPage() {
                             setTagFilterSlugs([])
                             setStageFilter([])
                             setGroupsOnly(false)
+                            setAdFilter([])
                           },
                         },
                       }
@@ -2598,7 +2628,8 @@ export default function ChatsPage() {
                 onRenameGroup={handleRenameGroup}
                 onToggleAiAutoreply={handleToggleAiAutoreply}
                 onSearchMessages={() => handleThreadSearchOpenChange(true)}
-                // El anuncio solo viene en el detalle: la lista no lo trae y activeConversation la prefiere.
+                // El detalle es más reciente que la tarjeta: si el contacto vuelve a entrar por otro anuncio,
+                // la lista no se entera hasta recargar.
                 adReferral={currentConversation.id === activeConversation.id ? currentConversation.adReferral ?? null : null}
               />
               {currentConversation?.id === selectedConversationId && (

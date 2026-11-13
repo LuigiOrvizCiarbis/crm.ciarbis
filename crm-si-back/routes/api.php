@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\ContactFieldController;
 use App\Http\Controllers\Api\ContactHistoryController;
 use App\Http\Controllers\Api\ContactImportController;
 use App\Http\Controllers\Api\ContactTimelineController;
+use App\Http\Controllers\Api\ConversationAdController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\ConversationTranslationController;
 use App\Http\Controllers\Api\DashboardController;
@@ -604,6 +605,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('webhook-endpoints/{id}/deliveries/{deliveryId}', [WebhookEndpointController::class, 'deliveryShow']);
 
     Route::get('conversations', [ConversationController::class, 'index']);
+    Route::get('conversations/ads', ConversationAdController::class);
     Route::get('mail-intakes', [MailIntakeController::class, 'index']);
     Route::get('mail-intakes/count', [MailIntakeController::class, 'count']);
     Route::get('mail-intakes/{mailIntake}', [MailIntakeController::class, 'show']);
