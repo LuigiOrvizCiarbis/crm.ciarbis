@@ -6,6 +6,7 @@ import { CalendarDays, ChevronDown, EllipsisVertical, X } from "lucide-react"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactField } from "@/lib/api/contact-fields"
 import { isTextBlock } from "@/lib/flow-builder/limits"
+import { branchingBlock, optionTarget, resolveTarget } from "@/lib/flow-builder/routing"
 import type { AppointmentConfig, FlowBlock, FlowDefinition } from "@/lib/flow-builder/types"
 import { cn } from "@/lib/utils"
 
@@ -28,6 +29,22 @@ export function FlowPhonePreview({ definition, selectedIndex, contactFields, onS
   const view = extra.forIndex === selectedIndex ? extra.view : "screen"
   const { appointment, screens } = definition
   const screen = screens[selectedIndex]
+  // Respuesta simulada de la pregunta que cambia el camino, para ver a dónde lleva el botón.
+  const [picked, setPicked] = useState<{ forIndex: number; optionId: string } | null>(null)
+  const branching = screen ? branchingBlock(screen) : null
+  const pickedOption =
+    branching?.options.find((option) => picked?.forIndex === selectedIndex && option.id === picked.optionId) ??
+    branching?.options[0]
+  const target = screen ? (branching && pickedOption ? optionTarget(branching, pickedOption, screen) : (screen.next ?? "following")) : null
+  const resolved = target && screen ? resolveTarget(target, selectedIndex, screens) : null
+  const destination =
+    resolved === null
+      ? null
+      : resolved === "end"
+        ? appointment
+          ? t("flows.builder.routes.appointmentShort")
+          : t("flows.builder.routes.endShort")
+        : String(resolved + 1)
 
   const pills: Array<{ key: string; label: string; active: boolean; onClick: () => void }> = [
     ...screens.map((_, index) => ({
@@ -76,13 +93,40 @@ export function FlowPhonePreview({ definition, selectedIndex, contactFields, onS
         ) : screen ? (
           <PhoneScreen
             title={screen.title}
-            footerLabel={screen.footer_label}
+            footerLabel={destination ? `${screen.footer_label || "—"} → ${destination}` : screen.footer_label}
             body={screen.blocks.map((block, index) => (
-              <PreviewBlock key={block.uid ?? index} block={block} contactFields={contactFields} />
+              <PreviewBlock
+                key={block.uid ?? index}
+                block={block}
+                contactFields={contactFields}
+                selectedOptionId={block === branching ? pickedOption?.id : undefined}
+              />
             ))}
           />
         ) : null}
       </PhoneFrame>
+
+      {view === "screen" && branching ? (
+        <div className="flex flex-wrap items-center justify-center gap-1" role="group" aria-label={t("flows.builder.routes.simulate")}>
+          <span className="text-xs text-muted-foreground">{t("flows.builder.routes.simulate")}</span>
+          {branching.options.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={option.id === pickedOption?.id}
+              onClick={() => setPicked({ forIndex: selectedIndex, optionId: option.id })}
+              className={cn(
+                "rounded-full border px-2 py-0.5 text-xs transition-colors",
+                option.id === pickedOption?.id
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border text-muted-foreground hover:bg-muted",
+              )}
+            >
+              {option.title || option.id}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <p className="text-center text-xs text-muted-foreground">{t("flows.builder.preview.note")}</p>
     </div>
@@ -163,7 +207,16 @@ function FakeBox({ label, value, trailing, tall }: { label: string; value?: Reac
   )
 }
 
-function PreviewBlock({ block, contactFields }: { block: FlowBlock; contactFields: ContactField[] }) {
+function PreviewBlock({
+  block,
+  contactFields,
+  selectedOptionId,
+}: {
+  block: FlowBlock
+  contactFields: ContactField[]
+  /** Opción elegida en la simulación del camino. */
+  selectedOptionId?: string
+}) {
   const { t } = useTranslation()
 
   if (isTextBlock(block)) {
@@ -196,8 +249,10 @@ function PreviewBlock({ block, contactFields }: { block: FlowBlock; contactField
           {block.helper_text ? <p className="px-1 text-xs text-neutral-500">{block.helper_text}</p> : null}
         </div>
       )
-    case "dropdown":
-      return <FakeBox label={label} trailing={<ChevronDown className="size-4" />} />
+    case "dropdown": {
+      const selected = block.options.find((option) => option.id === selectedOptionId)
+      return <FakeBox label={label} value={selected?.title} trailing={<ChevronDown className="size-4" />} />
+    }
     case "single_choice":
     case "multiple_choice":
       return (
@@ -210,6 +265,7 @@ function PreviewBlock({ block, contactFields }: { block: FlowBlock; contactField
                 className={cn(
                   "size-4 shrink-0 border-2 border-neutral-400",
                   block.type === "single_choice" ? "rounded-full" : "rounded-sm",
+                  option.id === selectedOptionId && "border-[#1DAA61] bg-[#1DAA61]",
                 )}
                 aria-hidden
               />

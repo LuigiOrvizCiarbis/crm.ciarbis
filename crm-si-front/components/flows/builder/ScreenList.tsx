@@ -18,12 +18,16 @@ import { useDndAccessibility } from "@/hooks/useDndAccessibility"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { GroupedErrors } from "@/lib/flow-builder/errors"
 import { MAX_SCREENS } from "@/lib/flow-builder/limits"
-import type { FlowScreen } from "@/lib/flow-builder/types"
+import { branchingBlock, optionTarget, resolveTarget, unreachableScreens } from "@/lib/flow-builder/routing"
+import type { FlowScreen, Target } from "@/lib/flow-builder/types"
 import { cn } from "@/lib/utils"
+
+type Translate = (key: string, params?: Record<string, string | number>) => string
 
 interface ScreenListProps {
   screens: FlowScreen[]
   selectedIndex: number
+  hasAppointment: boolean
   errors: GroupedErrors
   onSelect: (index: number) => void
   onAdd: () => void
@@ -38,9 +42,27 @@ function screenHasErrors(screen: FlowScreen, errors: GroupedErrors): boolean {
   )
 }
 
-export function ScreenList({ screens, selectedIndex, errors, onSelect, onAdd, onRemove, onMove }: ScreenListProps) {
+/** Destino corto: número de pantalla, "Fin" o "Turno". */
+function shortDestination(target: Target, index: number, screens: FlowScreen[], hasAppointment: boolean, t: Translate): string {
+  const resolved = resolveTarget(target, index, screens)
+  if (resolved === null) return "?"
+  if (resolved === "end") return hasAppointment ? t("flows.builder.routes.appointmentShort") : t("flows.builder.routes.endShort")
+  return String(resolved + 1)
+}
+
+/** Resumen de a dónde lleva la pantalla: "Sí → 2 · No → 3" o "→ Fin". */
+function routeSummary(screen: FlowScreen, index: number, screens: FlowScreen[], hasAppointment: boolean, t: Translate): string {
+  const block = branchingBlock(screen)
+  if (!block) return `→ ${shortDestination(screen.next ?? "following", index, screens, hasAppointment, t)}`
+  return block.options
+    .map((option) => `${option.title || option.id} → ${shortDestination(optionTarget(block, option, screen), index, screens, hasAppointment, t)}`)
+    .join(" · ")
+}
+
+export function ScreenList({ screens, selectedIndex, hasAppointment, errors, onSelect, onAdd, onRemove, onMove }: ScreenListProps) {
   const { t } = useTranslation()
   const ids = screens.map((screen) => screen.uid ?? "")
+  const unreachable = unreachableScreens(screens)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -70,6 +92,8 @@ export function ScreenList({ screens, selectedIndex, errors, onSelect, onAdd, on
                 index={index}
                 selected={index === selectedIndex}
                 hasErrors={screenHasErrors(screen, errors)}
+                routes={routeSummary(screen, index, screens, hasAppointment, t)}
+                unreachable={unreachable.has(index)}
                 canRemove={screens.length > 1}
                 onSelect={() => onSelect(index)}
                 onRemove={() => onRemove(index)}
@@ -94,12 +118,15 @@ interface SortableScreenProps {
   index: number
   selected: boolean
   hasErrors: boolean
+  /** Resumen de a dónde lleva la pantalla. */
+  routes: string
+  unreachable: boolean
   canRemove: boolean
   onSelect: () => void
   onRemove: () => void
 }
 
-function SortableScreen({ screen, index, selected, hasErrors, canRemove, onSelect, onRemove }: SortableScreenProps) {
+function SortableScreen({ screen, index, selected, hasErrors, routes, unreachable, canRemove, onSelect, onRemove }: SortableScreenProps) {
   const { t } = useTranslation()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: screen.uid ?? "" })
 
@@ -135,9 +162,12 @@ function SortableScreen({ screen, index, selected, hasErrors, canRemove, onSelec
           <span className="block truncate text-sm font-medium text-foreground">
             {screen.title || t("flows.builder.screens.untitled")}
           </span>
-          <span className="block text-xs text-muted-foreground">
-            {t("flows.builder.screens.blockCount", { count: screen.blocks.length })}
+          <span className="block truncate text-xs text-muted-foreground" title={routes}>
+            {routes}
           </span>
+          {unreachable ? (
+            <span className="block text-xs text-amber-600 dark:text-amber-400">{t("flows.builder.routes.unreachableShort")}</span>
+          ) : null}
         </span>
         {hasErrors ? (
           <TriangleAlert className="size-4 shrink-0 text-destructive" aria-label={t("flows.builder.screens.hasErrors")} />

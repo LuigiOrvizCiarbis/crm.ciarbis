@@ -6,15 +6,19 @@ namespace App\Services\Flows\Builder;
  * Compila la definición del constructor visual a Flow JSON de Meta.
  * Asume una definición ya validada por FlowDefinitionValidator.
  *
- * Todas las pantallas pasan por el endpoint del CRM (`data_exchange` con
- * `crm_action: submit_screen`): ahí se validan las respuestas con las reglas
- * del CRM, se guarda el progreso y se decide la pantalla siguiente. Los
- * textos se restauran con `init-value` desde los datos de la pantalla, que
- * arma FlowEndpointHandler con lo ya respondido o la precarga del contacto.
+ * Siguiendo la guía de Meta, el formulario se abre sin consultar al CRM (los
+ * datos de la primera pantalla viajan en el envío) y el endpoint se usa sólo
+ * en las pantallas que lo necesitan: las que siguen a otra pantalla o al
+ * turno (el CRM guarda el progreso y elige el camino), y las que guardan
+ * respuestas en el contacto (el CRM las valida). Esas envían
+ * `data_exchange` con `crm_action: submit_screen`; el resto cierra con
+ * `complete`. Un formulario de una pantalla sin mapeos ni turno no usa el
+ * endpoint, así que tampoco necesita cifrado.
  *
- * Las claves `crm_action`, `next_screen`, `date` y `slot`, y los datos de las
- * pantallas de turno (`available_dates`, `available_slots`, `selected_date`)
- * son el contrato con FlowEndpointHandler.
+ * Los textos se restauran con `init-value` desde los datos de la pantalla
+ * (lo ya respondido o la precarga del contacto). Las claves `crm_action`,
+ * `date` y `slot`, y los datos de las pantallas de turno (`available_dates`,
+ * `available_slots`, `selected_date`) son el contrato con FlowEndpointHandler.
  */
 class FlowDefinitionCompiler
 {
@@ -57,9 +61,21 @@ class FlowDefinitionCompiler
     {
         $screens = $definition['screens'];
         $appointment = $definition['appointment'] ?? null;
+        $routes = FlowDefinitionRoutes::fromDefinition($definition);
         $mappings = [];
+        $compiled = [];
+        $routing = [];
+        $usesEndpoint = false;
 
-        foreach ($screens as $screen) {
+        foreach ($screens as $i => $screen) {
+            $destinations = $routes->destinations($i);
+            $ends = in_array(null, $destinations, true);
+            $viaEndpoint = $appointment !== null || ! $ends || count($destinations) > 1 || $this->hasMappedQuestion($screen);
+            $usesEndpoint = $usesEndpoint || $viaEndpoint;
+
+            $compiled[] = $this->compileScreen($screen, $i, $viaEndpoint, $ends && $appointment === null);
+            $routing[self::screenId($i)] = $this->screenRoutes($destinations, $appointment !== null);
+
             foreach ($screen['blocks'] as $block) {
                 if ($this->isQuestion($block) && ! empty($block['maps_to'])) {
                     $mappings[] = ['response_key' => $block['key'], 'target' => $block['maps_to']];
@@ -67,25 +83,23 @@ class FlowDefinitionCompiler
             }
         }
 
-        $compiled = [];
-        $last = count($screens) - 1;
-
-        foreach ($screens as $i => $screen) {
-            $next = $i < $last ? self::screenId($i + 1) : ($appointment !== null ? self::DATE_SCREEN : null);
-            $compiled[] = $this->compileScreen($screen, $i, $next);
-        }
+        $flowJson = ['version' => self::FLOW_JSON_VERSION];
 
         if ($appointment !== null) {
             $compiled[] = $this->dateScreen($appointment);
             $compiled[] = $this->slotScreen($appointment);
+            $routing[self::DATE_SCREEN] = [self::SLOT_SCREEN];
+            $routing[self::SLOT_SCREEN] = [];
         }
 
-        return new CompiledFlow([
-            'version' => self::FLOW_JSON_VERSION,
-            'data_api_version' => self::DATA_API_VERSION,
-            'routing_model' => $this->routingModel(count($screens), $appointment !== null),
-            'screens' => $compiled,
-        ], $mappings);
+        if ($usesEndpoint) {
+            $flowJson['data_api_version'] = self::DATA_API_VERSION;
+            $flowJson['routing_model'] = $routing;
+        }
+
+        $flowJson['screens'] = $compiled;
+
+        return new CompiledFlow($flowJson, $mappings);
     }
 
     public static function screenId(int $index): string
@@ -100,8 +114,11 @@ class FlowDefinitionCompiler
         return preg_match('/^PANTALLA_([A-Z])$/', $screenId, $match) === 1 ? ord($match[1]) - ord('A') : null;
     }
 
-    /** @param  ?string  $next  pantalla siguiente; null si esta pantalla cierra el formulario */
-    private function compileScreen(array $screen, int $index, ?string $next): array
+    /**
+     * @param  bool  $viaEndpoint  la pantalla envía sus respuestas al CRM; si no, cierra el formulario
+     * @param  bool  $terminal  algún camino termina el formulario en esta pantalla
+     */
+    private function compileScreen(array $screen, int $index, bool $viaEndpoint, bool $terminal): array
     {
         $children = [];
         $answers = [];
@@ -121,12 +138,14 @@ class FlowDefinitionCompiler
             }
         }
 
-        $payload = ['crm_action' => self::SUBMIT_ACTION] + ($next !== null ? ['next_screen' => $next] : []) + $answers;
-        $children[] = $this->footer($screen['footer_label'], ['name' => 'data_exchange', 'payload' => $payload]);
+        $action = $viaEndpoint
+            ? ['name' => 'data_exchange', 'payload' => ['crm_action' => self::SUBMIT_ACTION] + $answers]
+            : ['name' => 'complete', 'payload' => $answers === [] ? new \stdClass : $answers];
+        $children[] = $this->footer($screen['footer_label'], $action);
 
         $compiled = ['id' => self::screenId($index), 'title' => $screen['title']];
 
-        if ($next === null) {
+        if ($terminal) {
             $compiled['terminal'] = true;
             $compiled['success'] = true;
         }
@@ -226,23 +245,37 @@ class FlowDefinitionCompiler
         ];
     }
 
-    /** @return array<string, list<string>> */
-    private function routingModel(int $screenCount, bool $withAppointment): array
+    /**
+     * Rutas de una pantalla para el routing_model: sus pantallas destino y, si
+     * algún camino termina con turno activo, la pantalla de fecha.
+     *
+     * @param  list<?int>  $destinations
+     * @return list<string>
+     */
+    private function screenRoutes(array $destinations, bool $withAppointment): array
     {
         $routes = [];
 
-        for ($i = 0; $i < $screenCount - 1; $i++) {
-            $routes[self::screenId($i)] = [self::screenId($i + 1)];
-        }
-
-        $routes[self::screenId($screenCount - 1)] = $withAppointment ? [self::DATE_SCREEN] : [];
-
-        if ($withAppointment) {
-            $routes[self::DATE_SCREEN] = [self::SLOT_SCREEN];
-            $routes[self::SLOT_SCREEN] = [];
+        foreach ($destinations as $destination) {
+            if ($destination !== null) {
+                $routes[] = self::screenId($destination);
+            } elseif ($withAppointment) {
+                $routes[] = self::DATE_SCREEN;
+            }
         }
 
         return $routes;
+    }
+
+    private function hasMappedQuestion(array $screen): bool
+    {
+        foreach ($screen['blocks'] as $block) {
+            if ($this->isQuestion($block) && ! empty($block['maps_to'])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isQuestion(array $block): bool

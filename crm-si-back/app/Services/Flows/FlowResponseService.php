@@ -2,6 +2,7 @@
 
 namespace App\Services\Flows;
 
+use App\Events\MessageEdited;
 use App\Jobs\EvaluateAutomationEventJob;
 use App\Models\Contact;
 use App\Models\Conversation;
@@ -21,15 +22,23 @@ class FlowResponseService
 {
     private const MAX_CONTENT_LINES = 20;
 
-    public function __construct(private readonly FlowContactUpdater $contactUpdater) {}
+    public function __construct(
+        private readonly FlowContactUpdater $contactUpdater,
+        private readonly WhatsAppFlowSessionService $sessions,
+    ) {}
 
+    /**
+     * Las respuestas de pantallas que pasaron por el endpoint ya están en la
+     * sesión; la última pantalla puede cerrar sin endpoint y traer sólo las
+     * suyas, así que se combinan con las del recorrido.
+     */
     public function parse(array $nfmReply, int $whatsappConfigId, ?string $contextMessageId): ParsedFlowResponse
     {
         $decoded = is_string($nfmReply['response_json'] ?? null) ? json_decode($nfmReply['response_json'], true) : null;
         $response = is_array($decoded) ? $decoded : [];
         $session = $this->findSession($whatsappConfigId, $response['flow_token'] ?? null, $contextMessageId);
         $flow = $session?->flow;
-        $answers = Arr::except($response, ['flow_token']);
+        $answers = array_merge($session !== null ? $this->sessions->pathAnswers($session) : [], Arr::except($response, ['flow_token']));
 
         return new ParsedFlowResponse(
             session: $session,
@@ -53,24 +62,27 @@ class FlowResponseService
             return;
         }
 
-        if ($session->status === WhatsAppFlowSession::STATUS_PENDING) {
-            $session->update([
-                'status' => WhatsAppFlowSession::STATUS_COMPLETED,
-                'completed_at' => now(),
-                'response' => $parsed->response,
-            ]);
+        // Un envío reemplazado que no usa el endpoint se puede responder igual.
+        if (in_array($session->status, [WhatsAppFlowSession::STATUS_PENDING, WhatsAppFlowSession::STATUS_SUPERSEDED], true)) {
+            $this->sessions->complete($session, $parsed->response);
         }
 
-        $mappingErrors = $this->contactUpdater->apply($session->flow, $contact, $parsed->response);
+        $mappingErrors = $this->contactUpdater->apply($session->flow, $contact, $parsed->response)['errors'];
 
-        // Las pantallas ya se validaron en el endpoint; si algo igual falla
-        // (p. ej. otro contacto tomó el valor único), el agente lo ve en el chat.
+        // Las pantallas con endpoint ya se validaron; la última puede cerrar sin
+        // endpoint, o un valor único pudo ocuparse entre medio: el agente lo ve.
         if ($mappingErrors !== []) {
             Log::warning('Flow response: respuestas no guardadas en el contacto', [
                 'contact_id' => $contact->id,
                 'errors' => $mappingErrors,
             ]);
             $message->update(['interactive' => [...($message->interactive ?? []), 'mapping_errors' => $mappingErrors]]);
+
+            try {
+                event(new MessageEdited($message));
+            } catch (\Throwable $e) {
+                Log::warning('No se pudo emitir el aviso de respuestas no guardadas', ['message_id' => $message->id, 'error' => $e->getMessage()]);
+            }
         }
 
         EvaluateAutomationEventJob::dispatch($conversation->tenant_id, [

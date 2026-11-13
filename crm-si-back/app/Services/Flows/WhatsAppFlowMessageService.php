@@ -12,6 +12,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use App\Models\WhatsAppFlow;
+use App\Models\WhatsAppFlowSession;
 use App\Services\AiTypingIndicatorService;
 use App\Services\MessagingWindowService;
 use App\Services\WhatsAppMessageService;
@@ -50,7 +51,7 @@ class WhatsAppFlowMessageService
         $interactive = [
             'type' => 'flow',
             'body' => ['text' => $body],
-            'action' => ['name' => 'flow', 'parameters' => $this->parameters($flow, $conversation, $session->flow_token, $cta)],
+            'action' => ['name' => 'flow', 'parameters' => $this->parameters($flow, $session, $cta)],
         ];
 
         if ($header !== null) {
@@ -99,7 +100,7 @@ class WhatsAppFlowMessageService
             ],
         ]);
 
-        $session->update(['message_id' => $message->id]);
+        $this->sessions->activate($session, $message);
 
         $conversation->update([
             'last_message_at' => $message->created_at,
@@ -137,25 +138,33 @@ class WhatsAppFlowMessageService
         }
     }
 
-    private function parameters(WhatsAppFlow $flow, Conversation $conversation, string $flowToken, string $cta): array
+    /**
+     * Los formularios del constructor se abren sin consultar al CRM, como
+     * recomienda Meta: la primera pantalla y sus datos (precarga y lo ya
+     * respondido) viajan en el envío. Los JSON con endpoint piden el arranque
+     * al endpoint (`data_exchange`).
+     */
+    private function parameters(WhatsAppFlow $flow, WhatsAppFlowSession $session, string $cta): array
     {
         $parameters = [
             'flow_message_version' => '3',
-            'flow_token' => $flowToken,
+            'flow_token' => $session->flow_token,
             'flow_id' => $flow->meta_flow_id,
             'flow_cta' => $cta,
         ];
 
-        if ($flow->usesEndpoint()) {
+        $version = $flow->liveVersion();
+
+        if ($version->definition === null && $version->usesEndpoint()) {
             $parameters['flow_action'] = 'data_exchange';
         } else {
-            $screen = $flow->entryScreen() ?? 'FIRST_ENTRY_SCREEN';
+            $screen = $version->entryScreen() ?? 'FIRST_ENTRY_SCREEN';
             $parameters['flow_action'] = 'navigate';
             $parameters['flow_action_payload'] = ['screen' => $screen];
-            $prefill = $this->sessions->prefillData($flow, $conversation->contact, $screen);
+            $data = $this->sessions->screenData($session, $screen);
 
-            if ($prefill !== []) {
-                $parameters['flow_action_payload']['data'] = $prefill;
+            if ($data !== []) {
+                $parameters['flow_action_payload']['data'] = $data;
             }
         }
 

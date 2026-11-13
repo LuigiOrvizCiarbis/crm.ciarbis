@@ -43,14 +43,27 @@ export interface LongTextBlock extends BaseBlock {
   maps_to?: MapsTo | null;
 }
 
-export interface ChoiceBlock extends BaseBlock {
-  type: "dropdown" | "single_choice" | "multiple_choice";
+interface ChoiceFields extends BaseBlock {
   key: string;
   label: string;
   required: boolean;
   options: ChoiceOption[];
   maps_to?: MapsTo | null;
 }
+
+/** Lista desplegable u opción única: la respuesta puede cambiar el camino del formulario. */
+export interface SingleChoiceBlock extends ChoiceFields {
+  type: "dropdown" | "single_choice";
+  /** Destino por id de opción; las opciones sin entrada siguen el `next` de la pantalla. */
+  branches?: Record<string, Target>;
+}
+
+/** Opción múltiple: no admite `branches` (varias respuestas no definen un único camino). */
+export interface MultipleChoiceBlock extends ChoiceFields {
+  type: "multiple_choice";
+}
+
+export type ChoiceBlock = SingleChoiceBlock | MultipleChoiceBlock;
 
 export interface DateBlock extends BaseBlock {
   type: "date";
@@ -72,11 +85,23 @@ export interface OptInBlock extends BaseBlock {
 export type QuestionBlock = ShortTextBlock | LongTextBlock | ChoiceBlock | DateBlock | OptInBlock;
 export type FlowBlock = TextBlock | QuestionBlock;
 
+/**
+ * Destino después de una pantalla o una respuesta:
+ * - `following`: la pantalla siguiente en la lista (en la última, el final);
+ * - `end`: termina el formulario (o pasa a la reserva de turno si está activa);
+ * - `screen:<id>`: una pantalla posterior.
+ */
+export type Target = "following" | "end" | `screen:${string}`;
+
 export interface FlowScreen {
+  /** Id estable de la pantalla (`/^[A-Za-z0-9_-]{1,40}$/`, único). Se guarda en la definición. */
+  id: string;
   uid?: string;
   title: string;
   footer_label: string;
   blocks: FlowBlock[];
+  /** Destino después de la pantalla; por defecto `following`. */
+  next?: Target;
 }
 
 export interface AppointmentConfig {

@@ -1275,7 +1275,11 @@
       "emptyResponse": "Sin datos",
       "yes": "Sí",
       "no": "No",
-      "mappingErrorsTitle": "No se guardó en el contacto"
+      "mappingErrorsTitle": "No se guardó en el contacto",
+      "completed": "Completado",
+      "superseded": "Reemplazado por un envío nuevo",
+      "inProgress": "En curso · pantallas enviadas: {{count}}",
+      "savedFields": "Guardado en el contacto: {{fields}}"
     },
     "contactsSendError": "No se pudieron enviar los contactos",
     "contactSaved": "Contacto guardado",
@@ -2892,9 +2896,27 @@
         "title": "Título de la pantalla {{n}}",
         "blocks": "Bloques",
         "footerLabel": "Texto del botón final",
-        "footerHintNext": "Lleva a la pantalla siguiente.",
-        "footerHintLast": "Envía el formulario.",
-        "footerHintAppointment": "Lleva a la elección del día del turno."
+        "footerHintRoute": "A dónde lleva se elige en «Después de esta pantalla».",
+        "footerHintBranches": "A dónde lleva depende de la respuesta a la pregunta que cambia el camino."
+      },
+      "routes": {
+        "afterScreen": "Después de esta pantalla",
+        "afterScreenBranchesHint": "Se usa para las respuestas sin regla y si la pregunta queda sin responder.",
+        "following": "Siguiente pantalla",
+        "end": "Finalizar formulario",
+        "appointment": "Ir a la reserva de turno",
+        "screen": "Pantalla {{n}} · {{title}}",
+        "missing": "Pantalla que ya no existe",
+        "toggle": "Cambiar el camino según la respuesta",
+        "otherBlockBranches": "Otra pregunta de esta pantalla ya cambia el camino.",
+        "ifAnswer": "Si responde",
+        "goTo": "Ir a",
+        "goToFor": "Destino para «{{option}}»",
+        "optionalHint": "Si la pregunta queda sin responder, se sigue el destino de la pantalla.",
+        "endShort": "Fin",
+        "appointmentShort": "Turno",
+        "unreachableShort": "Ninguna respuesta lleva acá",
+        "simulate": "Probar respuesta:"
       },
       "blockGroups": {
         "text": "Texto",
@@ -3014,7 +3036,12 @@
         "mapsToInvalid": "Este destino no es compatible con la pregunta.",
         "reasonKey": "Elegí una pregunta de texto largo.",
         "keyRequiredPrefix": "El nombre interno no puede empezar con «required».",
-        "requiredInCrm": "El campo «{{field}}» es obligatorio en el CRM: la pregunta tiene que ser obligatoria."
+        "requiredInCrm": "El campo «{{field}}» es obligatorio en el CRM: la pregunta tiene que ser obligatoria.",
+        "targetMissing": "La pantalla de destino ya no existe.",
+        "targetBackward": "Sólo se puede saltar a una pantalla posterior.",
+        "branchingPerScreen": "Sólo una pregunta por pantalla puede cambiar el camino.",
+        "branchOptionMissing": "La regla apunta a una opción que ya no existe.",
+        "unreachable": "Ninguna respuesta lleva a esta pantalla."
       },
       "toasts": {
         "saved": "Formulario guardado",

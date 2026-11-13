@@ -20,26 +20,40 @@ import {
   CUSTOM_PREFILL_PREFIX,
 } from "@/lib/flow-builder/compat"
 import { HELPER_TEXT_MAX, LABEL_MAX, OPTION_COUNT_MAX, OPTION_TITLE_MAX, TEXT_MAX, isChoiceBlock, isTextBlock } from "@/lib/flow-builder/limits"
+import { DEFAULT_TARGET, branchTarget, hasBranches, isBranchable } from "@/lib/flow-builder/routing"
 import { keyFromLabel } from "@/lib/flow-builder/slug"
 import { charCount } from "@/lib/flow-builder/validate"
 import type {
   ChoiceBlock,
   FlowBlock,
+  FlowScreen,
   MapsTo,
   PrefillSource,
   QuestionBlock,
   ShortTextBlock,
+  SingleChoiceBlock,
   TextBlock,
 } from "@/lib/flow-builder/types"
 import { cn } from "@/lib/utils"
 
 import { BlockTypeIcon } from "./BlockTypeIcon"
 import { BuilderField, FieldErrorText } from "./BuilderField"
+import { DestinationSelect } from "./DestinationSelect"
 
 type Translate = (key: string, params?: Record<string, string | number>) => string
 
 const NONE = "__none__"
 const INPUT_TYPES: ShortTextBlock["input_type"][] = ["text", "email", "number", "phone"]
+
+/** Contexto para que una pregunta de opciones elija el camino del formulario. */
+export interface BlockRouting {
+  screens: FlowScreen[]
+  /** Índice de la pantalla del bloque. */
+  index: number
+  hasAppointment: boolean
+  /** Otra pregunta de la misma pantalla ya cambia el camino. */
+  otherBlockBranches: boolean
+}
 
 interface BlockEditorProps {
   block: FlowBlock
@@ -48,6 +62,7 @@ interface BlockEditorProps {
   contactFields: ContactField[]
   /** Claves de las demás preguntas del formulario. */
   otherKeys: string[]
+  routing: BlockRouting
   defaultOpen?: boolean
   dragHandle: ReactNode
   onChange: (block: FlowBlock) => void
@@ -76,6 +91,7 @@ export function BlockEditor({
   errors,
   contactFields,
   otherKeys,
+  routing,
   defaultOpen = false,
   dragHandle,
   onChange,
@@ -144,6 +160,7 @@ export function BlockEditor({
               errors={errors}
               contactFields={contactFields}
               otherKeys={otherKeys}
+              routing={routing}
               onChange={onChange}
               t={t}
             />
@@ -199,11 +216,12 @@ interface QuestionFieldsProps {
   errors: Record<string, string[]>
   contactFields: ContactField[]
   otherKeys: string[]
+  routing: BlockRouting
   onChange: (block: FlowBlock) => void
   t: Translate
 }
 
-function QuestionFields({ block, uid, errors, contactFields, otherKeys, onChange, t }: QuestionFieldsProps) {
+function QuestionFields({ block, uid, errors, contactFields, otherKeys, routing, onChange, t }: QuestionFieldsProps) {
   // La clave sigue a la etiqueta mientras el usuario no la escriba a mano.
   const [keyTouched, setKeyTouched] = useState(() => block.key !== keyFromLabel(block.label, otherKeys))
 
@@ -310,6 +328,10 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, onChange
         <OptionsEditor block={block} uid={uid} errors={errors} contactFields={contactFields} onChange={onChange} t={t} />
       ) : null}
 
+      {isBranchable(block) ? (
+        <BranchEditor block={block} uid={uid} errors={errors.branches} routing={routing} onChange={onChange} t={t} />
+      ) : null}
+
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-3">
           <Label htmlFor={`${uid}-required`} className="text-sm">
@@ -353,6 +375,84 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, onChange
         ) : null}
       </div>
     </>
+  )
+}
+
+/**
+ * Reglas de camino de una pregunta de opciones: cada respuesta lleva a la pantalla siguiente,
+ * a una posterior o al final. Las opciones arrancan con el destino de la pantalla.
+ */
+function BranchEditor({
+  block,
+  uid,
+  errors,
+  routing,
+  onChange,
+  t,
+}: {
+  block: SingleChoiceBlock
+  uid: string
+  errors: string[] | undefined
+  routing: BlockRouting
+  onChange: (block: FlowBlock) => void
+  t: Translate
+}) {
+  const { screens, index, hasAppointment, otherBlockBranches } = routing
+  const screenNext = screens[index]?.next ?? DEFAULT_TARGET
+  const active = hasBranches(block)
+
+  const toggle = (enabled: boolean) => {
+    if (enabled) {
+      onChange({ ...block, branches: Object.fromEntries(block.options.map((option) => [option.id, screenNext])) })
+      return
+    }
+    const next = { ...block }
+    delete next.branches
+    onChange(next)
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border border-dashed border-border p-3">
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor={`${uid}-branches`} className="text-sm">
+          {t("flows.builder.routes.toggle")}
+        </Label>
+        <Switch
+          id={`${uid}-branches`}
+          checked={active}
+          disabled={!active && otherBlockBranches}
+          onCheckedChange={toggle}
+        />
+      </div>
+      {!active && otherBlockBranches ? (
+        <p className="text-xs text-muted-foreground">{t("flows.builder.routes.otherBlockBranches")}</p>
+      ) : null}
+      {active ? (
+        <div className="space-y-2">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-2 text-xs font-medium text-muted-foreground">
+            <span>{t("flows.builder.routes.ifAnswer")}</span>
+            <span>{t("flows.builder.routes.goTo")}</span>
+          </div>
+          {block.options.map((option, optionIndex) => (
+            <div key={`${option.id}-${optionIndex}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] items-center gap-2">
+              <span className="truncate text-sm">{option.title || option.id}</span>
+              <DestinationSelect
+                id={`${uid}-branch-${optionIndex}`}
+                value={branchTarget(block, option.id) ?? screenNext}
+                index={index}
+                screens={screens}
+                hasAppointment={hasAppointment}
+                invalid={!!errors}
+                ariaLabel={t("flows.builder.routes.goToFor", { option: option.title || option.id })}
+                onChange={(target) => onChange({ ...block, branches: { ...block.branches, [option.id]: target } })}
+              />
+            </div>
+          ))}
+          {!block.required ? <p className="text-xs text-muted-foreground">{t("flows.builder.routes.optionalHint")}</p> : null}
+        </div>
+      ) : null}
+      <FieldErrorText errors={errors} />
+    </div>
   )
 }
 

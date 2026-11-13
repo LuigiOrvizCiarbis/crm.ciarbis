@@ -6,6 +6,7 @@ use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppFlowSession;
 use App\Services\Flows\Builder\FlowDefinitionCompiler;
+use App\Services\Flows\Builder\FlowDefinitionRoutes;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 
@@ -48,7 +49,9 @@ class FlowEndpointHandler
         $session = $this->findSession($config, (string) ($request['flow_token'] ?? ''));
 
         if ($session === null || ! $session->isUsable()) {
-            return FlowEndpointResult::invalidToken('Este formulario ya no está disponible. Pedinos uno nuevo por el chat.');
+            return FlowEndpointResult::invalidToken($session?->status === WhatsAppFlowSession::STATUS_SUPERSEDED
+                ? 'Te enviamos una versión más nueva de este formulario. Abrila desde el último mensaje.'
+                : 'Este formulario ya no está disponible. Pedinos uno nuevo por el chat.');
         }
 
         $data = is_array($request['data'] ?? null) ? $request['data'] : [];
@@ -60,7 +63,7 @@ class FlowEndpointHandler
         }
 
         $flow = $session->flow;
-        $entry = $flow->entryScreen() ?? self::FALLBACK_SCREEN;
+        $entry = $flow->liveVersion()->entryScreen() ?? self::FALLBACK_SCREEN;
 
         return FlowEndpointResult::payload(match ($action) {
             'INIT' => $this->screenResponse($flow, $entry, $this->sessions->screenData($session, $entry)),
@@ -109,15 +112,24 @@ class FlowEndpointHandler
     /**
      * Pantalla del constructor: guarda en el contacto lo que pasa las reglas
      * del CRM y, si algo no las pasa, devuelve la misma pantalla con el aviso.
-     * Sin `next_screen` la pantalla cierra el formulario.
+     * El camino lo decide la versión que corre el cliente según lo que respondió.
      */
     private function submitScreen(WhatsAppFlowSession $session, string $screen, ?string $next, array $answers): array
     {
         $contact = $session->conversation?->contact;
-        $errors = $contact !== null ? $this->contactUpdater->apply($session->flow, $contact, $answers) : [];
+        ['saved' => $saved, 'errors' => $errors] = $contact !== null
+            ? $this->contactUpdater->apply($session->flow, $contact, $answers)
+            : ['saved' => [], 'errors' => []];
 
         if ($errors !== []) {
             return $this->errorResponse($session, $screen, implode(' ', $errors));
+        }
+
+        $definition = $session->flow->liveVersion()->definition;
+
+        if ($definition !== null) {
+            $this->sessions->recordProgress($session, $screen, $saved);
+            $next = $this->builderNext($definition, $screen, $answers);
         }
 
         return match ($next) {
@@ -129,12 +141,25 @@ class FlowEndpointHandler
         };
     }
 
+    /** Pantalla siguiente del constructor; null cierra el formulario. */
+    private function builderNext(array $definition, string $screen, array $answers): ?string
+    {
+        $index = FlowDefinitionCompiler::screenIndex($screen);
+        $destination = $index !== null ? FlowDefinitionRoutes::fromDefinition($definition)->next($index, $answers) : null;
+
+        if ($destination !== null) {
+            return FlowDefinitionCompiler::screenId($destination);
+        }
+
+        return ($definition['appointment'] ?? null) !== null ? FlowDefinitionCompiler::DATE_SCREEN : null;
+    }
+
     private function bookAppointment(WhatsAppFlowSession $session, array $data): array
     {
         $answers = $session->data ?? [];
-        $flow = $session->flow;
-        $emailKey = collect($flow->field_mappings ?? [])->firstWhere('target', 'contact.email')['response_key'] ?? null;
-        $reasonKey = $flow->builder_definition['appointment']['reason_key'] ?? null;
+        $version = $session->flow->liveVersion();
+        $emailKey = collect($version->fieldMappings)->firstWhere('target', 'contact.email')['response_key'] ?? null;
+        $reasonKey = $version->definition['appointment']['reason_key'] ?? null;
 
         $task = $this->appointments->book(
             $session->conversation,
@@ -161,7 +186,7 @@ class FlowEndpointHandler
             'screen' => 'SUCCESS',
             'data' => [
                 'extension_message_response' => [
-                    'params' => ['flow_token' => $session->flow_token] + ($session->data ?? []) + $extra,
+                    'params' => ['flow_token' => $session->flow_token] + $this->sessions->pathAnswers($session) + $extra,
                 ],
             ],
         ];
@@ -205,7 +230,7 @@ class FlowEndpointHandler
      */
     private function screenResponse(WhatsAppFlow $flow, string $screenId, array $data): array
     {
-        $declared = $flow->declaredDataKeys($screenId);
+        $declared = $flow->liveVersion()->declaredDataKeys($screenId);
 
         if ($declared !== null) {
             $data = Arr::only($data, [...$declared, 'error_message']);

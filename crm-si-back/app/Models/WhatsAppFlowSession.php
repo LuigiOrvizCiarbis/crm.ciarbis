@@ -14,6 +14,9 @@ class WhatsAppFlowSession extends Model
 
     public const STATUS_COMPLETED = 'completed';
 
+    /** Un reenvío del mismo formulario al mismo contacto reemplaza al anterior. */
+    public const STATUS_SUPERSEDED = 'superseded';
+
     protected $table = 'whatsapp_flow_sessions';
 
     protected $fillable = [
@@ -25,6 +28,7 @@ class WhatsAppFlowSession extends Model
         'flow_token',
         'status',
         'data',
+        'progress',
         'response',
         'completed_at',
         'expires_at',
@@ -32,6 +36,7 @@ class WhatsAppFlowSession extends Model
 
     protected $casts = [
         'data' => 'array',
+        'progress' => 'array',
         'response' => 'array',
         'completed_at' => 'datetime',
         'expires_at' => 'datetime',

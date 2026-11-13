@@ -1275,7 +1275,11 @@
       "emptyResponse": "No data",
       "yes": "Yes",
       "no": "No",
-      "mappingErrorsTitle": "Not saved to the contact"
+      "mappingErrorsTitle": "Not saved to the contact",
+      "completed": "Completed",
+      "superseded": "Replaced by a newer send",
+      "inProgress": "In progress · screens sent: {{count}}",
+      "savedFields": "Saved to the contact: {{fields}}"
     },
     "contactsSendError": "Could not send the contacts",
     "contactSaved": "Contact saved",
@@ -2892,9 +2896,27 @@
         "title": "Screen {{n}} title",
         "blocks": "Blocks",
         "footerLabel": "Final button text",
-        "footerHintNext": "Goes to the next screen.",
-        "footerHintLast": "Submits the form.",
-        "footerHintAppointment": "Goes to the appointment date selection."
+        "footerHintRoute": "Where it leads is set in “After this screen”.",
+        "footerHintBranches": "Where it leads depends on the answer to the question that changes the path."
+      },
+      "routes": {
+        "afterScreen": "After this screen",
+        "afterScreenBranchesHint": "Used for answers without a rule and when the question is left unanswered.",
+        "following": "Next screen",
+        "end": "Finish the form",
+        "appointment": "Go to appointment booking",
+        "screen": "Screen {{n}} · {{title}}",
+        "missing": "Screen that no longer exists",
+        "toggle": "Change the path based on the answer",
+        "otherBlockBranches": "Another question on this screen already changes the path.",
+        "ifAnswer": "If the answer is",
+        "goTo": "Go to",
+        "goToFor": "Destination for “{{option}}”",
+        "optionalHint": "If the question is left unanswered, the screen's destination is used.",
+        "endShort": "End",
+        "appointmentShort": "Booking",
+        "unreachableShort": "No answer leads here",
+        "simulate": "Try an answer:"
       },
       "blockGroups": {
         "text": "Text",
@@ -3014,7 +3036,12 @@
         "mapsToInvalid": "This destination isn't compatible with the question.",
         "reasonKey": "Pick a long text question.",
         "keyRequiredPrefix": "The internal name can't start with “required”.",
-        "requiredInCrm": "The field “{{field}}” is required in the CRM: the question must be required."
+        "requiredInCrm": "The field “{{field}}” is required in the CRM: the question must be required.",
+        "targetMissing": "The destination screen no longer exists.",
+        "targetBackward": "You can only jump to a later screen.",
+        "branchingPerScreen": "Only one question per screen can change the path.",
+        "branchOptionMissing": "The rule points to an option that no longer exists.",
+        "unreachable": "No answer leads to this screen."
       },
       "toasts": {
         "saved": "Form saved",

@@ -54,6 +54,26 @@ class FlowDefinitionValidatorTest extends TestCase
         $this->assertSame([], $this->validate([$this->screen([$block])]));
     }
 
+    public function test_jumps_only_go_forward_and_every_screen_must_be_reachable(): void
+    {
+        $choice = [
+            'type' => 'single_choice', 'key' => 'cliente', 'label' => 'Cliente', 'required' => true,
+            'options' => [['id' => 'si', 'title' => 'Sí'], ['id' => 'no', 'title' => 'No']],
+        ];
+        $first = ['id' => 'uno'] + $this->screen([$choice + ['branches' => ['si' => 'screen:tres', 'no' => 'end']]]);
+        $second = ['id' => 'dos'] + $this->screen([$this->question('nota')]);
+        $third = ['id' => 'tres', 'next' => 'screen:uno'] + $this->screen([$this->question('empresa')]);
+
+        $errors = $this->validate([$first, $second, $third]);
+        $this->assertSame(['Sólo se puede saltar a una pantalla posterior.'], $errors['screens.2.next']);
+
+        unset($third['next']);
+        $this->assertSame(['screens.1' => ['Ninguna respuesta lleva a esta pantalla.']], $this->validate([$first, $second, $third]));
+
+        $first['blocks'][0]['branches']['no'] = 'screen:dos';
+        $this->assertSame([], $this->validate([$first, $second, $third]));
+    }
+
     public function test_choice_mapped_to_a_select_field_must_use_its_choices(): void
     {
         ContactField::create([
@@ -97,6 +117,17 @@ class FlowDefinitionValidatorTest extends TestCase
 
         $this->assertArrayHasKey('screens', $this->validate($screens));
         $this->assertSame([], $this->validate(array_slice($screens, 0, 10)));
+    }
+
+    public function test_malformed_structures_are_reported_instead_of_failing(): void
+    {
+        $choice = [
+            'type' => 'single_choice', 'key' => 'plan', 'label' => 'Plan', 'required' => true,
+            'options' => [['id' => ['x'], 'title' => 'A']], 'branches' => ['x' => 'end'],
+        ];
+
+        $this->assertArrayHasKey('screens.0.blocks', $this->validate([['title' => 'Datos', 'footer_label' => 'Enviar', 'blocks' => 'x']]));
+        $this->assertArrayHasKey('screens.0.blocks.0.options.0.id', $this->validate([$this->screen([$choice])]));
     }
 
     private function validate(array $screens): array

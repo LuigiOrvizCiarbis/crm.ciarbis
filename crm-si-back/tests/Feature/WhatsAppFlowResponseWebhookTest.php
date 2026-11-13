@@ -27,8 +27,16 @@ class WhatsAppFlowResponseWebhookTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_flow_reply_is_stored_completes_the_session_maps_fields_and_triggers_automations(): void
+    private Contact $contact;
+
+    private Conversation $conversation;
+
+    private WhatsAppFlow $flow;
+
+    protected function setUp(): void
     {
+        parent::setUp();
+
         Bus::fake([EvaluateAutomationEventJob::class]);
         Http::fake();
 
@@ -54,19 +62,19 @@ class WhatsAppFlowResponseWebhookTest extends TestCase
             'type' => ContactFieldType::Text,
             'display_order' => 1,
         ]);
-        $contact = Contact::create([
+        $this->contact = Contact::create([
             'tenant_id' => $tenant->id,
             'name' => 'Ana',
             'phone' => '5492235112208',
             'source' => 'whatsapp',
         ]);
-        $conversation = Conversation::create([
+        $this->conversation = Conversation::create([
             'tenant_id' => $tenant->id,
             'channel_id' => $channel->id,
-            'contact_id' => $contact->id,
+            'contact_id' => $this->contact->id,
             'status' => 'open',
         ]);
-        $flow = WhatsAppFlow::create([
+        $this->flow = WhatsAppFlow::create([
             'tenant_id' => $tenant->id,
             'whatsapp_config_id' => $config->id,
             'meta_flow_id' => 'flow-1',
@@ -78,16 +86,58 @@ class WhatsAppFlowResponseWebhookTest extends TestCase
                 ['response_key' => 'dni', 'target' => 'custom_data.dni'],
             ],
         ]);
-        $session = WhatsAppFlowSession::create([
-            'tenant_id' => $tenant->id,
-            'whatsapp_flow_id' => $flow->id,
-            'conversation_id' => $conversation->id,
-            'contact_id' => $contact->id,
-            'flow_token' => 'flow-token-1',
-            'status' => WhatsAppFlowSession::STATUS_PENDING,
+    }
+
+    public function test_flow_reply_is_stored_completes_the_session_maps_fields_and_triggers_automations(): void
+    {
+        $session = $this->flowSession('flow-token-1', WhatsAppFlowSession::STATUS_PENDING);
+
+        $this->reply('flow-token-1', ['correo' => 'ana@x.com', 'dni' => '30111222']);
+
+        $message = Message::where('external_id', 'wamid.reply-1')->sole();
+        $this->assertSame('flow_response', $message->message_type->value);
+        $this->assertSame('30111222', $message->interactive['response']['dni']);
+        $this->assertSame(WhatsAppFlowSession::STATUS_COMPLETED, $session->fresh()->status);
+
+        $this->contact->refresh();
+        $this->assertSame('ana@x.com', $this->contact->email);
+        $this->assertSame('30111222', $this->contact->custom_data['dni']);
+
+        Bus::assertDispatched(
+            EvaluateAutomationEventJob::class,
+            fn (EvaluateAutomationEventJob $job) => $job->event['type'] === 'whatsapp_flow.response_received'
+                && $job->event['whatsapp_flow_id'] === $this->flow->id,
+        );
+    }
+
+    public function test_answering_a_replaced_send_records_it_and_closes_the_newer_send(): void
+    {
+        $replaced = $this->flowSession('token-viejo', WhatsAppFlowSession::STATUS_SUPERSEDED);
+        $newer = $this->flowSession('token-nuevo', WhatsAppFlowSession::STATUS_PENDING);
+
+        $this->reply('token-viejo', ['correo' => 'ana@x.com']);
+
+        $replaced->refresh();
+        $this->assertSame(WhatsAppFlowSession::STATUS_COMPLETED, $replaced->status);
+        $this->assertSame(['correo' => 'ana@x.com'], $replaced->response);
+        $this->assertSame(WhatsAppFlowSession::STATUS_COMPLETED, $newer->fresh()->status);
+    }
+
+    private function flowSession(string $token, string $status): WhatsAppFlowSession
+    {
+        return WhatsAppFlowSession::create([
+            'tenant_id' => $this->conversation->tenant_id,
+            'whatsapp_flow_id' => $this->flow->id,
+            'conversation_id' => $this->conversation->id,
+            'contact_id' => $this->contact->id,
+            'flow_token' => $token,
+            'status' => $status,
             'expires_at' => now()->addDay(),
         ]);
+    }
 
+    private function reply(string $token, array $answers): void
+    {
         $this->postJson('/api/whatsapp-webhook', ['entry' => [[
             'id' => 'waba-test',
             'changes' => [[
@@ -106,31 +156,12 @@ class WhatsAppFlowResponseWebhookTest extends TestCase
                             'nfm_reply' => [
                                 'name' => 'flow',
                                 'body' => 'Sent',
-                                'response_json' => json_encode([
-                                    'flow_token' => 'flow-token-1',
-                                    'correo' => 'ana@x.com',
-                                    'dni' => '30111222',
-                                ]),
+                                'response_json' => json_encode(['flow_token' => $token, ...$answers]),
                             ],
                         ],
                     ]],
                 ],
             ]],
         ]]])->assertOk();
-
-        $message = Message::where('external_id', 'wamid.reply-1')->sole();
-        $this->assertSame('flow_response', $message->message_type->value);
-        $this->assertSame('30111222', $message->interactive['response']['dni']);
-        $this->assertSame(WhatsAppFlowSession::STATUS_COMPLETED, $session->fresh()->status);
-
-        $contact->refresh();
-        $this->assertSame('ana@x.com', $contact->email);
-        $this->assertSame('30111222', $contact->custom_data['dni']);
-
-        Bus::assertDispatched(
-            EvaluateAutomationEventJob::class,
-            fn (EvaluateAutomationEventJob $job) => $job->event['type'] === 'whatsapp_flow.response_received'
-                && $job->event['whatsapp_flow_id'] === $flow->id,
-        );
     }
 }
