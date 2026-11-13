@@ -273,6 +273,13 @@ export interface WhatsAppFlowEncryptionStatus {
   signature_status: string | null
 }
 
+export interface MessageFlowProgress {
+  screens_done: number
+  last_screen_title: string | null
+  saved_fields: string[]
+  updated_at: string
+}
+
 export type MessageInteractive =
   | {
       kind: "flow"
@@ -283,6 +290,9 @@ export type MessageInteractive =
       cta: string
       header?: string | null
       footer?: string | null
+      /** Avance del cliente en el formulario; llega por `message.edited`. */
+      progress?: MessageFlowProgress | null
+      session_status?: "pending" | "completed" | "superseded" | null
     }
   | {
       kind: "flow_response"

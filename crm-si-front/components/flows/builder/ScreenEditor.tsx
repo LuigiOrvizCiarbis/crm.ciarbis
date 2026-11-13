@@ -20,12 +20,14 @@ import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactField } from "@/lib/api/contact-fields"
 import type { GroupedErrors } from "@/lib/flow-builder/errors"
 import { FOOTER_LABEL_MAX, isQuestionBlock } from "@/lib/flow-builder/limits"
+import { hasBranches } from "@/lib/flow-builder/routing"
 import type { FlowBlock, FlowScreen } from "@/lib/flow-builder/types"
 import { cn } from "@/lib/utils"
 
 import { AddBlockMenu } from "./AddBlockMenu"
 import { BlockEditor } from "./BlockEditor"
 import { BuilderField, FieldErrorText } from "./BuilderField"
+import { DestinationSelect } from "./DestinationSelect"
 import { newUid } from "./useFlowBuilderState"
 
 const NO_ERRORS: Record<string, string[]> = {}
@@ -33,14 +35,14 @@ const NO_ERRORS: Record<string, string[]> = {}
 interface ScreenEditorProps {
   screen: FlowScreen
   index: number
-  /** Si es la última pantalla y no hay turno, su botón cierra el formulario. */
-  isLast: boolean
+  /** Todas las pantallas: los destinos se eligen entre las posteriores. */
+  screens: FlowScreen[]
   hasAppointment: boolean
   errors: GroupedErrors
   contactFields: ContactField[]
   /** Clave de cada pregunta del formulario, con el uid de su bloque. */
   questionKeys: Array<{ uid: string | undefined; key: string }>
-  onUpdateScreen: (patch: Partial<Pick<FlowScreen, "title" | "footer_label">>) => void
+  onUpdateScreen: (patch: Partial<Pick<FlowScreen, "title" | "footer_label" | "next">>) => void
   onAddBlock: (block: FlowBlock) => void
   onRemoveBlock: (index: number) => void
   onMoveBlock: (from: number, to: number) => void
@@ -50,7 +52,7 @@ interface ScreenEditorProps {
 export function ScreenEditor({
   screen,
   index,
-  isLast,
+  screens,
   hasAppointment,
   errors,
   contactFields,
@@ -89,11 +91,10 @@ export function ScreenEditor({
     onAddBlock({ ...block, uid })
   }
 
-  const footerHint = hasAppointment && isLast
-    ? t("flows.builder.screen.footerHintAppointment")
-    : isLast
-      ? t("flows.builder.screen.footerHintLast")
-      : t("flows.builder.screen.footerHintNext")
+  const branchingUid = screen.blocks.find(hasBranches)?.uid
+  const footerHint = branchingUid
+    ? t("flows.builder.screen.footerHintBranches")
+    : t("flows.builder.screen.footerHintRoute")
 
   return (
     <div className="space-y-6">
@@ -129,6 +130,12 @@ export function ScreenEditor({
                       errors={(block.uid && errors.blocks[block.uid]) || NO_ERRORS}
                       contactFields={contactFields}
                       otherKeys={questionKeys.filter((item) => item.uid !== block.uid).map((item) => item.key)}
+                      routing={{
+                        screens,
+                        index,
+                        hasAppointment,
+                        otherBlockBranches: branchingUid !== undefined && branchingUid !== block.uid,
+                      }}
                       defaultOpen={block.uid === lastAddedUid}
                       dragHandle={dragHandle}
                       onChange={(next) => onUpdateBlock(blockIndex, next)}
@@ -156,6 +163,23 @@ export function ScreenEditor({
           value={screen.footer_label}
           aria-invalid={!!screenErrors.footer_label}
           onChange={(event) => onUpdateScreen({ footer_label: event.target.value })}
+        />
+      </BuilderField>
+
+      <BuilderField
+        id={`screen-${screen.uid}-next`}
+        label={t("flows.builder.routes.afterScreen")}
+        errors={screenErrors.next}
+        hint={branchingUid ? t("flows.builder.routes.afterScreenBranchesHint") : undefined}
+      >
+        <DestinationSelect
+          id={`screen-${screen.uid}-next`}
+          value={screen.next}
+          index={index}
+          screens={screens}
+          hasAppointment={hasAppointment}
+          invalid={!!screenErrors.next}
+          onChange={(next) => onUpdateScreen({ next })}
         />
       </BuilderField>
     </div>

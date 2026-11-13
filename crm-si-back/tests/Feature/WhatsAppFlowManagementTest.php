@@ -20,6 +20,8 @@ use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppFlowSession;
 use App\Models\WhatsAppTemplate;
+use App\Services\Flows\Builder\FlowDefinitionCompiler;
+use App\Services\Flows\WhatsAppFlowSessionService;
 use App\Support\PermissionCatalog;
 use App\Support\RoleProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -160,10 +162,17 @@ class WhatsAppFlowManagementTest extends TestCase
             && $request['interactive']['action']['parameters']['flow_action_payload']['screen'] === 'DATOS');
     }
 
-    public function test_resending_a_flow_resumes_the_unfinished_answers_of_the_contact(): void
+    public function test_resending_a_builder_flow_opens_with_the_unfinished_answers_and_closes_the_previous_send(): void
     {
         $this->inboundMessage();
+        $definition = $this->definition([
+            ['type' => 'short_text', 'key' => 'correo', 'label' => 'Email', 'input_type' => 'email', 'required' => true],
+        ]);
         $flow = $this->publishedFlow('flow-1');
+        $flow->update([
+            'builder_definition' => $definition,
+            'flow_json' => json_encode((new FlowDefinitionCompiler)->compile($definition)->flowJson),
+        ]);
         $previous = WhatsAppFlowSession::create([
             'tenant_id' => $this->conversation->tenant_id,
             'whatsapp_flow_id' => $flow->id,
@@ -172,6 +181,17 @@ class WhatsAppFlowManagementTest extends TestCase
             'flow_token' => 'token-previo',
             'status' => WhatsAppFlowSession::STATUS_PENDING,
             'data' => ['correo' => 'ana@x.com'],
+            'expires_at' => now()->addDay(),
+        ]);
+        // Un envío vencido no se retoma aunque sea más nuevo.
+        WhatsAppFlowSession::create([
+            'tenant_id' => $this->conversation->tenant_id,
+            'whatsapp_flow_id' => $flow->id,
+            'conversation_id' => $this->conversation->id,
+            'contact_id' => $this->conversation->contact_id,
+            'flow_token' => 'token-vencido',
+            'status' => WhatsAppFlowSession::STATUS_PENDING,
+            'data' => ['correo' => 'viejo@x.com'],
             'expires_at' => now()->subDay(),
         ]);
         Http::fake(['https://graph.facebook.com/*/123456789/messages' => Http::response(['messages' => [['id' => 'wamid.flow-2']]])]);
@@ -182,8 +202,74 @@ class WhatsAppFlowManagementTest extends TestCase
             'cta' => 'Completar',
         ])->assertCreated();
 
-        $session = WhatsAppFlowSession::whereKeyNot($previous->id)->sole();
+        $session = WhatsAppFlowSession::latest('id')->first();
         $this->assertSame(['correo' => 'ana@x.com'], $session->data);
+        $this->assertSame(WhatsAppFlowSession::STATUS_SUPERSEDED, $previous->fresh()->status);
+        // Se abre sin consultar al CRM: la primera pantalla y sus datos viajan en el envío.
+        Http::assertSent(fn (Request $request) => ($request['interactive']['action']['parameters']['flow_action'] ?? null) === 'navigate'
+            && $request['interactive']['action']['parameters']['flow_action_payload'] === ['screen' => 'PANTALLA_A', 'data' => ['correo' => 'ana@x.com']]);
+    }
+
+    public function test_customers_get_the_published_version_until_the_draft_is_published(): void
+    {
+        $this->inboundMessage();
+        $published = $this->definition([
+            ['type' => 'short_text', 'key' => 'nombre', 'label' => 'Nombre', 'input_type' => 'text', 'required' => true, 'prefill' => 'contact_name'],
+        ]);
+        $flow = WhatsAppFlow::create([
+            'tenant_id' => $this->channel->tenant_id,
+            'whatsapp_config_id' => $this->channel->whatsapp_config_id,
+            'meta_flow_id' => 'flow-1',
+            'name' => 'Alta',
+            'status' => WhatsAppFlowStatus::Draft,
+            'categories' => ['SIGN_UP'],
+            'builder_definition' => $published,
+            'flow_json' => json_encode((new FlowDefinitionCompiler)->compile($published)->flowJson),
+        ]);
+        Http::fake([
+            'https://graph.facebook.com/*/123456789/messages' => Http::response(['messages' => [['id' => 'wamid.flow-1']]]),
+            'https://graph.facebook.com/*/flow-1/publish' => Http::response(['success' => true]),
+            'https://graph.facebook.com/*/flow-1*' => Http::response([
+                'id' => 'flow-1', 'name' => 'Alta', 'status' => 'PUBLISHED', 'categories' => ['SIGN_UP'], 'validation_errors' => [], 'json_version' => '7.3',
+            ]),
+        ]);
+        $this->postJson("/api/whatsapp-flows/{$flow->id}/publish")->assertOk();
+
+        // Cambios guardados después de publicar: Meta los deja en borrador.
+        $draft = $this->definition([
+            ['type' => 'short_text', 'key' => 'empresa', 'label' => 'Empresa', 'input_type' => 'text', 'required' => true],
+        ]);
+        $flow->refresh()->update([
+            'status' => WhatsAppFlowStatus::Draft,
+            'builder_definition' => $draft,
+            'flow_json' => json_encode((new FlowDefinitionCompiler)->compile($draft)->flowJson),
+        ]);
+
+        $this->postJson("/api/conversations/{$this->conversation->id}/send-flow", [
+            'whatsapp_flow_id' => $flow->id,
+            'body' => 'Completá tus datos',
+            'cta' => 'Completar',
+        ])->assertCreated();
+
+        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/messages')
+            && ! isset($request['interactive']['action']['parameters']['mode'])
+            && $request['interactive']['action']['parameters']['flow_action_payload'] === ['screen' => 'PANTALLA_A', 'data' => ['nombre' => 'Jane Doe']]);
+    }
+
+    public function test_overlapping_sends_keep_the_newest_open_whichever_finishes_first(): void
+    {
+        $flow = $this->publishedFlow('flow-1');
+        $sessions = app(WhatsAppFlowSessionService::class);
+        $first = $sessions->open($flow, $this->conversation);
+        $second = $sessions->open($flow, $this->conversation);
+
+        // El segundo envío termina antes que el primero.
+        $sessions->activate($second, $this->flowMessage('wamid.flow-2'));
+        $sessions->activate($first, $firstMessage = $this->flowMessage('wamid.flow-1'));
+
+        $this->assertSame(WhatsAppFlowSession::STATUS_PENDING, $second->fresh()->status);
+        $this->assertSame(WhatsAppFlowSession::STATUS_SUPERSEDED, $first->fresh()->status);
+        $this->assertSame(WhatsAppFlowSession::STATUS_SUPERSEDED, $firstMessage->fresh()->interactive['session_status']);
     }
 
     public function test_sending_a_template_with_a_flow_button_injects_the_session_token(): void
@@ -295,6 +381,21 @@ class WhatsAppFlowManagementTest extends TestCase
             'message_type' => MessageType::Text,
             'direction' => MessageDirection::INBOUND,
             'external_id' => 'wamid.in-1',
+        ]);
+    }
+
+    private function flowMessage(string $externalId): Message
+    {
+        return Message::create([
+            'tenant_id' => $this->conversation->tenant_id,
+            'conversation_id' => $this->conversation->id,
+            'sender_type' => SenderType::USER,
+            'sender_id' => $this->user->id,
+            'content' => 'Formulario',
+            'message_type' => MessageType::Flow,
+            'direction' => MessageDirection::OUTBOUND,
+            'external_id' => $externalId,
+            'interactive' => ['kind' => 'flow', 'flow_name' => 'Alta'],
         ]);
     }
 }

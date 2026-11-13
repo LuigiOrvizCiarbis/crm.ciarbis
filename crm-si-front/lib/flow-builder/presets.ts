@@ -48,6 +48,7 @@ export function presetDefinition(preset: FlowPreset): FlowDefinition {
         schema: 1,
         screens: [
           {
+            id: "datos",
             title: "Tus datos",
             footer_label: "Enviar",
             blocks: [
@@ -89,6 +90,7 @@ export function presetDefinition(preset: FlowPreset): FlowDefinition {
         schema: 1,
         screens: [
           {
+            id: "datos",
             title: "Tus datos",
             footer_label: "Continuar",
             blocks: [
@@ -122,6 +124,7 @@ export function presetDefinition(preset: FlowPreset): FlowDefinition {
         schema: 1,
         screens: [
           {
+            id: "formulario",
             title: "Formulario",
             footer_label: "Enviar",
             blocks: [

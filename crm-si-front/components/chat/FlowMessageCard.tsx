@@ -25,11 +25,18 @@ export function FlowMessageCard({ message, isUser }: FlowMessageCardProps) {
   }
 
   if (interactive.kind === "flow") {
+    const { progress, session_status: status } = interactive
+    const showProgress = progress != null && status !== "completed" && status !== "superseded"
     return (
       <div className="space-y-1.5">
-        <span className="flex items-center gap-1 text-xs font-medium opacity-75">
+        <span className="flex flex-wrap items-center gap-1 text-xs font-medium opacity-75">
           <ClipboardList className="size-3 shrink-0" aria-hidden="true" />
           {t("chats.flows.flowLabel", { name: interactive.flow_name })}
+          {status === "completed" ? (
+            <span className="rounded-full border border-current/30 px-1.5 py-px text-[10px] font-semibold">
+              {t("chats.flows.completed")}
+            </span>
+          ) : null}
         </span>
         {interactive.header && <p className="text-sm font-semibold">{interactive.header}</p>}
         <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{interactive.body}</p>
@@ -40,6 +47,20 @@ export function FlowMessageCard({ message, isUser }: FlowMessageCardProps) {
         >
           {interactive.cta}
         </span>
+        {status === "superseded" ? <p className="text-xs italic opacity-70">{t("chats.flows.superseded")}</p> : null}
+        {showProgress ? (
+          <div className="space-y-0.5 text-xs opacity-75">
+            <p>
+              {t("chats.flows.inProgress", { count: progress.screens_done })}
+              {progress.last_screen_title ? ` · ${progress.last_screen_title}` : ""}
+            </p>
+            {progress.saved_fields.length > 0 ? (
+              <p className="[overflow-wrap:anywhere]">
+                {t("chats.flows.savedFields", { fields: progress.saved_fields.join(", ") })}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     )
   }

@@ -24,7 +24,8 @@ import {
   isQuestionBlock,
   isReservedKey,
 } from "./limits";
-import type { FlowDefinition, QuestionBlock } from "./types";
+import { hasBranches, isForwardTarget, resolveTarget, unreachableScreens } from "./routing";
+import type { FlowDefinition, QuestionBlock, Target } from "./types";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -156,5 +157,47 @@ export function validateDefinition(
     }
   }
 
+  validateRoutes(definition, add, t);
+
   return errors;
+}
+
+/**
+ * Destinos de pantallas y respuestas: sólo hacia adelante, una pregunta que cambia el camino
+ * por pantalla y todas las pantallas alcanzables. Mismas rutas de error que el backend.
+ */
+function validateRoutes(definition: FlowDefinition, add: (path: string, message: string) => void, t: Translate) {
+  const { screens } = definition;
+  let routeErrors = false;
+  const fail = (path: string, message: string) => {
+    routeErrors = true;
+    add(path, message);
+  };
+  const checkTarget = (target: Target | undefined, index: number, path: string) => {
+    const resolved = resolveTarget(target, index, screens);
+    if (resolved === null) fail(path, t("flows.builder.errors.targetMissing"));
+    else if (!isForwardTarget(target, index, screens)) fail(path, t("flows.builder.errors.targetBackward"));
+  };
+
+  screens.forEach((screen, s) => {
+    if (screen.next !== undefined) checkTarget(screen.next, s, `screens.${s}.next`);
+
+    let branching = 0;
+    screen.blocks.forEach((block, b) => {
+      if (!hasBranches(block)) return;
+      const path = `screens.${s}.blocks.${b}.branches`;
+      branching += 1;
+      if (branching > 1) fail(path, t("flows.builder.errors.branchingPerScreen"));
+      const optionIds = new Set(block.options.map((option) => option.id));
+      for (const [optionId, target] of Object.entries(block.branches ?? {})) {
+        if (!optionIds.has(optionId)) fail(path, t("flows.builder.errors.branchOptionMissing"));
+        else checkTarget(target, s, path);
+      }
+    });
+  });
+
+  if (routeErrors) return;
+  for (const index of unreachableScreens(screens)) {
+    add(`screens.${index}`, t("flows.builder.errors.unreachable"));
+  }
 }
