@@ -291,7 +291,9 @@ export type MessageInteractive =
       flow_name: string | null
       session_id: number | null
       response: Record<string, unknown>
-      /** Respuestas que no se pudieron guardar en el contacto (clave → motivo). */
+      /** Etiqueta de cada pregunta del constructor (clave → etiqueta); falta en mensajes viejos o en formularios JSON. */
+      labels?: Record<string, string>
+      /** Respuestas que no se pudieron guardar en el contacto (clave → motivo, que ya incluye la etiqueta). */
       mapping_errors?: Record<string, string>
     }
 
