@@ -6,17 +6,22 @@ import { ChevronDown, Lock, Plus, Trash2, TriangleAlert, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { CreateContactFieldDialog } from "@/components/flows/CreateContactFieldDialog"
+import { usePermission } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactField } from "@/lib/api/contact-fields"
 import {
+  adoptFieldChoices,
   compatibleTargets,
+  creatableFieldTypes,
   customFieldKey,
   findField,
   lockedOptions,
   prefillSources,
+  CUSTOM_DATA_PREFIX,
   CUSTOM_PREFILL_PREFIX,
 } from "@/lib/flow-builder/compat"
 import { OPTION_IMAGE_MAX_SIDE, imageDataUrl, isSupportedImage } from "@/lib/flow-builder/images"
@@ -56,6 +61,7 @@ import { CarouselFields, ImageBlockFields, OptionImageButton } from "./ImageFiel
 type Translate = (key: string, params?: Record<string, string | number>) => string
 
 const NONE = "__none__"
+const CREATE_FIELD = "__create__"
 const INPUT_TYPES: ShortTextBlock["input_type"][] = ["text", "email", "number", "phone"]
 
 /** Contexto para que una pregunta de opciones elija el camino del formulario. */
@@ -273,15 +279,28 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, routing,
     if (lockRequired && !block.required) onChange({ ...block, required: true })
   }, [lockRequired, block, onChange])
 
+  const canCreateField = usePermission("contact_fields.manage")
+  const [creatingField, setCreatingField] = useState(false)
+
+  /** Guarda la respuesta en el destino; un campo de selección impone sus opciones y uno obligatorio, la respuesta. */
+  const mapTo = (maps_to: MapsTo | null, fields: ContactField[]) => {
+    const field = findField(fields, customFieldKey(maps_to))
+    const next = { ...block, maps_to, ...(field?.is_required ? { required: true } : {}) } as QuestionBlock
+    const choices = field?.type === "select" || field?.type === "multi_select" ? (field.options?.choices ?? []) : null
+    onChange(choices && isChoiceBlock(next) ? { ...next, options: adoptFieldChoices(next, choices) } : next)
+  }
+
   const setTarget = (value: string) => {
-    const maps_to = value === NONE ? null : (value as MapsTo)
-    const next = { ...block, maps_to, ...(requiredInCrm(maps_to) ? { required: true } : {}) } as QuestionBlock
-    const locked = isChoiceBlock(next) ? lockedOptions(next, contactFields) : null
-    onChange(locked && isChoiceBlock(next) ? { ...next, options: locked } : next)
+    if (value === CREATE_FIELD) {
+      setCreatingField(true)
+      return
+    }
+    mapTo(value === NONE ? null : (value as MapsTo), contactFields)
   }
 
   const targets: string[] = compatibleTargets(block, contactFields)
   if (block.maps_to && !targets.includes(block.maps_to)) targets.push(block.maps_to)
+  const hasCustomTarget = targets.some((target) => customFieldKey(target) !== null)
 
   const hasHelper = block.type === "short_text" || block.type === "long_text" || block.type === "date"
   const helperText = "helper_text" in block ? (block.helper_text ?? "") : ""
@@ -389,7 +408,7 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, routing,
           id={`${uid}-maps-to`}
           label={t("flows.builder.block.mapsTo")}
           errors={errors.maps_to}
-          hint={block.maps_to ? t("flows.builder.block.mapsToHint") : undefined}
+          hint={t(block.maps_to ? "flows.builder.block.mapsToHint" : "flows.builder.block.mapsToOptional")}
         >
           <Select value={block.maps_to ?? NONE} onValueChange={setTarget}>
             <SelectTrigger id={`${uid}-maps-to`} className="w-full" aria-invalid={!!errors.maps_to}>
@@ -402,6 +421,17 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, routing,
                   {targetLabel(target, contactFields, t)}
                 </SelectItem>
               ))}
+              {canCreateField ? (
+                <>
+                  <SelectSeparator />
+                  <SelectItem value={CREATE_FIELD} className="text-primary focus:text-primary">
+                    <span className="inline-flex items-center gap-2">
+                      <Plus className="size-4" aria-hidden />
+                      {t(hasCustomTarget ? "flows.builder.block.mapsToCreate" : "flows.builder.block.mapsToCreateFirst")}
+                    </span>
+                  </SelectItem>
+                </>
+              ) : null}
             </SelectContent>
           </Select>
         </BuilderField>
@@ -410,6 +440,17 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, routing,
           <PrefillSelect block={block} uid={uid} errors={errors} contactFields={contactFields} onChange={onChange} t={t} />
         ) : null}
       </div>
+
+      {creatingField ? (
+        <CreateContactFieldDialog
+          onOpenChange={setCreatingField}
+          types={creatableFieldTypes(block)}
+          initialLabel={block.label}
+          initialChoices={isChoiceBlock(block) ? block.options.map((option) => option.title.trim()).filter(Boolean) : []}
+          choicesHint={t("flows.builder.block.newFieldChoicesHint")}
+          onCreated={(field) => mapTo(`${CUSTOM_DATA_PREFIX}${field.key}`, [...contactFields, field])}
+        />
+      ) : null}
     </>
   )
 }

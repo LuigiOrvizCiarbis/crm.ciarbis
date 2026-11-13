@@ -2840,8 +2840,18 @@
         "hint": "The key is the name of the value in the flow response (the payload of the complete action).",
         "fieldsError": "Couldn't load contact fields",
         "saved": "Mapping saved",
-        "saveError": "Couldn't save the mapping"
+        "saveError": "Couldn't save the mapping",
+        "createField": "Create new field…",
+        "newFieldChoicesHint": "One per line. They must match the values the form sends."
       }
+    },
+    "fieldCreate": {
+      "title": "New contact field",
+      "description": "It's added to every contact's profile and the form answer is saved there. You can edit it later in Settings → Custom fields.",
+      "submit": "Create field",
+      "created": "Field “{{label}}” created",
+      "error": "Couldn't create the field",
+      "choicesRequired": "Add at least one option."
     },
     "builder": {
       "title": "Form builder",
@@ -2987,7 +2997,11 @@
         "mapsToNone": "Don't save",
         "prefill": "Prefill with",
         "requiredInCrm": "Required in the CRM.",
-        "mapsToHint": "The answer is validated with the CRM rules inside the form and saved to the contact as each screen is completed."
+        "mapsToHint": "The answer is validated with the CRM rules inside the form and saved to the contact as each screen is completed.",
+        "mapsToOptional": "Optional. Pick a field only if the answer must stay on the contact's profile; the full response still shows in the chat.",
+        "mapsToCreate": "Create new field…",
+        "mapsToCreateFirst": "Create a field to save it…",
+        "newFieldChoicesHint": "One per line. They become the question's options."
       },
       "targets": {
         "contactName": "Contact name",

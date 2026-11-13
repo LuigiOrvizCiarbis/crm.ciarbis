@@ -19,14 +19,18 @@ import {
   SelectGroup,
   SelectItem,
   SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
 import { useToast } from "@/components/Toast"
+import { CreateContactFieldDialog } from "@/components/flows/CreateContactFieldDialog"
 import type { WhatsAppFlow, WhatsAppFlowFieldMapping } from "@/data/types"
+import { usePermission } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
 import { getContactFields, type ContactField } from "@/lib/api/contact-fields"
 import { ApiValidationError, updateFlow } from "@/lib/api/whatsapp-flows"
+import { CREATABLE_FIELD_TYPES } from "@/lib/flow-builder/compat"
 
 interface FlowFieldMappingDialogProps {
   flow: WhatsAppFlow | null
@@ -39,6 +43,13 @@ const MAX_MAPPINGS = 50
 const RESPONSE_KEY_PATTERN = /^[A-Za-z0-9_.]+$/
 /** Tipos que un formulario no puede completar. */
 const UNMAPPABLE_TYPES: Partial<Record<ContactField["type"], true>> = { file: true, repeater: true }
+const CREATE_FIELD = "__create__"
+
+/** Etiqueta sugerida a partir de la clave de la respuesta: `fecha_nacimiento` → "Fecha nacimiento". */
+function labelFromKey(key: string): string {
+  const words = key.trim().replace(/[_.]+/g, " ").trim()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
 
 export function FlowFieldMappingDialog({ flow, onOpenChange, onSaved }: FlowFieldMappingDialogProps) {
   const { t } = useTranslation()
@@ -49,6 +60,9 @@ export function FlowFieldMappingDialog({ flow, onOpenChange, onSaved }: FlowFiel
   const [loadingFields, setLoadingFields] = useState(false)
   const [saving, setSaving] = useState(false)
   const [serverErrors, setServerErrors] = useState<string[]>([])
+  const canCreateField = usePermission("contact_fields.manage")
+  /** Fila para la que se está creando un campo. */
+  const [creatingFor, setCreatingFor] = useState<number | null>(null)
 
   const open = flow !== null
 
@@ -148,7 +162,7 @@ export function FlowFieldMappingDialog({ flow, onOpenChange, onSaved }: FlowFiel
                 </div>
                 <Select
                   value={row.target || undefined}
-                  onValueChange={(value) => updateRow(index, { target: value })}
+                  onValueChange={(value) => (value === CREATE_FIELD ? setCreatingFor(index) : updateRow(index, { target: value }))}
                   disabled={loadingFields}
                 >
                   <SelectTrigger aria-label={t("flows.settings.mapping.target")} className="w-full">
@@ -169,6 +183,17 @@ export function FlowFieldMappingDialog({ flow, onOpenChange, onSaved }: FlowFiel
                           </SelectItem>
                         ))}
                       </SelectGroup>
+                    )}
+                    {canCreateField && (
+                      <>
+                        <SelectSeparator />
+                        <SelectItem value={CREATE_FIELD} className="text-primary focus:text-primary">
+                          <span className="inline-flex items-center gap-2">
+                            <Plus className="size-4" aria-hidden />
+                            {t("flows.settings.mapping.createField")}
+                          </span>
+                        </SelectItem>
+                      </>
                     )}
                   </SelectContent>
                 </Select>
@@ -216,6 +241,18 @@ export function FlowFieldMappingDialog({ flow, onOpenChange, onSaved }: FlowFiel
             {t("common.save")}
           </Button>
         </DialogFooter>
+        {creatingFor !== null && (
+          <CreateContactFieldDialog
+            onOpenChange={(next) => !next && setCreatingFor(null)}
+            types={CREATABLE_FIELD_TYPES}
+            initialLabel={labelFromKey(rows[creatingFor]?.response_key ?? "")}
+            choicesHint={t("flows.settings.mapping.newFieldChoicesHint")}
+            onCreated={(field) => {
+              setFields((current) => [...current, field])
+              updateRow(creatingFor, { target: `custom_data.${field.key}` })
+            }}
+          />
+        )}
       </DialogContent>
     </Dialog>
   )
