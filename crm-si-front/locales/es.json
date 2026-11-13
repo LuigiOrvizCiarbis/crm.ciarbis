@@ -2924,13 +2924,16 @@
       },
       "blockGroups": {
         "text": "Texto",
-        "questions": "Preguntas"
+        "questions": "Preguntas",
+        "media": "Imágenes"
       },
       "blockTypes": {
         "heading": "Título",
         "subheading": "Subtítulo",
         "body": "Párrafo",
         "caption": "Nota",
+        "image": "Imagen",
+        "image_carousel": "Carrusel de imágenes",
         "short_text": "Texto corto",
         "long_text": "Texto largo",
         "dropdown": "Lista desplegable",
@@ -3022,6 +3025,46 @@
         "sampleOptions": "Opciones de ejemplo: las reales salen de la agenda.",
         "note": "Vista aproximada. Usá 'Vista previa de Meta' para ver la versión exacta."
       },
+      "image": {
+        "file": "Imagen",
+        "upload": "Subir imagen",
+        "uploadHint": "Hacé clic o arrastrala acá. Se achica sola al tamaño que acepta WhatsApp.",
+        "replace": "Cambiar imagen",
+        "remove": "Quitar imagen",
+        "processing": "Procesando imagen",
+        "unsupported": "No se pudo leer el archivo. Probá con una foto JPEG o PNG.",
+        "tooLarge": "No se pudo achicar la imagen por debajo de {{max}} KB. Probá con otra más simple.",
+        "altText": "Descripción (opcional)",
+        "altTextRequired": "Descripción",
+        "altTextHint": "La leen los lectores de pantalla.",
+        "size": "Alto",
+        "sizes": {
+          "small": "Chico",
+          "medium": "Mediano",
+          "large": "Grande"
+        },
+        "scaleType": "Ajuste",
+        "scaleTypes": {
+          "contain": "Mostrar entera",
+          "cover": "Recortar para llenar"
+        },
+        "aspectRatio": "Proporción",
+        "carouselImages": "Imágenes del carrusel",
+        "carouselItem": "Imagen {{n}}",
+        "addToCarousel": "Agregar imagen",
+        "removeFromCarousel": "Quitar la imagen {{n}}",
+        "count": "Imágenes: {{count}}",
+        "addFor": "Agregar imagen a «{{option}}»",
+        "replaceFor": "Cambiar la imagen de «{{option}}»",
+        "altTextFor": "Descripción de la imagen de «{{option}}»",
+        "optionAltPlaceholder": "Descripción de la imagen (opcional)",
+        "optionSize": "Tamaño de las imágenes",
+        "mediaSizes": {
+          "regular": "Normal",
+          "large": "Grande"
+        },
+        "dropdownLimit": "Con imágenes, la lista admite hasta {{max}} opciones."
+      },
       "errors": {
         "required": "Completá este campo.",
         "tooLong": "Máximo {{max}} caracteres.",
@@ -3045,7 +3088,14 @@
         "targetBackward": "Sólo se puede saltar a una pantalla posterior.",
         "branchingPerScreen": "Sólo una pregunta por pantalla puede cambiar el camino.",
         "branchOptionMissing": "La regla apunta a una opción que ya no existe.",
-        "unreachable": "Ninguna respuesta lleva a esta pantalla."
+        "unreachable": "Ninguna respuesta lleva a esta pantalla.",
+        "imageMissing": "Subí una imagen JPEG o PNG.",
+        "imageTooLarge": "La imagen pesa más de {{max}} KB.",
+        "imagesPerScreen": "Máximo {{max}} imágenes por pantalla.",
+        "carouselsPerScreen": "Máximo {{max}} carruseles por pantalla.",
+        "carouselCount": "El carrusel necesita entre 1 y {{max}} imágenes.",
+        "carouselsTotal": "El formulario admite como máximo {{max}} carruseles.",
+        "imagesTotal": "Las imágenes del formulario superan los {{max}} MB en total. Usá menos imágenes o más livianas."
       },
       "toasts": {
         "saved": "Formulario guardado",

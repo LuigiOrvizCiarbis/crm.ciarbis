@@ -19,13 +19,13 @@ import { useDndAccessibility } from "@/hooks/useDndAccessibility"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactField } from "@/lib/api/contact-fields"
 import type { GroupedErrors } from "@/lib/flow-builder/errors"
-import { FOOTER_LABEL_MAX, isQuestionBlock } from "@/lib/flow-builder/limits"
+import { FOOTER_LABEL_MAX } from "@/lib/flow-builder/limits"
 import { hasBranches } from "@/lib/flow-builder/routing"
 import type { FlowBlock, FlowScreen } from "@/lib/flow-builder/types"
 import { cn } from "@/lib/utils"
 
 import { AddBlockMenu } from "./AddBlockMenu"
-import { BlockEditor } from "./BlockEditor"
+import { BlockEditor, blockSummary } from "./BlockEditor"
 import { BuilderField, FieldErrorText } from "./BuilderField"
 import { DestinationSelect } from "./DestinationSelect"
 import { newUid } from "./useFlowBuilderState"
@@ -75,7 +75,7 @@ export function ScreenEditor({
   const dndAccessibility = useDndAccessibility((id) => {
     const block = screen.blocks.find((item) => item.uid === id)
     if (!block) return undefined
-    return isQuestionBlock(block) ? block.label : block.text
+    return blockSummary(block, t) || t(`flows.builder.blockTypes.${block.type}`)
   })
 
   const handleDragEnd = ({ active, over }: DragEndEvent) => {

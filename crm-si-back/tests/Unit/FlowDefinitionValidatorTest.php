@@ -130,6 +130,24 @@ class FlowDefinitionValidatorTest extends TestCase
         $this->assertArrayHasKey('screens.0.blocks.0.options.0.id', $this->validate([$this->screen([$choice])]));
     }
 
+    public function test_images_must_be_jpeg_or_png_within_meta_limits(): void
+    {
+        $png = $this->png(10, 10);
+        $image = ['type' => 'image', 'src' => $png, 'alt_text' => null, 'size' => 'medium', 'scale_type' => 'contain'];
+        $choice = [
+            'type' => 'multiple_choice', 'key' => 'gustos', 'label' => 'Gustos', 'required' => false,
+            'options' => [['id' => 'A', 'title' => 'A', 'image' => $this->png(250, 250, noise: true)]],
+        ];
+        $carousel = ['type' => 'image_carousel', 'aspect_ratio' => '4:3', 'scale_type' => 'contain', 'images' => [['src' => $png, 'alt_text' => '']]];
+
+        $this->assertSame([], $this->validate([$this->screen([$image, $this->question('nombre')])]));
+        $this->assertArrayHasKey('screens.0.blocks.0.src', $this->validate([$this->screen([['src' => base64_encode('<svg/>')] + $image, $this->question('nombre')])]));
+        $this->assertArrayHasKey('screens.0.blocks', $this->validate([$this->screen([$image, $image, $image, $image, $this->question('nombre')])]));
+        // Meta admite hasta 100 KB por imagen de opción y exige describir las del carrusel.
+        $this->assertArrayHasKey('screens.0.blocks.0.options.0.image', $this->validate([$this->screen([$choice])]));
+        $this->assertArrayHasKey('screens.0.blocks.0.images.0.alt_text', $this->validate([$this->screen([$carousel, $this->question('nombre')])]));
+    }
+
     private function validate(array $screens): array
     {
         return (new FlowDefinitionValidator)->validate(
@@ -146,5 +164,22 @@ class FlowDefinitionValidatorTest extends TestCase
     private function question(string $key): array
     {
         return ['type' => 'short_text', 'key' => $key, 'label' => 'Dato', 'input_type' => 'text', 'required' => true];
+    }
+
+    private function png(int $width, int $height, bool $noise = false): string
+    {
+        $image = imagecreatetruecolor($width, $height);
+
+        // El ruido no se comprime: sirve para superar los límites de tamaño.
+        for ($x = 0; $noise && $x < $width; $x++) {
+            for ($y = 0; $y < $height; $y++) {
+                imagesetpixel($image, $x, $y, random_int(0, 0xFFFFFF));
+            }
+        }
+
+        ob_start();
+        imagepng($image);
+
+        return base64_encode((string) ob_get_clean());
     }
 }
