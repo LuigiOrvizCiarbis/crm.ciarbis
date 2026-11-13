@@ -162,6 +162,15 @@ class FlowDefinitionCompiler
     private function compileBlock(array $block): array
     {
         $type = $block['type'];
+
+        if ($type === 'image') {
+            return $this->image($block);
+        }
+
+        if ($type === 'image_carousel') {
+            return $this->carousel($block);
+        }
+
         $component = ['type' => self::COMPONENTS[$type]];
 
         if (! $this->isQuestion($block)) {
@@ -183,10 +192,12 @@ class FlowDefinitionCompiler
         }
 
         if (in_array($type, ['dropdown', 'single_choice', 'multiple_choice'], true)) {
-            $component['data-source'] = array_map(
-                fn (array $option) => ['id' => (string) $option['id'], 'title' => (string) $option['title']],
-                $block['options'],
-            );
+            $component['data-source'] = array_map($this->option(...), $block['options']);
+
+            $withImages = array_filter($block['options'], fn (array $option) => ! empty($option['image'])) !== [];
+            if ($withImages && $type !== 'dropdown' && ! empty($block['media_size'])) {
+                $component['media-size'] = $block['media_size'];
+            }
         }
 
         if (in_array($type, self::RESTORABLE_TYPES, true)) {
@@ -194,6 +205,52 @@ class FlowDefinitionCompiler
         }
 
         return $component;
+    }
+
+    /** Ancho completo de la pantalla, con el alto elegido y la proporción real de la imagen. */
+    private function image(array $block): array
+    {
+        $component = [
+            'type' => 'Image',
+            'src' => $block['src'],
+            'height' => FlowDefinitionValidator::IMAGE_SIZES[$block['size']],
+            'scale-type' => $block['scale_type'],
+            'aspect-ratio' => FlowImage::decode($block['src'])?->aspectRatio() ?? 1,
+        ];
+
+        if (! empty($block['alt_text'])) {
+            $component['alt-text'] = $block['alt_text'];
+        }
+
+        return $component;
+    }
+
+    private function carousel(array $block): array
+    {
+        return [
+            'type' => 'ImageCarousel',
+            'aspect-ratio' => $block['aspect_ratio'],
+            'scale-type' => $block['scale_type'],
+            'images' => array_map(
+                fn (array $image) => ['src' => $image['src'], 'alt-text' => $image['alt_text']],
+                $block['images'],
+            ),
+        ];
+    }
+
+    private function option(array $option): array
+    {
+        $compiled = ['id' => (string) $option['id'], 'title' => (string) $option['title']];
+
+        if (! empty($option['image'])) {
+            $compiled['image'] = $option['image'];
+
+            if (! empty($option['alt_text'])) {
+                $compiled['alt-text'] = $option['alt_text'];
+            }
+        }
+
+        return $compiled;
     }
 
     private function dateScreen(array $appointment): array

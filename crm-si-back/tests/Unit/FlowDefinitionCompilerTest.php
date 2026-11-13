@@ -130,6 +130,39 @@ class FlowDefinitionCompilerTest extends TestCase
         $this->assertSame(['crm_action' => 'book_appointment', 'slot' => '${form.slot}'], $slotFooter['payload']);
     }
 
+    public function test_images_compile_to_meta_components_with_their_real_proportions(): void
+    {
+        $wide = $this->png(40, 20);
+        $json = (new FlowDefinitionCompiler)->compile($this->definition([
+            $this->screen('a', [
+                ['type' => 'image', 'src' => $wide, 'alt_text' => 'Logo', 'size' => 'medium', 'scale_type' => 'contain'],
+                ['type' => 'image_carousel', 'aspect_ratio' => '16:9', 'scale_type' => 'cover', 'images' => [['src' => $wide, 'alt_text' => 'Local']]],
+                [
+                    'type' => 'single_choice', 'key' => 'equipo', 'label' => 'Equipo', 'required' => true, 'media_size' => 'large',
+                    'options' => [['id' => 'Boca', 'title' => 'Boca', 'image' => $wide, 'alt_text' => 'Escudo'], ['id' => 'River', 'title' => 'River']],
+                ],
+            ]),
+        ]))->flowJson;
+
+        [$image, $carousel, $choice] = $json['screens'][0]['layout']['children'];
+
+        $this->assertSame(
+            ['type' => 'Image', 'src' => $wide, 'height' => 200, 'scale-type' => 'contain', 'aspect-ratio' => 2.0, 'alt-text' => 'Logo'],
+            $image,
+        );
+        $this->assertSame(
+            ['type' => 'ImageCarousel', 'aspect-ratio' => '16:9', 'scale-type' => 'cover', 'images' => [['src' => $wide, 'alt-text' => 'Local']]],
+            $carousel,
+        );
+        $this->assertSame('large', $choice['media-size']);
+        $this->assertSame(
+            [['id' => 'Boca', 'title' => 'Boca', 'image' => $wide, 'alt-text' => 'Escudo'], ['id' => 'River', 'title' => 'River']],
+            $choice['data-source'],
+        );
+        // Las imágenes no son preguntas: no entran en la respuesta.
+        $this->assertSame(['equipo' => '${form.equipo}'], $json['screens'][0]['layout']['children'][3]['on-click-action']['payload']);
+    }
+
     private function definition(array $screens): array
     {
         return ['schema' => 1, 'screens' => $screens, 'appointment' => null];
@@ -138,5 +171,14 @@ class FlowDefinitionCompilerTest extends TestCase
     private function screen(string $id, array $blocks): array
     {
         return ['id' => $id, 'title' => ucfirst($id), 'footer_label' => 'Seguir', 'blocks' => $blocks];
+    }
+
+    private function png(int $width, int $height): string
+    {
+        $image = imagecreatetruecolor($width, $height);
+        ob_start();
+        imagepng($image);
+
+        return base64_encode((string) ob_get_clean());
     }
 }
