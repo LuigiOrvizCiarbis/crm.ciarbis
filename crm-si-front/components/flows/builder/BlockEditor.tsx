@@ -19,12 +19,24 @@ import {
   prefillSources,
   CUSTOM_PREFILL_PREFIX,
 } from "@/lib/flow-builder/compat"
-import { HELPER_TEXT_MAX, LABEL_MAX, OPTION_COUNT_MAX, OPTION_TITLE_MAX, TEXT_MAX, isChoiceBlock, isTextBlock } from "@/lib/flow-builder/limits"
+import { OPTION_IMAGE_MAX_SIDE, imageDataUrl, isSupportedImage } from "@/lib/flow-builder/images"
+import {
+  HELPER_TEXT_MAX,
+  LABEL_MAX,
+  OPTION_IMAGE_MAX_BYTES,
+  OPTION_TITLE_MAX,
+  TEXT_MAX,
+  isChoiceBlock,
+  isQuestionBlock,
+  isTextBlock,
+  optionCountMax,
+} from "@/lib/flow-builder/limits"
 import { DEFAULT_TARGET, branchTarget, hasBranches, isBranchable } from "@/lib/flow-builder/routing"
 import { keyFromLabel } from "@/lib/flow-builder/slug"
 import { charCount } from "@/lib/flow-builder/validate"
 import type {
   ChoiceBlock,
+  ChoiceOption,
   FlowBlock,
   FlowScreen,
   MapsTo,
@@ -39,6 +51,7 @@ import { cn } from "@/lib/utils"
 import { BlockTypeIcon } from "./BlockTypeIcon"
 import { BuilderField, FieldErrorText } from "./BuilderField"
 import { DestinationSelect } from "./DestinationSelect"
+import { CarouselFields, ImageBlockFields, OptionImageButton } from "./ImageFields"
 
 type Translate = (key: string, params?: Record<string, string | number>) => string
 
@@ -86,6 +99,20 @@ export function prefillLabel(source: string, fields: ContactField[], t: Translat
   return findField(fields, key)?.label ?? t("flows.builder.targets.missing", { key })
 }
 
+/** Texto con que se reconoce el bloque en su encabezado y al arrastrarlo. */
+export function blockSummary(block: FlowBlock, t: Translate): string {
+  if (isTextBlock(block)) return block.text
+  if (block.type === "image") return block.alt_text ?? ""
+  if (block.type === "image_carousel") return t("flows.builder.image.count", { count: block.images.length })
+  return block.label
+}
+
+/** Primera imagen del bloque, para la miniatura del encabezado. */
+function blockThumbnail(block: FlowBlock): string | null {
+  const src = block.type === "image" ? block.src : block.type === "image_carousel" ? block.images[0]?.src : null
+  return isSupportedImage(src) ? src : null
+}
+
 export function BlockEditor({
   block,
   errors,
@@ -103,7 +130,8 @@ export function BlockEditor({
   // Un bloque con errores queda abierto: hay que verlos para corregirlos.
   const expanded = open || errorCount > 0
   const uid = block.uid ?? "block"
-  const summary = isTextBlock(block) ? block.text : block.label
+  const summary = blockSummary(block, t)
+  const thumbnail = blockThumbnail(block)
 
   return (
     <div
@@ -125,9 +153,13 @@ export function BlockEditor({
           <span className="shrink-0 text-xs font-medium text-muted-foreground">
             {t(`flows.builder.blockTypes.${block.type}`)}
           </span>
+          {thumbnail ? (
+            // eslint-disable-next-line @next/next/no-img-element -- base64 local, sin optimizar
+            <img src={imageDataUrl(thumbnail)} alt="" className="size-6 shrink-0 rounded object-cover" />
+          ) : null}
           <span className="min-w-0 truncate text-sm text-foreground">
-            {summary || <span className="text-muted-foreground">{t("flows.builder.block.untitled")}</span>}
-            {!isTextBlock(block) && block.required ? <span className="text-destructive"> *</span> : null}
+            {summary || (thumbnail ? null : <span className="text-muted-foreground">{t("flows.builder.block.untitled")}</span>)}
+            {isQuestionBlock(block) && block.required ? <span className="text-destructive"> *</span> : null}
           </span>
           {errorCount > 0 ? (
             <TriangleAlert className="size-4 shrink-0 text-destructive" aria-label={t("flows.builder.block.hasErrors")} />
@@ -153,6 +185,10 @@ export function BlockEditor({
           <FieldErrorText errors={errors[""]} />
           {isTextBlock(block) ? (
             <TextBlockFields block={block} uid={uid} errors={errors} onChange={onChange} t={t} />
+          ) : block.type === "image" ? (
+            <ImageBlockFields block={block} uid={uid} errors={errors} onChange={onChange} t={t} />
+          ) : block.type === "image_carousel" ? (
+            <CarouselFields block={block} uid={uid} errors={errors} onChange={onChange} t={t} />
           ) : (
             <QuestionFields
               block={block}
@@ -513,14 +549,14 @@ function OptionsEditor({
 }) {
   const locked = lockedOptions(block, contactFields) !== null
   const lockedField = locked ? findField(contactFields, customFieldKey(block.maps_to)) : undefined
-  const max = OPTION_COUNT_MAX[block.type]
+  const max = optionCountMax(block)
+  const hasImages = block.options.some((option) => isSupportedImage(option.image))
+
+  const setOption = (index: number, patch: Partial<ChoiceOption>) =>
+    onChange({ ...block, options: block.options.map((option, i) => (i === index ? { ...option, ...patch } : option)) })
 
   // El id de la opción es lo que devuelve WhatsApp: sigue al título para que la respuesta sea legible.
-  const setTitle = (index: number, title: string) =>
-    onChange({
-      ...block,
-      options: block.options.map((option, i) => (i === index ? { id: title, title } : option)),
-    })
+  const setTitle = (index: number, title: string) => setOption(index, { id: title, title })
 
   const addOption = () => {
     const taken = new Set(block.options.map((option) => option.id))
@@ -549,11 +585,26 @@ function OptionsEditor({
       ) : null}
       <ul className="space-y-2">
         {block.options.map((option, index) => {
-          const optionErrors = [...(errors[`options.${index}.title`] ?? []), ...(errors[`options.${index}.id`] ?? [])]
+          const optionErrors = [
+            ...(errors[`options.${index}.title`] ?? []),
+            ...(errors[`options.${index}.id`] ?? []),
+            ...(errors[`options.${index}.image`] ?? []),
+            ...(errors[`options.${index}.alt_text`] ?? []),
+          ]
           const id = `${uid}-option-${index}`
+          const optionName = option.title || t("flows.builder.block.optionLabel", { n: index + 1 })
           return (
             <li key={index} className="space-y-1">
               <div className="flex items-center gap-2">
+                <OptionImageButton
+                  value={option.image}
+                  maxBytes={OPTION_IMAGE_MAX_BYTES}
+                  maxSide={OPTION_IMAGE_MAX_SIDE}
+                  label={t(option.image ? "flows.builder.image.replaceFor" : "flows.builder.image.addFor", { option: optionName })}
+                  invalid={!!errors[`options.${index}.image`]}
+                  onChange={(image) => setOption(index, image ? { image } : { image: null, alt_text: null })}
+                  t={t}
+                />
                 <Input
                   id={id}
                   value={option.title}
@@ -577,6 +628,15 @@ function OptionsEditor({
                   </Button>
                 ) : null}
               </div>
+              {option.image ? (
+                <Input
+                  value={option.alt_text ?? ""}
+                  className="ml-11 h-8 w-[calc(100%-2.75rem)] text-xs"
+                  placeholder={t("flows.builder.image.optionAltPlaceholder")}
+                  aria-label={t("flows.builder.image.altTextFor", { option: optionName })}
+                  onChange={(event) => setOption(index, { alt_text: event.target.value || null })}
+                />
+              ) : null}
               <FieldErrorText errors={optionErrors} />
             </li>
           )
@@ -588,6 +648,25 @@ function OptionsEditor({
           <Plus className="size-4" />
           {t("flows.builder.block.addOption")}
         </Button>
+      ) : null}
+      {hasImages && block.type === "dropdown" ? (
+        <p className="text-xs text-muted-foreground">{t("flows.builder.image.dropdownLimit", { max })}</p>
+      ) : null}
+      {hasImages && block.type !== "dropdown" ? (
+        <BuilderField id={`${uid}-media-size`} label={t("flows.builder.image.optionSize")} errors={errors.media_size}>
+          <Select
+            value={block.media_size ?? "regular"}
+            onValueChange={(value) => onChange({ ...block, media_size: value as "regular" | "large" })}
+          >
+            <SelectTrigger id={`${uid}-media-size`} className="w-full sm:w-1/2">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="regular">{t("flows.builder.image.mediaSizes.regular")}</SelectItem>
+              <SelectItem value="large">{t("flows.builder.image.mediaSizes.large")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </BuilderField>
       ) : null}
     </div>
   )

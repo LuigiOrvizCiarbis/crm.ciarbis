@@ -1,13 +1,14 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
-import { CalendarDays, ChevronDown, EllipsisVertical, X } from "lucide-react"
+import { useState, type CSSProperties, type ReactNode } from "react"
+import { CalendarDays, ChevronDown, EllipsisVertical, Image as ImageIcon, X } from "lucide-react"
 
 import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactField } from "@/lib/api/contact-fields"
-import { isTextBlock } from "@/lib/flow-builder/limits"
+import { imageDataUrl, isSupportedImage } from "@/lib/flow-builder/images"
+import { IMAGE_HEIGHTS, isTextBlock } from "@/lib/flow-builder/limits"
 import { branchingBlock, optionTarget, resolveTarget } from "@/lib/flow-builder/routing"
-import type { AppointmentConfig, FlowBlock, FlowDefinition } from "@/lib/flow-builder/types"
+import type { AppointmentConfig, FlowBlock, FlowDefinition, ScaleType } from "@/lib/flow-builder/types"
 import { cn } from "@/lib/utils"
 
 import { prefillLabel } from "./BlockEditor"
@@ -229,6 +230,46 @@ function PreviewBlock({
     return <p className={cn("whitespace-pre-wrap break-words", textClass)}>{block.text}</p>
   }
 
+  if (block.type === "image") {
+    // La vista mide ~80% de un teléfono real: los altos de Meta se escalan igual.
+    return (
+      <PreviewImage
+        src={block.src}
+        alt={block.alt_text ?? ""}
+        fit={block.scale_type}
+        style={{ height: Math.round(IMAGE_HEIGHTS[block.size] * PREVIEW_SCALE) }}
+      />
+    )
+  }
+
+  if (block.type === "image_carousel") {
+    const ratio = block.aspect_ratio === "16:9" ? "16 / 9" : "4 / 3"
+    if (block.images.length === 0) return <PreviewImage src="" alt="" fit="cover" style={{ aspectRatio: ratio }} />
+    return (
+      <div className="space-y-1.5">
+        <div className="flex snap-x snap-mandatory gap-2 overflow-x-auto rounded-lg [scrollbar-width:none]">
+          {block.images.map((image, index) => (
+            <PreviewImage
+              key={index}
+              src={image.src}
+              alt={image.alt_text}
+              fit={block.scale_type}
+              className="w-full shrink-0 snap-center"
+              style={{ aspectRatio: ratio }}
+            />
+          ))}
+        </div>
+        {block.images.length > 1 ? (
+          <div className="flex justify-center gap-1" aria-hidden>
+            {block.images.map((_, index) => (
+              <span key={index} className={cn("size-1.5 rounded-full", index === 0 ? "bg-neutral-700" : "bg-neutral-300")} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
   const label = block.required ? block.label : `${block.label} ${t("flows.builder.preview.optional")}`
 
   switch (block.type) {
@@ -260,7 +301,17 @@ function PreviewBlock({
           <legend className="mb-1 text-sm font-medium">{label}</legend>
           {block.options.map((option, index) => (
             <div key={`${option.id}-${index}`} className="flex items-center justify-between gap-3 text-sm">
-              <span className="min-w-0 break-words">{option.title}</span>
+              <span className="flex min-w-0 items-center gap-2">
+                {isSupportedImage(option.image) ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- base64 local, sin optimizar
+                  <img
+                    src={imageDataUrl(option.image)}
+                    alt={option.alt_text ?? ""}
+                    className={cn("shrink-0 rounded object-cover", block.media_size === "large" ? "size-14" : "size-8")}
+                  />
+                ) : null}
+                <span className="min-w-0 break-words">{option.title}</span>
+              </span>
               <span
                 className={cn(
                   "size-4 shrink-0 border-2 border-neutral-400",
@@ -281,4 +332,40 @@ function PreviewBlock({
         </div>
       )
   }
+}
+
+const PREVIEW_SCALE = 0.8
+
+function PreviewImage({
+  src,
+  alt,
+  fit,
+  className,
+  style,
+}: {
+  src: string
+  alt: string
+  fit: ScaleType
+  className?: string
+  style: CSSProperties
+}) {
+  if (!isSupportedImage(src)) {
+    return (
+      <div
+        className={cn("flex items-center justify-center rounded-lg border border-dashed border-neutral-300 text-neutral-400", className)}
+        style={style}
+      >
+        <ImageIcon className="size-6" aria-hidden />
+      </div>
+    )
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- base64 local, sin optimizar
+    <img
+      src={imageDataUrl(src)}
+      alt={alt}
+      className={cn("w-full rounded-lg", fit === "cover" ? "object-cover" : "object-contain", className)}
+      style={style}
+    />
+  )
 }

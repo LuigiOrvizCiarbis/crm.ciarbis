@@ -1,4 +1,4 @@
-import type { ChoiceBlock, FlowBlock, QuestionBlock, TextBlock } from "./types";
+import type { ChoiceBlock, FlowBlock, ImageSize, MediaBlock, QuestionBlock, TextBlock } from "./types";
 
 /**
  * Límites del constructor visual. Son los mismos que aplica el backend
@@ -50,7 +50,22 @@ export const APPOINTMENT_LABEL_MAX = {
   confirm_label: 35,
 } as const;
 
+/** Imágenes: límites de Meta y un tope propio del total (viajan en base64 en el Flow JSON). */
+export const IMAGE_MAX_BYTES = 300_000;
+export const OPTION_IMAGE_MAX_BYTES = 100_000;
+export const TOTAL_IMAGE_MAX_BYTES = 6_000_000;
+export const MAX_IMAGES_PER_SCREEN = 3;
+export const MAX_CAROUSELS_PER_SCREEN = 2;
+export const MAX_CAROUSELS = 3;
+export const CAROUSEL_IMAGES_MAX = 3;
+/** Meta admite 200 opciones en una lista desplegable, pero 100 si alguna tiene imagen. */
+export const DROPDOWN_WITH_IMAGES_MAX = 100;
+export const ALT_TEXT_MAX = 100;
+/** Alto en el formulario de cada tamaño de imagen; el mismo que compila el backend. */
+export const IMAGE_HEIGHTS: Record<ImageSize, number> = { small: 120, medium: 200, large: 300 };
+
 export const TEXT_BLOCK_TYPES: readonly TextBlock["type"][] = ["heading", "subheading", "body", "caption"];
+export const MEDIA_BLOCK_TYPES: readonly MediaBlock["type"][] = ["image", "image_carousel"];
 export const QUESTION_BLOCK_TYPES: readonly QuestionBlock["type"][] = [
   "short_text",
   "long_text",
@@ -65,8 +80,18 @@ export function isTextBlock(block: FlowBlock): block is TextBlock {
   return (TEXT_BLOCK_TYPES as readonly string[]).includes(block.type);
 }
 
+export function isMediaBlock(block: FlowBlock): block is MediaBlock {
+  return block.type === "image" || block.type === "image_carousel";
+}
+
 export function isQuestionBlock(block: FlowBlock): block is QuestionBlock {
-  return !isTextBlock(block);
+  return (QUESTION_BLOCK_TYPES as readonly string[]).includes(block.type);
+}
+
+/** Máximo de opciones de la pregunta según sus imágenes. */
+export function optionCountMax(block: ChoiceBlock): number {
+  const withImages = block.type === "dropdown" && block.options.some((option) => !!option.image);
+  return withImages ? DROPDOWN_WITH_IMAGES_MAX : OPTION_COUNT_MAX[block.type];
 }
 
 export function isChoiceBlock(block: FlowBlock): block is ChoiceBlock {
