@@ -100,4 +100,20 @@ final readonly class FlowVersion
     {
         return $this->definition['screens'][$index]['blocks'] ?? null;
     }
+
+    /** @return array<string, string> clave de cada pregunta del constructor → su etiqueta */
+    public function questionLabels(): array
+    {
+        $labels = [];
+
+        foreach ($this->definition['screens'] ?? [] as $screen) {
+            foreach ($screen['blocks'] ?? [] as $block) {
+                if (is_string($block['key'] ?? null) && filled($block['label'] ?? null)) {
+                    $labels[$block['key']] = (string) $block['label'];
+                }
+            }
+        }
+
+        return $labels;
+    }
 }
