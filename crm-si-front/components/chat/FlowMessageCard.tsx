@@ -89,7 +89,9 @@ export function FlowMessageCard({ message, isUser }: FlowMessageCardProps) {
 
   const response = interactive.response ?? {}
   const labels = interactive.labels ?? {}
-  const answers = Object.entries(response).filter(([key]) => !Object.hasOwn(APPOINTMENT_KEYS, key))
+  const groups = interactive.groups ?? []
+  const groupKeys = new Set(groups.map((group) => group.key))
+  const answers = Object.entries(response).filter(([key]) => !Object.hasOwn(APPOINTMENT_KEYS, key) && !groupKeys.has(key))
   const appointmentStart = typeof response.appointment_start === "string" ? response.appointment_start : null
   const appointmentStatus = response.appointment_status
   const mappingErrors = Object.values(interactive.mapping_errors ?? {})
@@ -101,7 +103,7 @@ export function FlowMessageCard({ message, isUser }: FlowMessageCardProps) {
         <ClipboardList className="size-3 shrink-0" aria-hidden="true" />
         {t("chats.flows.responseLabel", { name: interactive.flow_name ?? t("chats.flows.defaultName") })}
       </span>
-      {answers.length === 0 && appointmentStart === null ? (
+      {answers.length === 0 && groups.length === 0 && appointmentStart === null ? (
         <p className="text-sm opacity-70">{t("chats.flows.emptyResponse")}</p>
       ) : null}
       {answers.length > 0 ? (
@@ -119,6 +121,39 @@ export function FlowMessageCard({ message, isUser }: FlowMessageCardProps) {
           })}
         </dl>
       ) : null}
+      {groups.map((group) => (
+        <div key={group.key} className="space-y-1">
+          <p className="text-xs opacity-70">{group.label}</p>
+          {group.rows.length === 0 ? (
+            <p className="text-sm italic opacity-60">{t("chats.flows.groupEmpty")}</p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border border-current/15">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-current/15 text-xs">
+                    {group.columns.map((column) => (
+                      <th key={column.key} scope="col" className="px-2 py-1 font-medium opacity-70">
+                        {column.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.rows.map((row, index) => (
+                    <tr key={index} className="border-b border-current/10 last:border-0">
+                      {group.columns.map((column) => (
+                        <td key={column.key} className="px-2 py-1 align-top [overflow-wrap:anywhere]">
+                          {formatValue(row[column.key])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ))}
       {appointmentStart !== null ? (
         <dl className={`space-y-0.5 text-sm ${answers.length > 0 ? "border-t border-current/15 pt-2" : ""}`}>
           <dt className="text-xs opacity-70">{t("chats.flows.appointment")}</dt>

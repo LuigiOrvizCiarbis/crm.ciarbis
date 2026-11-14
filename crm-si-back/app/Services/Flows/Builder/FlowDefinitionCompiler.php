@@ -32,8 +32,10 @@ class FlowDefinitionCompiler
 
     public const SLOT_SCREEN = 'TURNO_HORARIO';
 
-    /** Preguntas cuya respuesta se restaura al volver a abrir el formulario. */
     public const RESTORABLE_TYPES = ['short_text', 'long_text'];
+
+    /** Mapeo de un grupo repetible: sus respuestas se guardan juntas en un campo repeater. */
+    public const REPEATER_MAPPING = 'repeater';
 
     private const COMPONENTS = [
         'heading' => 'TextHeading',
@@ -59,6 +61,8 @@ class FlowDefinitionCompiler
 
     public function compile(array $definition): CompiledFlow
     {
+        $groups = FlowDefinitionExpander::groups($definition);
+        $definition = FlowDefinitionExpander::expand($definition);
         $screens = $definition['screens'];
         $appointment = $definition['appointment'] ?? null;
         $routes = FlowDefinitionRoutes::fromDefinition($definition);
@@ -70,7 +74,9 @@ class FlowDefinitionCompiler
         foreach ($screens as $i => $screen) {
             $destinations = $routes->destinations($i);
             $ends = in_array(null, $destinations, true);
-            $viaEndpoint = $appointment !== null || ! $ends || count($destinations) > 1 || $this->hasMappedQuestion($screen);
+            // Las filas de un grupo pasan por el CRM: cada una se valida al enviarla.
+            $viaEndpoint = $appointment !== null || ! $ends || count($destinations) > 1
+                || $this->hasMappedQuestion($screen) || isset($screen['repeater']);
             $usesEndpoint = $usesEndpoint || $viaEndpoint;
 
             $compiled[] = $this->compileScreen($screen, $i, $viaEndpoint, $ends && $appointment === null);
@@ -81,6 +87,16 @@ class FlowDefinitionCompiler
                     $mappings[] = ['response_key' => $block['key'], 'target' => $block['maps_to']];
                 }
             }
+        }
+
+        foreach ($groups as $group) {
+            $mappings[] = [
+                'kind' => self::REPEATER_MAPPING,
+                'response_key' => $group['key'],
+                'target' => 'custom_data.'.$group['field_key'],
+                'fields' => array_map(fn (array $field) => $field['key'], $group['fields']),
+                'max_rows' => $group['max_rows'],
+            ];
         }
 
         $flowJson = ['version' => self::FLOW_JSON_VERSION];

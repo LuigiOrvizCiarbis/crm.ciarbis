@@ -8,7 +8,8 @@ import type { ContactField } from "@/lib/api/contact-fields"
 import { imageDataUrl, isSupportedImage } from "@/lib/flow-builder/images"
 import { IMAGE_HEIGHTS, isTextBlock } from "@/lib/flow-builder/limits"
 import { branchingBlock, optionTarget, resolveTarget } from "@/lib/flow-builder/routing"
-import type { AppointmentConfig, FlowBlock, FlowDefinition, ScaleType } from "@/lib/flow-builder/types"
+import { groupScreens, isRepeaterScreen } from "@/lib/flow-builder/repeater"
+import type { AppointmentConfig, ContentScreen, FlowBlock, FlowDefinition, ScaleType } from "@/lib/flow-builder/types"
 import { cn } from "@/lib/utils"
 
 import { prefillLabel } from "./BlockEditor"
@@ -29,15 +30,20 @@ export function FlowPhonePreview({ definition, selectedIndex, contactFields, onS
   const [extra, setExtra] = useState<{ view: PreviewView; forIndex: number }>({ view: "screen", forIndex: selectedIndex })
   const view = extra.forIndex === selectedIndex ? extra.view : "screen"
   const { appointment, screens } = definition
-  const screen = screens[selectedIndex]
+  const step = screens[selectedIndex]
+  // Un grupo se ve fila por fila, con las pantallas que genera.
+  const [groupPage, setGroupPage] = useState<{ forIndex: number; at: number }>({ forIndex: selectedIndex, at: 0 })
+  const pages = isRepeaterScreen(step) ? groupScreens(step, step.next ?? "end") : null
+  const pageIndex = pages ? Math.min(groupPage.forIndex === selectedIndex ? groupPage.at : 0, pages.length - 1) : 0
+  const screen: ContentScreen | undefined = pages ? pages[pageIndex] : isRepeaterScreen(step) ? undefined : step
   // Respuesta simulada de la pregunta que cambia el camino, para ver a dónde lleva el botón.
   const [picked, setPicked] = useState<{ forIndex: number; optionId: string } | null>(null)
-  const branching = screen ? branchingBlock(screen) : null
+  const branching = screen && !pages ? branchingBlock(screen) : null
   const pickedOption =
     branching?.options.find((option) => picked?.forIndex === selectedIndex && option.id === picked.optionId) ??
     branching?.options[0]
-  const target = screen ? (branching && pickedOption ? optionTarget(branching, pickedOption, screen) : (screen.next ?? "following")) : null
-  const resolved = target && screen ? resolveTarget(target, selectedIndex, screens) : null
+  const target = screen && !pages ? (branching && pickedOption ? optionTarget(branching, pickedOption, screen) : (screen.next ?? "following")) : null
+  const resolved = target ? resolveTarget(target, selectedIndex, screens) : null
   const destination =
     resolved === null
       ? null
@@ -124,6 +130,27 @@ export function FlowPhonePreview({ definition, selectedIndex, contactFields, onS
               )}
             >
               {option.title || option.id}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {view === "screen" && pages && pages.length > 1 ? (
+        <div className="flex flex-wrap items-center justify-center gap-1" role="group" aria-label={t("flows.builder.repeater.previewRows")}>
+          {pages.map((page, index) => (
+            <button
+              key={page.id}
+              type="button"
+              aria-pressed={index === pageIndex}
+              onClick={() => setGroupPage({ forIndex: selectedIndex, at: index })}
+              className={cn(
+                "rounded-full border px-2 py-0.5 text-xs transition-colors",
+                index === pageIndex
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border text-muted-foreground hover:bg-muted",
+              )}
+            >
+              {page.title}
             </button>
           ))}
         </div>

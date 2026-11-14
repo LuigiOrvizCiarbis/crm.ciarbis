@@ -1,4 +1,5 @@
 import { isQuestionBlock } from "./limits";
+import { isRepeaterScreen, screenBlocks } from "./repeater";
 import { branchingBlock, resolveTarget, screenTargets } from "./routing";
 import type { CanvasPosition, FlowDefinition, FlowScreen } from "./types";
 
@@ -18,8 +19,10 @@ const MAX_SUMMARY_ROWS = 5;
 
 /** Alto aproximado de una pantalla antes de medirla: alcanza para ordenar sin superponer. */
 export function estimateScreenHeight(screen: FlowScreen): number {
+  // Un grupo muestra sus datos (como una pantalla) y una sola salida.
+  const rows = isRepeaterScreen(screen) ? screen.fields : screen.blocks;
   const block = branchingBlock(screen);
-  const summaryRows = Math.min(screen.blocks.length, MAX_SUMMARY_ROWS) + (screen.blocks.length > MAX_SUMMARY_ROWS ? 1 : 0);
+  const summaryRows = Math.min(rows.length, MAX_SUMMARY_ROWS) + (rows.length > MAX_SUMMARY_ROWS ? 1 : 0);
   const branchRows = block ? block.options.length + 1 : 0;
   return 48 + Math.max(summaryRows, 1) * 22 + branchRows * 28 + 48;
 }
@@ -101,5 +104,5 @@ export function terminalPositions(screens: FlowScreen[], heights: Record<string,
 
 /** Cantidad de preguntas de la pantalla, para los resúmenes. */
 export function questionCount(screen: FlowScreen): number {
-  return screen.blocks.filter(isQuestionBlock).length;
+  return screenBlocks(screen).filter(isQuestionBlock).length;
 }

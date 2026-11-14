@@ -7,13 +7,20 @@ use App\Models\Contact;
 use App\Models\ContactField;
 use App\Models\WhatsAppFlow;
 use App\Rules\ValidContactCustomData;
+use App\Services\Flows\Builder\FlowDefinitionCompiler;
+use App\Services\Flows\Builder\FlowDefinitionExpander;
 use App\Support\ContactCustomDataNormalizer;
+use App\Support\RepeaterFieldSchema;
 use Illuminate\Support\Facades\Validator;
 
 /**
  * Valida y guarda en el contacto las respuestas mapeadas de un formulario con
  * las reglas del CRM. Cada campo se evalúa por separado: uno inválido no
  * impide guardar los demás. Los mensajes los lee el cliente en WhatsApp.
+ *
+ * Un grupo repetible se valida fila por fila al enviarla y se guarda entero
+ * (reemplazando la lista del contacto) recién al terminar el grupo, con todas
+ * las filas del recorrido.
  */
 class FlowContactUpdater
 {
@@ -23,11 +30,15 @@ class FlowContactUpdater
      * Guarda las respuestas válidas y devuelve qué se guardó (etiquetas de las
      * preguntas) y qué no (response_key → mensaje de error).
      *
+     * @param  array<string, mixed>  $answers  respuestas de la pantalla enviada
+     * @param  array<string, mixed>|null  $context  todas las respuestas del recorrido hasta acá (por defecto, `$answers`)
+     * @param  list<string>|null  $finishedGroups  grupos repetibles que se terminan con este envío; null: el formulario terminó
      * @return array{saved: list<string>, errors: array<string, string>}
      */
-    public function apply(WhatsAppFlow $flow, Contact $contact, array $answers): array
+    public function apply(WhatsAppFlow $flow, Contact $contact, array $answers, ?array $context = null, ?array $finishedGroups = null): array
     {
-        ['attributes' => $attributes, 'custom' => $custom, 'saved' => $saved, 'errors' => $errors] = $this->evaluate($flow, $contact, $answers);
+        ['attributes' => $attributes, 'custom' => $custom, 'saved' => $saved, 'errors' => $errors]
+            = $this->evaluate($flow, $contact, $answers, $context ?? $answers, $finishedGroups);
 
         $contact->fill($attributes);
 
@@ -45,7 +56,7 @@ class FlowContactUpdater
     /**
      * @return array{attributes: array<string, string>, custom: array<string, mixed>, saved: list<string>, errors: array<string, string>}
      */
-    private function evaluate(WhatsAppFlow $flow, Contact $contact, array $answers): array
+    private function evaluate(WhatsAppFlow $flow, Contact $contact, array $answers, array $context, ?array $finishedGroups): array
     {
         $result = ['attributes' => [], 'custom' => [], 'saved' => [], 'errors' => []];
         $tenantId = (int) $contact->tenant_id;
@@ -53,6 +64,13 @@ class FlowContactUpdater
         $version = $flow->liveVersion();
 
         foreach ($version->fieldMappings as $mapping) {
+            if (($mapping['kind'] ?? null) === FlowDefinitionCompiler::REPEATER_MAPPING) {
+                $finished = $finishedGroups === null || in_array($mapping['response_key'] ?? null, $finishedGroups, true);
+                $this->repeater($result, $version, $tenantId, $mapping, $answers, $context, $finished);
+
+                continue;
+            }
+
             $key = (string) ($mapping['response_key'] ?? '');
             $target = (string) ($mapping['target'] ?? '');
             $value = data_get($answers, $key);
@@ -95,6 +113,74 @@ class FlowContactUpdater
         }
 
         return $result;
+    }
+
+    /**
+     * Valida las filas que trae esta pantalla y, si el grupo termina, guarda
+     * la lista entera. Las filas salen de `$context` (el recorrido), así una
+     * fila de un camino abandonado no se guarda.
+     *
+     * @param  array{attributes: array<string, string>, custom: array<string, mixed>, saved: list<string>, errors: array<string, string>}  $result
+     */
+    private function repeater(array &$result, FlowVersion $version, int $tenantId, array $mapping, array $answers, array $context, bool $finished): void
+    {
+        $key = (string) ($mapping['response_key'] ?? '');
+        $fieldKey = substr((string) ($mapping['target'] ?? ''), strlen('custom_data.'));
+        $positions = array_map('strval', (array) ($mapping['fields'] ?? []));
+        $maxRows = (int) ($mapping['max_rows'] ?? 0);
+        $field = ContactField::forTenant($tenantId)->firstWhere('key', $fieldKey);
+
+        if ($field === null || $field->type !== ContactFieldType::Repeater) {
+            $result['errors'][$key] = 'El campo «'.$fieldKey.'» ya no existe en el CRM.';
+
+            return;
+        }
+
+        $subfields = collect($field->options['fields'] ?? [])->keyBy('key');
+        $types = $subfields->map(fn (array $subfield) => (string) ($subfield['type'] ?? 'text'))->all();
+        $labels = $version->questionLabels();
+
+        $rowErrors = [];
+
+        foreach (FlowRepeaterAnswers::rowsIn($key, $positions, $maxRows, $answers) as $row) {
+            foreach ($positions as $position => $subKey) {
+                $answerKey = FlowDefinitionExpander::rowKey($key, $row, (int) $position);
+                $subfield = $subfields->get($subKey);
+                $label = $labels[$answerKey] ?? $answerKey;
+                $value = FlowRepeaterAnswers::convert($answers[$answerKey] ?? null, $types[$subKey] ?? 'text');
+
+                if ($subfield === null) {
+                    $rowErrors[$answerKey] = "{$label}: el dato ya no existe en el CRM.";
+                } elseif ($value === null && ($subfield['is_required'] ?? false) && ($subfield['is_active'] ?? true)) {
+                    $rowErrors[$answerKey] = "{$label} es obligatorio.";
+                } elseif (($error = RepeaterFieldSchema::scalarErrors($value, $subfield)[0] ?? null) !== null) {
+                    $rowErrors[$answerKey] = "{$label}: {$error}";
+                }
+            }
+        }
+
+        $result['errors'] += $rowErrors;
+
+        if (! $finished || $rowErrors !== []) {
+            return;
+        }
+
+        $rows = FlowRepeaterAnswers::rows($key, $positions, $maxRows, $context, $types);
+
+        if ($rows === null) {
+            return;
+        }
+
+        $error = RepeaterFieldSchema::valueErrors($rows, $field->options ?? [])[0] ?? null;
+
+        if ($error !== null) {
+            $result['errors'][$key] = "{$field->label}: {$error}";
+
+            return;
+        }
+
+        $result['custom'][$fieldKey] = $rows;
+        $result['saved'][] = $field->label;
     }
 
     /**

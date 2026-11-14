@@ -304,7 +304,16 @@ export type MessageInteractive =
       labels?: Record<string, string>
       /** Respuestas que no se pudieron guardar en el contacto (clave → motivo, que ya incluye la etiqueta). */
       mapping_errors?: Record<string, string>
+      /** Grupos repetibles respondidos: sus filas también están en `response[key]`. */
+      groups?: FlowResponseGroup[]
     }
+
+export interface FlowResponseGroup {
+  key: string
+  label: string
+  columns: Array<{ key: string; label: string }>
+  rows: Array<Record<string, unknown>>
+}
 
 export interface WhatsAppTemplate {
   id: number

@@ -5,6 +5,7 @@ namespace App\Services\Flows\Builder;
 use App\Enums\ContactFieldType;
 use App\Models\AiSchedulingConfig;
 use App\Models\ContactField;
+use App\Support\RepeaterFieldSchema;
 use Illuminate\Support\Collection;
 
 /**
@@ -86,6 +87,12 @@ class FlowDefinitionValidator
 
     private const PREFILL_BASE = ['contact_name', 'contact_email', 'contact_phone'];
 
+    /** Las filas siguientes de un grupo agregan `-<n>` (hasta `-10`) al id. */
+    private const GROUP_ID_MAX = 37;
+
+    /** Meta admite 50 componentes por pantalla; una fila suma la pregunta de "agregar otro" y el botón. */
+    private const GROUP_FIELDS_MAX = 20;
+
     /** @var array<string, list<string>> */
     private array $errors = [];
 
@@ -123,12 +130,24 @@ class FlowDefinitionValidator
         $hasQuestion = false;
 
         foreach ($screens as $i => $screen) {
-            $this->validateScreen(is_array($screen) ? $screen : [], "screens.{$i}", $keys, $hasQuestion);
+            if (FlowDefinitionExpander::isRepeater($screen)) {
+                $this->validateRepeater($screen, "screens.{$i}", $keys);
+                $hasQuestion = true;
+            } else {
+                $this->validateScreen(is_array($screen) ? $screen : [], "screens.{$i}", $keys, $hasQuestion);
+            }
         }
 
         if (! $hasQuestion) {
             $this->add('screens', 'El formulario necesita al menos una pregunta.');
         }
+
+        $generated = FlowDefinitionExpander::screenCount($definition);
+        if ($generated > self::MAX_SCREENS) {
+            $this->add('screens', "El formulario genera {$generated} pantallas y Meta admite ".self::MAX_SCREENS.'. Bajá la cantidad de filas de los grupos repetibles.');
+        }
+
+        $this->validateGroupKeys($keys);
 
         if ($this->carousels > self::MAX_CAROUSELS) {
             $this->add('screens', 'El formulario admite como máximo '.self::MAX_CAROUSELS.' carruseles de imágenes.');
@@ -514,6 +533,149 @@ class FlowDefinitionValidator
         sort($expected);
 
         return $actual === $expected;
+    }
+
+    /**
+     * Grupo repetible: ligado a un campo repeater del contacto, con una copia
+     * de sus subcampos que tiene que coincidir con el CRM (el formulario se
+     * genera de esa copia). Los límites son los de los bloques que genera.
+     */
+    private function validateRepeater(array $group, string $path, array &$keys): void
+    {
+        $this->validateKey($group['key'] ?? null, FlowDefinitionExpander::REPEATER, $path, $keys);
+
+        $id = $group['id'] ?? null;
+        if (is_string($id) && mb_strlen($id) > self::GROUP_ID_MAX) {
+            $this->add("{$path}.id", 'Identificador de pantalla demasiado largo.');
+        }
+
+        foreach (['title' => 'El grupo necesita un título.', 'row_title' => 'Indicá el título de cada fila.'] as $attribute => $message) {
+            if (! $this->filledString($group[$attribute] ?? null)) {
+                $this->add("{$path}.{$attribute}", $message);
+            }
+        }
+
+        if (! $this->stringWithin($group['footer_label'] ?? null, self::FOOTER_MAX)) {
+            $this->add("{$path}.footer_label", 'El texto del botón debe tener entre 1 y '.self::FOOTER_MAX.' caracteres.');
+        }
+
+        if (! $this->stringWithin($group['more_label'] ?? null, self::QUESTION_TYPES['single_choice'])) {
+            $this->add("{$path}.more_label", 'La pregunta debe tener entre 1 y '.self::QUESTION_TYPES['single_choice'].' caracteres.');
+        }
+
+        $fieldKey = $group['field_key'] ?? null;
+        $field = is_string($fieldKey) ? $this->field($fieldKey) : null;
+
+        if ($field === null || $field->type !== ContactFieldType::Repeater) {
+            $this->add("{$path}.field_key", 'Elegí un campo de tipo lista (repeater) del contacto.');
+
+            return;
+        }
+
+        $minRows = (int) ($field->options['min_items'] ?? RepeaterFieldSchema::DEFAULT_MIN_ITEMS);
+        $maxItems = (int) ($field->options['max_items'] ?? RepeaterFieldSchema::DEFAULT_MAX_ITEMS);
+
+        if (! $this->snapshotMatches($group, $field, $minRows)) {
+            $this->add("{$path}.fields", "El campo «{$field->label}» cambió en el CRM: actualizá el grupo.");
+
+            return;
+        }
+
+        $maxRows = $group['max_rows'] ?? null;
+        $minAllowed = max($minRows, 1);
+        if (! is_int($maxRows) || $maxRows < $minAllowed || $maxRows > $maxItems) {
+            $this->add("{$path}.max_rows", "La cantidad de filas debe estar entre {$minAllowed} y {$maxItems}.");
+        }
+
+        if (($group['ask_first'] ?? false) === true) {
+            if ($minRows > 0) {
+                $this->add("{$path}.ask_first", "El campo «{$field->label}» exige al menos {$minRows} fila(s): no se puede preguntar antes.");
+            } elseif (! $this->stringWithin($group['ask_first_label'] ?? null, self::QUESTION_TYPES['single_choice'])) {
+                $this->add("{$path}.ask_first_label", 'La pregunta debe tener entre 1 y '.self::QUESTION_TYPES['single_choice'].' caracteres.');
+            }
+        }
+
+        $optIns = 0;
+
+        foreach ($group['fields'] as $i => $subfield) {
+            $type = (string) $subfield['type'];
+            $choices = $subfield['choices'] ?? [];
+            $labelMax = match ($type) {
+                'date' => self::QUESTION_TYPES['date'],
+                'boolean' => self::QUESTION_TYPES['opt_in'],
+                'select' => count($choices) > self::CHOICE_TYPES['single_choice'] ? self::QUESTION_TYPES['dropdown'] : self::QUESTION_TYPES['single_choice'],
+                default => self::QUESTION_TYPES['short_text'],
+            };
+
+            if (! $this->stringWithin($subfield['label'] ?? null, $labelMax)) {
+                $this->add("{$path}.fields.{$i}.label", "La etiqueta debe tener entre 1 y {$labelMax} caracteres.");
+            }
+
+            if ($type === 'select') {
+                $tooLong = array_filter($choices, fn ($choice) => mb_strlen((string) $choice) > self::OPTION_TITLE_MAX);
+
+                if ($choices === [] || count($choices) > self::CHOICE_TYPES['dropdown'] || $tooLong !== []) {
+                    $this->add("{$path}.fields.{$i}.choices", 'Las opciones deben ser entre 1 y '.self::CHOICE_TYPES['dropdown'].', de hasta '.self::OPTION_TITLE_MAX.' caracteres cada una (se cambian en el CRM).');
+                }
+            }
+
+            $optIns += $type === 'boolean' ? 1 : 0;
+        }
+
+        if ($optIns > self::MAX_OPT_INS_PER_SCREEN) {
+            $this->add("{$path}.fields", 'Cada fila admite como máximo '.self::MAX_OPT_INS_PER_SCREEN.' datos de Sí/No.');
+        }
+    }
+
+    /**
+     * La copia de los subcampos tiene que ser la de los subcampos activos del
+     * campo, en el mismo orden: clave, tipo, obligatorio y opciones.
+     */
+    private function snapshotMatches(array $group, ContactField $field, int $minRows): bool
+    {
+        $snapshot = $group['fields'] ?? null;
+
+        if (! is_array($snapshot) || ! array_is_list($snapshot) || $snapshot === [] || count($snapshot) > self::GROUP_FIELDS_MAX
+            || (int) ($group['min_rows'] ?? -1) !== $minRows) {
+            return false;
+        }
+
+        $expected = [];
+        foreach ($field->options['fields'] ?? [] as $subfield) {
+            if (is_array($subfield) && ($subfield['is_active'] ?? true) && is_string($subfield['key'] ?? null)) {
+                $expected[] = $this->subfieldSignature($subfield['key'], $subfield['type'] ?? null, $subfield['is_required'] ?? false, $subfield['options']['choices'] ?? []);
+            }
+        }
+
+        $actual = [];
+        foreach ($snapshot as $subfield) {
+            if (! is_array($subfield) || ! is_string($subfield['key'] ?? null)) {
+                return false;
+            }
+
+            $actual[] = $this->subfieldSignature($subfield['key'], $subfield['type'] ?? null, $subfield['required'] ?? false, $subfield['choices'] ?? []);
+        }
+
+        return $actual === $expected;
+    }
+
+    private function subfieldSignature(string $key, mixed $type, mixed $required, mixed $choices): array
+    {
+        return [$key, $type, $required === true, $type === 'select' && is_array($choices) ? array_values(array_map('strval', $choices)) : []];
+    }
+
+    /** Ninguna pregunta puede usar las claves que genera un grupo (`<grupo>_<fila>_…`). */
+    private function validateGroupKeys(array $keys): void
+    {
+        $groups = array_keys(array_filter($keys, fn (string $type) => $type === FlowDefinitionExpander::REPEATER));
+
+        foreach ($keys as $key => $type) {
+            foreach ($groups as $group) {
+                if ($type !== FlowDefinitionExpander::REPEATER && FlowDefinitionExpander::ownsKey($group, (string) $key)) {
+                    $this->add('screens', "El nombre interno «{$key}» está reservado para el grupo «{$group}».");
+                }
+            }
+        }
     }
 
     private function validateAppointment(array $appointment, array $keys, int $tenantId): void

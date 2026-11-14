@@ -148,6 +148,80 @@ class FlowDefinitionValidatorTest extends TestCase
         $this->assertArrayHasKey('screens.0.blocks.0.images.0.alt_text', $this->validate([$this->screen([$carousel, $this->question('nombre')])]));
     }
 
+    public function test_a_repeater_group_must_match_its_crm_field_and_fit_in_ten_screens(): void
+    {
+        $this->petsField();
+        $group = $this->group();
+
+        $this->assertSame([], $this->validate([$group]));
+
+        // La copia de los subcampos quedó vieja: el CRM agregó una especie.
+        $stale = $group;
+        $stale['fields'][1]['choices'] = ['Gato'];
+        $this->assertArrayHasKey('screens.0.fields', $this->validate([$stale]));
+
+        // Un campo que no es repeater no sirve.
+        $this->assertArrayHasKey('screens.0.field_key', $this->validate([['field_key' => 'otro'] + $group]));
+
+        // Más filas de las que admite el campo, o etiquetas más largas que las de Meta.
+        $this->assertArrayHasKey('screens.0.max_rows', $this->validate([['max_rows' => 6] + $group]));
+        $long = $group;
+        $long['fields'][0]['label'] = 'Nombre de tu mascota X';
+        $this->assertArrayHasKey('screens.0.fields.0.label', $this->validate([$long]));
+
+        // 9 pantallas comunes + un grupo de 2 filas = 11 pantallas para Meta.
+        $screens = array_map(fn (int $i) => ['id' => "s{$i}"] + $this->screen([$this->question("dato{$i}")]), range(1, 9));
+        $this->assertArrayHasKey('screens', $this->validate([...$screens, ['max_rows' => 2] + $group]));
+    }
+
+    public function test_questions_cannot_use_the_keys_a_group_generates(): void
+    {
+        $this->petsField();
+
+        $errors = $this->validate([['id' => 'datos'] + $this->screen([$this->question('mascotas_1_1')]), $this->group()]);
+
+        $this->assertStringContainsString('mascotas_1_1', $errors['screens'][0]);
+    }
+
+    private function petsField(): void
+    {
+        ContactField::create([
+            'tenant_id' => $this->tenant->id,
+            'key' => 'mascotas',
+            'label' => 'Mascotas',
+            'type' => ContactFieldType::Repeater,
+            'options' => ['min_items' => 0, 'max_items' => 5, 'fields' => [
+                ['key' => 'nombre', 'label' => 'Nombre', 'type' => 'text', 'is_required' => true],
+                ['key' => 'especie', 'label' => 'Especie', 'type' => 'select', 'options' => ['choices' => ['Gato', 'Perro']]],
+                ['key' => 'chip', 'label' => 'Chip', 'type' => 'text', 'is_active' => false],
+            ]],
+            'display_order' => 1,
+        ]);
+        ContactField::create([
+            'tenant_id' => $this->tenant->id,
+            'key' => 'otro',
+            'label' => 'Otro',
+            'type' => ContactFieldType::Text,
+            'display_order' => 2,
+        ]);
+        ContactField::clearTenantCache();
+    }
+
+    private function group(): array
+    {
+        return [
+            'type' => 'repeater', 'id' => 'mascotas', 'key' => 'mascotas', 'field_key' => 'mascotas',
+            'title' => 'Tus mascotas', 'row_title' => 'Mascota {n}', 'footer_label' => 'Seguir',
+            'more_label' => '¿Agregar otra mascota?', 'ask_first' => true, 'ask_first_label' => '¿Tenés mascotas?',
+            'max_rows' => 3, 'min_rows' => 0,
+            'fields' => [
+                ['key' => 'nombre', 'label' => 'Nombre', 'type' => 'text', 'required' => true],
+                ['key' => 'especie', 'label' => 'Especie', 'type' => 'select', 'required' => false, 'choices' => ['Gato', 'Perro']],
+            ],
+            'next' => 'end',
+        ];
+    }
+
     private function validate(array $screens): array
     {
         return (new FlowDefinitionValidator)->validate(
