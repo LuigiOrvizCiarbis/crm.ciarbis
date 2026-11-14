@@ -170,6 +170,10 @@ function matchesConversationView(conversation: Conversation, view: ConversationV
  */
 type ConnectableChannel = "whatsapp" | "instagram" | "messenger" | "mail"
 
+type BroadcastTarget =
+  | { channelId: number; ids: number[]; skippedCount: number }
+  | { error: "mixedChannels" | "noWhatsApp" }
+
 /**
  * Canales conectables. Está acá y se mapea en los 3 menús (desktop, móvil y
  * sidebar) para que agregar un canal no sean tres ediciones separadas.
@@ -2179,42 +2183,43 @@ export default function ChatsPage() {
     [visibleConversations, selectedConversationIds],
   )
 
-  // Canal representativo de la selección para difusión. Las plantillas son por
-  // NÚMERO de WhatsApp (whatsapp_config), no por canal: varios canales pueden
-  // compartir config, así que se compara por config id (igual que el backend).
-  // null si mezclan números o si algún id seleccionado no está en el estado
-  // local (nunca calcular sobre un subconjunto y abrir el diálogo por accidente).
-  const selectedCommonChannelId = useMemo(() => {
-    if (selectedConversationIds.size === 0) return null
+  // Destinatarios de la difusión: sólo las conversaciones de WhatsApp de la
+  // selección; las de otros canales (o no cargadas en el estado local) se
+  // omiten y el diálogo lo avisa. Las plantillas son por NÚMERO de WhatsApp
+  // (whatsapp_config), no por canal: varios canales pueden compartir config,
+  // así que se compara por config id (igual que el backend).
+  const broadcastTarget = useMemo((): BroadcastTarget => {
     const conversationById = new Map(conversations.map((c) => [c.id, c]))
     const configByChannelId = new Map(
       channels.map((ch) => [ch.id, ch.whatsapp_config?.id ?? null]),
     )
     let commonConfigId: number | null = null
-    let representativeChannelId: number | null = null
+    let channelId: number | null = null
+    const ids: number[] = []
     for (const id of selectedConversationIds) {
       const conversation = conversationById.get(id)
-      const channelId = conversation?.channel?.id ?? conversation?.channelId
-      if (channelId === undefined || channelId === null) return null
-      const configId = configByChannelId.get(channelId)
-      if (configId === undefined || configId === null) return null
+      const conversationChannelId = conversation?.channel?.id ?? conversation?.channelId
+      const configId = conversationChannelId == null ? null : configByChannelId.get(conversationChannelId) ?? null
+      if (configId === null) continue
       if (commonConfigId === null) {
         commonConfigId = configId
-        representativeChannelId = channelId
+        channelId = conversationChannelId ?? null
       } else if (commonConfigId !== configId) {
-        return null
+        return { error: "mixedChannels" }
       }
+      ids.push(id)
     }
-    return representativeChannelId
+    if (channelId === null) return { error: "noWhatsApp" }
+    return { channelId, ids, skippedCount: selectedConversationIds.size - ids.length }
   }, [selectedConversationIds, conversations, channels])
 
   const handleBroadcastClick = useCallback(() => {
-    if (selectedCommonChannelId === null) {
-      addToast({ type: "info", title: t("chats.broadcast.errors.mixedChannels") })
+    if ("error" in broadcastTarget) {
+      addToast({ type: "info", title: t(`chats.broadcast.errors.${broadcastTarget.error}`) })
       return
     }
     setBroadcastOpen(true)
-  }, [selectedCommonChannelId, addToast, t])
+  }, [broadcastTarget, addToast, t])
 
   const viewOptions: { key: ConversationView; label: string; title: string; count: number }[] = [
     { key: "inbox", label: t("chats.views.inbox"), title: t("chats.views.inbox"), count: conversationViewCounts.inbox },
@@ -2930,8 +2935,9 @@ export default function ChatsPage() {
       <BroadcastDialog
         open={broadcastOpen}
         onOpenChange={setBroadcastOpen}
-        selectedIds={Array.from(selectedConversationIds)}
-        channelId={selectedCommonChannelId}
+        selectedIds={"error" in broadcastTarget ? [] : broadcastTarget.ids}
+        skippedCount={"error" in broadcastTarget ? 0 : broadcastTarget.skippedCount}
+        channelId={"error" in broadcastTarget ? null : broadcastTarget.channelId}
         onSuccess={() => {
           refreshConversations()
           handleExitSelectionMode()
