@@ -382,12 +382,47 @@
       "qualified": "Qualified",
       "customer": "Customer",
       "inactive": "Inactive",
-      "range": {
-        "label": "Range",
-        "menuTitle": "Filter by range",
+      "custom": {
+        "label": "Fields",
+        "labelActive": "Fields, {{count}} active",
+        "menuTitle": "Filter by field",
+        "search": "Search field",
+        "noFields": "No field matches.",
+        "back": "Back to field list",
+        "remove": "Remove filter",
+        "operators": {
+          "any": "is any of",
+          "anyMulti": "contains any of",
+          "contains": "contains",
+          "boolean": "is",
+          "range": "between"
+        },
+        "searchChoices": "Search option",
+        "noChoices": "No option matches.",
+        "yes": "Yes",
+        "no": "No",
+        "noIncludesEmpty": "\"No\" includes contacts with no value.",
+        "containsPlaceholder": "Type some text",
         "from": "From",
         "to": "To",
-        "clear": "Clear range filters"
+        "invalidRange": "From can't be greater than To.",
+        "summary": {
+          "contains": "contains \"{{text}}\"",
+          "more": "{{first}} +{{count}}",
+          "between": "{{from}} → {{to}}",
+          "atLeast": "≥ {{value}}",
+          "atMost": "≤ {{value}}"
+        }
+      },
+      "active": {
+        "label": "Active filters",
+        "edit": "Edit filter {{field}}: {{value}}",
+        "remove": "Remove filter {{field}}",
+        "clearAll": "Clear filters",
+        "tags": "Tags",
+        "noResults": "No contacts match these filters",
+        "results_one": "{{count}} contact",
+        "results_other": "{{count}} contacts"
       },
       "audience": {
         "label": "Audience",

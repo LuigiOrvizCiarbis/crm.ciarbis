@@ -382,12 +382,47 @@
       "qualified": "Calificado",
       "customer": "Cliente",
       "inactive": "Inactivo",
-      "range": {
-        "label": "Rango",
-        "menuTitle": "Filtrar por rango",
+      "custom": {
+        "label": "Campos",
+        "labelActive": "Campos, {{count}} activos",
+        "menuTitle": "Filtrar por campo",
+        "search": "Buscar campo",
+        "noFields": "Ningún campo coincide.",
+        "back": "Volver a la lista de campos",
+        "remove": "Quitar filtro",
+        "operators": {
+          "any": "es alguno de",
+          "anyMulti": "contiene alguno de",
+          "contains": "contiene",
+          "boolean": "es",
+          "range": "entre"
+        },
+        "searchChoices": "Buscar opción",
+        "noChoices": "Ninguna opción coincide.",
+        "yes": "Sí",
+        "no": "No",
+        "noIncludesEmpty": "\"No\" incluye contactos sin completar.",
+        "containsPlaceholder": "Escribí un texto",
         "from": "Desde",
         "to": "Hasta",
-        "clear": "Limpiar filtros de rango"
+        "invalidRange": "Desde no puede ser mayor que Hasta.",
+        "summary": {
+          "contains": "contiene \"{{text}}\"",
+          "more": "{{first}} +{{count}}",
+          "between": "{{from}} → {{to}}",
+          "atLeast": "≥ {{value}}",
+          "atMost": "≤ {{value}}"
+        }
+      },
+      "active": {
+        "label": "Filtros activos",
+        "edit": "Editar filtro {{field}}: {{value}}",
+        "remove": "Quitar filtro {{field}}",
+        "clearAll": "Limpiar filtros",
+        "tags": "Etiquetas",
+        "noResults": "Ningún contacto coincide con estos filtros",
+        "results_one": "{{count}} contacto",
+        "results_other": "{{count}} contactos"
       },
       "audience": {
         "label": "Audiencia",
