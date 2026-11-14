@@ -679,6 +679,12 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
             selectedIndex={selectedIndex}
             contactFields={contactFields}
             onSelectScreen={(index) => select(screens[index]?.uid ?? null)}
+            message={{
+              flow,
+              channelId,
+              onSendDefaultsSaved: (saved) =>
+                setFlow((current) => (current ? { ...current, send_defaults: saved.send_defaults } : current)),
+            }}
           />
         }
       />
