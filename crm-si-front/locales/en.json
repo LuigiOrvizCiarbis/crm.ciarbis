@@ -1145,6 +1145,7 @@
       "dialog": {
         "title": "Send WhatsApp broadcast",
         "subtitle": "A template will be sent to {{count}} conversation(s)",
+        "skipped": "{{count}} non-WhatsApp conversation(s) will be skipped",
         "backToTemplates": "Back to template list",
         "searchTemplates": "Search template...",
         "sync": "Sync",
@@ -1177,7 +1178,8 @@
         "loadTemplates": "Error loading templates",
         "sync": "Error syncing templates",
         "apply": "Error sending broadcast",
-        "mixedChannels": "Select conversations from the same WhatsApp number to send a broadcast"
+        "mixedChannels": "The selected WhatsApp conversations belong to different numbers: pick conversations from a single number to send a broadcast",
+        "noWhatsApp": "Select at least one WhatsApp conversation to send a broadcast"
       }
     },
     "aiBooking": {

@@ -1145,6 +1145,7 @@
       "dialog": {
         "title": "Enviar difusión de WhatsApp",
         "subtitle": "Se enviará una plantilla a {{count}} conversación(es)",
+        "skipped": "Se omiten {{count}} conversación(es) que no son de WhatsApp",
         "backToTemplates": "Volver a la lista de plantillas",
         "searchTemplates": "Buscar plantilla...",
         "sync": "Sincronizar",
@@ -1177,7 +1178,8 @@
         "loadTemplates": "Error cargando plantillas",
         "sync": "Error sincronizando plantillas",
         "apply": "Error enviando la difusión",
-        "mixedChannels": "Seleccioná conversaciones del mismo número de WhatsApp para enviar una difusión"
+        "mixedChannels": "Las conversaciones de WhatsApp seleccionadas son de distintos números: elegí las de un solo número para enviar una difusión",
+        "noWhatsApp": "Seleccioná al menos una conversación de WhatsApp para enviar una difusión"
       }
     },
     "aiBooking": {
