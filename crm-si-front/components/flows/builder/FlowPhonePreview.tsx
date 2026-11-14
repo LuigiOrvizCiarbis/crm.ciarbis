@@ -13,18 +13,22 @@ import type { AppointmentConfig, ContentScreen, FlowBlock, FlowDefinition, Scale
 import { cn } from "@/lib/utils"
 
 import { prefillLabel } from "./BlockEditor"
+import { FlowMessagePreview, type FlowMessageContext } from "./FlowMessagePreview"
+import { PhoneFrame } from "./PhoneFrame"
 
-type PreviewView = "screen" | "date" | "slot"
+type PreviewView = "message" | "screen" | "date" | "slot"
 
 interface FlowPhonePreviewProps {
   definition: FlowDefinition
   selectedIndex: number
   contactFields: ContactField[]
   onSelectScreen: (index: number) => void
+  /** Con contexto, la vista previa suma un paso "Mensaje" con el mensaje de WhatsApp que abre el formulario. */
+  message?: FlowMessageContext
 }
 
 /** Vista aproximada de la pantalla en WhatsApp: controles estáticos, sin interacción. */
-export function FlowPhonePreview({ definition, selectedIndex, contactFields, onSelectScreen }: FlowPhonePreviewProps) {
+export function FlowPhonePreview({ definition, selectedIndex, contactFields, onSelectScreen, message }: FlowPhonePreviewProps) {
   const { t } = useTranslation()
   // La vista de turno vale sólo para la pantalla desde la que se eligió: si cambia la selección, vuelve a la pantalla.
   const [extra, setExtra] = useState<{ view: PreviewView; forIndex: number }>({ view: "screen", forIndex: selectedIndex })
@@ -53,15 +57,25 @@ export function FlowPhonePreview({ definition, selectedIndex, contactFields, onS
           : t("flows.builder.routes.endShort")
         : String(resolved + 1)
 
+  const openScreen = (index: number) => {
+    onSelectScreen(index)
+    setExtra({ view: "screen", forIndex: index })
+  }
+
   const pills: Array<{ key: string; label: string; active: boolean; onClick: () => void }> = [
+    ...(message
+      ? [{
+          key: "message",
+          label: t("flows.builder.message.pill"),
+          active: view === "message",
+          onClick: () => setExtra({ view: "message", forIndex: selectedIndex }),
+        }]
+      : []),
     ...screens.map((_, index) => ({
       key: `screen-${index}`,
       label: String(index + 1),
       active: view === "screen" && index === selectedIndex,
-      onClick: () => {
-        onSelectScreen(index)
-        setExtra({ view: "screen", forIndex: index })
-      },
+      onClick: () => openScreen(index),
     })),
     ...(appointment
       ? (["date", "slot"] as const).map((target) => ({
@@ -94,24 +108,28 @@ export function FlowPhonePreview({ definition, selectedIndex, contactFields, onS
         ))}
       </div>
 
-      <PhoneFrame>
-        {view !== "screen" && appointment ? (
-          <AppointmentScreen config={appointment} view={view} />
-        ) : screen ? (
-          <PhoneScreen
-            title={screen.title}
-            footerLabel={destination ? `${screen.footer_label || "—"} → ${destination}` : screen.footer_label}
-            body={screen.blocks.map((block, index) => (
-              <PreviewBlock
-                key={block.uid ?? index}
-                block={block}
-                contactFields={contactFields}
-                selectedOptionId={block === branching ? pickedOption?.id : undefined}
-              />
-            ))}
-          />
-        ) : null}
-      </PhoneFrame>
+      {view === "message" && message ? (
+        <FlowMessagePreview {...message} definition={definition} onOpenForm={() => openScreen(0)} />
+      ) : (
+        <PhoneFrame>
+          {(view === "date" || view === "slot") && appointment ? (
+            <AppointmentScreen config={appointment} view={view} />
+          ) : screen ? (
+            <PhoneScreen
+              title={screen.title}
+              footerLabel={destination ? `${screen.footer_label || "—"} → ${destination}` : screen.footer_label}
+              body={screen.blocks.map((block, index) => (
+                <PreviewBlock
+                  key={block.uid ?? index}
+                  block={block}
+                  contactFields={contactFields}
+                  selectedOptionId={block === branching ? pickedOption?.id : undefined}
+                />
+              ))}
+            />
+          ) : null}
+        </PhoneFrame>
+      )}
 
       {view === "screen" && branching ? (
         <div className="flex flex-wrap items-center justify-center gap-1" role="group" aria-label={t("flows.builder.routes.simulate")}>
@@ -161,14 +179,6 @@ export function FlowPhonePreview({ definition, selectedIndex, contactFields, onS
   )
 }
 
-function PhoneFrame({ children }: { children: ReactNode }) {
-  return (
-    <div className="mx-auto w-full max-w-[300px] rounded-[2.25rem] border-[6px] border-neutral-800 bg-neutral-800 shadow-lg">
-      <div className="flex h-[560px] flex-col overflow-hidden rounded-[1.85rem] bg-white text-neutral-900">{children}</div>
-    </div>
-  )
-}
-
 function PhoneScreen({ title, footerLabel, body }: { title: string; footerLabel: string; body: ReactNode }) {
   const { t } = useTranslation()
   return (
@@ -192,7 +202,7 @@ function PhoneScreen({ title, footerLabel, body }: { title: string; footerLabel:
 const SAMPLE_DATES = ["lun 5 de ene", "mar 6 de ene", "mié 7 de ene"]
 const SAMPLE_SLOTS = ["09:00", "09:30", "10:00"]
 
-function AppointmentScreen({ config, view }: { config: AppointmentConfig; view: Exclude<PreviewView, "screen"> }) {
+function AppointmentScreen({ config, view }: { config: AppointmentConfig; view: "date" | "slot" }) {
   const { t } = useTranslation()
   const isDate = view === "date"
   const samples = isDate ? SAMPLE_DATES : SAMPLE_SLOTS

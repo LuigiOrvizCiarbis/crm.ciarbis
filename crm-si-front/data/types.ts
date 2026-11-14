@@ -193,6 +193,8 @@ export interface TemplateComponent {
   text?: string
   format?: string
   parameters?: { type: string; text?: string }[]
+  /** Ejemplos enviados a revisión; en encabezados con media, `header_handle` trae la URL del ejemplo. */
+  example?: { header_handle?: string[] }
   buttons?: {
     /** QUICK_REPLY | URL | PHONE_NUMBER | COPY_CODE | FLOW */
     type: string
@@ -200,6 +202,8 @@ export interface TemplateComponent {
     url?: string
     phone_number?: string
     flow_id?: string
+    /** Alternativa a flow_id: el backend (WhatsAppTemplate::flowButton) también resuelve el formulario por nombre. */
+    flow_name?: string
     flow_action?: "navigate" | "data_exchange"
     navigate_screen?: string
   }[]
