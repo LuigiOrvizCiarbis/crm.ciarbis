@@ -4,7 +4,8 @@ import { useState } from "react"
 import { Check, SlidersHorizontal } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { CONTACT_SOURCES, type ContactsAudience } from "@/components/contacts-compact-header"
+import { CONTACT_SOURCES } from "@/components/contacts-compact-header"
+import type { ContactsAudience } from "@/components/contacts/contactFilters"
 import { useTranslation } from "@/hooks/useTranslation"
 
 interface ContactsMobileFiltersProps {
