@@ -1,6 +1,6 @@
-import type { ContactField } from "@/lib/api/contact-fields";
+import type { ContactField, ContactFieldType } from "@/lib/api/contact-fields";
 
-import type { ChoiceOption, MapsTo, PrefillSource, QuestionBlock } from "./types";
+import type { ChoiceBlock, ChoiceOption, MapsTo, PrefillSource, QuestionBlock } from "./types";
 
 /**
  * Compatibilidad entre preguntas del constructor y destinos del contacto ("Guardar en")
@@ -33,9 +33,9 @@ export function findField(fields: ContactField[], key: string | null): ContactFi
   return key === null ? undefined : fields.find((field) => field.key === key);
 }
 
-function fieldAccepts(field: ContactField, block: QuestionBlock): boolean {
+function typeAccepts(type: ContactFieldType, block: QuestionBlock): boolean {
   const shortText = block.type === "short_text" ? block : null;
-  switch (field.type) {
+  switch (type) {
     case "text":
       return ["short_text", "long_text", "dropdown", "single_choice"].includes(block.type);
     case "email":
@@ -65,7 +65,7 @@ export function compatibleTargets(block: QuestionBlock, fields: ContactField[]):
   if (block.type === "short_text") targets.push("contact.name");
   if (block.type === "short_text" && block.input_type === "email") targets.push("contact.email");
   for (const field of fields) {
-    if (fieldAccepts(field, block)) targets.push(`${CUSTOM_DATA_PREFIX}${field.key}`);
+    if (typeAccepts(field.type, block)) targets.push(`${CUSTOM_DATA_PREFIX}${field.key}`);
   }
   return targets;
 }
@@ -75,6 +75,52 @@ export function lockedOptions(block: QuestionBlock, fields: ContactField[]): Cho
   const field = findField(fields, customFieldKey(block.maps_to));
   if (!field || (field.type !== "select" && field.type !== "multi_select")) return null;
   return (field.options?.choices ?? []).map((choice) => ({ id: choice, title: choice }));
+}
+
+/** Tipo de campo que mejor guarda la respuesta de la pregunta. */
+function suggestedFieldType(block: QuestionBlock): ContactFieldType {
+  switch (block.type) {
+    case "short_text":
+      return block.input_type;
+    case "long_text":
+      return "text";
+    case "dropdown":
+    case "single_choice":
+      return "select";
+    case "multiple_choice":
+      return "multi_select";
+    case "date":
+      return "date";
+    case "opt_in":
+      return "boolean";
+  }
+}
+
+/** Tipos de campo que un formulario puede completar (sin moneda, archivo ni repeater). */
+export const CREATABLE_FIELD_TYPES: readonly ContactFieldType[] = [
+  "text",
+  "number",
+  "date",
+  "boolean",
+  "select",
+  "multi_select",
+  "email",
+  "url",
+  "phone",
+];
+
+/** Tipos de campo nuevo que puede guardar la pregunta, con el sugerido primero. */
+export function creatableFieldTypes(block: QuestionBlock): ContactFieldType[] {
+  const suggested = suggestedFieldType(block);
+  return [suggested, ...CREATABLE_FIELD_TYPES.filter((type) => type !== suggested && typeAccepts(type, block))];
+}
+
+/** Opciones de la pregunta reemplazadas por las de un campo, conservando la imagen de las que coinciden por título. */
+export function adoptFieldChoices(block: ChoiceBlock, choices: string[]): ChoiceOption[] {
+  return choices.map((choice) => {
+    const previous = block.options.find((option) => option.title.trim() === choice);
+    return previous?.image ? { id: choice, title: choice, image: previous.image, alt_text: previous.alt_text ?? null } : { id: choice, title: choice };
+  });
 }
 
 export function supportsPrefill(block: QuestionBlock): boolean {
