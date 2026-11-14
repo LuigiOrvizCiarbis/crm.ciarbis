@@ -39,6 +39,9 @@ class OutboundMessageSender
      * de las 24 h habilita el tag HUMAN_AGENT (Instagram/Messenger). Los
      * programados lo mandan el sistema, así que exigen la ventana estándar.
      *
+     * $replyTo cita un mensaje (sólo WhatsApp/Instagram/Messenger; el
+     * controller rechaza citas en mail, y los programados nunca citan).
+     *
      * @throws InvalidArgumentException si el canal no tiene transporte de envío
      * @throws \App\Exceptions\MetaApiException si la ventana de mensajería está cerrada
      */
@@ -51,6 +54,7 @@ class OutboundMessageSender
         ?string $mediaMime = null,
         bool $voice = false,
         bool $allowHumanAgentTag = false,
+        ?Message $replyTo = null,
     ): Message {
         $service = $this->serviceFor($conversation)
             ?? throw new InvalidArgumentException('Este canal no admite el envío de mensajes desde el CRM.');
@@ -64,19 +68,20 @@ class OutboundMessageSender
         // WhatsApp y Mail nunca reciben tag: tagForHumanSend sólo lo devuelve
         // para Instagram/Messenger. Spread de claves string = argumento con nombre.
         $tagArgs = $tag === null ? [] : ['messageTag' => $tag];
+        $replyArgs = $replyTo === null ? [] : ['replyTo' => $replyTo];
 
         return match ($type) {
             'image' => $service->sendImageMessageFromCRM(
-                $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $content, $user, ...$tagArgs
+                $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $content, $user, ...$tagArgs, ...$replyArgs
             ),
             'audio' => $service === $this->whatsAppService
                 ? $this->whatsAppService->sendAudioMessageFromCRM(
-                    $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $user, $voice, ...$tagArgs
+                    $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $user, $voice, ...$tagArgs, ...$replyArgs
                 )
                 : $service->sendAudioMessageFromCRM(
-                    $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $user, ...$tagArgs
+                    $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $user, ...$tagArgs, ...$replyArgs
                 ),
-            default => $service->sendTextMessageFromCRM($conversation, (string) $content, $user, ...$tagArgs),
+            default => $service->sendTextMessageFromCRM($conversation, (string) $content, $user, ...$tagArgs, ...$replyArgs),
         };
     }
 

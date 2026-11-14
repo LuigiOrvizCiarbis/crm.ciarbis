@@ -9,6 +9,7 @@ import type { MessageTranslationResponse } from "@/lib/api/messages"
 import { useTranslation } from "@/hooks/useTranslation"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { useToast } from "@/components/Toast"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,6 +24,16 @@ import { MailMessageBlock } from "./MailMessageBlock"
 
 /** Ventana para agrupar mensajes consecutivos del mismo emisor. */
 const GROUPING_WINDOW_MS = 5 * 60 * 1000
+
+/** Páginas viejas que se cargan como máximo buscando el original de una cita. */
+const MAX_QUOTE_JUMP_PAGES = 10
+const QUOTE_HIGHLIGHT_MS = 1600
+/** Tope de frames esperando que termine una carga en curso (~10 s a 60 fps). */
+const MAX_LOAD_WAIT_FRAMES = 600
+
+/** Espera a que React pinte: dos rAF garantizan que el DOM ya refleja el render. */
+const nextFrame = () =>
+  new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
 
 /**
  * Identifica al emisor real para no mezclar, por ejemplo, un agente humano
@@ -41,6 +52,9 @@ interface MessageListProps {
   onEditMessage?: (message: Message) => void
   onDeleteMessage?: (message: Message) => void
   onReactMessage?: (message: Message, emoji: string) => void
+  onReplyMessage?: (message: Message) => void
+  /** Nombre del contacto, para el autor de las citas entrantes. */
+  contactName?: string | null
   onSaveContact?: (message: Message, index: number) => void
   currentUserId?: number
   isAdmin?: boolean
@@ -167,6 +181,8 @@ export const MessageList = memo(function MessageList({
   onEditMessage,
   onDeleteMessage,
   onReactMessage,
+  onReplyMessage,
+  contactName,
   onSaveContact,
   currentUserId,
   isAdmin,
@@ -179,6 +195,7 @@ export const MessageList = memo(function MessageList({
   onSearchOpenChange,
 }: MessageListProps) {
   const { t, language } = useTranslation()
+  const { addToast } = useToast()
   const scrollRef = useRef<HTMLDivElement>(null)
   // Posición previa a cargar mensajes viejos, para mantener el ancla visual al anteponerlos.
   const prependAnchorRef = useRef<{ height: number; top: number } | null>(null)
@@ -189,10 +206,65 @@ export const MessageList = memo(function MessageList({
   // Lectura sin dependencia: handleTranslate queda estable y las burbujas memoizadas no se invalidan.
   const translationsRef = useRef(translations)
   const onLoadMoreRef = useRef(onLoadMore)
+  const hasMoreRef = useRef(hasMore)
+  const isLoadingMoreRef = useRef(isLoadingMore)
+  const loadMoreFailedRef = useRef(loadMoreFailed)
   useLayoutEffect(() => {
     translationsRef.current = translations
     onLoadMoreRef.current = onLoadMore
+    hasMoreRef.current = hasMore
+    isLoadingMoreRef.current = isLoadingMore
+    loadMoreFailedRef.current = loadMoreFailed
   })
+
+  // --- Saltar al mensaje citado ---
+  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null)
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const jumpingRef = useRef(false)
+  // El hilo se monta por conversación: un salto en curso no debe seguir
+  // paginando (con un onLoadMore viejo) después de cambiar de chat.
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      clearTimeout(highlightTimeoutRef.current ?? undefined)
+    }
+  }, [])
+
+  const revealMessage = useCallback((id: number) => {
+    const el = scrollRef.current?.querySelector<HTMLElement>(`[data-message-id="${id}"]`)
+    if (!el) return false
+    el.scrollIntoView({ behavior: "smooth", block: "center" })
+    setHighlightedMessageId(id)
+    clearTimeout(highlightTimeoutRef.current ?? undefined)
+    highlightTimeoutRef.current = setTimeout(() => setHighlightedMessageId(null), QUOTE_HIGHLIGHT_MS)
+    return true
+  }, [])
+
+  const handleJumpToMessage = useCallback(
+    async (id: number) => {
+      if (revealMessage(id) || jumpingRef.current) return
+      jumpingRef.current = true
+      try {
+        for (let page = 0; page < MAX_QUOTE_JUMP_PAGES; page++) {
+          for (let frames = 0; isLoadingMoreRef.current && frames < MAX_LOAD_WAIT_FRAMES; frames++) {
+            await nextFrame()
+          }
+          if (!isMountedRef.current || !hasMoreRef.current || loadMoreFailedRef.current) break
+          const root = scrollRef.current
+          if (root) prependAnchorRef.current = { height: root.scrollHeight, top: root.scrollTop }
+          await onLoadMoreRef.current()
+          await nextFrame()
+          if (revealMessage(id)) return
+        }
+        if (isMountedRef.current) addToast({ type: "info", title: t("chats.quotedMessageNotFound") })
+      } finally {
+        jumpingRef.current = false
+      }
+    },
+    [revealMessage, addToast, t],
+  )
   // Anuncio para lectores de pantalla: sólo mensajes entrantes nuevos al final del hilo.
   const [arrivalAnnouncement, setArrivalAnnouncement] = useState("")
 
@@ -388,7 +460,18 @@ export const MessageList = memo(function MessageList({
     !!msg.external_id &&
     !!canSendMessage
 
-  const hasActions = (msg: Message) => canEdit(msg) || canDelete(msg) || canTranslate(msg) || canReact(msg)
+  /** Citar requiere el id del canal (no optimistas) y un canal Meta con soporte de reply. */
+  const canReply = (msg: Message) =>
+    (channelType === ChannelType.WHATSAPP ||
+      channelType === ChannelType.INSTAGRAM ||
+      channelType === ChannelType.FACEBOOK) &&
+    !msg.deleted_at &&
+    !msg.failed_at &&
+    !!msg.external_id &&
+    !!canSendMessage
+
+  const hasActions = (msg: Message) =>
+    canEdit(msg) || canDelete(msg) || canTranslate(msg) || canReact(msg) || canReply(msg)
 
   const handleTranslate = useCallback(async (msg: Message) => {
     const key = String(msg.id)
@@ -621,6 +704,11 @@ export const MessageList = memo(function MessageList({
                   canDelete={!!canDelete(msg) && !!onDeleteMessage}
                   canTranslate={!!canTranslate(msg)}
                   canReact={canReact(msg) && !!onReactMessage}
+                  canReply={canReply(msg) && !!onReplyMessage}
+                  onReply={onReplyMessage}
+                  onJumpToMessage={handleJumpToMessage}
+                  isHighlighted={highlightedMessageId === msg.id}
+                  contactName={contactName}
                   currentUserId={currentUserId}
                   isGroupConversation={isGroupConversation}
                 />
