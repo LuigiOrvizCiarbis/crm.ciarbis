@@ -133,6 +133,13 @@ export interface FlowScreen {
   blocks: FlowBlock[];
   /** Destino después de la pantalla; por defecto `following`. */
   next?: Target;
+  /** Posición en el diagrama del constructor; el backend la guarda y la ignora. */
+  position?: CanvasPosition;
+}
+
+export interface CanvasPosition {
+  x: number;
+  y: number;
 }
 
 export interface AppointmentConfig {

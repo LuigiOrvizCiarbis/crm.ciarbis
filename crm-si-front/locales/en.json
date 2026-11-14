@@ -2904,32 +2904,66 @@
         "SURVEY": "Survey",
         "OTHER": "Other"
       },
+      "canvas": {
+        "label": "Form diagram",
+        "start": "Start",
+        "end": "End",
+        "entry": "First screen",
+        "makeEntry": "Make first",
+        "appointment": "Appointment booking",
+        "appointmentSteps": "Pick a day → Pick a time",
+        "addAppointment": "Add appointment booking at the end",
+        "next": "Next · “{{label}}”",
+        "noAnswer": "No answer",
+        "noBlocks": "No blocks",
+        "moreBlocks": "+{{count}} more",
+        "errors": "{{count}} errors",
+        "unreachable": "No path leads here",
+        "removeTitle": "Delete screen",
+        "removeConfirm": "Delete “{{title}}” and its {{count}} questions?",
+        "remove": "Delete",
+        "removed": "“{{title}}” deleted",
+        "undoHint": "{{shortcut}} to undo.",
+        "insert": "Add on this path",
+        "insertScreen": "New screen",
+        "clearRoute": "Remove arrow",
+        "backwardBlocked": "WhatsApp doesn't allow going back to an earlier screen",
+        "entryBlocked": "Another screen already leads here",
+        "arrange": "Arrange",
+        "arrangeHint": "Lay out screens in columns following the path",
+        "screenCountLabel": "{{count}} of {{max}} screens",
+        "zoomIn": "Zoom in",
+        "zoomOut": "Zoom out",
+        "fit": "Fit view",
+        "undo": "Undo",
+        "redo": "Redo",
+        "tabContent": "Content",
+        "emptyTitle": "Pick a screen to edit it",
+        "emptyHint": "Drag from an output dot to another screen to change the path. Drop it on empty space to create a new screen there.",
+        "a11y": {
+          "node": "Enter to edit, arrow keys to move, Delete to remove.",
+          "edge": "Path between screens. Delete removes it."
+        }
+      },
       "tabs": {
-        "screens": "Screens",
-        "edit": "Edit",
         "preview": "Preview"
       },
       "screens": {
-        "title": "Screens",
         "add": "Add screen",
         "max": "You reached the maximum of {{max}} screens.",
         "untitled": "Untitled",
-        "blockCount": "Blocks: {{count}}",
-        "hasErrors": "Has errors",
-        "remove": "Delete screen",
-        "reorder": "Reorder screen"
+        "remove": "Delete screen"
       },
       "screen": {
         "title": "Screen {{n}} title",
         "blocks": "Blocks",
         "footerLabel": "Final button text",
-        "footerHintRoute": "Where it leads is set in “After this screen”.",
+        "footerHintRoute": "Where it leads is set by its arrow in the diagram or in “After this screen”.",
         "footerHintBranches": "Where it leads depends on the answer to the question that changes the path."
       },
       "routes": {
         "afterScreen": "After this screen",
         "afterScreenBranchesHint": "Used for answers without a rule and when the question is left unanswered.",
-        "following": "Next screen",
         "end": "Finish the form",
         "appointment": "Go to appointment booking",
         "screen": "Screen {{n}} · {{title}}",
@@ -2942,7 +2976,6 @@
         "optionalHint": "If the question is left unanswered, the screen's destination is used.",
         "endShort": "End",
         "appointmentShort": "Booking",
-        "unreachableShort": "No answer leads here",
         "simulate": "Try an answer:"
       },
       "blockGroups": {
@@ -3147,11 +3180,6 @@
         "description": "This form has unsaved changes. If you leave now, they'll be lost.",
         "stay": "Keep editing",
         "leave": "Leave without saving"
-      },
-      "removeScreenConfirm": {
-        "title": "Delete the screen?",
-        "description": "\"{{title}}\" will be deleted with all its blocks.",
-        "confirm": "Delete"
       },
       "encryptionHint": "Saving sets up the number's encryption automatically."
     }

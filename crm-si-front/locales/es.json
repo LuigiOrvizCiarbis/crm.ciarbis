@@ -2904,32 +2904,66 @@
         "SURVEY": "Encuesta",
         "OTHER": "Otro"
       },
+      "canvas": {
+        "label": "Diagrama del formulario",
+        "start": "Inicio",
+        "end": "Fin",
+        "entry": "Primera pantalla",
+        "makeEntry": "Hacer primera",
+        "appointment": "Reserva de turno",
+        "appointmentSteps": "Elegí día → Elegí horario",
+        "addAppointment": "Agregar la reserva de turno al final",
+        "next": "Siguiente · «{{label}}»",
+        "noAnswer": "Sin respuesta",
+        "noBlocks": "Sin bloques",
+        "moreBlocks": "+{{count}} más",
+        "errors": "{{count}} errores",
+        "unreachable": "No se llega a esta pantalla",
+        "removeTitle": "Borrar pantalla",
+        "removeConfirm": "¿Borrar «{{title}}» y sus {{count}} preguntas?",
+        "remove": "Borrar",
+        "removed": "Se borró «{{title}}»",
+        "undoHint": "{{shortcut}} para deshacer.",
+        "insert": "Agregar en este camino",
+        "insertScreen": "Pantalla nueva",
+        "clearRoute": "Quitar flecha",
+        "backwardBlocked": "WhatsApp no permite volver a una pantalla anterior",
+        "entryBlocked": "Otra pantalla ya lleva a esta",
+        "arrange": "Ordenar",
+        "arrangeHint": "Acomodar las pantallas en columnas según el recorrido",
+        "screenCountLabel": "{{count}} de {{max}} pantallas",
+        "zoomIn": "Acercar",
+        "zoomOut": "Alejar",
+        "fit": "Encuadrar",
+        "undo": "Deshacer",
+        "redo": "Rehacer",
+        "tabContent": "Contenido",
+        "emptyTitle": "Elegí una pantalla para editarla",
+        "emptyHint": "Arrastrá desde el punto de una salida hasta otra pantalla para cambiar el camino. Si la soltás en un lugar vacío, se crea una pantalla nueva ahí.",
+        "a11y": {
+          "node": "Enter para editar, flechas para mover, Supr para borrar.",
+          "edge": "Camino entre pantallas. Supr lo quita."
+        }
+      },
       "tabs": {
-        "screens": "Pantallas",
-        "edit": "Editar",
         "preview": "Vista previa"
       },
       "screens": {
-        "title": "Pantallas",
         "add": "Agregar pantalla",
         "max": "Llegaste al máximo de {{max}} pantallas.",
         "untitled": "Sin título",
-        "blockCount": "Bloques: {{count}}",
-        "hasErrors": "Tiene errores",
-        "remove": "Eliminar pantalla",
-        "reorder": "Reordenar pantalla"
+        "remove": "Eliminar pantalla"
       },
       "screen": {
         "title": "Título de la pantalla {{n}}",
         "blocks": "Bloques",
         "footerLabel": "Texto del botón final",
-        "footerHintRoute": "A dónde lleva se elige en «Después de esta pantalla».",
+        "footerHintRoute": "A dónde lleva se elige con su flecha en el diagrama o en «Después de esta pantalla».",
         "footerHintBranches": "A dónde lleva depende de la respuesta a la pregunta que cambia el camino."
       },
       "routes": {
         "afterScreen": "Después de esta pantalla",
         "afterScreenBranchesHint": "Se usa para las respuestas sin regla y si la pregunta queda sin responder.",
-        "following": "Siguiente pantalla",
         "end": "Finalizar formulario",
         "appointment": "Ir a la reserva de turno",
         "screen": "Pantalla {{n}} · {{title}}",
@@ -2942,7 +2976,6 @@
         "optionalHint": "Si la pregunta queda sin responder, se sigue el destino de la pantalla.",
         "endShort": "Fin",
         "appointmentShort": "Turno",
-        "unreachableShort": "Ninguna respuesta lleva acá",
         "simulate": "Probar respuesta:"
       },
       "blockGroups": {
@@ -3147,11 +3180,6 @@
         "description": "Tenés cambios sin guardar en este formulario. Si salís ahora, se pierden.",
         "stay": "Seguir editando",
         "leave": "Salir sin guardar"
-      },
-      "removeScreenConfirm": {
-        "title": "¿Eliminar la pantalla?",
-        "description": "Se elimina «{{title}}» con todos sus bloques.",
-        "confirm": "Eliminar"
       },
       "encryptionHint": "Al guardar se configura el cifrado del número automáticamente."
     }

@@ -367,3 +367,66 @@ html.brand-bims.dark {
     }
   }
 }
+
+/*
+ * Diagrama del constructor de formularios (@xyflow/react, base.css). Los colores salen de los
+ * tokens del sistema, así claro y oscuro funcionan sin una paleta aparte.
+ */
+.flow-canvas .react-flow {
+  --xy-background-color: var(--background);
+  --xy-background-pattern-color: color-mix(in oklch, var(--muted-foreground) 45%, transparent);
+  --xy-edge-stroke: color-mix(in oklch, var(--muted-foreground) 55%, transparent);
+  --xy-edge-stroke-width: 1.5;
+  --xy-edge-stroke-selected: var(--primary);
+  --xy-connectionline-stroke: var(--primary);
+  --xy-connectionline-stroke-width: 1.5;
+  --xy-handle-background-color: var(--background);
+  --xy-handle-border-color: var(--muted-foreground);
+  --xy-selection-background-color: color-mix(in oklch, var(--primary) 8%, transparent);
+  --xy-selection-border: 1px dashed var(--primary);
+}
+
+.flow-canvas .react-flow__edge.route-edge:hover .react-flow__edge-path {
+  stroke: var(--foreground);
+}
+
+.flow-canvas .react-flow__node:focus-visible {
+  outline: none;
+}
+
+.flow-canvas .react-flow__node:focus-visible > * {
+  outline: 3px solid color-mix(in oklch, var(--ring) 50%, transparent);
+  outline-offset: 2px;
+}
+
+.flow-canvas .react-flow__handle.flow-port {
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  border: 1.5px solid var(--muted-foreground);
+  background: var(--card);
+}
+
+.flow-canvas .react-flow__handle.flow-port.connectable:hover,
+.flow-canvas .react-flow__handle.flow-port.connectingfrom {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+/* Entrada invisible del tamaño de la caja: sólo recibe el puntero mientras se arrastra una conexión. */
+.flow-canvas .react-flow__handle.flow-drop {
+  z-index: 1;
+  inset: 0;
+  width: auto;
+  height: auto;
+  transform: none;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .flow-canvas .react-flow__edge-path {
+    transition: stroke 150ms cubic-bezier(0.25, 1, 0.5, 1);
+  }
+}
