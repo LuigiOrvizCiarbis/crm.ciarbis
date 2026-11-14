@@ -25,6 +25,12 @@ export interface BroadcastAudienceFilters {
   custom_filters?: BroadcastFilter[]
 }
 
+/** Etiqueta que recibe el contacto al tocar el botón de respuesta rápida `button_index` de la plantilla. */
+export interface BroadcastReplyTag {
+  button_index: number
+  tag_id: number
+}
+
 export interface BroadcastCampaign {
   id: number
   name: string
@@ -32,6 +38,7 @@ export interface BroadcastCampaign {
   channel: { id: number; name: string; type: number }
   template: { id: number; name: string; language: string }
   audience_filters: BroadcastAudienceFilters
+  reply_tags: BroadcastReplyTag[]
   audience_count: number
   sent_count: number
   error_count: number
@@ -84,6 +91,7 @@ export interface BroadcastPayload {
   template_id: number
   components: unknown[]
   filters: BroadcastAudienceFilters
+  reply_tags?: BroadcastReplyTag[]
   launch: "now" | "scheduled"
   scheduled_at?: string
   interval_seconds: 0 | 15 | 30 | 60 | 120

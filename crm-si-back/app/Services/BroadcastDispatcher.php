@@ -82,11 +82,13 @@ class BroadcastDispatcher
             ])->all();
         });
 
+        $components = [...($campaign->components ?? []), ...$campaign->replyTagButtonComponents()];
+
         foreach ($recipientIds as $index => $recipient) {
             $job = SendBroadcastMessageJob::dispatch(
                 $recipient['conversation_id'],
                 $campaign->whatsapp_template_id,
-                $campaign->components,
+                $components,
                 $campaign->created_by,
                 $campaign->tenant_id,
                 $recipient['id'],

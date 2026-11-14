@@ -279,6 +279,76 @@ class BroadcastCampaignTest extends TestCase
         Queue::assertPushed(SendBroadcastMessageJob::class, 2);
     }
 
+    public function test_quick_reply_tags_contact_with_the_tag_mapped_to_the_tapped_button(): void
+    {
+        Queue::fakeExcept([DispatchBroadcastCampaignJob::class]);
+        Http::fake(['graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.reply-tag-target']]])]);
+        [$user, $channel, $template] = $this->createSetup();
+        $template->update(['components' => [
+            ['type' => 'BODY', 'text' => 'Hola, ¿te interesa la promo?'],
+            ['type' => 'BUTTONS', 'buttons' => [
+                ['type' => 'QUICK_REPLY', 'text' => 'Me interesa'],
+                ['type' => 'QUICK_REPLY', 'text' => 'No, gracias'],
+            ]],
+        ]]);
+        $interested = Tag::create(['tenant_id' => $user->tenant_id, 'name' => 'Interesado', 'slug' => 'interesado']);
+        $notInterested = Tag::create(['tenant_id' => $user->tenant_id, 'name' => 'No interesado', 'slug' => 'no-interesado']);
+        $contact = $this->createConversation($user, $channel, phone: '5492235112208')->contact;
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/broadcasts', array_merge($this->payload($channel, $template), [
+            'reply_tags' => [
+                ['button_index' => 0, 'tag_id' => $interested->id],
+                ['button_index' => 1, 'tag_id' => $notInterested->id],
+            ],
+        ]))->assertCreated()->assertJsonPath('data.reply_tags.1.tag_id', $notInterested->id);
+
+        Queue::pushed(SendBroadcastMessageJob::class)->first()
+            ->handle(app(WhatsAppTemplateService::class), app(BroadcastConversationResolver::class));
+
+        Http::assertSent(fn ($request): bool => collect($request['template']['components'] ?? [])->contains([
+            'type' => 'button',
+            'sub_type' => 'quick_reply',
+            'index' => '1',
+            'parameters' => [['type' => 'payload', 'payload' => 'reply_tag:1']],
+        ]));
+
+        app(WhatsAppMessageService::class)->processIncomingMessage([
+            'value' => [
+                'metadata' => ['phone_number_id' => $channel->whatsappConfig->phone_number_id],
+                'contacts' => [['profile' => ['name' => $contact->name]]],
+                'messages' => [[
+                    'from' => $contact->phone,
+                    'id' => 'wamid.reply-tag-answer',
+                    'timestamp' => (string) now()->timestamp,
+                    'type' => 'button',
+                    'context' => ['id' => 'wamid.reply-tag-target'],
+                    'button' => ['text' => 'No, gracias', 'payload' => 'reply_tag:1'],
+                ]],
+            ],
+        ]);
+
+        $this->assertSame([$notInterested->id], $contact->fresh()->tags->pluck('id')->all());
+    }
+
+    public function test_store_rejects_reply_tag_on_a_button_that_is_not_quick_reply(): void
+    {
+        [$user, $channel, $template] = $this->createSetup();
+        $template->update(['components' => [
+            ['type' => 'BODY', 'text' => 'Hola'],
+            ['type' => 'BUTTONS', 'buttons' => [['type' => 'URL', 'text' => 'Ver', 'url' => 'https://example.com']]],
+        ]]);
+        $tag = Tag::create(['tenant_id' => $user->tenant_id, 'name' => 'VIP', 'slug' => 'vip']);
+        $this->createConversation($user, $channel);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/broadcasts', array_merge($this->payload($channel, $template), [
+            'reply_tags' => [['button_index' => 0, 'tag_id' => $tag->id]],
+        ]))->assertStatus(422);
+
+        $this->assertSame(0, BroadcastCampaign::count());
+    }
+
     public function test_scheduled_campaign_waits_until_dispatch_command(): void
     {
         Queue::fake();

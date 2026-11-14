@@ -60,6 +60,15 @@ export function getHeaderMediaFormat(components: TemplateComponent[]): "IMAGE" |
 }
 
 /**
+ * Botones de respuesta rápida con su posición dentro de `buttons`: es el
+ * índice que Meta usa en el componente de envío del botón.
+ */
+export function getQuickReplyButtons(components: TemplateComponent[]): { index: number; text: string }[] {
+  const buttons = findComponent(components, "BUTTONS")?.buttons ?? []
+  return buttons.flatMap((button, index) => button.type?.toUpperCase() === "QUICK_REPLY" ? [{ index, text: button.text }] : [])
+}
+
+/**
  * Plantillas que la difusión aún no puede armar: HEADER de texto con
  * placeholders, o botones con URL dinámica. (Los headers de media SÍ están
  * soportados: el diálogo pide la URL del archivo.)

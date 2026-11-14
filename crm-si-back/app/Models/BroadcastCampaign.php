@@ -24,6 +24,7 @@ class BroadcastCampaign extends Model
         'status',
         'audience_filters',
         'components',
+        'reply_tags',
         'audience_count',
         'duplicate_phone_count',
         'without_consent_count',
@@ -44,6 +45,7 @@ class BroadcastCampaign extends Model
             'status' => BroadcastStatus::class,
             'audience_filters' => 'array',
             'components' => 'array',
+            'reply_tags' => 'array',
             'estimated_cost_usd' => 'decimal:2',
             'actual_cost_usd' => 'decimal:2',
             'scheduled_at' => 'immutable_datetime',
@@ -82,6 +84,41 @@ class BroadcastCampaign extends Model
     public function resultsEnabled(): bool
     {
         return (int) $this->results_tracking_version === 1;
+    }
+
+    /**
+     * Payload que viaja en el botón de respuesta rápida y Meta devuelve tal
+     * cual en el webhook: así la regla no depende del texto del botón.
+     */
+    public static function replyTagPayload(int $buttonIndex): string
+    {
+        return 'reply_tag:'.$buttonIndex;
+    }
+
+    /**
+     * Componentes de envío que marcan cada botón con regla de etiqueta.
+     *
+     * @return list<array{type: string, sub_type: string, index: string, parameters: list<array{type: string, payload: string}>}>
+     */
+    public function replyTagButtonComponents(): array
+    {
+        return array_map(fn (array $rule): array => [
+            'type' => 'button',
+            'sub_type' => 'quick_reply',
+            'index' => (string) $rule['button_index'],
+            'parameters' => [['type' => 'payload', 'payload' => self::replyTagPayload((int) $rule['button_index'])]],
+        ], $this->reply_tags ?? []);
+    }
+
+    public function replyTagIdFor(?string $payload): ?int
+    {
+        foreach ($this->reply_tags ?? [] as $rule) {
+            if (self::replyTagPayload((int) $rule['button_index']) === $payload) {
+                return (int) $rule['tag_id'];
+            }
+        }
+
+        return null;
     }
 
     public function refreshDeliveryStatus(): void

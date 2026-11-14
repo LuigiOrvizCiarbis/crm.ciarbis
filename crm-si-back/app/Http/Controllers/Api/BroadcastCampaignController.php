@@ -296,6 +296,7 @@ class BroadcastCampaignController extends Controller
                 'name' => $request->validated('name'),
                 'audience_filters' => $filters,
                 'components' => $request->validated('components', []),
+                'reply_tags' => $request->validated('reply_tags') ?: null,
                 'audience_count' => $audience->count(),
                 'duplicate_phone_count' => $duplicatePhoneCount,
                 'without_consent_count' => $withoutConsentCount,
@@ -396,6 +397,13 @@ class BroadcastCampaignController extends Controller
         // crea que se trata de una plantilla que nunca se aprobó.
         if (! $template->status->isApproved()) {
             abort(422, $this->templateRejectionMessage($template->status));
+        }
+
+        $quickReplyIndexes = $template->quickReplyButtonIndexes();
+        foreach ($request->validated('reply_tags') ?? [] as $rule) {
+            if (! in_array((int) $rule['button_index'], $quickReplyIndexes, true)) {
+                abort(422, 'Solo se pueden etiquetar respuestas de botones de respuesta rápida de la plantilla.');
+            }
         }
 
         return [$channel, $template];

@@ -24,6 +24,7 @@ class BroadcastCampaignResource extends JsonResource
                 'language' => $this->template->language,
             ]),
             'audience_filters' => $this->audience_filters,
+            'reply_tags' => $this->reply_tags ?? [],
             'audience_count' => $this->audience_count,
             'sent_count' => (int) ($this->sent_count ?? 0),
             'error_count' => (int) ($this->error_count ?? 0),
