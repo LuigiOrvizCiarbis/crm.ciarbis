@@ -1,4 +1,5 @@
 import { isQuestionBlock } from "./limits";
+import { isRepeaterScreen, screenBlocks } from "./repeater";
 import type { ChoiceOption, FlowBlock, FlowDefinition, FlowScreen, SingleChoiceBlock, Target } from "./types";
 
 /**
@@ -62,7 +63,7 @@ export function hasBranches(block: FlowBlock): block is SingleChoiceBlock {
 
 /** Primera pregunta de la pantalla que cambia el camino, o null. */
 export function branchingBlock(screen: FlowScreen): SingleChoiceBlock | null {
-  return screen.blocks.find(hasBranches) ?? null;
+  return screenBlocks(screen).find(hasBranches) ?? null;
 }
 
 /** Resuelve un destino desde la pantalla `index`. null si apunta a una pantalla que no existe. */
@@ -133,6 +134,7 @@ export function dropScreenReferences(definition: FlowDefinition, screenId: strin
   return {
     ...definition,
     screens: definition.screens.map((screen) => {
+      if (isRepeaterScreen(screen)) return screen.next === removed ? { ...screen, next: "end" as Target } : screen;
       let blocksChanged = false;
       const blocks = screen.blocks.map((block) => {
         if (!isBranchable(block) || !block.branches) return block;
@@ -189,7 +191,9 @@ export function usesEndpoint(definition: FlowDefinition): boolean {
   return (
     definition.appointment !== null ||
     definition.screens.length > 1 ||
-    definition.screens.some((screen) => screen.blocks.some((block) => isQuestionBlock(block) && !!block.maps_to))
+    definition.screens.some(
+      (screen) => isRepeaterScreen(screen) || screen.blocks.some((block) => isQuestionBlock(block) && !!block.maps_to),
+    )
   );
 }
 
@@ -233,7 +237,7 @@ export function withPortTarget(screen: FlowScreen, port: RoutePort, target: Targ
   const optionId = portOptionId(port);
   if (optionId === null) return { ...screen, next: target };
   const block = branchingBlock(screen);
-  if (!block) return screen;
+  if (!block || isRepeaterScreen(screen)) return screen;
   return {
     ...screen,
     blocks: screen.blocks.map((item) => (item === block ? { ...block, branches: { ...block.branches, [optionId]: target } } : item)),
@@ -243,7 +247,7 @@ export function withPortTarget(screen: FlowScreen, port: RoutePort, target: Targ
 /** Todos los destinos guardados en la pantalla, también los que hoy no se usan (el botón de una pregunta obligatoria). */
 function storedTargets(screen: FlowScreen): Target[] {
   const targets: Target[] = [screen.next ?? DEFAULT_TARGET];
-  for (const block of screen.blocks) {
+  for (const block of screenBlocks(screen)) {
     if (isBranchable(block) && block.branches) targets.push(...Object.values(block.branches));
   }
   return targets;
@@ -292,6 +296,11 @@ function withExplicitRoutes(definition: FlowDefinition): FlowDefinition {
   let changed = false;
   const screens = definition.screens.map((screen, index) => {
     const next = explicitTarget(screen.next, index, definition.screens);
+    if (isRepeaterScreen(screen)) {
+      if (next === screen.next) return screen;
+      changed = true;
+      return { ...screen, next };
+    }
     let blocksChanged = false;
     const blocks = screen.blocks.map((block) => {
       if (!isBranchable(block) || !block.branches) return block;

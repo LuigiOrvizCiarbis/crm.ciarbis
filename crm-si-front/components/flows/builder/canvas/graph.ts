@@ -2,6 +2,7 @@ import type { Edge, Node } from "@xyflow/react"
 
 import type { GroupedErrors } from "@/lib/flow-builder/errors"
 import { terminalPositions } from "@/lib/flow-builder/layout"
+import { isRepeaterScreen, screenBlocks } from "@/lib/flow-builder/repeater"
 import {
   canBeEntry,
   canRouteTo,
@@ -11,7 +12,7 @@ import {
   type RoutePort,
   type ScreenPort,
 } from "@/lib/flow-builder/routing"
-import type { CanvasPosition, FlowDefinition, FlowScreen } from "@/lib/flow-builder/types"
+import type { CanvasPosition, ContentScreen, FlowDefinition, FlowScreen, RepeaterScreen } from "@/lib/flow-builder/types"
 
 export const START_ID = "__start"
 export const END_ID = "__end"
@@ -22,8 +23,7 @@ export const IN_HANDLE = "in"
 export const DROP_HANDLE = "drop"
 export const OUT_HANDLE = "out"
 
-export interface ScreenNodeData extends Record<string, unknown> {
-  screen: FlowScreen
+export interface StepNodeData extends Record<string, unknown> {
   index: number
   ports: ScreenPort[]
   errorCount: number
@@ -32,14 +32,23 @@ export interface ScreenNodeData extends Record<string, unknown> {
   pendingRemoval: boolean
 }
 
+export interface ScreenNodeData extends StepNodeData {
+  screen: ContentScreen
+}
+
+export interface RepeaterNodeData extends StepNodeData {
+  group: RepeaterScreen
+}
+
 export interface AppointmentNodeData extends Record<string, unknown> {
   errorCount: number
 }
 
 export type ScreenNodeType = Node<ScreenNodeData, "screen">
+export type RepeaterNodeType = Node<RepeaterNodeData, "repeater">
 export type AppointmentNodeType = Node<AppointmentNodeData, "appointment">
 export type TerminalNodeType = Node<Record<string, never>, "start" | "end">
-export type CanvasNode = ScreenNodeType | AppointmentNodeType | TerminalNodeType
+export type CanvasNode = ScreenNodeType | RepeaterNodeType | AppointmentNodeType | TerminalNodeType
 
 export interface RouteEdgeData extends Record<string, unknown> {
   /** Pantalla y salida de la que parte; null en las flechas fijas (inicio y reserva). */
@@ -61,7 +70,7 @@ function errorCount(screen: FlowScreen, errors: GroupedErrors): number {
     Object.values(fields ?? {}).reduce((total, messages) => total + messages.length, 0)
   return (
     count(screen.uid ? errors.screens[screen.uid] : undefined) +
-    screen.blocks.reduce((total, block) => total + count(block.uid ? errors.blocks[block.uid] : undefined), 0)
+    screenBlocks(screen).reduce((total, block) => total + count(block.uid ? errors.blocks[block.uid] : undefined), 0)
   )
 }
 
@@ -112,26 +121,27 @@ export function buildGraph({
       selectable: false,
       deletable: false,
     }),
-    ...placed.map((screen, index) =>
-      withMeasure<ScreenNodeType>({
+    ...placed.map((screen, index) => {
+      const base = {
         id: screen.uid ?? screen.id,
-        type: "screen",
         position: screen.position ?? { x: 0, y: 0 },
         selected: selectedId === screen.uid,
         draggable: interactive,
         deletable: false,
         ariaLabel: screen.title,
-        data: {
-          screen,
-          index,
-          ports: screenPorts(screen),
-          errorCount: errorCount(screen, errors),
-          unreachable: unreachable.has(index),
-          canRemove: screens.length > 1,
-          pendingRemoval: pendingRemovalUid === screen.uid,
-        },
-      }),
-    ),
+      }
+      const data = {
+        index,
+        ports: screenPorts(screen),
+        errorCount: errorCount(screen, errors),
+        unreachable: unreachable.has(index),
+        canRemove: screens.length > 1,
+        pendingRemoval: pendingRemovalUid === screen.uid,
+      }
+      return isRepeaterScreen(screen)
+        ? withMeasure<RepeaterNodeType>({ ...base, type: "repeater", data: { ...data, group: screen } })
+        : withMeasure<ScreenNodeType>({ ...base, type: "screen", data: { ...data, screen } })
+    }),
     ...(terminals.appointment
       ? [
           withMeasure<AppointmentNodeType>({

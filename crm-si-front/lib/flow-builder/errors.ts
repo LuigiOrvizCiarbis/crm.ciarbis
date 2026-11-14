@@ -1,3 +1,4 @@
+import { screenBlocks } from "./repeater";
 import type { DefinitionErrors } from "./validate";
 import type { FlowDefinition } from "./types";
 
@@ -30,7 +31,7 @@ export function groupErrors(errors: DefinitionErrors, definition: FlowDefinition
 
   for (const [path, messages] of Object.entries(errors)) {
     const block = BLOCK_PATH.exec(path);
-    const blockUid = block ? definition.screens[Number(block[1])]?.blocks[Number(block[2])]?.uid : undefined;
+    const blockUid = block ? screenBlocks(definition.screens[Number(block[1])])[Number(block[2])]?.uid : undefined;
     if (block && blockUid) {
       push((grouped.blocks[blockUid] ??= {}), block[3] ?? "", messages);
       continue;
@@ -91,7 +92,7 @@ export function firstScreenWithErrors(errors: GroupedErrors, definition: FlowDef
   const index = definition.screens.findIndex(
     (screen) =>
       (screen.uid !== undefined && errors.screens[screen.uid] !== undefined) ||
-      screen.blocks.some((block) => block.uid !== undefined && errors.blocks[block.uid] !== undefined),
+      screenBlocks(screen).some((block) => block.uid !== undefined && errors.blocks[block.uid] !== undefined),
   );
   return index === -1 ? null : index;
 }

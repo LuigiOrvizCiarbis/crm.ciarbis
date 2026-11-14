@@ -2,23 +2,34 @@
 
 namespace App\Services\Flows;
 
+use App\Services\Flows\Builder\FlowDefinitionExpander;
+
 /**
  * Una versión de un formulario: su Flow JSON y, si viene del constructor, la
  * definición y los mapeos compilados con ella. El endpoint, la respuesta y el
  * envío leen la versión que corre el cliente (`WhatsAppFlow::liveVersion`).
+ *
+ * `definition` es la que edita el administrador; `runtimeDefinition` es la
+ * misma con los grupos repetibles convertidos en pantallas (la que se
+ * compiló): caminos, recorrido y etiquetas se leen de esa.
  */
 final readonly class FlowVersion
 {
+    /** @var array<string, mixed>|null */
+    public ?array $runtimeDefinition;
+
     /**
      * @param  array<string, mixed>|null  $definition
-     * @param  list<array{response_key: string, target: string}>  $fieldMappings
+     * @param  list<array<string, mixed>>  $fieldMappings
      */
     public function __construct(
         public ?string $flowJson,
         public ?array $definition,
         public array $fieldMappings,
         public ?string $dataApiVersion,
-    ) {}
+    ) {
+        $this->runtimeDefinition = $definition !== null ? FlowDefinitionExpander::expand($definition) : null;
+    }
 
     /** @param  array<string, mixed>  $snapshot */
     public static function fromSnapshot(array $snapshot): self
@@ -95,25 +106,33 @@ final readonly class FlowVersion
         return $this->dataApiVersion !== null;
     }
 
-    /** @return list<array<string, mixed>>|null bloques de la pantalla del constructor; null fuera del constructor */
+    /** @return list<array<string, mixed>>|null bloques de la pantalla compilada; null fuera del constructor */
     public function screenBlocks(int $index): ?array
     {
-        return $this->definition['screens'][$index]['blocks'] ?? null;
+        return $this->runtimeDefinition['screens'][$index]['blocks'] ?? null;
     }
 
-    /** @return array<string, string> clave de cada pregunta del constructor → su etiqueta */
+    /** @return array<string, string> clave de cada pregunta del constructor → su etiqueta (en un grupo, con la fila) */
     public function questionLabels(): array
     {
         $labels = [];
 
-        foreach ($this->definition['screens'] ?? [] as $screen) {
+        foreach ($this->runtimeDefinition['screens'] ?? [] as $screen) {
             foreach ($screen['blocks'] ?? [] as $block) {
-                if (is_string($block['key'] ?? null) && filled($block['label'] ?? null)) {
-                    $labels[$block['key']] = (string) $block['label'];
+                $label = $block['display_label'] ?? $block['label'] ?? null;
+
+                if (is_string($block['key'] ?? null) && filled($label)) {
+                    $labels[$block['key']] = (string) $label;
                 }
             }
         }
 
         return $labels;
+    }
+
+    /** @return list<array<string, mixed>> grupos repetibles del formulario (ver FlowDefinitionExpander::groups) */
+    public function groups(): array
+    {
+        return $this->definition !== null ? FlowDefinitionExpander::groups($this->definition) : [];
     }
 }

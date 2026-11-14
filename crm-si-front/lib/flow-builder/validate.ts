@@ -23,6 +23,7 @@ import {
   MAX_IMAGES_PER_SCREEN,
   MAX_OPT_IN_PER_SCREEN,
   MAX_SCREENS,
+  OPTION_COUNT_MAX,
   OPTION_IMAGE_MAX_BYTES,
   OPTION_TITLE_MAX,
   TEXT_MAX,
@@ -34,7 +35,17 @@ import {
   optionCountMax,
 } from "./limits";
 import { hasBranches, isForwardTarget, resolveTarget, unreachableScreens } from "./routing";
-import type { FlowDefinition, QuestionBlock, Target } from "./types";
+import {
+  GROUP_FIELDS_MAX,
+  GROUP_ID_MAX,
+  REPEATER_QUESTION_MAX,
+  expandedScreenCount,
+  isRepeaterScreen,
+  repeaterLabelMax,
+  screenBlocks,
+  snapshotMatches,
+} from "./repeater";
+import type { FlowDefinition, QuestionBlock, RepeaterScreen, Target } from "./types";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -71,6 +82,8 @@ export function validateDefinition(
   if (screens.length < 1 || screens.length > MAX_SCREENS) {
     add("screens", t("flows.builder.errors.screensCount", { max: MAX_SCREENS }));
   }
+  const generated = expandedScreenCount(screens);
+  if (generated > MAX_SCREENS) add("screens", t("flows.builder.errors.screensGenerated", { count: generated, max: MAX_SCREENS }));
 
   const keyUses = new Map<string, string[]>();
   const questions: QuestionBlock[] = [];
@@ -86,8 +99,59 @@ export function validateDefinition(
     if (bytes > maxBytes) add(path, t("flows.builder.errors.imageTooLarge", { max: Math.round(maxBytes / 1000) }));
   };
 
+  const validateRepeater = (group: RepeaterScreen, path: string) => {
+    keyUses.set(group.key, [...(keyUses.get(group.key) ?? []), `${path}.key`]);
+    if (!KEY_PATTERN.test(group.key)) add(`${path}.key`, t("flows.builder.errors.keyFormat"));
+    else if (isReservedKey(group.key)) add(`${path}.key`, t("flows.builder.errors.keyReserved"));
+    else if (hasForbiddenKeyPrefix(group.key)) add(`${path}.key`, t("flows.builder.errors.keyRequiredPrefix"));
+    if (charCount(group.id) > GROUP_ID_MAX) add(`${path}.id`, t("flows.builder.errors.screenId"));
+
+    checkLength(`${path}.title`, group.title, Number.POSITIVE_INFINITY);
+    checkLength(`${path}.row_title`, group.row_title, Number.POSITIVE_INFINITY);
+    checkLength(`${path}.footer_label`, group.footer_label, FOOTER_LABEL_MAX);
+    checkLength(`${path}.more_label`, group.more_label, REPEATER_QUESTION_MAX);
+
+    // Sin los campos del CRM (no cargaron) el backend valida la copia.
+    const field = fields?.find((item) => item.key === group.field_key);
+    if (fields !== null && (!field || field.type !== "repeater")) {
+      add(`${path}.field_key`, t("flows.builder.errors.repeaterField"));
+      return;
+    }
+    if (field && !snapshotMatches(group, field)) {
+      add(`${path}.fields`, t("flows.builder.errors.repeaterStale", { field: field.label }));
+      return;
+    }
+
+    const minRows = Math.max(group.min_rows, 1);
+    const maxRows = field?.options?.max_items ?? 10;
+    if (!Number.isInteger(group.max_rows) || group.max_rows < minRows || group.max_rows > maxRows) {
+      add(`${path}.max_rows`, t("flows.builder.errors.repeaterRows", { min: minRows, max: maxRows }));
+    }
+    if (group.ask_first) {
+      if (group.min_rows > 0) add(`${path}.ask_first`, t("flows.builder.errors.repeaterAskFirst"));
+      else checkLength(`${path}.ask_first_label`, group.ask_first_label, REPEATER_QUESTION_MAX);
+    }
+    if (group.fields.length === 0 || group.fields.length > GROUP_FIELDS_MAX) {
+      add(`${path}.fields`, t("flows.builder.errors.repeaterFieldsCount", { max: GROUP_FIELDS_MAX }));
+    }
+    group.fields.forEach((item, i) => {
+      checkLength(`${path}.fields.${i}.label`, item.label, repeaterLabelMax(item));
+      const choices = item.choices ?? [];
+      if (item.type === "select" && (choices.length === 0 || choices.length > OPTION_COUNT_MAX.dropdown || choices.some((choice) => charCount(choice) > OPTION_TITLE_MAX))) {
+        add(`${path}.fields.${i}.choices`, t("flows.builder.errors.repeaterChoices", { max: OPTION_COUNT_MAX.dropdown, length: OPTION_TITLE_MAX }));
+      }
+    });
+    if (group.fields.filter((item) => item.type === "boolean").length > MAX_OPT_IN_PER_SCREEN) {
+      add(`${path}.fields`, t("flows.builder.errors.optInMax", { max: MAX_OPT_IN_PER_SCREEN }));
+    }
+  };
+
   screens.forEach((screen, s) => {
     const screenPath = `screens.${s}`;
+    if (isRepeaterScreen(screen)) {
+      validateRepeater(screen, screenPath);
+      return;
+    }
     checkLength(`${screenPath}.title`, screen.title, Number.POSITIVE_INFINITY);
     checkLength(`${screenPath}.footer_label`, screen.footer_label, FOOTER_LABEL_MAX);
     if (screen.blocks.length === 0) add(`${screenPath}.blocks`, t("flows.builder.errors.screenEmpty"));
@@ -188,7 +252,14 @@ export function validateDefinition(
     if (paths.length > 1) paths.forEach((path) => add(path, t("flows.builder.errors.keyDuplicate")));
   }
 
-  if (questions.length === 0) add("screens", t("flows.builder.errors.noQuestions"));
+  // Las claves que genera un grupo (`<grupo>_<fila>_…`) no se pueden usar en preguntas.
+  const groupKeys = screens.filter(isRepeaterScreen).map((group) => group.key);
+  for (const [key, paths] of keyUses) {
+    const owner = groupKeys.find((group) => group !== key && new RegExp(`^${group}_(\\d+_(\\d+|more)|has)$`).test(key));
+    if (owner) paths.forEach((path) => add(path, t("flows.builder.errors.repeaterKeyReserved", { group: owner })));
+  }
+
+  if (questions.length === 0 && groupKeys.length === 0) add("screens", t("flows.builder.errors.noQuestions"));
   if (carousels > MAX_CAROUSELS) add("screens", t("flows.builder.errors.carouselsTotal", { max: MAX_CAROUSELS }));
   if (totalImageBytes > TOTAL_IMAGE_MAX_BYTES) {
     add("screens", t("flows.builder.errors.imagesTotal", { max: Math.round(TOTAL_IMAGE_MAX_BYTES / 1_000_000) }));
@@ -234,7 +305,7 @@ function validateRoutes(definition: FlowDefinition, add: (path: string, message:
     if (screen.next !== undefined) checkTarget(screen.next, s, `screens.${s}.next`);
 
     let branching = 0;
-    screen.blocks.forEach((block, b) => {
+    screenBlocks(screen).forEach((block, b) => {
       if (!hasBranches(block)) return;
       const path = `screens.${s}.blocks.${b}.branches`;
       branching += 1;

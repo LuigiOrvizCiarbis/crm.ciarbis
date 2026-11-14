@@ -16,6 +16,7 @@ use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppFlowSession;
 use App\Services\Flows\Builder\FlowDefinitionCompiler;
+use App\Services\Flows\FlowResponseService;
 use App\Services\Flows\WhatsAppFlowSessionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
@@ -250,6 +251,106 @@ class WhatsAppFlowEndpointTest extends TestCase
             $this->decrypt($response->getContent(), $aesKey, $iv)['data']['extension_message_response']['params'],
         );
         $this->assertSame(['PANTALLA_A', 'PANTALLA_B'], $session->fresh()->progress['path']);
+    }
+
+    public function test_a_repeater_group_validates_each_row_and_replaces_the_contact_list_when_it_ends(): void
+    {
+        $session = $this->petshopSession();
+
+        $this->submit($session, 'PANTALLA_A', ['dueno' => 'Ana']);
+
+        // Especie inválida: el error vuelve a la misma fila y no se guarda nada.
+        [$response, $aesKey, $iv] = $this->submit($session, 'PANTALLA_B', ['mascotas_1_1' => 'Luna', 'mascotas_1_2' => 'Iguana', 'mascotas_1_more' => 'si']);
+        $error = $this->decrypt($response->getContent(), $aesKey, $iv);
+        $this->assertSame('PANTALLA_B', $error['screen']);
+        $this->assertStringContainsString('Especie · Mascota 1', $error['data']['error_message']);
+
+        [$response, $aesKey, $iv] = $this->submit($session, 'PANTALLA_B', ['mascotas_1_1' => 'Luna', 'mascotas_1_2' => 'Gato', 'mascotas_1_more' => 'si']);
+        $this->assertSame('PANTALLA_C', $this->decrypt($response->getContent(), $aesKey, $iv)['screen']);
+        $this->assertSame([['nombre' => 'Vieja', 'especie' => 'Perro']], $session->conversation->contact->fresh()->custom_data['mascotas']);
+
+        [$response, $aesKey, $iv] = $this->submit($session, 'PANTALLA_C', ['mascotas_2_1' => ' Toby ', 'mascotas_2_2' => 'Perro', 'mascotas_2_more' => 'no']);
+        $this->assertSame('SUCCESS', $this->decrypt($response->getContent(), $aesKey, $iv)['screen']);
+
+        $this->assertSame(
+            [['nombre' => 'Luna', 'especie' => 'Gato'], ['nombre' => 'Toby', 'especie' => 'Perro']],
+            $session->conversation->contact->fresh()->custom_data['mascotas'],
+        );
+
+        $parsed = app(FlowResponseService::class)->parse(
+            ['response_json' => json_encode(['flow_token' => $session->flow_token])],
+            $session->flow->whatsapp_config_id,
+            null,
+        );
+        $this->assertSame(['dueno' => 'Ana', 'mascotas' => [['nombre' => 'Luna', 'especie' => 'Gato'], ['nombre' => 'Toby', 'especie' => 'Perro']]], $parsed->response);
+        $this->assertSame([['key' => 'nombre', 'label' => 'Nombre'], ['key' => 'especie', 'label' => 'Especie']], $parsed->interactive['groups'][0]['columns']);
+        $this->assertStringContainsString('Tus mascotas: Luna, Gato · Toby, Perro', $parsed->content);
+    }
+
+    public function test_going_back_inside_a_repeater_group_drops_the_abandoned_rows(): void
+    {
+        $session = $this->petshopSession();
+
+        $this->submit($session, 'PANTALLA_A', ['dueno' => 'Ana']);
+        $this->submit($session, 'PANTALLA_B', ['mascotas_1_1' => 'Luna', 'mascotas_1_2' => 'Gato', 'mascotas_1_more' => 'si']);
+        $this->submit($session, 'PANTALLA_C', ['mascotas_2_1' => 'Toby', 'mascotas_2_2' => 'Perro', 'mascotas_2_more' => 'si']);
+
+        // Volvió a la primera mascota y dijo que no quería agregar otra.
+        [$response, $aesKey, $iv] = $this->submit($session, 'PANTALLA_B', ['mascotas_1_1' => 'Luna', 'mascotas_1_2' => 'Gato', 'mascotas_1_more' => 'no']);
+
+        $this->assertSame('SUCCESS', $this->decrypt($response->getContent(), $aesKey, $iv)['screen']);
+        $this->assertSame([['nombre' => 'Luna', 'especie' => 'Gato']], $session->conversation->contact->fresh()->custom_data['mascotas']);
+    }
+
+    /**
+     * Petshop: los datos del dueño y después un grupo «Mascotas» (nombre y
+     * especie) de hasta 3 filas. El contacto ya tenía una mascota cargada.
+     */
+    private function petshopSession(): WhatsAppFlowSession
+    {
+        $session = $this->context();
+        $choices = ['Gato', 'Perro', 'Pájaro'];
+        ContactField::create([
+            'tenant_id' => $session->tenant_id,
+            'key' => 'mascotas',
+            'label' => 'Mascotas',
+            'type' => ContactFieldType::Repeater,
+            'options' => ['min_items' => 1, 'max_items' => 10, 'fields' => [
+                ['key' => 'nombre', 'label' => 'Nombre', 'type' => 'text', 'is_required' => true],
+                ['key' => 'especie', 'label' => 'Especie', 'type' => 'select', 'options' => ['choices' => $choices]],
+            ]],
+            'display_order' => 1,
+        ]);
+        $session->conversation->contact->update(['custom_data' => ['mascotas' => [['nombre' => 'Vieja', 'especie' => 'Perro']]]]);
+
+        return $this->compileInto($session, ['schema' => 1, 'appointment' => null, 'screens' => [
+            ['id' => 'datos', 'title' => 'Tus datos', 'footer_label' => 'Seguir', 'blocks' => [
+                ['type' => 'short_text', 'key' => 'dueno', 'label' => 'Tu nombre', 'input_type' => 'text', 'required' => true],
+            ]],
+            [
+                'type' => 'repeater', 'id' => 'mascotas', 'key' => 'mascotas', 'field_key' => 'mascotas',
+                'title' => 'Tus mascotas', 'row_title' => 'Mascota {n}', 'footer_label' => 'Seguir',
+                'more_label' => '¿Agregar otra mascota?', 'max_rows' => 3, 'min_rows' => 1, 'ask_first' => false,
+                'fields' => [
+                    ['key' => 'nombre', 'label' => 'Nombre', 'type' => 'text', 'required' => true],
+                    ['key' => 'especie', 'label' => 'Especie', 'type' => 'select', 'required' => false, 'choices' => $choices],
+                ],
+                'next' => 'end',
+            ],
+        ]]);
+    }
+
+    private function compileInto(WhatsAppFlowSession $session, array $definition): WhatsAppFlowSession
+    {
+        $compiled = (new FlowDefinitionCompiler)->compile($definition);
+        $session->flow->update([
+            'builder_definition' => $definition,
+            'field_mappings' => $compiled->fieldMappings,
+            'flow_json' => json_encode($compiled->flowJson),
+            'data_api_version' => FlowDefinitionCompiler::DATA_API_VERSION,
+        ]);
+
+        return $session->fresh();
     }
 
     /**

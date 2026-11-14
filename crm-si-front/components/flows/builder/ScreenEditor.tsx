@@ -21,7 +21,7 @@ import type { ContactField } from "@/lib/api/contact-fields"
 import type { GroupedErrors } from "@/lib/flow-builder/errors"
 import { FOOTER_LABEL_MAX } from "@/lib/flow-builder/limits"
 import { hasBranches } from "@/lib/flow-builder/routing"
-import type { FlowBlock, FlowScreen } from "@/lib/flow-builder/types"
+import type { ContentScreen, FlowBlock, FlowScreen } from "@/lib/flow-builder/types"
 import { cn } from "@/lib/utils"
 
 import { AddBlockMenu } from "./AddBlockMenu"
@@ -33,7 +33,7 @@ import { newUid } from "./useFlowBuilderState"
 const NO_ERRORS: Record<string, string[]> = {}
 
 interface ScreenEditorProps {
-  screen: FlowScreen
+  screen: ContentScreen
   index: number
   /** Todas las pantallas: los destinos se eligen entre las posteriores. */
   screens: FlowScreen[]
