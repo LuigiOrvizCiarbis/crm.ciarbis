@@ -83,6 +83,7 @@ import { HumanHandoffBanner } from "@/components/chat/HumanHandoffBanner"
 import { MessageList } from "@/components/chat/MessageList"
 import { applyReactionToggle } from "@/components/chat/messageThreadUtils"
 import { MessageInput } from "@/components/chat/MessageInput"
+import { toReplyPreview } from "@/components/chat/QuotedMessage"
 import { MailMessageInput } from "@/components/chat/MailMessageInput"
 import { ConversationList } from "@/components/chat/ConversationList"
 import { FilteredConversationsHeader } from "@/components/chat/FilteredConversationsHeader"
@@ -514,6 +515,32 @@ export default function ChatsPage() {
   const hasMoreConversationsRef = useRef(false)
   const isLoadingMoreConversationsRef = useRef(false)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
+  // Mensaje citado por el próximo envío en vivo (texto/imagen/audio).
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null)
+  // Estado vigente para los callbacks de envíos en vuelo, que cierran sobre valores viejos.
+  const selectedConversationIdRef = useRef(selectedConversationId)
+  const editingMessageRef = useRef(editingMessage)
+  useEffect(() => {
+    selectedConversationIdRef.current = selectedConversationId
+    editingMessageRef.current = editingMessage
+  }, [selectedConversationId, editingMessage])
+
+  /**
+   * Vuelve a citar tras un envío fallido, salvo que el usuario ya haya seguido:
+   * eligió otra cita, está editando o cambió de conversación.
+   */
+  const restoreReplyTarget = useCallback((target: Message | null) => {
+    if (!target || editingMessageRef.current) return
+    if (target.conversation_id !== selectedConversationIdRef.current) return
+    setReplyingTo((current) => current ?? target)
+  }, [])
+
+  /** Cierra la cita abierta tras un envío que no la usa (plantilla, contactos, flow), si sigue siendo la misma. */
+  const dropReplyTarget = useCallback((target: Message | null) => {
+    if (!target) return
+    setReplyingTo((current) => (current?.id === target.id ? null : current))
+  }, [])
+
   const [aiDraft, setAiDraft] = useState<ManualAiDraft | null>(null)
 
   const [selectionMode, setSelectionMode] = useState(false)
@@ -1116,12 +1143,14 @@ export default function ChatsPage() {
   useEffect(() => {
     if (!selectedConversationId) {
       setCurrentConversation(null);
+      setReplyingTo(null);
       setAiDraft(null);
       return;
     }
 
     // Clear stale data immediately so we never show conversation A under conversation B's header
     setCurrentConversation(null);
+    setReplyingTo(null);
     setConversationLoadError(null);
     setLoadMoreMessagesFailed(false);
 
@@ -1435,6 +1464,9 @@ export default function ChatsPage() {
     if (!selectedConversationId) return;
     const conversationId = selectedConversationId;
     const previousLastMessage = conversationsRef.current.find((c) => c.id === conversationId)?.last_message;
+    // La plantilla no cita: se cierra la respuesta abierta y vuelve si el envío falla.
+    const replyTarget = replyingTo;
+    dropReplyTarget(replyTarget);
 
     const tempId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticMessage: any = {
@@ -1465,6 +1497,7 @@ export default function ChatsPage() {
 
     // Igual que con los mensajes de texto: si falla, el optimista se quita del hilo.
     return () => {
+      restoreReplyTarget(replyTarget);
       setCurrentConversation((prev) => (
         prev && prev.id === conversationId
           ? { ...prev, messages: (prev.messages || []).filter((m) => String(m.id) !== tempId) }
@@ -1478,6 +1511,7 @@ export default function ChatsPage() {
   };
 
   const handleEditMessage = useCallback((msg: Message) => {
+    setReplyingTo(null);
     setEditingMessage(msg);
     setMessage(msg.content || "");
   }, []);
@@ -1486,6 +1520,14 @@ export default function ChatsPage() {
     setEditingMessage(null);
     setMessage("");
   }, []);
+
+  const handleReplyMessage = useCallback((msg: Message) => {
+    if (editingMessage) setMessage("");
+    setEditingMessage(null);
+    setReplyingTo(msg);
+  }, [editingMessage]);
+
+  const handleCancelReply = useCallback(() => setReplyingTo(null), []);
 
   const handleSaveEdit = async (content: string) => {
     if (!editingMessage) return;
@@ -1691,9 +1733,11 @@ export default function ChatsPage() {
     if (!selectedConversationId) return;
 
     const textToSend = content;
+    const replyTarget = replyingTo;
     const mediaType = media?.type.startsWith("audio/") ? "audio" : media ? "image" : "text";
 
     setMessage("");
+    setReplyingTo(null);
 
     const tempId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticMessage: any = {
@@ -1708,6 +1752,8 @@ export default function ChatsPage() {
       direction: "outbound",
       sender_type: "user",
       sender_id: currentUserId,
+      reply_to_message_id: replyTarget?.id ?? null,
+      reply_to: replyTarget ? toReplyPreview(replyTarget) : null,
     };
 
     setCurrentConversation((prev) => {
@@ -1736,7 +1782,7 @@ export default function ChatsPage() {
     });
 
     try {
-      const savedMessage = await sendMessage(selectedConversationId, textToSend, media, voice);
+      const savedMessage = await sendMessage(selectedConversationId, textToSend, media, voice, replyTarget?.id);
 
       setCurrentConversation((prev) => {
         if (!prev) return prev;
@@ -1798,6 +1844,7 @@ export default function ChatsPage() {
       });
 
       setMessage(textToSend);
+      restoreReplyTarget(replyTarget);
 
       setCurrentConversation((prev) => {
         if (!prev) return prev;
@@ -1845,8 +1892,10 @@ export default function ChatsPage() {
 
   const handleShareContacts = async (contactIds: number[]) => {
     if (!selectedConversationId) return
+    const replyTarget = replyingTo
     try {
       const savedMessage = await sendContactsMessage(selectedConversationId, contactIds)
+      dropReplyTarget(replyTarget)
       setCurrentConversation((prev) => prev ? { ...prev, aiAutoreplyEnabled: false, messages: [...(prev.messages || []), savedMessage] } : prev)
       setConversations((prev) => {
         const index = prev.findIndex((conversation) => conversation.id === selectedConversationId)
@@ -1865,7 +1914,9 @@ export default function ChatsPage() {
   const handleSendFlow = async (input: SendFlowInput) => {
     if (!selectedConversationId) return
     const conversationId = selectedConversationId
+    const replyTarget = replyingTo
     const savedMessage = await sendFlowMessage(conversationId, input)
+    dropReplyTarget(replyTarget)
     setCurrentConversation((prev) => prev && prev.id === conversationId ? { ...prev, aiAutoreplyEnabled: false, messages: [...(prev.messages || []), savedMessage] } : prev)
     setConversations((prev) => {
       const index = prev.findIndex((conversation) => conversation.id === conversationId)
@@ -2696,6 +2747,8 @@ export default function ChatsPage() {
                 onEditMessage={handleEditMessage}
                 onDeleteMessage={handleDeleteMessage}
                 onReactMessage={handleReactToMessage}
+                onReplyMessage={handleReplyMessage}
+                contactName={activeConversation?.contact?.name}
                 onSaveContact={handleSaveSharedContact}
                 currentUserId={currentUserId}
                 isAdmin={isAdmin}
@@ -2748,6 +2801,9 @@ export default function ChatsPage() {
                   channelType={activeConversation?.channel?.type}
                   editingMessage={editingMessage}
                   onCancelEdit={handleCancelEdit}
+                  replyingTo={replyingTo}
+                  onCancelReply={handleCancelReply}
+                  contactName={activeConversation?.contact?.name}
                   expansionContext={hotkeyExpansionContext}
                   contactLanguage={(currentConversation ?? activeConversation)?.contactLanguage ?? "es"}
                   onContactLanguageChange={handleTranslationLanguageChange}

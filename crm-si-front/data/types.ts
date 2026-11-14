@@ -381,6 +381,24 @@ export interface Message {
   updated_at?: string
   interactions?: Array<{ type: string; value?: string | null; content?: string | null; occurred_at: string }>
   reaction_summary?: MessageReaction[] | null
+  reply_to_message_id?: number | null
+  reply_to?: MessageReplyPreview | null
+}
+
+export interface MessageReplyPreview {
+  id: number
+  conversation_id: number
+  content: string | null
+  message_type?: Message["message_type"]
+  sender_type: Message["sender_type"]
+  sender_id?: number | null
+  sender?: { id: number; name: string } | null
+  direction: Message["direction"]
+  media_url?: string | null
+  media_full_url?: string | null
+  media_mime_type?: string | null
+  media_filename?: string | null
+  deleted_at?: string | null
 }
 
 export interface SharedContact {

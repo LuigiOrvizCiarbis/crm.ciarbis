@@ -36,7 +36,13 @@ function withAudioFilename(file: File): File {
   return new File([file], name, { type: file.type });
 }
 
-export async function sendMessage(conversationId: number, content: string, media?: File, voice = false) {
+export async function sendMessage(
+  conversationId: number,
+  content: string,
+  media?: File,
+  voice = false,
+  replyToMessageId?: number,
+) {
   if (media) {
     const type = resolveMediaType(media);
     const outgoingFile = type === "audio" ? withAudioFilename(media) : media;
@@ -46,6 +52,7 @@ export async function sendMessage(conversationId: number, content: string, media
     formData.append(type, outgoingFile);
     if (voice) formData.append("voice", "1");
     if (content && type === "image") formData.append("content", content);
+    if (replyToMessageId) formData.append("reply_to_message_id", String(replyToMessageId));
 
     const res = await fetch("/api/messages", {
       method: "POST",
@@ -76,6 +83,7 @@ export async function sendMessage(conversationId: number, content: string, media
       conversation_id: conversationId,
       content,
       type: "text",
+      reply_to_message_id: replyToMessageId,
     }),
   });
 

@@ -8,7 +8,7 @@ import { EmojiPicker } from "./EmojiPicker"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useToast } from "@/components/Toast"
-import { Paperclip, Smile, Send, X, Pencil, Check, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound, CalendarClock, ClipboardList } from "lucide-react"
+import { Paperclip, Smile, Send, X, Pencil, Check, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound, CalendarClock, ClipboardList, Reply } from "lucide-react"
 import { KeyboardEvent, SyntheticEvent, useMemo, useRef, useState, useEffect } from "react"
 import dynamic from "next/dynamic"
 import Image from "next/image"
@@ -18,6 +18,7 @@ import { expandHotkey, parseSlashCommand, type HotkeyExpansionContext } from "@/
 import { HotkeyAutocomplete } from "./HotkeyAutocomplete"
 import type { ManualAiDraft } from "@/lib/api/manual-ai-drafts"
 import { VoiceRecorder } from "./VoiceRecorder"
+import { QuotedMessage, toReplyPreview } from "./QuotedMessage"
 import { AudioPlayer } from "./AudioPlayer"
 import { ContactShareDialog } from "./ContactShareDialog"
 import { FlowPickerDialog } from "./FlowPickerDialog"
@@ -45,6 +46,10 @@ interface MessageInputProps {
   supportsTemplates?: boolean
   editingMessage?: Message | null
   onCancelEdit?: () => void
+  /** Mensaje que se está citando: el destino lo maneja la página, acá sólo el banner. */
+  replyingTo?: Message | null
+  onCancelReply?: () => void
+  contactName?: string | null
   expansionContext?: HotkeyExpansionContext
   contactLanguage: TranslationLanguage
   onContactLanguageChange: (language: TranslationLanguage) => void | Promise<void>
@@ -83,6 +88,9 @@ export function MessageInput({
   supportsTemplates = true,
   editingMessage,
   onCancelEdit,
+  replyingTo,
+  onCancelReply,
+  contactName,
   expansionContext,
   contactLanguage,
   onContactLanguageChange,
@@ -193,10 +201,10 @@ export function MessageInput({
   }, [selectedMedia])
 
   useEffect(() => {
-    if (editingMessage) {
+    if (editingMessage || replyingTo) {
       inputRef.current?.focus()
     }
-  }, [editingMessage])
+  }, [editingMessage, replyingTo])
 
   useEffect(() => {
     setOriginalDraft(null)
@@ -256,6 +264,10 @@ export function MessageInput({
     if (e.key === "Escape" && isEditing && onCancelEdit) {
       e.preventDefault()
       onCancelEdit()
+    }
+    if (e.key === "Escape" && !isEditing && replyingTo && onCancelReply) {
+      e.preventDefault()
+      onCancelReply()
     }
   }
 
@@ -364,7 +376,8 @@ export function MessageInput({
 
   const canSend = isAudio ? selectedMedia : value.trim() || selectedMedia
   const emojiPickerDisabled = composerDisabled || isAudio
-  const canSchedule = !!onSchedule && !isEditing && !composerDisabled && !!canSend
+  // Programar no cita: con una respuesta abierta se ofrece sólo el envío en vivo.
+  const canSchedule = !!onSchedule && !isEditing && !replyingTo && !composerDisabled && !!canSend
 
   const handleEmojiSelect = (emoji: string) => {
     const input = inputRef.current
@@ -565,6 +578,20 @@ export function MessageInput({
             onClick={onCancelEdit}
             className="shrink-0 hover:text-foreground transition-colors"
             aria-label={t("chats.cancelEditing")}
+          >
+            <X className="w-4 h-4" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
+      {replyingTo && !isEditing && (
+        <div className="px-4 pt-3 flex items-start gap-2">
+          <Reply className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <QuotedMessage quoted={toReplyPreview(replyingTo)} contactName={contactName} className="flex-1 min-w-0" />
+          <button
+            onClick={onCancelReply}
+            className="mt-1 shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+            aria-label={t("chats.cancelReply")}
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
@@ -882,7 +909,7 @@ export function MessageInput({
               onSend={(file) => onSend("", file, true)}
             />
           )}
-          {onSchedule && !isEditing && !isVoiceComposerActive && (
+          {onSchedule && !isEditing && !replyingTo && !isVoiceComposerActive && (
             <Popover open={isScheduleOpen} onOpenChange={setIsScheduleOpen}>
               <PopoverTrigger asChild>
                 <Button

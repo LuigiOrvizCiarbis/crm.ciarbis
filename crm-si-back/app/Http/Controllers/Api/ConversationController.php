@@ -259,7 +259,7 @@ class ConversationController extends Controller
         // Query directa y no eager load con limit: el eager load numera con row_number()
         // todos los mensajes de la conversación; así corta en 20 con el índice (conversation_id, created_at).
         $messages = $conversation->messages()
-            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview'])
+            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview', 'replyTo'])
             ->whereNull('mail_parent_message_id')
             ->orderBy('created_at', 'desc')
             ->limit(20)
@@ -297,16 +297,18 @@ class ConversationController extends Controller
 
     /**
      * Adjunta `sender: {id, name}` a cada mensaje inbound de una conversación
-     * de grupo. Message::sender() es un morphTo sin morph map registrado (el
-     * valor guardado es el string plano 'contact', no una clase), así que no
-     * se puede hacer ->load('sender'): se resuelve a mano en batch por
-     * sender_id contra Contact.
+     * de grupo, y a los mensajes que citan. Message::sender() es un morphTo sin
+     * morph map registrado (el valor guardado es el string plano 'contact', no
+     * una clase), así que no se puede hacer ->load('sender'): se resuelve a
+     * mano en batch por sender_id contra Contact.
      *
      * @param  Collection<int, Message>  $messages
      */
     private function attachSenderNames(Collection $messages): void
     {
-        $contactIds = $messages
+        $targets = $messages->concat($messages->pluck('replyTo')->filter());
+
+        $contactIds = $targets
             ->where('sender_type', SenderType::CONTACT)
             ->pluck('sender_id')
             ->filter()
@@ -318,7 +320,7 @@ class ConversationController extends Controller
 
         $names = Contact::whereIn('id', $contactIds)->pluck('name', 'id');
 
-        $messages->each(function ($message) use ($names) {
+        $targets->each(function ($message) use ($names) {
             if ($message->sender_type === SenderType::CONTACT && $names->has($message->sender_id)) {
                 $message->setAttribute('sender', ['id' => $message->sender_id, 'name' => $names->get($message->sender_id)]);
             }
@@ -336,7 +338,7 @@ class ConversationController extends Controller
         // Obtenemos mensajes ordenados por fecha descendente (del más nuevo al más viejo)
         // Laravel Paginator se encarga de 'page=1', 'page=2', etc.
         $messages = $conversation->messages()
-            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview'])
+            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview', 'replyTo'])
             ->whereNull('mail_parent_message_id')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);

@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
 
 class Message extends Model
 {
@@ -41,6 +42,32 @@ class Message extends Model
         'error_message',
         'edited_at',
         'original_content',
+        'reply_to_message_id',
+    ];
+
+    /**
+     * Columnas mínimas para renderizar la cita de un mensaje respondido.
+     */
+    private const REPLY_PREVIEW_COLUMNS = [
+        'id',
+        'conversation_id',
+        'sender_type',
+        'sender_id',
+        'direction',
+        'message_type',
+        'deleted_at',
+    ];
+
+    /**
+     * Columnas de la cita que se blanquean si el original está borrado: el
+     * front sólo muestra "eliminado", y la API no debe seguir exponiendo el
+     * texto ni la media de un mensaje que el contacto borró.
+     */
+    private const REPLY_PREVIEW_REDACTED_COLUMNS = [
+        'content',
+        'media_url',
+        'media_mime_type',
+        'media_filename',
     ];
 
     protected $casts = [
@@ -148,6 +175,51 @@ class Message extends Model
     public function reactions(): HasMany
     {
         return $this->hasMany(MessageReaction::class)->orderBy('reacted_at');
+    }
+
+    /**
+     * Mensaje citado. withTrashed: si el original se borró después, la cita
+     * sigue mostrándose como "Este mensaje fue eliminado", sin su contenido.
+     */
+    public function replyTo(): BelongsTo
+    {
+        $redacted = array_map(
+            fn (string $column) => DB::raw("CASE WHEN deleted_at IS NULL THEN {$column} END AS {$column}"),
+            self::REPLY_PREVIEW_REDACTED_COLUMNS,
+        );
+
+        return $this->belongsTo(self::class, 'reply_to_message_id')
+            ->withTrashed()
+            ->select([...self::REPLY_PREVIEW_COLUMNS, ...$redacted]);
+    }
+
+    /**
+     * Resuelve el id local del mensaje citado a partir del id externo del canal
+     * (wamid / mid). Acotar por conversación también acota por tenant; un
+     * destino que no está en el CRM devuelve null y no se muestra cita.
+     */
+    public static function replyTargetIdByExternalId(int $conversationId, ?string $externalId): ?int
+    {
+        if ($externalId === null || $externalId === '') {
+            return null;
+        }
+
+        return self::withTrashed()
+            ->where('conversation_id', $conversationId)
+            ->where('external_id', $externalId)
+            ->value('id');
+    }
+
+    /**
+     * Carga la cita para broadcasts y respuestas de un mensaje recién creado.
+     */
+    public function loadReplyPreview(): static
+    {
+        if ($this->reply_to_message_id !== null) {
+            $this->load('replyTo');
+        }
+
+        return $this;
     }
 
     /**
