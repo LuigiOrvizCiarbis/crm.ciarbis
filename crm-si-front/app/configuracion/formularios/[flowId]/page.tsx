@@ -147,16 +147,24 @@ function RestrictedNotice() {
   )
 }
 
+/** Esqueleto con la forma del diagrama: barra, tres cajas en recorrido y el panel lateral. */
 function BuilderSkeleton() {
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="border-b border-border px-4 py-3 md:px-6">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="border-b border-border px-4 py-3 md:px-5">
         <Skeleton className="h-9 w-full max-w-md" />
       </div>
-      <div className="mx-auto grid w-full max-w-[1400px] gap-6 px-4 pt-6 md:px-6 lg:grid-cols-[260px_minmax(0,1fr)_320px]">
-        <Skeleton className="h-64" />
-        <Skeleton className="h-96" />
-        <Skeleton className="hidden h-[560px] lg:block" />
+      <div className="flex min-h-[480px] flex-1">
+        <div className="flex flex-1 items-center justify-center gap-16 px-6">
+          <Skeleton className="h-40 w-56" />
+          <div className="flex flex-col gap-8">
+            <Skeleton className="h-28 w-56" />
+            <Skeleton className="h-28 w-56" />
+          </div>
+        </div>
+        <div className="hidden w-[400px] border-l border-border p-5 lg:block xl:w-[440px]">
+          <Skeleton className="h-6 w-40" />
+        </div>
       </div>
     </div>
   )

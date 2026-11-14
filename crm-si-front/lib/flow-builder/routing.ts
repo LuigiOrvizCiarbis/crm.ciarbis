@@ -127,7 +127,7 @@ export function unreachableScreens(screens: FlowScreen[]): Set<number> {
   return unreachable;
 }
 
-/** Al borrar una pantalla, los destinos que la apuntaban vuelven al valor por defecto. */
+/** Al borrar una pantalla, los destinos que la apuntaban pasan al final. */
 export function dropScreenReferences(definition: FlowDefinition, screenId: string): FlowDefinition {
   const removed = screenTarget(screenId);
   return {
@@ -136,14 +136,18 @@ export function dropScreenReferences(definition: FlowDefinition, screenId: strin
       let blocksChanged = false;
       const blocks = screen.blocks.map((block) => {
         if (!isBranchable(block) || !block.branches) return block;
-        const entries = Object.entries(block.branches).filter(([, target]) => target !== removed);
-        if (entries.length === Object.keys(block.branches).length) return block;
+        if (!Object.values(block.branches).includes(removed)) return block;
         blocksChanged = true;
-        return { ...block, branches: Object.fromEntries(entries) };
+        return {
+          ...block,
+          branches: Object.fromEntries(
+            Object.entries(block.branches).map(([id, target]): [string, Target] => [id, target === removed ? "end" : target]),
+          ),
+        };
       });
       const nextChanged = screen.next === removed;
       if (!blocksChanged && !nextChanged) return screen;
-      return { ...screen, blocks, ...(nextChanged ? { next: DEFAULT_TARGET } : {}) };
+      return { ...screen, blocks, ...(nextChanged ? { next: "end" as Target } : {}) };
     }),
   };
 }
@@ -187,4 +191,153 @@ export function usesEndpoint(definition: FlowDefinition): boolean {
     definition.screens.length > 1 ||
     definition.screens.some((screen) => screen.blocks.some((block) => isQuestionBlock(block) && !!block.maps_to))
   );
+}
+
+/** Salida de una pantalla en el diagrama: el botón final (`next`) o una opción de la pregunta que cambia el camino. */
+export type RoutePort = "next" | `option:${string}`;
+
+const OPTION_PORT_PREFIX = "option:";
+
+export function optionPort(optionId: string): RoutePort {
+  return `${OPTION_PORT_PREFIX}${optionId}`;
+}
+
+export function portOptionId(port: string): string | null {
+  return port.startsWith(OPTION_PORT_PREFIX) ? port.slice(OPTION_PORT_PREFIX.length) : null;
+}
+
+export interface ScreenPort {
+  port: RoutePort;
+  target: Target;
+  option?: ChoiceOption;
+}
+
+/**
+ * Salidas activas de una pantalla, en el orden en que se dibujan: una por opción de la pregunta que
+ * cambia el camino y, si esa pregunta es opcional o no existe, la del botón final.
+ */
+export function screenPorts(screen: FlowScreen): ScreenPort[] {
+  const block = branchingBlock(screen);
+  const next: ScreenPort = { port: "next", target: screen.next ?? DEFAULT_TARGET };
+  if (!block) return [next];
+  const ports: ScreenPort[] = block.options.map((option) => ({
+    port: optionPort(option.id),
+    target: optionTarget(block, option, screen),
+    option,
+  }));
+  return block.required ? ports : [...ports, next];
+}
+
+/** La pantalla con la salida `port` apuntando a `target`. */
+export function withPortTarget(screen: FlowScreen, port: RoutePort, target: Target): FlowScreen {
+  const optionId = portOptionId(port);
+  if (optionId === null) return { ...screen, next: target };
+  const block = branchingBlock(screen);
+  if (!block) return screen;
+  return {
+    ...screen,
+    blocks: screen.blocks.map((item) => (item === block ? { ...block, branches: { ...block.branches, [optionId]: target } } : item)),
+  };
+}
+
+/** Todos los destinos guardados en la pantalla, también los que hoy no se usan (el botón de una pregunta obligatoria). */
+function storedTargets(screen: FlowScreen): Target[] {
+  const targets: Target[] = [screen.next ?? DEFAULT_TARGET];
+  for (const block of screen.blocks) {
+    if (isBranchable(block) && block.branches) targets.push(...Object.values(block.branches));
+  }
+  return targets;
+}
+
+function storedSuccessors(screens: FlowScreen[], index: number): number[] {
+  return storedTargets(screens[index])
+    .map((target) => resolveTarget(target, index, screens))
+    .filter((resolved): resolved is number => typeof resolved === "number");
+}
+
+/** Si desde la pantalla `from` se llega a `to` siguiendo los destinos guardados. */
+function reaches(screens: FlowScreen[], from: number, to: number): boolean {
+  const seen = new Set<number>();
+  const stack = [from];
+  while (stack.length > 0) {
+    const index = stack.pop() as number;
+    if (index === to) return true;
+    if (seen.has(index)) continue;
+    seen.add(index);
+    stack.push(...storedSuccessors(screens, index));
+  }
+  return false;
+}
+
+/**
+ * Si la pantalla `from` puede llevar a la pantalla `to`. Meta no admite volver atrás: no se puede
+ * apuntar a la primera pantalla, a sí misma ni a una pantalla desde la que se llega a `from`.
+ */
+export function canRouteTo(screens: FlowScreen[], from: number, to: number): boolean {
+  return to > 0 && to !== from && to < screens.length && !reaches(screens, to, from);
+}
+
+/** Si `index` puede pasar a ser la primera pantalla: ninguna otra la apunta. */
+export function canBeEntry(screens: FlowScreen[], index: number): boolean {
+  return screens.every((_, other) => other === index || !storedSuccessors(screens, other).includes(index));
+}
+
+function explicitTarget(target: Target | undefined, index: number, screens: FlowScreen[]): Target {
+  const resolved = resolveTarget(target, index, screens);
+  return resolved === null || resolved === "end" ? "end" : screenTarget(screens[resolved].id);
+}
+
+/** Reemplaza `following` (que depende del orden) por el destino concreto. Conserva la identidad si no cambia nada. */
+function withExplicitRoutes(definition: FlowDefinition): FlowDefinition {
+  let changed = false;
+  const screens = definition.screens.map((screen, index) => {
+    const next = explicitTarget(screen.next, index, definition.screens);
+    let blocksChanged = false;
+    const blocks = screen.blocks.map((block) => {
+      if (!isBranchable(block) || !block.branches) return block;
+      const entries = Object.entries(block.branches);
+      const explicit = entries.map(([id, target]): [string, Target] => [id, explicitTarget(target, index, definition.screens)]);
+      if (explicit.every(([, target], i) => target === entries[i][1])) return block;
+      blocksChanged = true;
+      return { ...block, branches: Object.fromEntries(explicit) };
+    });
+    if (next === screen.next && !blocksChanged) return screen;
+    changed = true;
+    return { ...screen, next, blocks };
+  });
+  return changed ? { ...definition, screens } : definition;
+}
+
+/**
+ * Ordena las pantallas según el recorrido: la primera queda primera y cada pantalla va después de
+ * todas las que la apuntan (a igualdad, se respeta el orden actual). Así todo destino apunta hacia
+ * adelante, que es lo que exige el formato de Meta.
+ */
+function orderScreens(definition: FlowDefinition): FlowDefinition {
+  const { screens } = definition;
+  if (screens.length < 3) return definition;
+  const predecessors = screens.map(() => new Set<number>());
+  screens.forEach((_, index) => {
+    for (const successor of storedSuccessors(screens, index)) {
+      if (successor !== index && successor !== 0) predecessors[successor].add(index);
+    }
+  });
+
+  const order = [0];
+  const placed = new Set(order);
+  while (order.length < screens.length) {
+    const ready = screens.findIndex((_, index) => !placed.has(index) && [...predecessors[index]].every((p) => placed.has(p)));
+    // Un ciclo no debería existir; si aparece, el resto queda en su orden y el validador lo marca.
+    const nextIndex = ready === -1 ? screens.findIndex((_, index) => !placed.has(index)) : ready;
+    order.push(nextIndex);
+    placed.add(nextIndex);
+  }
+  return order.every((index, position) => index === position)
+    ? definition
+    : { ...definition, screens: order.map((index) => screens[index]) };
+}
+
+/** Forma canónica del diagrama: destinos explícitos y pantallas en orden de recorrido. */
+export function normalizeRoutes(definition: FlowDefinition): FlowDefinition {
+  return orderScreens(withExplicitRoutes(definition));
 }
