@@ -54,6 +54,26 @@ class FlowDefinitionValidatorTest extends TestCase
         $this->assertSame([], $this->validate([$this->screen([$block])]));
     }
 
+    public function test_jumps_only_go_forward_and_every_screen_must_be_reachable(): void
+    {
+        $choice = [
+            'type' => 'single_choice', 'key' => 'cliente', 'label' => 'Cliente', 'required' => true,
+            'options' => [['id' => 'si', 'title' => 'Sí'], ['id' => 'no', 'title' => 'No']],
+        ];
+        $first = ['id' => 'uno'] + $this->screen([$choice + ['branches' => ['si' => 'screen:tres', 'no' => 'end']]]);
+        $second = ['id' => 'dos'] + $this->screen([$this->question('nota')]);
+        $third = ['id' => 'tres', 'next' => 'screen:uno'] + $this->screen([$this->question('empresa')]);
+
+        $errors = $this->validate([$first, $second, $third]);
+        $this->assertSame(['Sólo se puede saltar a una pantalla posterior.'], $errors['screens.2.next']);
+
+        unset($third['next']);
+        $this->assertSame(['screens.1' => ['Ninguna respuesta lleva a esta pantalla.']], $this->validate([$first, $second, $third]));
+
+        $first['blocks'][0]['branches']['no'] = 'screen:dos';
+        $this->assertSame([], $this->validate([$first, $second, $third]));
+    }
+
     public function test_choice_mapped_to_a_select_field_must_use_its_choices(): void
     {
         ContactField::create([
@@ -99,6 +119,35 @@ class FlowDefinitionValidatorTest extends TestCase
         $this->assertSame([], $this->validate(array_slice($screens, 0, 10)));
     }
 
+    public function test_malformed_structures_are_reported_instead_of_failing(): void
+    {
+        $choice = [
+            'type' => 'single_choice', 'key' => 'plan', 'label' => 'Plan', 'required' => true,
+            'options' => [['id' => ['x'], 'title' => 'A']], 'branches' => ['x' => 'end'],
+        ];
+
+        $this->assertArrayHasKey('screens.0.blocks', $this->validate([['title' => 'Datos', 'footer_label' => 'Enviar', 'blocks' => 'x']]));
+        $this->assertArrayHasKey('screens.0.blocks.0.options.0.id', $this->validate([$this->screen([$choice])]));
+    }
+
+    public function test_images_must_be_jpeg_or_png_within_meta_limits(): void
+    {
+        $png = $this->png(10, 10);
+        $image = ['type' => 'image', 'src' => $png, 'alt_text' => null, 'size' => 'medium', 'scale_type' => 'contain'];
+        $choice = [
+            'type' => 'multiple_choice', 'key' => 'gustos', 'label' => 'Gustos', 'required' => false,
+            'options' => [['id' => 'A', 'title' => 'A', 'image' => $this->png(250, 250, noise: true)]],
+        ];
+        $carousel = ['type' => 'image_carousel', 'aspect_ratio' => '4:3', 'scale_type' => 'contain', 'images' => [['src' => $png, 'alt_text' => '']]];
+
+        $this->assertSame([], $this->validate([$this->screen([$image, $this->question('nombre')])]));
+        $this->assertArrayHasKey('screens.0.blocks.0.src', $this->validate([$this->screen([['src' => base64_encode('<svg/>')] + $image, $this->question('nombre')])]));
+        $this->assertArrayHasKey('screens.0.blocks', $this->validate([$this->screen([$image, $image, $image, $image, $this->question('nombre')])]));
+        // Meta admite hasta 100 KB por imagen de opción y exige describir las del carrusel.
+        $this->assertArrayHasKey('screens.0.blocks.0.options.0.image', $this->validate([$this->screen([$choice])]));
+        $this->assertArrayHasKey('screens.0.blocks.0.images.0.alt_text', $this->validate([$this->screen([$carousel, $this->question('nombre')])]));
+    }
+
     private function validate(array $screens): array
     {
         return (new FlowDefinitionValidator)->validate(
@@ -115,5 +164,22 @@ class FlowDefinitionValidatorTest extends TestCase
     private function question(string $key): array
     {
         return ['type' => 'short_text', 'key' => $key, 'label' => 'Dato', 'input_type' => 'text', 'required' => true];
+    }
+
+    private function png(int $width, int $height, bool $noise = false): string
+    {
+        $image = imagecreatetruecolor($width, $height);
+
+        // El ruido no se comprime: sirve para superar los límites de tamaño.
+        for ($x = 0; $noise && $x < $width; $x++) {
+            for ($y = 0; $y < $height; $y++) {
+                imagesetpixel($image, $x, $y, random_int(0, 0xFFFFFF));
+            }
+        }
+
+        ob_start();
+        imagepng($image);
+
+        return base64_encode((string) ob_get_clean());
     }
 }

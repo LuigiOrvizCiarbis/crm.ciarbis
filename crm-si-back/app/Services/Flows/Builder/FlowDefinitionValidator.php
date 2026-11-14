@@ -40,6 +40,30 @@ class FlowDefinitionValidator
 
     public const INPUT_TYPES = ['text', 'email', 'number', 'phone'];
 
+    /** Bloques de imagen: sólo se muestran, no son preguntas. */
+    public const MEDIA_TYPES = ['image', 'image_carousel'];
+
+    /** Tamaño de un bloque de imagen → alto en el formulario. */
+    public const IMAGE_SIZES = ['small' => 120, 'medium' => 200, 'large' => 300];
+
+    public const SCALE_TYPES = ['contain', 'cover'];
+
+    public const CAROUSEL_RATIOS = ['4:3', '16:9'];
+
+    /** Tamaño de las imágenes de las opciones (sólo opción única y múltiple). */
+    public const MEDIA_SIZES = ['regular', 'large'];
+
+    /** Meta recomienda hasta 300 KB por imagen; en las opciones admite 100 KB desde Flow JSON 6.0. */
+    public const IMAGE_MAX_BYTES = 300_000;
+
+    public const OPTION_IMAGE_MAX_BYTES = 100_000;
+
+    /**
+     * Tope propio: las imágenes viajan en base64 en el pedido del constructor
+     * (el proxy de Next corta a los 10 MB) y en el Flow JSON que se sube a Meta.
+     */
+    public const TOTAL_IMAGE_MAX_BYTES = 6_000_000;
+
     private const FOOTER_MAX = 35;
 
     private const HELPER_MAX = 80;
@@ -47,6 +71,18 @@ class FlowDefinitionValidator
     private const OPTION_TITLE_MAX = 30;
 
     private const MAX_OPT_INS_PER_SCREEN = 5;
+
+    private const MAX_IMAGES_PER_SCREEN = 3;
+
+    private const MAX_CAROUSELS_PER_SCREEN = 2;
+
+    private const MAX_CAROUSELS = 3;
+
+    private const CAROUSEL_IMAGES_MAX = 3;
+
+    private const DROPDOWN_WITH_IMAGES_MAX = 100;
+
+    private const ALT_TEXT_MAX = 100;
 
     private const PREFILL_BASE = ['contact_name', 'contact_email', 'contact_phone'];
 
@@ -56,6 +92,11 @@ class FlowDefinitionValidator
     /** @var Collection<int, ContactField> */
     private Collection $fields;
 
+    /** Bytes de todas las imágenes del formulario. */
+    private int $imageBytes = 0;
+
+    private int $carousels = 0;
+
     /**
      * @return array<string, list<string>> errores por ruta (p. ej. `screens.0.blocks.2.label`)
      */
@@ -63,6 +104,8 @@ class FlowDefinitionValidator
     {
         $this->errors = [];
         $this->fields = ContactField::forTenant($tenantId);
+        $this->imageBytes = 0;
+        $this->carousels = 0;
 
         if (($definition['schema'] ?? null) !== 1) {
             $this->add('schema', 'Versión de formulario no soportada.');
@@ -85,6 +128,21 @@ class FlowDefinitionValidator
 
         if (! $hasQuestion) {
             $this->add('screens', 'El formulario necesita al menos una pregunta.');
+        }
+
+        if ($this->carousels > self::MAX_CAROUSELS) {
+            $this->add('screens', 'El formulario admite como máximo '.self::MAX_CAROUSELS.' carruseles de imágenes.');
+        }
+
+        if ($this->imageBytes > self::TOTAL_IMAGE_MAX_BYTES) {
+            $this->add('screens', 'Las imágenes del formulario superan los '.intdiv(self::TOTAL_IMAGE_MAX_BYTES, 1_000_000).' MB en total. Usá menos imágenes o más livianas.');
+        }
+
+        // Los caminos se validan sobre pantallas y bloques bien formados: con
+        // datos de otro tipo (bloques que no son lista, ids que no son texto)
+        // recorrerlos fallaría en vez de devolver los errores ya encontrados.
+        if ($this->errors === []) {
+            $this->validateRoutes($screens);
         }
 
         $appointment = $definition['appointment'] ?? null;
@@ -118,6 +176,8 @@ class FlowDefinitionValidator
         }
 
         $optIns = 0;
+        $images = 0;
+        $carousels = 0;
 
         foreach ($blocks as $j => $block) {
             $block = is_array($block) ? $block : [];
@@ -128,6 +188,20 @@ class FlowDefinitionValidator
                 if (! $this->stringWithin($block['text'] ?? null, self::TEXT_TYPES[$type])) {
                     $this->add("{$blockPath}.text", 'El texto debe tener entre 1 y '.self::TEXT_TYPES[$type].' caracteres.');
                 }
+
+                continue;
+            }
+
+            if ($type === 'image') {
+                $images++;
+                $this->validateImageBlock($block, $blockPath);
+
+                continue;
+            }
+
+            if ($type === 'image_carousel') {
+                $carousels++;
+                $this->validateCarousel($block, $blockPath);
 
                 continue;
             }
@@ -145,6 +219,86 @@ class FlowDefinitionValidator
 
         if ($optIns > self::MAX_OPT_INS_PER_SCREEN) {
             $this->add("{$path}.blocks", 'Una pantalla admite como máximo '.self::MAX_OPT_INS_PER_SCREEN.' casillas de aceptación.');
+        }
+
+        if ($images > self::MAX_IMAGES_PER_SCREEN) {
+            $this->add("{$path}.blocks", 'Una pantalla admite como máximo '.self::MAX_IMAGES_PER_SCREEN.' imágenes.');
+        }
+
+        if ($carousels > self::MAX_CAROUSELS_PER_SCREEN) {
+            $this->add("{$path}.blocks", 'Una pantalla admite como máximo '.self::MAX_CAROUSELS_PER_SCREEN.' carruseles.');
+        }
+
+        $this->carousels += $carousels;
+    }
+
+    private function validateImageBlock(array $block, string $path): void
+    {
+        $this->validateImage($block['src'] ?? null, self::IMAGE_MAX_BYTES, "{$path}.src");
+        $this->validateAltText($block['alt_text'] ?? null, false, "{$path}.alt_text");
+
+        if (! is_string($block['size'] ?? null) || ! isset(self::IMAGE_SIZES[$block['size']])) {
+            $this->add("{$path}.size", 'Tamaño inválido.');
+        }
+
+        if (! in_array($block['scale_type'] ?? null, self::SCALE_TYPES, true)) {
+            $this->add("{$path}.scale_type", 'Ajuste inválido.');
+        }
+    }
+
+    private function validateCarousel(array $block, string $path): void
+    {
+        $images = $block['images'] ?? null;
+
+        if (! is_array($images) || ! array_is_list($images) || $images === [] || count($images) > self::CAROUSEL_IMAGES_MAX) {
+            $this->add("{$path}.images", 'El carrusel necesita entre 1 y '.self::CAROUSEL_IMAGES_MAX.' imágenes.');
+        } else {
+            foreach ($images as $k => $image) {
+                $image = is_array($image) ? $image : [];
+                $this->validateImage($image['src'] ?? null, self::IMAGE_MAX_BYTES, "{$path}.images.{$k}.src");
+                // Meta exige el texto alternativo en cada imagen del carrusel.
+                $this->validateAltText($image['alt_text'] ?? null, true, "{$path}.images.{$k}.alt_text");
+            }
+        }
+
+        if (! in_array($block['aspect_ratio'] ?? null, self::CAROUSEL_RATIOS, true)) {
+            $this->add("{$path}.aspect_ratio", 'Proporción inválida.');
+        }
+
+        if (! in_array($block['scale_type'] ?? null, self::SCALE_TYPES, true)) {
+            $this->add("{$path}.scale_type", 'Ajuste inválido.');
+        }
+    }
+
+    private function validateImage(mixed $src, int $maxBytes, string $path): void
+    {
+        $image = FlowImage::decode($src);
+
+        if ($image === null) {
+            $this->add($path, 'Subí una imagen JPEG o PNG.');
+
+            return;
+        }
+
+        $this->imageBytes += $image->bytes;
+
+        if ($image->bytes > $maxBytes) {
+            $this->add($path, 'La imagen pesa más de '.intdiv($maxBytes, 1000).' KB.');
+        }
+    }
+
+    private function validateAltText(mixed $alt, bool $required, string $path): void
+    {
+        if ($alt === null || $alt === '') {
+            if ($required) {
+                $this->add($path, 'Describí la imagen.');
+            }
+
+            return;
+        }
+
+        if (! is_string($alt) || mb_strlen($alt) > self::ALT_TEXT_MAX) {
+            $this->add($path, 'La descripción admite hasta '.self::ALT_TEXT_MAX.' caracteres.');
         }
     }
 
@@ -172,7 +326,12 @@ class FlowDefinitionValidator
         }
 
         if (isset(self::CHOICE_TYPES[$type])) {
-            $this->validateOptions($block['options'] ?? null, self::CHOICE_TYPES[$type], "{$path}.options");
+            $this->validateOptions($block['options'] ?? null, $type, "{$path}.options");
+        }
+
+        $mediaSize = $block['media_size'] ?? null;
+        if ($mediaSize !== null && (! in_array($type, ['single_choice', 'multiple_choice'], true) || ! in_array($mediaSize, self::MEDIA_SIZES, true))) {
+            $this->add("{$path}.media_size", 'Tamaño de imagen inválido.');
         }
 
         $prefill = $block['prefill'] ?? null;
@@ -215,8 +374,13 @@ class FlowDefinitionValidator
         $keys[$key] = $type;
     }
 
-    private function validateOptions(mixed $options, int $max, string $path): void
+    private function validateOptions(mixed $options, string $type, string $path): void
     {
+        $withImages = $type === 'dropdown' && is_array($options)
+            && array_filter($options, fn ($option) => is_array($option) && ($option['image'] ?? null) !== null) !== [];
+        // Meta admite 200 opciones en una lista, pero 100 si alguna tiene imagen.
+        $max = $withImages ? self::DROPDOWN_WITH_IMAGES_MAX : self::CHOICE_TYPES[$type];
+
         if (! is_array($options) || ! array_is_list($options) || $options === [] || count($options) > $max) {
             $this->add($path, "La pregunta debe tener entre 1 y {$max} opciones.");
 
@@ -226,6 +390,7 @@ class FlowDefinitionValidator
         $ids = [];
 
         foreach ($options as $k => $option) {
+            $option = is_array($option) ? $option : [];
             $id = $option['id'] ?? null;
 
             if (! $this->filledString($id)) {
@@ -238,6 +403,11 @@ class FlowDefinitionValidator
 
             if (! $this->stringWithin($option['title'] ?? null, self::OPTION_TITLE_MAX)) {
                 $this->add("{$path}.{$k}.title", 'La opción debe tener entre 1 y '.self::OPTION_TITLE_MAX.' caracteres.');
+            }
+
+            if (($option['image'] ?? null) !== null) {
+                $this->validateImage($option['image'], self::OPTION_IMAGE_MAX_BYTES, "{$path}.{$k}.image");
+                $this->validateAltText($option['alt_text'] ?? null, false, "{$path}.{$k}.alt_text");
             }
         }
     }
@@ -332,6 +502,12 @@ class FlowDefinitionValidator
             return false;
         }
 
+        foreach ($options as $option) {
+            if (! is_array($option) || ! is_string($option['id'] ?? null) || ! is_string($option['title'] ?? null)) {
+                return false;
+            }
+        }
+
         $actual = array_map(fn ($o) => [(string) ($o['id'] ?? ''), (string) ($o['title'] ?? '')], $options);
         $expected = array_map(fn ($c) => [(string) $c, (string) $c], array_values($choices));
         sort($actual);
@@ -368,6 +544,106 @@ class FlowDefinitionValidator
 
         if (! $schedulingEnabled) {
             $this->add('appointment', 'Para reservar turnos primero activá la agenda de turnos del asistente.');
+        }
+    }
+
+    /**
+     * Ids de pantalla, destinos (`next`) y preguntas que eligen el camino
+     * (`branches`). Sólo se salta hacia adelante, así no hay ciclos, que Meta
+     * no admite en el routing_model.
+     */
+    private function validateRoutes(array $screens): void
+    {
+        $ids = [];
+
+        foreach ($screens as $i => $screen) {
+            $id = is_array($screen) ? ($screen['id'] ?? null) : null;
+
+            if ($id === null) {
+                continue;
+            }
+
+            if (! is_string($id) || ! preg_match('/^[A-Za-z0-9_-]{1,40}$/', $id) || isset($ids[$id])) {
+                $this->add("screens.{$i}.id", 'Identificador de pantalla inválido o repetido.');
+            } else {
+                $ids[$id] = $i;
+            }
+        }
+
+        foreach ($screens as $i => $screen) {
+            if (! is_array($screen)) {
+                continue;
+            }
+
+            if (array_key_exists('next', $screen)) {
+                $this->validateTarget($screen['next'], $i, $ids, "screens.{$i}.next");
+            }
+
+            $branching = 0;
+
+            foreach ($screen['blocks'] ?? [] as $j => $block) {
+                if (! is_array($block) || ! isset($block['branches']) || $block['branches'] === []) {
+                    continue;
+                }
+
+                $path = "screens.{$i}.blocks.{$j}.branches";
+                $branching++;
+
+                if (! in_array($block['type'] ?? null, FlowDefinitionRoutes::BRANCHING_TYPES, true) || ! is_array($block['branches'])) {
+                    $this->add($path, 'Esta pregunta no puede cambiar el camino.');
+
+                    continue;
+                }
+
+                if ($branching > 1) {
+                    $this->add($path, 'Sólo una pregunta por pantalla puede cambiar el camino.');
+                }
+
+                $optionIds = array_map(fn ($option) => (string) ($option['id'] ?? ''), is_array($block['options'] ?? null) ? $block['options'] : []);
+
+                foreach ($block['branches'] as $optionId => $target) {
+                    if (! in_array((string) $optionId, $optionIds, true)) {
+                        $this->add($path, 'La regla apunta a una opción que ya no existe.');
+                    } else {
+                        $this->validateTarget($target, $i, $ids, $path);
+                    }
+                }
+            }
+        }
+
+        // La alcanzabilidad se recorre sobre caminos sin otros errores.
+        if ($this->errors !== []) {
+            return;
+        }
+
+        $reachable = FlowDefinitionRoutes::fromDefinition(['screens' => $screens])->reachable();
+
+        foreach (array_keys($screens) as $i) {
+            if ($i > 0 && ! isset($reachable[$i])) {
+                $this->add("screens.{$i}", 'Ninguna respuesta lleva a esta pantalla.');
+            }
+        }
+    }
+
+    /** @param  array<string, int>  $ids  id de pantalla → índice */
+    private function validateTarget(mixed $target, int $from, array $ids, string $path): void
+    {
+        if ($target === FlowDefinitionRoutes::FOLLOWING || $target === FlowDefinitionRoutes::END) {
+            return;
+        }
+
+        if (! is_string($target) || ! str_starts_with($target, FlowDefinitionRoutes::SCREEN_PREFIX)) {
+            $this->add($path, 'Destino inválido.');
+
+            return;
+        }
+
+        $index = $ids[substr($target, strlen(FlowDefinitionRoutes::SCREEN_PREFIX))] ?? null;
+
+        if ($index === null) {
+            $this->add($path, 'La pantalla de destino ya no existe.');
+        } elseif ($index <= $from) {
+            $this->add($path, 'Sólo se puede saltar a una pantalla posterior.');
         }
     }
 

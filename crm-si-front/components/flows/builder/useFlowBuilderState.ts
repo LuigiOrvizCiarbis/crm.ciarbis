@@ -5,6 +5,7 @@ import { arrayMove } from "@dnd-kit/sortable"
 
 import type { WhatsAppFlowCategory } from "@/data/types"
 import { MAX_SCREENS, isQuestionBlock } from "@/lib/flow-builder/limits"
+import { dropScreenReferences, newScreenId, syncBranchKeys, withScreenIds } from "@/lib/flow-builder/routing"
 import type { AppointmentConfig, FlowBlock, FlowDefinition, FlowScreen } from "@/lib/flow-builder/types"
 
 export interface FlowBuilderSnapshot {
@@ -17,7 +18,7 @@ interface FlowBuilderState extends FlowBuilderSnapshot {
   dirty: boolean
 }
 
-type ScreenPatch = Partial<Pick<FlowScreen, "title" | "footer_label">>
+type ScreenPatch = Partial<Pick<FlowScreen, "title" | "footer_label" | "next">>
 
 type FlowBuilderAction =
   | { type: "addScreen"; screen: FlowScreen }
@@ -42,14 +43,14 @@ export function newUid(): string {
 }
 
 function withUids(definition: FlowDefinition): FlowDefinition {
-  return {
+  return withScreenIds({
     ...definition,
     screens: definition.screens.map((screen) => ({
       ...screen,
       uid: screen.uid ?? newUid(),
       blocks: screen.blocks.map((block) => ({ ...block, uid: block.uid ?? newUid() })),
     })),
-  }
+  })
 }
 
 function mapScreen(definition: FlowDefinition, index: number, update: (screen: FlowScreen) => FlowScreen): FlowDefinition {
@@ -67,9 +68,12 @@ function followReasonKey(definition: FlowDefinition, previousKey: string, nextKe
 
 function reduceDefinition(definition: FlowDefinition, action: FlowBuilderAction): FlowDefinition {
   switch (action.type) {
-    case "addScreen":
+    case "addScreen": {
       if (definition.screens.length >= MAX_SCREENS) return definition
-      return { ...definition, screens: [...definition.screens, { ...action.screen, uid: action.screen.uid ?? newUid() }] }
+      const ids = definition.screens.map((screen) => screen.id)
+      const id = action.screen.id && !ids.includes(action.screen.id) ? action.screen.id : newScreenId(ids)
+      return { ...definition, screens: [...definition.screens, { ...action.screen, id, uid: action.screen.uid ?? newUid() }] }
+    }
     case "removeScreen": {
       if (definition.screens.length <= 1) return definition
       const removed = definition.screens[action.index]
@@ -77,6 +81,7 @@ function reduceDefinition(definition: FlowDefinition, action: FlowBuilderAction)
         ...definition,
         screens: definition.screens.filter((_, i) => i !== action.index),
       }
+      if (removed) next = dropScreenReferences(next, removed.id)
       for (const block of removed?.blocks ?? []) {
         if (isQuestionBlock(block)) next = followReasonKey(next, block.key, null)
       }
@@ -106,9 +111,10 @@ function reduceDefinition(definition: FlowDefinition, action: FlowBuilderAction)
       }))
     case "updateBlock": {
       const previous = definition.screens[action.screen]?.blocks[action.index]
+      const block = previous ? syncBranchKeys(previous, action.block) : action.block
       const next = mapScreen(definition, action.screen, (screen) => ({
         ...screen,
-        blocks: screen.blocks.map((block, i) => (i === action.index ? action.block : block)),
+        blocks: screen.blocks.map((current, i) => (i === action.index ? block : current)),
       }))
       if (previous && isQuestionBlock(previous) && isQuestionBlock(action.block) && previous.key !== action.block.key) {
         return followReasonKey(next, previous.key, action.block.type === "long_text" ? action.block.key : null)

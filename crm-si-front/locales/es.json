@@ -1286,9 +1286,17 @@
       "responseLabel": "Respuesta · {{name}}",
       "defaultName": "Formulario",
       "emptyResponse": "Sin datos",
+      "noAnswer": "Sin respuesta",
+      "appointment": "Turno",
+      "appointmentConfirmed": "Confirmado",
+      "appointmentPending": "Pendiente de confirmación",
       "yes": "Sí",
       "no": "No",
-      "mappingErrorsTitle": "No se guardó en el contacto"
+      "mappingErrorsTitle": "No se guardó en el contacto",
+      "completed": "Completado",
+      "superseded": "Reemplazado por un envío nuevo",
+      "inProgress": "En curso · pantallas enviadas: {{count}}",
+      "savedFields": "Guardado en el contacto: {{fields}}"
     },
     "contactsSendError": "No se pudieron enviar los contactos",
     "contactSaved": "Contacto guardado",
@@ -2845,8 +2853,18 @@
         "hint": "La clave es el nombre del dato en la respuesta del formulario (el payload de la acción complete).",
         "fieldsError": "No se pudieron cargar los campos del contacto",
         "saved": "Mapeo guardado",
-        "saveError": "No se pudo guardar el mapeo"
+        "saveError": "No se pudo guardar el mapeo",
+        "createField": "Crear campo nuevo…",
+        "newFieldChoicesHint": "Una por línea. Tienen que coincidir con los valores que manda el formulario."
       }
+    },
+    "fieldCreate": {
+      "title": "Nuevo campo del contacto",
+      "description": "Se agrega a la ficha de todos los contactos y la respuesta del formulario se guarda ahí. Podés editarlo después en Configuración → Campos personalizados.",
+      "submit": "Crear campo",
+      "created": "Campo «{{label}}» creado",
+      "error": "No se pudo crear el campo",
+      "choicesRequired": "Agregá al menos una opción."
     },
     "builder": {
       "title": "Constructor de formularios",
@@ -2905,19 +2923,40 @@
         "title": "Título de la pantalla {{n}}",
         "blocks": "Bloques",
         "footerLabel": "Texto del botón final",
-        "footerHintNext": "Lleva a la pantalla siguiente.",
-        "footerHintLast": "Envía el formulario.",
-        "footerHintAppointment": "Lleva a la elección del día del turno."
+        "footerHintRoute": "A dónde lleva se elige en «Después de esta pantalla».",
+        "footerHintBranches": "A dónde lleva depende de la respuesta a la pregunta que cambia el camino."
+      },
+      "routes": {
+        "afterScreen": "Después de esta pantalla",
+        "afterScreenBranchesHint": "Se usa para las respuestas sin regla y si la pregunta queda sin responder.",
+        "following": "Siguiente pantalla",
+        "end": "Finalizar formulario",
+        "appointment": "Ir a la reserva de turno",
+        "screen": "Pantalla {{n}} · {{title}}",
+        "missing": "Pantalla que ya no existe",
+        "toggle": "Cambiar el camino según la respuesta",
+        "otherBlockBranches": "Otra pregunta de esta pantalla ya cambia el camino.",
+        "ifAnswer": "Si responde",
+        "goTo": "Ir a",
+        "goToFor": "Destino para «{{option}}»",
+        "optionalHint": "Si la pregunta queda sin responder, se sigue el destino de la pantalla.",
+        "endShort": "Fin",
+        "appointmentShort": "Turno",
+        "unreachableShort": "Ninguna respuesta lleva acá",
+        "simulate": "Probar respuesta:"
       },
       "blockGroups": {
         "text": "Texto",
-        "questions": "Preguntas"
+        "questions": "Preguntas",
+        "media": "Imágenes"
       },
       "blockTypes": {
         "heading": "Título",
         "subheading": "Subtítulo",
         "body": "Párrafo",
         "caption": "Nota",
+        "image": "Imagen",
+        "image_carousel": "Carrusel de imágenes",
         "short_text": "Texto corto",
         "long_text": "Texto largo",
         "dropdown": "Lista desplegable",
@@ -2971,7 +3010,11 @@
         "mapsToNone": "No guardar",
         "prefill": "Precargar con",
         "requiredInCrm": "Obligatorio en el CRM.",
-        "mapsToHint": "La respuesta se valida con las reglas del CRM dentro del formulario y se guarda en el contacto al completar cada pantalla."
+        "mapsToHint": "La respuesta se valida con las reglas del CRM dentro del formulario y se guarda en el contacto al completar cada pantalla.",
+        "mapsToOptional": "Opcional. Elegí un campo sólo si el dato tiene que quedar en la ficha del contacto; la respuesta completa igual se ve en el chat.",
+        "mapsToCreate": "Crear campo nuevo…",
+        "mapsToCreateFirst": "Crear un campo para guardarla…",
+        "newFieldChoicesHint": "Una por línea. Pasan a ser las opciones de la pregunta."
       },
       "targets": {
         "contactName": "Nombre del contacto",
@@ -3009,6 +3052,46 @@
         "sampleOptions": "Opciones de ejemplo: las reales salen de la agenda.",
         "note": "Vista aproximada. Usá 'Vista previa de Meta' para ver la versión exacta."
       },
+      "image": {
+        "file": "Imagen",
+        "upload": "Subir imagen",
+        "uploadHint": "Hacé clic o arrastrala acá. Se achica sola al tamaño que acepta WhatsApp.",
+        "replace": "Cambiar imagen",
+        "remove": "Quitar imagen",
+        "processing": "Procesando imagen",
+        "unsupported": "No se pudo leer el archivo. Probá con una foto JPEG o PNG.",
+        "tooLarge": "No se pudo achicar la imagen por debajo de {{max}} KB. Probá con otra más simple.",
+        "altText": "Descripción (opcional)",
+        "altTextRequired": "Descripción",
+        "altTextHint": "La leen los lectores de pantalla.",
+        "size": "Alto",
+        "sizes": {
+          "small": "Chico",
+          "medium": "Mediano",
+          "large": "Grande"
+        },
+        "scaleType": "Ajuste",
+        "scaleTypes": {
+          "contain": "Mostrar entera",
+          "cover": "Recortar para llenar"
+        },
+        "aspectRatio": "Proporción",
+        "carouselImages": "Imágenes del carrusel",
+        "carouselItem": "Imagen {{n}}",
+        "addToCarousel": "Agregar imagen",
+        "removeFromCarousel": "Quitar la imagen {{n}}",
+        "count": "Imágenes: {{count}}",
+        "addFor": "Agregar imagen a «{{option}}»",
+        "replaceFor": "Cambiar la imagen de «{{option}}»",
+        "altTextFor": "Descripción de la imagen de «{{option}}»",
+        "optionAltPlaceholder": "Descripción de la imagen (opcional)",
+        "optionSize": "Tamaño de las imágenes",
+        "mediaSizes": {
+          "regular": "Normal",
+          "large": "Grande"
+        },
+        "dropdownLimit": "Con imágenes, la lista admite hasta {{max}} opciones."
+      },
       "errors": {
         "required": "Completá este campo.",
         "tooLong": "Máximo {{max}} caracteres.",
@@ -3027,7 +3110,19 @@
         "mapsToInvalid": "Este destino no es compatible con la pregunta.",
         "reasonKey": "Elegí una pregunta de texto largo.",
         "keyRequiredPrefix": "El nombre interno no puede empezar con «required».",
-        "requiredInCrm": "El campo «{{field}}» es obligatorio en el CRM: la pregunta tiene que ser obligatoria."
+        "requiredInCrm": "El campo «{{field}}» es obligatorio en el CRM: la pregunta tiene que ser obligatoria.",
+        "targetMissing": "La pantalla de destino ya no existe.",
+        "targetBackward": "Sólo se puede saltar a una pantalla posterior.",
+        "branchingPerScreen": "Sólo una pregunta por pantalla puede cambiar el camino.",
+        "branchOptionMissing": "La regla apunta a una opción que ya no existe.",
+        "unreachable": "Ninguna respuesta lleva a esta pantalla.",
+        "imageMissing": "Subí una imagen JPEG o PNG.",
+        "imageTooLarge": "La imagen pesa más de {{max}} KB.",
+        "imagesPerScreen": "Máximo {{max}} imágenes por pantalla.",
+        "carouselsPerScreen": "Máximo {{max}} carruseles por pantalla.",
+        "carouselCount": "El carrusel necesita entre 1 y {{max}} imágenes.",
+        "carouselsTotal": "El formulario admite como máximo {{max}} carruseles.",
+        "imagesTotal": "Las imágenes del formulario superan los {{max}} MB en total. Usá menos imágenes o más livianas."
       },
       "toasts": {
         "saved": "Formulario guardado",

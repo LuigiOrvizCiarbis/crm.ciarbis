@@ -6,40 +6,73 @@ import { ChevronDown, Lock, Plus, Trash2, TriangleAlert, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { CreateContactFieldDialog } from "@/components/flows/CreateContactFieldDialog"
+import { usePermission } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactField } from "@/lib/api/contact-fields"
 import {
+  adoptFieldChoices,
   compatibleTargets,
+  creatableFieldTypes,
   customFieldKey,
   findField,
   lockedOptions,
   prefillSources,
+  CUSTOM_DATA_PREFIX,
   CUSTOM_PREFILL_PREFIX,
 } from "@/lib/flow-builder/compat"
-import { HELPER_TEXT_MAX, LABEL_MAX, OPTION_COUNT_MAX, OPTION_TITLE_MAX, TEXT_MAX, isChoiceBlock, isTextBlock } from "@/lib/flow-builder/limits"
+import { OPTION_IMAGE_MAX_SIDE, imageDataUrl, isSupportedImage } from "@/lib/flow-builder/images"
+import {
+  HELPER_TEXT_MAX,
+  LABEL_MAX,
+  OPTION_IMAGE_MAX_BYTES,
+  OPTION_TITLE_MAX,
+  TEXT_MAX,
+  isChoiceBlock,
+  isQuestionBlock,
+  isTextBlock,
+  optionCountMax,
+} from "@/lib/flow-builder/limits"
+import { DEFAULT_TARGET, branchTarget, hasBranches, isBranchable } from "@/lib/flow-builder/routing"
 import { keyFromLabel } from "@/lib/flow-builder/slug"
 import { charCount } from "@/lib/flow-builder/validate"
 import type {
   ChoiceBlock,
+  ChoiceOption,
   FlowBlock,
+  FlowScreen,
   MapsTo,
   PrefillSource,
   QuestionBlock,
   ShortTextBlock,
+  SingleChoiceBlock,
   TextBlock,
 } from "@/lib/flow-builder/types"
 import { cn } from "@/lib/utils"
 
 import { BlockTypeIcon } from "./BlockTypeIcon"
 import { BuilderField, FieldErrorText } from "./BuilderField"
+import { DestinationSelect } from "./DestinationSelect"
+import { CarouselFields, ImageBlockFields, OptionImageButton } from "./ImageFields"
 
 type Translate = (key: string, params?: Record<string, string | number>) => string
 
 const NONE = "__none__"
+const CREATE_FIELD = "__create__"
 const INPUT_TYPES: ShortTextBlock["input_type"][] = ["text", "email", "number", "phone"]
+
+/** Contexto para que una pregunta de opciones elija el camino del formulario. */
+export interface BlockRouting {
+  screens: FlowScreen[]
+  /** Índice de la pantalla del bloque. */
+  index: number
+  hasAppointment: boolean
+  /** Otra pregunta de la misma pantalla ya cambia el camino. */
+  otherBlockBranches: boolean
+}
 
 interface BlockEditorProps {
   block: FlowBlock
@@ -48,6 +81,7 @@ interface BlockEditorProps {
   contactFields: ContactField[]
   /** Claves de las demás preguntas del formulario. */
   otherKeys: string[]
+  routing: BlockRouting
   defaultOpen?: boolean
   dragHandle: ReactNode
   onChange: (block: FlowBlock) => void
@@ -71,11 +105,26 @@ export function prefillLabel(source: string, fields: ContactField[], t: Translat
   return findField(fields, key)?.label ?? t("flows.builder.targets.missing", { key })
 }
 
+/** Texto con que se reconoce el bloque en su encabezado y al arrastrarlo. */
+export function blockSummary(block: FlowBlock, t: Translate): string {
+  if (isTextBlock(block)) return block.text
+  if (block.type === "image") return block.alt_text ?? ""
+  if (block.type === "image_carousel") return t("flows.builder.image.count", { count: block.images.length })
+  return block.label
+}
+
+/** Primera imagen del bloque, para la miniatura del encabezado. */
+function blockThumbnail(block: FlowBlock): string | null {
+  const src = block.type === "image" ? block.src : block.type === "image_carousel" ? block.images[0]?.src : null
+  return isSupportedImage(src) ? src : null
+}
+
 export function BlockEditor({
   block,
   errors,
   contactFields,
   otherKeys,
+  routing,
   defaultOpen = false,
   dragHandle,
   onChange,
@@ -87,7 +136,8 @@ export function BlockEditor({
   // Un bloque con errores queda abierto: hay que verlos para corregirlos.
   const expanded = open || errorCount > 0
   const uid = block.uid ?? "block"
-  const summary = isTextBlock(block) ? block.text : block.label
+  const summary = blockSummary(block, t)
+  const thumbnail = blockThumbnail(block)
 
   return (
     <div
@@ -109,9 +159,13 @@ export function BlockEditor({
           <span className="shrink-0 text-xs font-medium text-muted-foreground">
             {t(`flows.builder.blockTypes.${block.type}`)}
           </span>
+          {thumbnail ? (
+            // eslint-disable-next-line @next/next/no-img-element -- base64 local, sin optimizar
+            <img src={imageDataUrl(thumbnail)} alt="" className="size-6 shrink-0 rounded object-cover" />
+          ) : null}
           <span className="min-w-0 truncate text-sm text-foreground">
-            {summary || <span className="text-muted-foreground">{t("flows.builder.block.untitled")}</span>}
-            {!isTextBlock(block) && block.required ? <span className="text-destructive"> *</span> : null}
+            {summary || (thumbnail ? null : <span className="text-muted-foreground">{t("flows.builder.block.untitled")}</span>)}
+            {isQuestionBlock(block) && block.required ? <span className="text-destructive"> *</span> : null}
           </span>
           {errorCount > 0 ? (
             <TriangleAlert className="size-4 shrink-0 text-destructive" aria-label={t("flows.builder.block.hasErrors")} />
@@ -137,6 +191,10 @@ export function BlockEditor({
           <FieldErrorText errors={errors[""]} />
           {isTextBlock(block) ? (
             <TextBlockFields block={block} uid={uid} errors={errors} onChange={onChange} t={t} />
+          ) : block.type === "image" ? (
+            <ImageBlockFields block={block} uid={uid} errors={errors} onChange={onChange} t={t} />
+          ) : block.type === "image_carousel" ? (
+            <CarouselFields block={block} uid={uid} errors={errors} onChange={onChange} t={t} />
           ) : (
             <QuestionFields
               block={block}
@@ -144,6 +202,7 @@ export function BlockEditor({
               errors={errors}
               contactFields={contactFields}
               otherKeys={otherKeys}
+              routing={routing}
               onChange={onChange}
               t={t}
             />
@@ -199,11 +258,12 @@ interface QuestionFieldsProps {
   errors: Record<string, string[]>
   contactFields: ContactField[]
   otherKeys: string[]
+  routing: BlockRouting
   onChange: (block: FlowBlock) => void
   t: Translate
 }
 
-function QuestionFields({ block, uid, errors, contactFields, otherKeys, onChange, t }: QuestionFieldsProps) {
+function QuestionFields({ block, uid, errors, contactFields, otherKeys, routing, onChange, t }: QuestionFieldsProps) {
   // La clave sigue a la etiqueta mientras el usuario no la escriba a mano.
   const [keyTouched, setKeyTouched] = useState(() => block.key !== keyFromLabel(block.label, otherKeys))
 
@@ -219,15 +279,28 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, onChange
     if (lockRequired && !block.required) onChange({ ...block, required: true })
   }, [lockRequired, block, onChange])
 
+  const canCreateField = usePermission("contact_fields.manage")
+  const [creatingField, setCreatingField] = useState(false)
+
+  /** Guarda la respuesta en el destino; un campo de selección impone sus opciones y uno obligatorio, la respuesta. */
+  const mapTo = (maps_to: MapsTo | null, fields: ContactField[]) => {
+    const field = findField(fields, customFieldKey(maps_to))
+    const next = { ...block, maps_to, ...(field?.is_required ? { required: true } : {}) } as QuestionBlock
+    const choices = field?.type === "select" || field?.type === "multi_select" ? (field.options?.choices ?? []) : null
+    onChange(choices && isChoiceBlock(next) ? { ...next, options: adoptFieldChoices(next, choices) } : next)
+  }
+
   const setTarget = (value: string) => {
-    const maps_to = value === NONE ? null : (value as MapsTo)
-    const next = { ...block, maps_to, ...(requiredInCrm(maps_to) ? { required: true } : {}) } as QuestionBlock
-    const locked = isChoiceBlock(next) ? lockedOptions(next, contactFields) : null
-    onChange(locked && isChoiceBlock(next) ? { ...next, options: locked } : next)
+    if (value === CREATE_FIELD) {
+      setCreatingField(true)
+      return
+    }
+    mapTo(value === NONE ? null : (value as MapsTo), contactFields)
   }
 
   const targets: string[] = compatibleTargets(block, contactFields)
   if (block.maps_to && !targets.includes(block.maps_to)) targets.push(block.maps_to)
+  const hasCustomTarget = targets.some((target) => customFieldKey(target) !== null)
 
   const hasHelper = block.type === "short_text" || block.type === "long_text" || block.type === "date"
   const helperText = "helper_text" in block ? (block.helper_text ?? "") : ""
@@ -310,6 +383,10 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, onChange
         <OptionsEditor block={block} uid={uid} errors={errors} contactFields={contactFields} onChange={onChange} t={t} />
       ) : null}
 
+      {isBranchable(block) ? (
+        <BranchEditor block={block} uid={uid} errors={errors.branches} routing={routing} onChange={onChange} t={t} />
+      ) : null}
+
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-3">
           <Label htmlFor={`${uid}-required`} className="text-sm">
@@ -331,7 +408,7 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, onChange
           id={`${uid}-maps-to`}
           label={t("flows.builder.block.mapsTo")}
           errors={errors.maps_to}
-          hint={block.maps_to ? t("flows.builder.block.mapsToHint") : undefined}
+          hint={t(block.maps_to ? "flows.builder.block.mapsToHint" : "flows.builder.block.mapsToOptional")}
         >
           <Select value={block.maps_to ?? NONE} onValueChange={setTarget}>
             <SelectTrigger id={`${uid}-maps-to`} className="w-full" aria-invalid={!!errors.maps_to}>
@@ -344,6 +421,17 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, onChange
                   {targetLabel(target, contactFields, t)}
                 </SelectItem>
               ))}
+              {canCreateField ? (
+                <>
+                  <SelectSeparator />
+                  <SelectItem value={CREATE_FIELD} className="text-primary focus:text-primary">
+                    <span className="inline-flex items-center gap-2">
+                      <Plus className="size-4" aria-hidden />
+                      {t(hasCustomTarget ? "flows.builder.block.mapsToCreate" : "flows.builder.block.mapsToCreateFirst")}
+                    </span>
+                  </SelectItem>
+                </>
+              ) : null}
             </SelectContent>
           </Select>
         </BuilderField>
@@ -352,7 +440,96 @@ function QuestionFields({ block, uid, errors, contactFields, otherKeys, onChange
           <PrefillSelect block={block} uid={uid} errors={errors} contactFields={contactFields} onChange={onChange} t={t} />
         ) : null}
       </div>
+
+      {creatingField ? (
+        <CreateContactFieldDialog
+          onOpenChange={setCreatingField}
+          types={creatableFieldTypes(block)}
+          initialLabel={block.label}
+          initialChoices={isChoiceBlock(block) ? block.options.map((option) => option.title.trim()).filter(Boolean) : []}
+          choicesHint={t("flows.builder.block.newFieldChoicesHint")}
+          onCreated={(field) => mapTo(`${CUSTOM_DATA_PREFIX}${field.key}`, [...contactFields, field])}
+        />
+      ) : null}
     </>
+  )
+}
+
+/**
+ * Reglas de camino de una pregunta de opciones: cada respuesta lleva a la pantalla siguiente,
+ * a una posterior o al final. Las opciones arrancan con el destino de la pantalla.
+ */
+function BranchEditor({
+  block,
+  uid,
+  errors,
+  routing,
+  onChange,
+  t,
+}: {
+  block: SingleChoiceBlock
+  uid: string
+  errors: string[] | undefined
+  routing: BlockRouting
+  onChange: (block: FlowBlock) => void
+  t: Translate
+}) {
+  const { screens, index, hasAppointment, otherBlockBranches } = routing
+  const screenNext = screens[index]?.next ?? DEFAULT_TARGET
+  const active = hasBranches(block)
+
+  const toggle = (enabled: boolean) => {
+    if (enabled) {
+      onChange({ ...block, branches: Object.fromEntries(block.options.map((option) => [option.id, screenNext])) })
+      return
+    }
+    const next = { ...block }
+    delete next.branches
+    onChange(next)
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border border-dashed border-border p-3">
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor={`${uid}-branches`} className="text-sm">
+          {t("flows.builder.routes.toggle")}
+        </Label>
+        <Switch
+          id={`${uid}-branches`}
+          checked={active}
+          disabled={!active && otherBlockBranches}
+          onCheckedChange={toggle}
+        />
+      </div>
+      {!active && otherBlockBranches ? (
+        <p className="text-xs text-muted-foreground">{t("flows.builder.routes.otherBlockBranches")}</p>
+      ) : null}
+      {active ? (
+        <div className="space-y-2">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-2 text-xs font-medium text-muted-foreground">
+            <span>{t("flows.builder.routes.ifAnswer")}</span>
+            <span>{t("flows.builder.routes.goTo")}</span>
+          </div>
+          {block.options.map((option, optionIndex) => (
+            <div key={`${option.id}-${optionIndex}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] items-center gap-2">
+              <span className="truncate text-sm">{option.title || option.id}</span>
+              <DestinationSelect
+                id={`${uid}-branch-${optionIndex}`}
+                value={branchTarget(block, option.id) ?? screenNext}
+                index={index}
+                screens={screens}
+                hasAppointment={hasAppointment}
+                invalid={!!errors}
+                ariaLabel={t("flows.builder.routes.goToFor", { option: option.title || option.id })}
+                onChange={(target) => onChange({ ...block, branches: { ...block.branches, [option.id]: target } })}
+              />
+            </div>
+          ))}
+          {!block.required ? <p className="text-xs text-muted-foreground">{t("flows.builder.routes.optionalHint")}</p> : null}
+        </div>
+      ) : null}
+      <FieldErrorText errors={errors} />
+    </div>
   )
 }
 
@@ -413,14 +590,14 @@ function OptionsEditor({
 }) {
   const locked = lockedOptions(block, contactFields) !== null
   const lockedField = locked ? findField(contactFields, customFieldKey(block.maps_to)) : undefined
-  const max = OPTION_COUNT_MAX[block.type]
+  const max = optionCountMax(block)
+  const hasImages = block.options.some((option) => isSupportedImage(option.image))
+
+  const setOption = (index: number, patch: Partial<ChoiceOption>) =>
+    onChange({ ...block, options: block.options.map((option, i) => (i === index ? { ...option, ...patch } : option)) })
 
   // El id de la opción es lo que devuelve WhatsApp: sigue al título para que la respuesta sea legible.
-  const setTitle = (index: number, title: string) =>
-    onChange({
-      ...block,
-      options: block.options.map((option, i) => (i === index ? { id: title, title } : option)),
-    })
+  const setTitle = (index: number, title: string) => setOption(index, { id: title, title })
 
   const addOption = () => {
     const taken = new Set(block.options.map((option) => option.id))
@@ -449,11 +626,26 @@ function OptionsEditor({
       ) : null}
       <ul className="space-y-2">
         {block.options.map((option, index) => {
-          const optionErrors = [...(errors[`options.${index}.title`] ?? []), ...(errors[`options.${index}.id`] ?? [])]
+          const optionErrors = [
+            ...(errors[`options.${index}.title`] ?? []),
+            ...(errors[`options.${index}.id`] ?? []),
+            ...(errors[`options.${index}.image`] ?? []),
+            ...(errors[`options.${index}.alt_text`] ?? []),
+          ]
           const id = `${uid}-option-${index}`
+          const optionName = option.title || t("flows.builder.block.optionLabel", { n: index + 1 })
           return (
             <li key={index} className="space-y-1">
               <div className="flex items-center gap-2">
+                <OptionImageButton
+                  value={option.image}
+                  maxBytes={OPTION_IMAGE_MAX_BYTES}
+                  maxSide={OPTION_IMAGE_MAX_SIDE}
+                  label={t(option.image ? "flows.builder.image.replaceFor" : "flows.builder.image.addFor", { option: optionName })}
+                  invalid={!!errors[`options.${index}.image`]}
+                  onChange={(image) => setOption(index, image ? { image } : { image: null, alt_text: null })}
+                  t={t}
+                />
                 <Input
                   id={id}
                   value={option.title}
@@ -477,6 +669,15 @@ function OptionsEditor({
                   </Button>
                 ) : null}
               </div>
+              {option.image ? (
+                <Input
+                  value={option.alt_text ?? ""}
+                  className="ml-11 h-8 w-[calc(100%-2.75rem)] text-xs"
+                  placeholder={t("flows.builder.image.optionAltPlaceholder")}
+                  aria-label={t("flows.builder.image.altTextFor", { option: optionName })}
+                  onChange={(event) => setOption(index, { alt_text: event.target.value || null })}
+                />
+              ) : null}
               <FieldErrorText errors={optionErrors} />
             </li>
           )
@@ -488,6 +689,25 @@ function OptionsEditor({
           <Plus className="size-4" />
           {t("flows.builder.block.addOption")}
         </Button>
+      ) : null}
+      {hasImages && block.type === "dropdown" ? (
+        <p className="text-xs text-muted-foreground">{t("flows.builder.image.dropdownLimit", { max })}</p>
+      ) : null}
+      {hasImages && block.type !== "dropdown" ? (
+        <BuilderField id={`${uid}-media-size`} label={t("flows.builder.image.optionSize")} errors={errors.media_size}>
+          <Select
+            value={block.media_size ?? "regular"}
+            onValueChange={(value) => onChange({ ...block, media_size: value as "regular" | "large" })}
+          >
+            <SelectTrigger id={`${uid}-media-size`} className="w-full sm:w-1/2">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="regular">{t("flows.builder.image.mediaSizes.regular")}</SelectItem>
+              <SelectItem value="large">{t("flows.builder.image.mediaSizes.large")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </BuilderField>
       ) : null}
     </div>
   )

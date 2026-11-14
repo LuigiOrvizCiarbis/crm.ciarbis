@@ -764,6 +764,7 @@ export default function ChatsPage() {
         content: updatedMsg.content,
         edited_at: updatedMsg.edited_at,
         original_content: updatedMsg.original_content ?? m.original_content,
+        interactive: updatedMsg.interactive ?? m.interactive,
       })),
     );
   }, []);

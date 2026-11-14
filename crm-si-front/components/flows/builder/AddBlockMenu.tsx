@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useTranslation } from "@/hooks/useTranslation"
-import { QUESTION_BLOCK_TYPES, TEXT_BLOCK_TYPES } from "@/lib/flow-builder/limits"
+import { MEDIA_BLOCK_TYPES, QUESTION_BLOCK_TYPES, TEXT_BLOCK_TYPES } from "@/lib/flow-builder/limits"
 import { keyFromLabel } from "@/lib/flow-builder/slug"
 import type { FlowBlock } from "@/lib/flow-builder/types"
 
@@ -28,6 +28,9 @@ interface AddBlockMenuProps {
 type Translate = (key: string) => string
 
 function defaultBlock(type: FlowBlock["type"], existingKeys: string[], t: Translate): FlowBlock {
+  if (type === "image") return { type, src: "", alt_text: null, size: "medium", scale_type: "contain" }
+  if (type === "image_carousel") return { type, images: [], aspect_ratio: "4:3", scale_type: "cover" }
+
   const label = t(`flows.builder.defaults.${type}`)
   const key = keyFromLabel(label, existingKeys)
 
@@ -87,6 +90,11 @@ export function AddBlockMenu({ existingKeys, onAdd }: AddBlockMenuProps) {
         <DropdownMenuGroup>
           <DropdownMenuLabel className="text-xs text-muted-foreground">{t("flows.builder.blockGroups.text")}</DropdownMenuLabel>
           {TEXT_BLOCK_TYPES.map(renderItem)}
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="text-xs text-muted-foreground">{t("flows.builder.blockGroups.media")}</DropdownMenuLabel>
+          {MEDIA_BLOCK_TYPES.map(renderItem)}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>

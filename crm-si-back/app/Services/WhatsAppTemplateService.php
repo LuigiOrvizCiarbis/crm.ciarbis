@@ -400,7 +400,9 @@ class WhatsAppTemplateService
             // matchean este mensaje y los fallos quedan invisibles.
             'external_id' => $response->json('messages.0.id'),
         ]);
-        $flowSession?->update(['message_id' => $message->id]);
+        if ($flowSession !== null) {
+            app(WhatsAppFlowSessionService::class)->activate($flowSession, $message);
+        }
 
         $conversation->update([
             'last_message_at' => $message->created_at,

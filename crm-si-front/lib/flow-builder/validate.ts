@@ -8,23 +8,33 @@ import {
   lockedOptions,
   supportsPrefill,
 } from "./compat";
+import { imageBytes, isSupportedImage } from "./images";
 import {
+  ALT_TEXT_MAX,
   APPOINTMENT_LABEL_MAX,
+  CAROUSEL_IMAGES_MAX,
   FOOTER_LABEL_MAX,
   HELPER_TEXT_MAX,
+  IMAGE_MAX_BYTES,
   KEY_PATTERN,
   LABEL_MAX,
+  MAX_CAROUSELS,
+  MAX_CAROUSELS_PER_SCREEN,
+  MAX_IMAGES_PER_SCREEN,
   MAX_OPT_IN_PER_SCREEN,
   MAX_SCREENS,
-  OPTION_COUNT_MAX,
+  OPTION_IMAGE_MAX_BYTES,
   OPTION_TITLE_MAX,
   TEXT_MAX,
+  TOTAL_IMAGE_MAX_BYTES,
   hasForbiddenKeyPrefix,
   isChoiceBlock,
-  isQuestionBlock,
+  isTextBlock,
   isReservedKey,
+  optionCountMax,
 } from "./limits";
-import type { FlowDefinition, QuestionBlock } from "./types";
+import { hasBranches, isForwardTarget, resolveTarget, unreachableScreens } from "./routing";
+import type { FlowDefinition, QuestionBlock, Target } from "./types";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -64,6 +74,17 @@ export function validateDefinition(
 
   const keyUses = new Map<string, string[]>();
   const questions: QuestionBlock[] = [];
+  let totalImageBytes = 0;
+  let carousels = 0;
+  const checkImage = (path: string, src: string | null | undefined, maxBytes: number) => {
+    if (!isSupportedImage(src)) {
+      add(path, t("flows.builder.errors.imageMissing"));
+      return;
+    }
+    const bytes = imageBytes(src);
+    totalImageBytes += bytes;
+    if (bytes > maxBytes) add(path, t("flows.builder.errors.imageTooLarge", { max: Math.round(maxBytes / 1000) }));
+  };
 
   screens.forEach((screen, s) => {
     const screenPath = `screens.${s}`;
@@ -75,11 +96,34 @@ export function validateDefinition(
     if (optIns > MAX_OPT_IN_PER_SCREEN) {
       add(`${screenPath}.blocks`, t("flows.builder.errors.optInMax", { max: MAX_OPT_IN_PER_SCREEN }));
     }
+    if (screen.blocks.filter((block) => block.type === "image").length > MAX_IMAGES_PER_SCREEN) {
+      add(`${screenPath}.blocks`, t("flows.builder.errors.imagesPerScreen", { max: MAX_IMAGES_PER_SCREEN }));
+    }
+    const screenCarousels = screen.blocks.filter((block) => block.type === "image_carousel").length;
+    carousels += screenCarousels;
+    if (screenCarousels > MAX_CAROUSELS_PER_SCREEN) {
+      add(`${screenPath}.blocks`, t("flows.builder.errors.carouselsPerScreen", { max: MAX_CAROUSELS_PER_SCREEN }));
+    }
 
     screen.blocks.forEach((block, b) => {
       const path = `${screenPath}.blocks.${b}`;
-      if (!isQuestionBlock(block)) {
+      if (isTextBlock(block)) {
         checkLength(`${path}.text`, block.text, TEXT_MAX[block.type]);
+        return;
+      }
+      if (block.type === "image") {
+        checkImage(`${path}.src`, block.src, IMAGE_MAX_BYTES);
+        checkLength(`${path}.alt_text`, block.alt_text, ALT_TEXT_MAX, false);
+        return;
+      }
+      if (block.type === "image_carousel") {
+        if (block.images.length < 1 || block.images.length > CAROUSEL_IMAGES_MAX) {
+          add(`${path}.images`, t("flows.builder.errors.carouselCount", { max: CAROUSEL_IMAGES_MAX }));
+        }
+        block.images.forEach((image, i) => {
+          checkImage(`${path}.images.${i}.src`, image.src, IMAGE_MAX_BYTES);
+          checkLength(`${path}.images.${i}.alt_text`, image.alt_text, ALT_TEXT_MAX);
+        });
         return;
       }
 
@@ -101,7 +145,7 @@ export function validateDefinition(
       }
 
       if (isChoiceBlock(block)) {
-        const max = OPTION_COUNT_MAX[block.type];
+        const max = optionCountMax(block);
         if (block.options.length < 1 || block.options.length > max) {
           add(`${path}.options`, t("flows.builder.errors.optionsCount", { max }));
         }
@@ -111,6 +155,10 @@ export function validateDefinition(
           if (id === "" || seenIds.has(id)) add(`${path}.options.${o}.id`, t("flows.builder.errors.optionId"));
           seenIds.add(id);
           checkLength(`${path}.options.${o}.title`, option.title, OPTION_TITLE_MAX);
+          if (option.image) {
+            checkImage(`${path}.options.${o}.image`, option.image, OPTION_IMAGE_MAX_BYTES);
+            checkLength(`${path}.options.${o}.alt_text`, option.alt_text, ALT_TEXT_MAX, false);
+          }
         });
       }
 
@@ -141,6 +189,10 @@ export function validateDefinition(
   }
 
   if (questions.length === 0) add("screens", t("flows.builder.errors.noQuestions"));
+  if (carousels > MAX_CAROUSELS) add("screens", t("flows.builder.errors.carouselsTotal", { max: MAX_CAROUSELS }));
+  if (totalImageBytes > TOTAL_IMAGE_MAX_BYTES) {
+    add("screens", t("flows.builder.errors.imagesTotal", { max: Math.round(TOTAL_IMAGE_MAX_BYTES / 1_000_000) }));
+  }
 
   if (appointment) {
     checkLength("appointment.date_screen_title", appointment.date_screen_title, Number.POSITIVE_INFINITY);
@@ -156,5 +208,47 @@ export function validateDefinition(
     }
   }
 
+  validateRoutes(definition, add, t);
+
   return errors;
+}
+
+/**
+ * Destinos de pantallas y respuestas: sólo hacia adelante, una pregunta que cambia el camino
+ * por pantalla y todas las pantallas alcanzables. Mismas rutas de error que el backend.
+ */
+function validateRoutes(definition: FlowDefinition, add: (path: string, message: string) => void, t: Translate) {
+  const { screens } = definition;
+  let routeErrors = false;
+  const fail = (path: string, message: string) => {
+    routeErrors = true;
+    add(path, message);
+  };
+  const checkTarget = (target: Target | undefined, index: number, path: string) => {
+    const resolved = resolveTarget(target, index, screens);
+    if (resolved === null) fail(path, t("flows.builder.errors.targetMissing"));
+    else if (!isForwardTarget(target, index, screens)) fail(path, t("flows.builder.errors.targetBackward"));
+  };
+
+  screens.forEach((screen, s) => {
+    if (screen.next !== undefined) checkTarget(screen.next, s, `screens.${s}.next`);
+
+    let branching = 0;
+    screen.blocks.forEach((block, b) => {
+      if (!hasBranches(block)) return;
+      const path = `screens.${s}.blocks.${b}.branches`;
+      branching += 1;
+      if (branching > 1) fail(path, t("flows.builder.errors.branchingPerScreen"));
+      const optionIds = new Set(block.options.map((option) => option.id));
+      for (const [optionId, target] of Object.entries(block.branches ?? {})) {
+        if (!optionIds.has(optionId)) fail(path, t("flows.builder.errors.branchOptionMissing"));
+        else checkTarget(target, s, path);
+      }
+    });
+  });
+
+  if (routeErrors) return;
+  for (const index of unreachableScreens(screens)) {
+    add(`screens.${index}`, t("flows.builder.errors.unreachable"));
+  }
 }

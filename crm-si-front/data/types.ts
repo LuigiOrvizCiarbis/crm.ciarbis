@@ -273,6 +273,13 @@ export interface WhatsAppFlowEncryptionStatus {
   signature_status: string | null
 }
 
+export interface MessageFlowProgress {
+  screens_done: number
+  last_screen_title: string | null
+  saved_fields: string[]
+  updated_at: string
+}
+
 export type MessageInteractive =
   | {
       kind: "flow"
@@ -283,6 +290,9 @@ export type MessageInteractive =
       cta: string
       header?: string | null
       footer?: string | null
+      /** Avance del cliente en el formulario; llega por `message.edited`. */
+      progress?: MessageFlowProgress | null
+      session_status?: "pending" | "completed" | "superseded" | null
     }
   | {
       kind: "flow_response"
@@ -290,7 +300,9 @@ export type MessageInteractive =
       flow_name: string | null
       session_id: number | null
       response: Record<string, unknown>
-      /** Respuestas que no se pudieron guardar en el contacto (clave → motivo). */
+      /** Etiqueta de cada pregunta del constructor (clave → etiqueta); falta en mensajes viejos o en formularios JSON. */
+      labels?: Record<string, string>
+      /** Respuestas que no se pudieron guardar en el contacto (clave → motivo, que ya incluye la etiqueta). */
       mapping_errors?: Record<string, string>
     }
 

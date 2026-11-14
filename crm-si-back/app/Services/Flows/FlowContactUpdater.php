@@ -20,13 +20,14 @@ class FlowContactUpdater
     private const NAME_MAX = 255;
 
     /**
-     * Guarda las respuestas válidas y devuelve las que no se pudieron guardar.
+     * Guarda las respuestas válidas y devuelve qué se guardó (etiquetas de las
+     * preguntas) y qué no (response_key → mensaje de error).
      *
-     * @return array<string, string> response_key → mensaje de error
+     * @return array{saved: list<string>, errors: array<string, string>}
      */
     public function apply(WhatsAppFlow $flow, Contact $contact, array $answers): array
     {
-        ['attributes' => $attributes, 'custom' => $custom, 'errors' => $errors] = $this->evaluate($flow, $contact, $answers);
+        ['attributes' => $attributes, 'custom' => $custom, 'saved' => $saved, 'errors' => $errors] = $this->evaluate($flow, $contact, $answers);
 
         $contact->fill($attributes);
 
@@ -38,18 +39,20 @@ class FlowContactUpdater
             $contact->save();
         }
 
-        return $errors;
+        return ['saved' => $saved, 'errors' => $errors];
     }
 
     /**
-     * @return array{attributes: array<string, string>, custom: array<string, mixed>, errors: array<string, string>}
+     * @return array{attributes: array<string, string>, custom: array<string, mixed>, saved: list<string>, errors: array<string, string>}
      */
     private function evaluate(WhatsAppFlow $flow, Contact $contact, array $answers): array
     {
-        $result = ['attributes' => [], 'custom' => [], 'errors' => []];
+        $result = ['attributes' => [], 'custom' => [], 'saved' => [], 'errors' => []];
         $tenantId = (int) $contact->tenant_id;
 
-        foreach ($flow->field_mappings ?? [] as $mapping) {
+        $version = $flow->liveVersion();
+
+        foreach ($version->fieldMappings as $mapping) {
             $key = (string) ($mapping['response_key'] ?? '');
             $target = (string) ($mapping['target'] ?? '');
             $value = data_get($answers, $key);
@@ -58,7 +61,7 @@ class FlowContactUpdater
                 continue;
             }
 
-            $label = $this->label($flow, $key);
+            $label = $this->label($version, $key);
             $error = null;
 
             if ($target === 'contact.name') {
@@ -80,10 +83,14 @@ class FlowContactUpdater
                 if ($error === null) {
                     $result['custom'][$fieldKey] = $normalized;
                 }
+            } else {
+                continue;
             }
 
             if ($error !== null) {
                 $result['errors'][$key] = $error;
+            } else {
+                $result['saved'][] = $label;
             }
         }
 
@@ -142,16 +149,8 @@ class FlowContactUpdater
     }
 
     /** Etiqueta de la pregunta en el constructor; si no, la clave. */
-    private function label(WhatsAppFlow $flow, string $key): string
+    private function label(FlowVersion $version, string $key): string
     {
-        foreach ($flow->builder_definition['screens'] ?? [] as $screen) {
-            foreach ($screen['blocks'] ?? [] as $block) {
-                if (($block['key'] ?? null) === $key && filled($block['label'] ?? null)) {
-                    return (string) $block['label'];
-                }
-            }
-        }
-
-        return $key;
+        return $version->questionLabels()[$key] ?? $key;
     }
 }

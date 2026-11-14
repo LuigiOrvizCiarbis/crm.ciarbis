@@ -1286,9 +1286,17 @@
       "responseLabel": "Response · {{name}}",
       "defaultName": "Form",
       "emptyResponse": "No data",
+      "noAnswer": "No answer",
+      "appointment": "Appointment",
+      "appointmentConfirmed": "Confirmed",
+      "appointmentPending": "Pending confirmation",
       "yes": "Yes",
       "no": "No",
-      "mappingErrorsTitle": "Not saved to the contact"
+      "mappingErrorsTitle": "Not saved to the contact",
+      "completed": "Completed",
+      "superseded": "Replaced by a newer send",
+      "inProgress": "In progress · screens sent: {{count}}",
+      "savedFields": "Saved to the contact: {{fields}}"
     },
     "contactsSendError": "Could not send the contacts",
     "contactSaved": "Contact saved",
@@ -2845,8 +2853,18 @@
         "hint": "The key is the name of the value in the flow response (the payload of the complete action).",
         "fieldsError": "Couldn't load contact fields",
         "saved": "Mapping saved",
-        "saveError": "Couldn't save the mapping"
+        "saveError": "Couldn't save the mapping",
+        "createField": "Create new field…",
+        "newFieldChoicesHint": "One per line. They must match the values the form sends."
       }
+    },
+    "fieldCreate": {
+      "title": "New contact field",
+      "description": "It's added to every contact's profile and the form answer is saved there. You can edit it later in Settings → Custom fields.",
+      "submit": "Create field",
+      "created": "Field “{{label}}” created",
+      "error": "Couldn't create the field",
+      "choicesRequired": "Add at least one option."
     },
     "builder": {
       "title": "Form builder",
@@ -2905,19 +2923,40 @@
         "title": "Screen {{n}} title",
         "blocks": "Blocks",
         "footerLabel": "Final button text",
-        "footerHintNext": "Goes to the next screen.",
-        "footerHintLast": "Submits the form.",
-        "footerHintAppointment": "Goes to the appointment date selection."
+        "footerHintRoute": "Where it leads is set in “After this screen”.",
+        "footerHintBranches": "Where it leads depends on the answer to the question that changes the path."
+      },
+      "routes": {
+        "afterScreen": "After this screen",
+        "afterScreenBranchesHint": "Used for answers without a rule and when the question is left unanswered.",
+        "following": "Next screen",
+        "end": "Finish the form",
+        "appointment": "Go to appointment booking",
+        "screen": "Screen {{n}} · {{title}}",
+        "missing": "Screen that no longer exists",
+        "toggle": "Change the path based on the answer",
+        "otherBlockBranches": "Another question on this screen already changes the path.",
+        "ifAnswer": "If the answer is",
+        "goTo": "Go to",
+        "goToFor": "Destination for “{{option}}”",
+        "optionalHint": "If the question is left unanswered, the screen's destination is used.",
+        "endShort": "End",
+        "appointmentShort": "Booking",
+        "unreachableShort": "No answer leads here",
+        "simulate": "Try an answer:"
       },
       "blockGroups": {
         "text": "Text",
-        "questions": "Questions"
+        "questions": "Questions",
+        "media": "Images"
       },
       "blockTypes": {
         "heading": "Heading",
         "subheading": "Subheading",
         "body": "Paragraph",
         "caption": "Caption",
+        "image": "Image",
+        "image_carousel": "Image carousel",
         "short_text": "Short text",
         "long_text": "Long text",
         "dropdown": "Dropdown",
@@ -2971,7 +3010,11 @@
         "mapsToNone": "Don't save",
         "prefill": "Prefill with",
         "requiredInCrm": "Required in the CRM.",
-        "mapsToHint": "The answer is validated with the CRM rules inside the form and saved to the contact as each screen is completed."
+        "mapsToHint": "The answer is validated with the CRM rules inside the form and saved to the contact as each screen is completed.",
+        "mapsToOptional": "Optional. Pick a field only if the answer must stay on the contact's profile; the full response still shows in the chat.",
+        "mapsToCreate": "Create new field…",
+        "mapsToCreateFirst": "Create a field to save it…",
+        "newFieldChoicesHint": "One per line. They become the question's options."
       },
       "targets": {
         "contactName": "Contact name",
@@ -3009,6 +3052,46 @@
         "sampleOptions": "Sample options: the real ones come from the schedule.",
         "note": "Approximate view. Use 'Meta preview' to see the exact version."
       },
+      "image": {
+        "file": "Image",
+        "upload": "Upload image",
+        "uploadHint": "Click or drop it here. It is resized to what WhatsApp accepts.",
+        "replace": "Change image",
+        "remove": "Remove image",
+        "processing": "Processing image",
+        "unsupported": "The file could not be read. Try a JPEG or PNG photo.",
+        "tooLarge": "The image could not be reduced below {{max}} KB. Try a simpler one.",
+        "altText": "Description (optional)",
+        "altTextRequired": "Description",
+        "altTextHint": "Read by screen readers.",
+        "size": "Height",
+        "sizes": {
+          "small": "Small",
+          "medium": "Medium",
+          "large": "Large"
+        },
+        "scaleType": "Fit",
+        "scaleTypes": {
+          "contain": "Show whole",
+          "cover": "Crop to fill"
+        },
+        "aspectRatio": "Aspect ratio",
+        "carouselImages": "Carousel images",
+        "carouselItem": "Image {{n}}",
+        "addToCarousel": "Add image",
+        "removeFromCarousel": "Remove image {{n}}",
+        "count": "Images: {{count}}",
+        "addFor": "Add image to “{{option}}”",
+        "replaceFor": "Change the image of “{{option}}”",
+        "altTextFor": "Description of the image of “{{option}}”",
+        "optionAltPlaceholder": "Image description (optional)",
+        "optionSize": "Image size",
+        "mediaSizes": {
+          "regular": "Regular",
+          "large": "Large"
+        },
+        "dropdownLimit": "With images, the list accepts up to {{max}} options."
+      },
       "errors": {
         "required": "Fill in this field.",
         "tooLong": "Up to {{max}} characters.",
@@ -3027,7 +3110,19 @@
         "mapsToInvalid": "This destination isn't compatible with the question.",
         "reasonKey": "Pick a long text question.",
         "keyRequiredPrefix": "The internal name can't start with “required”.",
-        "requiredInCrm": "The field “{{field}}” is required in the CRM: the question must be required."
+        "requiredInCrm": "The field “{{field}}” is required in the CRM: the question must be required.",
+        "targetMissing": "The destination screen no longer exists.",
+        "targetBackward": "You can only jump to a later screen.",
+        "branchingPerScreen": "Only one question per screen can change the path.",
+        "branchOptionMissing": "The rule points to an option that no longer exists.",
+        "unreachable": "No answer leads to this screen.",
+        "imageMissing": "Upload a JPEG or PNG image.",
+        "imageTooLarge": "The image is larger than {{max}} KB.",
+        "imagesPerScreen": "At most {{max}} images per screen.",
+        "carouselsPerScreen": "At most {{max}} carousels per screen.",
+        "carouselCount": "The carousel needs between 1 and {{max}} images.",
+        "carouselsTotal": "The form accepts at most {{max}} carousels.",
+        "imagesTotal": "The form's images exceed {{max}} MB in total. Use fewer or lighter images."
       },
       "toasts": {
         "saved": "Form saved",
