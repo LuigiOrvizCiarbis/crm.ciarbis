@@ -116,7 +116,7 @@ class WhatsAppFlowSessionService
         $session->update(['progress' => $progress]);
 
         $index = FlowDefinitionCompiler::screenIndex($screenId);
-        $definition = $session->flow->liveVersion()->definition;
+        $definition = $session->flow->liveVersion()->runtimeDefinition;
         $this->updateMessage($session, ['progress' => [
             'screens_done' => count($path),
             'last_screen_title' => $index !== null ? ($definition['screens'][$index]['title'] ?? null) : null,
@@ -132,14 +132,32 @@ class WhatsAppFlowSessionService
      */
     public function pathAnswers(WhatsAppFlowSession $session): array
     {
-        $screens = $session->flow->liveVersion()->definition['screens'] ?? null;
+        return $this->answersAlong($session, $session->progress['path'] ?? null);
+    }
 
-        if ($screens === null || $session->progress === null) {
+    /**
+     * Respuestas de las pantallas recorridas antes de `$screenId`. Si el
+     * cliente volvió atrás hasta esa pantalla, lo que seguía ya no cuenta.
+     */
+    public function answersBefore(WhatsAppFlowSession $session, string $screenId): array
+    {
+        $path = $session->progress['path'] ?? null;
+        $position = is_array($path) ? array_search($screenId, $path, true) : false;
+
+        return $this->answersAlong($session, $position === false ? $path : array_slice($path, 0, $position));
+    }
+
+    /** @param  list<string>|null  $path  null: sin recorrido registrado, se devuelve todo lo guardado */
+    private function answersAlong(WhatsAppFlowSession $session, ?array $path): array
+    {
+        $screens = $session->flow->liveVersion()->runtimeDefinition['screens'] ?? null;
+
+        if ($screens === null || $path === null) {
             return $session->data ?? [];
         }
 
         $keys = [];
-        foreach ($session->progress['path'] ?? [] as $screenId) {
+        foreach ($path as $screenId) {
             foreach ($screens[FlowDefinitionCompiler::screenIndex($screenId) ?? -1]['blocks'] ?? [] as $block) {
                 if (isset($block['key'])) {
                     $keys[] = $block['key'];
@@ -158,7 +176,7 @@ class WhatsAppFlowSessionService
      */
     private function inferredPath(WhatsAppFlowSession $session, string $screenId): array
     {
-        $screens = $session->flow->liveVersion()->definition['screens'] ?? [];
+        $screens = $session->flow->liveVersion()->runtimeDefinition['screens'] ?? [];
         $data = $session->data ?? [];
         $path = [];
 

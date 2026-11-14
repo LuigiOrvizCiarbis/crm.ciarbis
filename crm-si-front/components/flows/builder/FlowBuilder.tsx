@@ -70,6 +70,7 @@ import {
 } from "@/lib/flow-builder/errors"
 import { SCREEN_NODE_WIDTH, layoutScreens, nextFreePosition, questionCount } from "@/lib/flow-builder/layout"
 import { MAX_SCREENS, NAME_MAX, isQuestionBlock } from "@/lib/flow-builder/limits"
+import { expandedScreenCount, groupScreenCount, isRepeaterScreen, screenBlocks } from "@/lib/flow-builder/repeater"
 import { DEFAULT_APPOINTMENT } from "@/lib/flow-builder/presets"
 import {
   canBeEntry,
@@ -79,7 +80,8 @@ import {
   usesEndpoint,
   type RoutePort,
 } from "@/lib/flow-builder/routing"
-import type { CanvasPosition, FlowBlock, FlowScreen, LongTextBlock } from "@/lib/flow-builder/types"
+import { keyFromLabel } from "@/lib/flow-builder/slug"
+import type { CanvasPosition, FlowBlock, FlowScreen, LongTextBlock, RepeaterScreen } from "@/lib/flow-builder/types"
 import { charCount, validateDefinition } from "@/lib/flow-builder/validate"
 import { cn } from "@/lib/utils"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
@@ -87,6 +89,7 @@ import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 import { AppointmentSettings } from "./AppointmentSettings"
 import { FieldErrorText } from "./BuilderField"
 import { FlowPhonePreview } from "./FlowPhonePreview"
+import { RepeaterEditor } from "./RepeaterEditor"
 import { ScreenEditor } from "./ScreenEditor"
 import { FlowCanvas, type FocusRequest } from "./canvas/FlowCanvas"
 import { APPOINTMENT_ID, END_ID } from "./canvas/graph"
@@ -273,17 +276,20 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
   const questionKeys = useMemo(
     () =>
       screens.flatMap((screen) =>
-        screen.blocks.filter(isQuestionBlock).map((block) => ({ uid: block.uid, key: block.key })),
+        isRepeaterScreen(screen)
+          ? [{ uid: screen.uid, key: screen.key }]
+          : screen.blocks.filter(isQuestionBlock).map((block) => ({ uid: block.uid, key: block.key })),
       ),
     [screens],
   )
   const reasonCandidates = useMemo(() => {
     const byKey = new Map<string, LongTextBlock>()
-    for (const block of screens.flatMap((screen) => screen.blocks)) {
+    for (const block of screens.flatMap(screenBlocks)) {
       if (block.type === "long_text" && block.key !== "" && !byKey.has(block.key)) byKey.set(block.key, block)
     }
     return [...byKey.values()]
   }, [screens])
+  const generatedScreens = expandedScreenCount(screens)
 
   const dropServerErrors = useCallback((kind: "screens" | "blocks", uid: string | undefined) => {
     setServerErrors((previous) => {
@@ -322,24 +328,49 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
   )
 
   const addScreen = useCallback(() => {
-    if (screens.length >= MAX_SCREENS) return
+    if (generatedScreens >= MAX_SCREENS) return
     const screen = newScreen(nextFreePosition(screens))
     actions.addScreen(screen)
     setInspectorTab("content")
     selectAndFocus(screen.uid as string)
-  }, [actions, newScreen, screens, selectAndFocus])
+  }, [actions, generatedScreens, newScreen, screens, selectAndFocus])
+
+  /** Grupo sin campo todavía: el panel pide elegirlo y ahí se completa. */
+  const addRepeater = useCallback(() => {
+    if (generatedScreens >= MAX_SCREENS) return
+    const group: RepeaterScreen = {
+      type: "repeater",
+      id: newScreenId(screens.map((item) => item.id)),
+      uid: newUid(),
+      key: keyFromLabel(t("flows.builder.repeater.defaultKey"), questionKeys.map((item) => item.key)),
+      field_key: "",
+      title: t("flows.builder.repeater.label"),
+      row_title: t("flows.builder.repeater.defaultRowTitle"),
+      footer_label: t("flows.builder.defaults.footerLabel"),
+      more_label: t("flows.builder.repeater.defaultMore"),
+      max_rows: 1,
+      min_rows: 0,
+      ask_first: false,
+      ask_first_label: "",
+      fields: [],
+      position: nextFreePosition(screens),
+    }
+    actions.addScreen(group)
+    setInspectorTab("content")
+    selectAndFocus(group.uid as string)
+  }, [actions, generatedScreens, questionKeys, screens, selectAndFocus, t])
 
   const insertScreen = useCallback(
     (from: number, port: RoutePort, position?: CanvasPosition) => {
       const source = screens[from]
-      if (!source || screens.length >= MAX_SCREENS) return
+      if (!source || generatedScreens >= MAX_SCREENS) return
       const origin = source.position ?? { x: 0, y: 0 }
       const screen = newScreen(position ?? { x: origin.x + INSERT_OFFSET.x, y: origin.y + INSERT_OFFSET.y })
       actions.insertScreen(screen, from, port)
       setInspectorTab("content")
       selectAndFocus(screen.uid as string)
     },
-    [actions, newScreen, screens, selectAndFocus],
+    [actions, generatedScreens, newScreen, screens, selectAndFocus],
   )
 
   const removeScreen = useCallback(
@@ -560,35 +591,60 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
   const undoShortcut = isMac() ? "⌘Z" : "Ctrl+Z"
   const redoShortcut = isMac() ? "⇧⌘Z" : "Ctrl+Y"
 
-  const screenEditor = selectedScreen ? (
-    <ScreenEditor
-      key={selectedScreen.uid}
-      screen={selectedScreen}
-      index={selectedIndex}
-      screens={screens}
-      hasAppointment={hasAppointment}
-      errors={errors}
-      contactFields={contactFields}
-      questionKeys={questionKeys}
-      onUpdateScreen={(patch) => {
-        dropServerErrors("screens", selectedScreen.uid)
-        actions.updateScreen(selectedIndex, patch)
-      }}
-      onAddBlock={(block: FlowBlock) => {
-        dropServerErrors("screens", selectedScreen.uid)
-        actions.addBlock(selectedIndex, block)
-      }}
-      onRemoveBlock={(index) => {
-        dropServerErrors("blocks", selectedScreen.blocks[index]?.uid)
-        actions.removeBlock(selectedIndex, index)
-      }}
-      onMoveBlock={(from, to) => actions.moveBlock(selectedIndex, from, to)}
-      onUpdateBlock={(index, block) => {
-        dropServerErrors("blocks", block.uid)
-        actions.updateBlock(selectedIndex, index, block)
-      }}
-    />
-  ) : null
+  let screenEditor: ReactNode = null
+  if (selectedScreen && isRepeaterScreen(selectedScreen)) {
+    screenEditor = (
+      <RepeaterEditor
+        key={selectedScreen.uid}
+        group={selectedScreen}
+        index={selectedIndex}
+        screens={screens}
+        hasAppointment={hasAppointment}
+        errors={(selectedScreen.uid && errors.screens[selectedScreen.uid]) || {}}
+        contactFields={contactFields}
+        otherKeys={questionKeys.filter((item) => item.uid !== selectedScreen.uid).map((item) => item.key)}
+        screenBudget={MAX_SCREENS - generatedScreens + groupScreenCount(selectedScreen)}
+        onChange={(patch) => {
+          dropServerErrors("screens", selectedScreen.uid)
+          actions.updateRepeater(selectedIndex, patch)
+        }}
+        onChangeNext={(next) => {
+          dropServerErrors("screens", selectedScreen.uid)
+          actions.updateScreen(selectedIndex, { next })
+        }}
+      />
+    )
+  } else if (selectedScreen) {
+    screenEditor = (
+      <ScreenEditor
+        key={selectedScreen.uid}
+        screen={selectedScreen}
+        index={selectedIndex}
+        screens={screens}
+        hasAppointment={hasAppointment}
+        errors={errors}
+        contactFields={contactFields}
+        questionKeys={questionKeys}
+        onUpdateScreen={(patch) => {
+          dropServerErrors("screens", selectedScreen.uid)
+          actions.updateScreen(selectedIndex, patch)
+        }}
+        onAddBlock={(block: FlowBlock) => {
+          dropServerErrors("screens", selectedScreen.uid)
+          actions.addBlock(selectedIndex, block)
+        }}
+        onRemoveBlock={(index) => {
+          dropServerErrors("blocks", selectedScreen.blocks[index]?.uid)
+          actions.removeBlock(selectedIndex, index)
+        }}
+        onMoveBlock={(from, to) => actions.moveBlock(selectedIndex, from, to)}
+        onUpdateBlock={(index, block) => {
+          dropServerErrors("blocks", block.uid)
+          actions.updateBlock(selectedIndex, index, block)
+        }}
+      />
+    )
+  }
 
   const appointmentSettings = (
     <AppointmentSettings
@@ -783,6 +839,7 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
               onDropNewScreen={(from, port, position) => insertScreen(from, port, position)}
               onMoveScreens={actions.setPositions}
               onAddScreen={addScreen}
+              onAddRepeater={addRepeater}
               onArrange={arrange}
             />
           </ReactFlowProvider>

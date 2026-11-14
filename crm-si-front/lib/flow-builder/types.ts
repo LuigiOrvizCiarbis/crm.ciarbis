@@ -124,18 +124,59 @@ export type FlowBlock = TextBlock | MediaBlock | QuestionBlock;
  */
 export type Target = "following" | "end" | `screen:${string}`;
 
-export interface FlowScreen {
+interface ScreenBase {
   /** Id estable de la pantalla (`/^[A-Za-z0-9_-]{1,40}$/`, único). Se guarda en la definición. */
   id: string;
   uid?: string;
   title: string;
   footer_label: string;
-  blocks: FlowBlock[];
   /** Destino después de la pantalla; por defecto `following`. */
   next?: Target;
   /** Posición en el diagrama del constructor; el backend la guarda y la ignora. */
   position?: CanvasPosition;
 }
+
+export interface ContentScreen extends ScreenBase {
+  type?: "screen";
+  blocks: FlowBlock[];
+}
+
+/** Tipos de subcampo de un repeater del CRM (todos entran en un formulario). */
+export type RepeaterFieldType = "text" | "number" | "currency" | "date" | "boolean" | "select" | "email" | "url" | "phone";
+
+/** Copia de un subcampo activo del repeater; `label` es la etiqueta corta del formulario. */
+export interface RepeaterField {
+  key: string;
+  label: string;
+  type: RepeaterFieldType;
+  required: boolean;
+  choices?: string[];
+  currency?: string;
+}
+
+/**
+ * Grupo repetible: una pantalla por fila (hasta `max_rows`) con "¿Agregar otro?", ligado a un
+ * campo repeater del contacto. Lo expande el backend (FlowDefinitionExpander) y `expand.ts`.
+ */
+export interface RepeaterScreen extends ScreenBase {
+  type: "repeater";
+  /** Prefijo de las respuestas (`<key>_<fila>_<n>`); mismas reglas que la clave de una pregunta. */
+  key: string;
+  /** Clave del campo repeater del contacto; vacío hasta que se elige. */
+  field_key: string;
+  /** Título de cada fila; `{n}` es el número de fila. */
+  row_title: string;
+  more_label: string;
+  max_rows: number;
+  /** Mínimo de filas del campo en el CRM, copiado al elegirlo. */
+  min_rows: number;
+  /** Con mínimo 0: pregunta antes si hay algo para cargar. */
+  ask_first: boolean;
+  ask_first_label: string;
+  fields: RepeaterField[];
+}
+
+export type FlowScreen = ContentScreen | RepeaterScreen;
 
 export interface CanvasPosition {
   x: number;

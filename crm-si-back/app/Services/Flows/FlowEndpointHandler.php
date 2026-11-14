@@ -117,19 +117,23 @@ class FlowEndpointHandler
     private function submitScreen(WhatsAppFlowSession $session, string $screen, ?string $next, array $answers): array
     {
         $contact = $session->conversation?->contact;
+        $version = $session->flow->liveVersion();
+        $definition = $version->runtimeDefinition;
+        // Un grupo repetible se guarda entero al terminarlo: necesita las filas
+        // de las pantallas anteriores del recorrido, no sólo las de esta.
+        $context = array_merge($this->sessions->answersBefore($session, $screen), $answers);
+        $destination = $definition !== null ? $this->builderNext($definition, $screen, $answers) : $next;
         ['saved' => $saved, 'errors' => $errors] = $contact !== null
-            ? $this->contactUpdater->apply($session->flow, $contact, $answers)
+            ? $this->contactUpdater->apply($session->flow, $contact, $answers, $context, $this->leavesGroups($version, $screen, $destination))
             : ['saved' => [], 'errors' => []];
 
         if ($errors !== []) {
             return $this->errorResponse($session, $screen, implode(' ', $errors));
         }
 
-        $definition = $session->flow->liveVersion()->definition;
-
         if ($definition !== null) {
             $this->sessions->recordProgress($session, $screen, $saved);
-            $next = $this->builderNext($definition, $screen, $answers);
+            $next = $destination;
         }
 
         return match ($next) {
@@ -152,6 +156,21 @@ class FlowEndpointHandler
         }
 
         return ($definition['appointment'] ?? null) !== null ? FlowDefinitionCompiler::DATE_SCREEN : null;
+    }
+
+    /**
+     * Grupos repetibles que se terminan al pasar de `$screen` a `$next`: la
+     * pantalla enviada es del grupo y la siguiente ya no (o el formulario termina).
+     *
+     * @return list<string> claves de los grupos
+     */
+    private function leavesGroups(FlowVersion $version, string $screen, ?string $next): array
+    {
+        $screens = $version->runtimeDefinition['screens'] ?? [];
+        $from = $screens[FlowDefinitionCompiler::screenIndex($screen) ?? -1]['repeater'] ?? null;
+        $to = $next !== null ? ($screens[FlowDefinitionCompiler::screenIndex($next) ?? -1]['repeater'] ?? null) : null;
+
+        return is_string($from) && $from !== $to ? [$from] : [];
     }
 
     private function bookAppointment(WhatsAppFlowSession $session, array $data): array

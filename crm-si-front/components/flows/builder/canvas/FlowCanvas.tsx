@@ -18,13 +18,14 @@ import {
   type OnConnectEnd,
 } from "@xyflow/react"
 import { useTheme } from "next-themes"
-import { CalendarClock, LayoutGrid, Maximize, Minus, Plus, SquarePlus } from "lucide-react"
+import { CalendarClock, LayoutGrid, Maximize, Minus, Plus, Repeat, SquarePlus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { GroupedErrors } from "@/lib/flow-builder/errors"
 import { MAX_SCREENS } from "@/lib/flow-builder/limits"
+import { expandedScreenCount } from "@/lib/flow-builder/repeater"
 import type { RoutePort } from "@/lib/flow-builder/routing"
 import type { CanvasPosition, FlowDefinition } from "@/lib/flow-builder/types"
 
@@ -77,6 +78,8 @@ interface FlowCanvasProps {
   onDropNewScreen: (from: number, port: RoutePort, position: CanvasPosition) => void
   onMoveScreens: (positions: Record<string, CanvasPosition>) => void
   onAddScreen: () => void
+  /** Agrega un grupo repetible (una pantalla por fila de un campo repeater). */
+  onAddRepeater: () => void
   /** Ordena las pantallas en columnas con los altos medidos. */
   onArrange: (heights: Record<string, number>) => void
 }
@@ -96,6 +99,7 @@ export function FlowCanvas({
   onDropNewScreen,
   onMoveScreens,
   onAddScreen,
+  onAddRepeater,
   onArrange,
 }: FlowCanvasProps) {
   const { t } = useTranslation()
@@ -113,7 +117,9 @@ export function FlowCanvas({
 
   const { screens } = definition
   const hasAppointment = definition.appointment !== null
-  const canAddScreen = screens.length < MAX_SCREENS
+  // Los grupos repetibles ocupan una pantalla de Meta por fila.
+  const generatedScreens = expandedScreenCount(screens)
+  const canAddScreen = generatedScreens < MAX_SCREENS
 
   const { nodes, edges } = useMemo(
     () =>
@@ -321,6 +327,14 @@ export function FlowCanvas({
             <SquarePlus className="size-4" />
             <span className="hidden sm:inline">{t("flows.builder.screens.add")}</span>
           </ToolButton>
+          <ToolButton
+            label={canAddScreen ? t("flows.builder.repeater.addHint") : t("flows.builder.screens.max", { max: MAX_SCREENS })}
+            onClick={onAddRepeater}
+            disabled={!canAddScreen || !editable}
+          >
+            <Repeat className="size-4" />
+            <span className="hidden sm:inline">{t("flows.builder.repeater.add")}</span>
+          </ToolButton>
           <ToolButton label={t("flows.builder.canvas.arrangeHint")} onClick={arrange} disabled={!editable}>
             <LayoutGrid className="size-4" />
             <span className="hidden sm:inline">{t("flows.builder.canvas.arrange")}</span>
@@ -331,8 +345,8 @@ export function FlowCanvas({
               <span className="hidden sm:inline">{t("flows.builder.canvas.appointment")}</span>
             </ToolButton>
           )}
-          <span className="px-2 font-mono text-xs tabular-nums text-muted-foreground" aria-label={t("flows.builder.canvas.screenCountLabel", { count: screens.length, max: MAX_SCREENS })}>
-            {screens.length}/{MAX_SCREENS}
+          <span className="px-2 font-mono text-xs tabular-nums text-muted-foreground" aria-label={t("flows.builder.canvas.screenCountLabel", { count: generatedScreens, max: MAX_SCREENS })}>
+            {generatedScreens}/{MAX_SCREENS}
           </span>
         </Panel>
         <Panel position="bottom-left" className="flex items-center gap-0.5 rounded-md border border-border bg-background/95 p-1 shadow-sm dark:shadow-none">

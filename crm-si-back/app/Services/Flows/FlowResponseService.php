@@ -9,6 +9,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppFlowSession;
+use App\Services\Flows\Builder\FlowDefinitionExpander;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -45,21 +46,60 @@ class FlowResponseService
         $session = $this->findSession($whatsappConfigId, $response['flow_token'] ?? null, $contextMessageId);
         $flow = $session?->flow;
         $answers = array_merge($session !== null ? $this->sessions->pathAnswers($session) : [], Arr::except($response, ['flow_token']));
-        $labels = array_intersect_key($flow?->liveVersion()->questionLabels() ?? [], $answers);
+        $version = $flow?->liveVersion();
+        [$readable, $groups] = $this->collapseGroups($version?->groups() ?? [], $answers);
+        $labels = array_intersect_key(
+            ($version?->questionLabels() ?? []) + array_column($groups, 'label', 'key'),
+            $readable,
+        );
 
         return new ParsedFlowResponse(
             session: $session,
-            response: $answers,
-            content: $this->content($flow, $answers, $labels),
+            answers: $answers,
+            response: $readable,
+            content: $this->content($flow, $readable, $labels),
             interactive: [
                 'kind' => 'flow_response',
                 'whatsapp_flow_id' => $flow?->id,
                 'flow_name' => $flow?->name,
                 'session_id' => $session?->id,
-                'response' => $answers,
+                'response' => $readable,
                 'labels' => $labels,
+                'groups' => $groups,
             ],
         );
+    }
+
+    /**
+     * Reemplaza las respuestas sueltas de cada grupo repetible por su lista de
+     * filas (`<grupo>: [{sub: valor}]`) y describe sus columnas para el chat.
+     *
+     * @return array{0: array<string, mixed>, 1: list<array{key: string, label: string, columns: list<array{key: string, label: string}>, rows: list<array<string, mixed>>}>}
+     */
+    private function collapseGroups(array $groups, array $answers): array
+    {
+        $described = [];
+
+        foreach ($groups as $group) {
+            $fields = array_map(fn (array $field) => $field['key'], $group['fields']);
+            $types = array_column($group['fields'], 'type', 'key');
+            $rows = FlowRepeaterAnswers::rows($group['key'], $fields, $group['max_rows'], $answers, $types);
+
+            if ($rows === null) {
+                continue;
+            }
+
+            $answers = array_filter($answers, fn ($key) => ! FlowDefinitionExpander::ownsKey($group['key'], (string) $key), ARRAY_FILTER_USE_KEY);
+            $answers[$group['key']] = $rows;
+            $described[] = [
+                'key' => $group['key'],
+                'label' => $group['title'],
+                'columns' => array_values(array_map(fn (array $field) => ['key' => $field['key'], 'label' => $field['label']], $group['fields'])),
+                'rows' => $rows,
+            ];
+        }
+
+        return [$answers, $described];
     }
 
     public function complete(ParsedFlowResponse $parsed, Message $message, Contact $contact, Conversation $conversation): void
@@ -72,10 +112,10 @@ class FlowResponseService
 
         // Un envío reemplazado que no usa el endpoint se puede responder igual.
         if (in_array($session->status, [WhatsAppFlowSession::STATUS_PENDING, WhatsAppFlowSession::STATUS_SUPERSEDED], true)) {
-            $this->sessions->complete($session, $parsed->response);
+            $this->sessions->complete($session, $parsed->answers);
         }
 
-        $mappingErrors = $this->contactUpdater->apply($session->flow, $contact, $parsed->response)['errors'];
+        $mappingErrors = $this->contactUpdater->apply($session->flow, $contact, $parsed->answers)['errors'];
 
         // Las pantallas con endpoint ya se validaron; la última puede cerrar sin
         // endpoint, o un valor único pudo ocuparse entre medio: el agente lo ve.
@@ -151,6 +191,11 @@ class FlowResponseService
             $key === 'appointment_start' && is_string($value) => rescue(fn () => Carbon::parse($value)->format('d/m/Y H:i'), $value, false),
             $key === 'appointment_status' && is_string($value) => self::APPOINTMENT_STATUSES[$value] ?? $value,
             is_bool($value) => $value ? 'Sí' : 'No',
+            // Filas de un grupo repetible: "Luna, Gato · Toby, Perro".
+            is_array($value) && $value !== [] && array_is_list($value) && is_array($value[0]) => implode(' · ', array_map(
+                fn ($row) => implode(', ', array_map(fn ($cell) => $this->displayValue('', $cell), (array) $row)),
+                $value,
+            )),
             is_array($value) => implode(', ', array_map(fn ($item) => is_scalar($item) ? (string) $item : (string) json_encode($item, JSON_UNESCAPED_UNICODE), $value)),
             $value === null => '',
             default => (string) $value,

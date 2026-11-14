@@ -6,6 +6,7 @@ import { arrayMove } from "@dnd-kit/sortable"
 import type { WhatsAppFlowCategory } from "@/data/types"
 import { nextFreePosition, withLayout } from "@/lib/flow-builder/layout"
 import { MAX_SCREENS, isQuestionBlock } from "@/lib/flow-builder/limits"
+import { expandedScreenCount, isRepeaterScreen, screenBlocks } from "@/lib/flow-builder/repeater"
 import {
   canBeEntry,
   canRouteTo,
@@ -22,9 +23,11 @@ import {
 import type {
   AppointmentConfig,
   CanvasPosition,
+  ContentScreen,
   FlowBlock,
   FlowDefinition,
   FlowScreen,
+  RepeaterScreen,
   Target,
 } from "@/lib/flow-builder/types"
 
@@ -48,6 +51,7 @@ interface FlowBuilderState extends FlowBuilderSnapshot {
 }
 
 type ScreenPatch = Partial<Pick<FlowScreen, "title" | "footer_label" | "next">>
+type RepeaterPatch = Partial<Omit<RepeaterScreen, "type" | "id" | "uid" | "next" | "position">>
 
 type EditAction =
   | { type: "addScreen"; screen: FlowScreen }
@@ -57,6 +61,7 @@ type EditAction =
   | { type: "setRoute"; index: number; port: RoutePort; target: Target }
   | { type: "setPositions"; positions: Record<string, CanvasPosition> }
   | { type: "updateScreen"; index: number; patch: ScreenPatch }
+  | { type: "updateRepeater"; index: number; patch: RepeaterPatch }
   | { type: "addBlock"; screen: number; block: FlowBlock }
   | { type: "removeBlock"; screen: number; index: number }
   | { type: "moveBlock"; screen: number; from: number; to: number }
@@ -82,11 +87,15 @@ export function newUid(): string {
 function withUids(definition: FlowDefinition): FlowDefinition {
   return withScreenIds({
     ...definition,
-    screens: definition.screens.map((screen) => ({
-      ...screen,
-      uid: screen.uid ?? newUid(),
-      blocks: screen.blocks.map((block) => ({ ...block, uid: block.uid ?? newUid() })),
-    })),
+    screens: definition.screens.map((screen) =>
+      isRepeaterScreen(screen)
+        ? { ...screen, uid: screen.uid ?? newUid() }
+        : {
+            ...screen,
+            uid: screen.uid ?? newUid(),
+            blocks: screen.blocks.map((block) => ({ ...block, uid: block.uid ?? newUid() })),
+          },
+    ),
   })
 }
 
@@ -100,6 +109,16 @@ function mapScreen(definition: FlowDefinition, index: number, update: (screen: F
     ...definition,
     screens: definition.screens.map((screen, i) => (i === index ? update(screen) : screen)),
   }
+}
+
+/** Como `mapScreen`, sólo para pantallas comunes: los bloques no existen en un grupo. */
+function mapContent(definition: FlowDefinition, index: number, update: (screen: ContentScreen) => ContentScreen): FlowDefinition {
+  return mapScreen(definition, index, (screen) => (isRepeaterScreen(screen) ? screen : update(screen)))
+}
+
+/** Si entra una pantalla (o un grupo) más sin pasar las 10 que admite Meta. */
+function fits(definition: FlowDefinition, screen: FlowScreen): boolean {
+  return expandedScreenCount([...definition.screens, screen]) <= MAX_SCREENS
 }
 
 /** Si la pregunta usada como motivo del turno cambia de clave o desaparece, el motivo la sigue. */
@@ -123,14 +142,14 @@ function placeScreen(definition: FlowDefinition, screen: FlowScreen, next: Targe
 function reduceDefinition(definition: FlowDefinition, action: EditAction): FlowDefinition {
   switch (action.type) {
     case "addScreen": {
-      if (definition.screens.length >= MAX_SCREENS) return definition
+      if (!fits(definition, action.screen)) return definition
       const screen = placeScreen(definition, action.screen, action.screen.next ?? "end")
       return { ...definition, screens: [...definition.screens, screen] }
     }
     case "insertScreen": {
       const from = definition.screens[action.from]
       const port = from && screenPorts(from).find((item) => item.port === action.port)
-      if (definition.screens.length >= MAX_SCREENS || !from || !port) return definition
+      if (!fits(definition, action.screen) || !from || !port) return definition
       // La pantalla nueva queda en medio del camino: hereda el destino y la salida pasa a apuntarla.
       const screen = placeScreen(definition, action.screen, port.target)
       const screens = definition.screens.map((item, i) =>
@@ -146,7 +165,7 @@ function reduceDefinition(definition: FlowDefinition, action: EditAction): FlowD
         screens: definition.screens.filter((_, i) => i !== action.index),
       }
       if (removed) next = dropScreenReferences(next, removed.id)
-      for (const block of removed?.blocks ?? []) {
+      for (const block of screenBlocks(removed)) {
         if (isQuestionBlock(block)) next = followReasonKey(next, block.key, null)
       }
       return next
@@ -171,28 +190,30 @@ function reduceDefinition(definition: FlowDefinition, action: EditAction): FlowD
     }
     case "updateScreen":
       return mapScreen(definition, action.index, (screen) => ({ ...screen, ...action.patch }))
+    case "updateRepeater":
+      return mapScreen(definition, action.index, (screen) => (isRepeaterScreen(screen) ? { ...screen, ...action.patch } : screen))
     case "addBlock":
-      return mapScreen(definition, action.screen, (screen) => ({
+      return mapContent(definition, action.screen, (screen) => ({
         ...screen,
         blocks: [...screen.blocks, { ...action.block, uid: action.block.uid ?? newUid() }],
       }))
     case "removeBlock": {
-      const removed = definition.screens[action.screen]?.blocks[action.index]
-      const next = mapScreen(definition, action.screen, (screen) => ({
+      const removed = screenBlocks(definition.screens[action.screen])[action.index]
+      const next = mapContent(definition, action.screen, (screen) => ({
         ...screen,
         blocks: screen.blocks.filter((_, i) => i !== action.index),
       }))
       return removed && isQuestionBlock(removed) ? followReasonKey(next, removed.key, null) : next
     }
     case "moveBlock":
-      return mapScreen(definition, action.screen, (screen) => ({
+      return mapContent(definition, action.screen, (screen) => ({
         ...screen,
         blocks: arrayMove(screen.blocks, action.from, action.to),
       }))
     case "updateBlock": {
-      const previous = definition.screens[action.screen]?.blocks[action.index]
+      const previous = screenBlocks(definition.screens[action.screen])[action.index]
       const block = previous ? syncBranchKeys(previous, action.block) : action.block
-      const next = mapScreen(definition, action.screen, (screen) => ({
+      const next = mapContent(definition, action.screen, (screen) => ({
         ...screen,
         blocks: screen.blocks.map((current, i) => (i === action.index ? block : current)),
       }))
@@ -213,6 +234,8 @@ function editKey(state: FlowBuilderState, action: EditAction): string | null {
   switch (action.type) {
     case "updateScreen":
       return `screen:${state.definition.screens[action.index]?.uid}:${Object.keys(action.patch).sort().join(",")}`
+    case "updateRepeater":
+      return `repeater:${state.definition.screens[action.index]?.uid}:${Object.keys(action.patch).sort().join(",")}`
     case "updateBlock":
       return `block:${action.block.uid}`
     case "setMeta":
@@ -295,6 +318,7 @@ export interface FlowBuilderActions {
   setRoute: (index: number, port: RoutePort, target: Target) => void
   setPositions: (positions: Record<string, CanvasPosition>) => void
   updateScreen: (index: number, patch: ScreenPatch) => void
+  updateRepeater: (index: number, patch: RepeaterPatch) => void
   addBlock: (screen: number, block: FlowBlock) => void
   removeBlock: (screen: number, index: number) => void
   moveBlock: (screen: number, from: number, to: number) => void
@@ -325,6 +349,7 @@ export function useFlowBuilderState(initial: FlowBuilderSnapshot) {
       setRoute: (index, port, target) => edit({ type: "setRoute", index, port, target }),
       setPositions: (positions) => edit({ type: "setPositions", positions }),
       updateScreen: (index, patch) => edit({ type: "updateScreen", index, patch }),
+      updateRepeater: (index, patch) => edit({ type: "updateRepeater", index, patch }),
       addBlock: (screen, block) => edit({ type: "addBlock", screen, block }),
       removeBlock: (screen, index) => edit({ type: "removeBlock", screen, index }),
       moveBlock: (screen, from, to) => edit({ type: "moveBlock", screen, from, to }),
