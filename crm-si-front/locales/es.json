@@ -2694,6 +2694,85 @@
       "empty": "No hay tareas para mostrar."
     }
   },
+  "templateDialog": {
+    "title": "Nueva plantilla",
+    "description": "Se enviará a revisión de Meta antes de poder usarse en una difusión.",
+    "reengagement": "Usar plantilla de reenganche",
+    "reengagementHint": "Sirve para retomar conversaciones de WhatsApp después de 24 h. Meta define la categoría final: si el texto es promocional la pasa a Marketing.",
+    "name": "Nombre",
+    "namePlaceholder": "confirmacion_pedido",
+    "language": "Idioma",
+    "category": "Categoría",
+    "categories": {
+      "utility": "Utilidad",
+      "marketing": "Marketing"
+    },
+    "optional": "(opcional)",
+    "header": "Encabezado",
+    "headerType": "Tipo de encabezado",
+    "headerFormats": {
+      "none": "Ninguno",
+      "text": "Texto",
+      "image": "Imagen",
+      "video": "Video",
+      "document": "PDF"
+    },
+    "headerTextPlaceholder": "Actualización de tu pedido",
+    "chooseImage": "Elegir imagen",
+    "chooseFile": "Elegir archivo de ejemplo",
+    "mediaLimits": {
+      "image": "JPG o PNG, hasta 5 MB",
+      "video": "MP4, hasta 16 MB",
+      "document": "PDF, hasta 16 MB"
+    },
+    "mediaHint": "{{limits}}. Es el ejemplo para la revisión de Meta; al enviar la plantilla podés usar otro archivo.",
+    "body": "Cuerpo",
+    "bodyPlaceholder": "Hola {{nombre}}, tu pedido {{numero_pedido}} está listo.",
+    "bodyHint": "Usá variables nombradas como {{nombre}}.",
+    "examples": "Ejemplos de variables",
+    "examplePlaceholder": "Ejemplo para revisión",
+    "footer": "Pie",
+    "footerPlaceholder": "Respondé AYUDA si necesitás asistencia",
+    "buttons": "Botones",
+    "buttonsHint": "(opcional, máximo 3)",
+    "addButton": "Agregar",
+    "buttonType": "Tipo de botón",
+    "buttonTypes": {
+      "quickReply": "Respuesta rápida",
+      "phone": "Teléfono",
+      "flow": "Formulario"
+    },
+    "buttonText": "Texto del botón",
+    "removeButton": "Quitar botón {{label}}",
+    "publishedFlow": "Formulario publicado",
+    "flowsLoading": "Cargando…",
+    "noFlows": "No hay formularios publicados",
+    "chooseFlow": "Elegí un formulario",
+    "preview": "Vista previa",
+    "previewBody": "El cuerpo de tu plantilla aparecerá acá.",
+    "previewButton": "Botón",
+    "headerImageAlt": "Imagen del encabezado",
+    "reviewNote": "Meta revisará el contenido antes de habilitarlo. El estado inicial aparecerá como pendiente.",
+    "cancel": "Cancelar",
+    "submit": "Enviar a revisión",
+    "created": "Plantilla enviada a revisión de Meta.",
+    "discard": {
+      "title": "¿Descartar esta plantilla?",
+      "description": "Perdés el contenido cargado. No se envió nada a revisión todavía.",
+      "keep": "Seguir editando",
+      "confirm": "Descartar"
+    },
+    "errors": {
+      "name": "El nombre solo puede usar minúsculas, números y guiones bajos.",
+      "body": "El cuerpo de la plantilla es obligatorio.",
+      "examples": "Agregá un ejemplo para cada variable.",
+      "headerFile": "Seleccioná el archivo de ejemplo del encabezado.",
+      "flowButton": "Elegí un formulario publicado para el botón de formulario.",
+      "fileTooLarge": "El archivo supera {{mb}} MB.",
+      "flows": "No se pudieron cargar los formularios",
+      "create": "No se pudo crear la plantilla"
+    }
+  },
   "flows": {
     "settings": {
       "description": "Armá formularios que el contacto completa sin salir de WhatsApp. Las respuestas llegan al chat y pueden completar los datos del contacto.",
@@ -2765,6 +2844,7 @@
         "editJson": "Editar JSON",
         "mapping": "Mapeo de campos",
         "sendDefaults": "Mensaje de envío",
+        "createTemplate": "Crear plantilla",
         "clone": "Duplicar",
         "deprecate": "Deprecar",
         "delete": "Eliminar"
@@ -3110,6 +3190,30 @@
           "slot_label": "Etiqueta del horario",
           "confirm_label": "Texto del botón de confirmación",
           "reason_key": "Pregunta con el motivo"
+        }
+      },
+      "message": {
+        "pill": "Mensaje",
+        "chatTitle": "Tu empresa",
+        "source": "Mensaje que abre el formulario",
+        "sendSource": "Mensaje de envío (chat y automatizaciones)",
+        "templateSource": "Plantilla {{name}} · {{status}}",
+        "sendHint": "Lo usan el chat y las automatizaciones mientras la ventana de 24 h está abierta. Fuera de esa ventana hace falta una plantilla.",
+        "templateHint": "Para difusiones y contactos fuera de la ventana de 24 h. Meta la revisa antes de que se pueda usar.",
+        "loading": "Buscando plantillas de este formulario…",
+        "saveFirst": "Guardá el formulario para editar este mensaje y crear plantillas.",
+        "edit": "Editar mensaje",
+        "createTemplate": "Crear plantilla con este mensaje",
+        "publishFirst": "Publicá el formulario para usarlo en una plantilla.",
+        "retired": "Un formulario deprecado o bloqueado no se puede usar en plantillas. Duplicalo y publicá la copia.",
+        "noChannel": "No se encontró el canal de WhatsApp de este formulario, así que no se pueden buscar ni crear sus plantillas.",
+        "loadError": "No se pudieron cargar las plantillas de este formulario.",
+        "retry": "Reintentar",
+        "status": {
+          "approved": "aprobada",
+          "pending": "en revisión",
+          "rejected": "rechazada",
+          "other": "no disponible"
         }
       },
       "preview": {

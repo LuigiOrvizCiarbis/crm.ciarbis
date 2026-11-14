@@ -12,6 +12,7 @@ import {
   KeyRound,
   Link2,
   Loader2,
+  MessageSquarePlus,
   MessageSquareText,
   MoreHorizontal,
   Pencil,
@@ -22,6 +23,7 @@ import {
   Trash2,
 } from "lucide-react"
 
+import { NewTemplateDialog, canUseFlowInTemplate, flowTemplateDraft, type TemplateDraft } from "@/components/broadcasts/NewTemplateDialog"
 import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { FlowFieldMappingDialog } from "@/components/config/flows/FlowFieldMappingDialog"
 import { FlowJsonDialog } from "@/components/config/flows/FlowJsonDialog"
@@ -101,6 +103,7 @@ export function WhatsAppFlowsCard() {
   const { addToast } = useToast()
   const router = useRouter()
   const canManage = usePermission("flows.manage")
+  const canCreateTemplate = usePermission("templates.create")
 
   const [channels, setChannels] = useState<Channel[]>([])
   const [channelId, setChannelId] = useState<number | null>(null)
@@ -120,6 +123,7 @@ export function WhatsAppFlowsCard() {
   const [cloneTarget, setCloneTarget] = useState<WhatsAppFlow | null>(null)
   const [cloneName, setCloneName] = useState("")
   const [confirm, setConfirm] = useState<Confirmation | null>(null)
+  const [templateDraft, setTemplateDraft] = useState<{ key: string; draft: TemplateDraft } | null>(null)
 
   const toastError = useCallback(
     (title: string, error: unknown) => {
@@ -572,6 +576,14 @@ export function WhatsAppFlowsCard() {
                               <ExternalLink className="size-4" />
                               {t("flows.settings.actions.preview")}
                             </DropdownMenuItem>
+                            {canCreateTemplate && canUseFlowInTemplate(flow) && (
+                              <DropdownMenuItem
+                                onSelect={() => setTemplateDraft({ key: `${flow.id}-${Date.now()}`, draft: flowTemplateDraft(flow) })}
+                              >
+                                <MessageSquarePlus className="size-4" />
+                                {t("flows.settings.actions.createTemplate")}
+                              </DropdownMenuItem>
+                            )}
                             {canManage && (
                               <>
                                 {flow.status === "DRAFT" && (
@@ -651,6 +663,16 @@ export function WhatsAppFlowsCard() {
               setJsonDialog((current) => (current ? { flowId: flow.id } : current))
             }}
           />
+          {templateDraft && (
+            <NewTemplateDialog
+              key={templateDraft.key}
+              open
+              onOpenChange={(open) => !open && setTemplateDraft(null)}
+              channelId={channelId}
+              draft={templateDraft.draft}
+              onCreated={async () => undefined}
+            />
+          )}
         </>
       )}
 

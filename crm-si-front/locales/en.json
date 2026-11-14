@@ -2694,6 +2694,85 @@
       "empty": "No tasks to show."
     }
   },
+  "templateDialog": {
+    "title": "New template",
+    "description": "It goes to Meta for review before it can be used in a broadcast.",
+    "reengagement": "Use re-engagement template",
+    "reengagementHint": "Use it to resume WhatsApp conversations after 24 hours. Meta sets the final category: promotional text is moved to Marketing.",
+    "name": "Name",
+    "namePlaceholder": "order_confirmation",
+    "language": "Language",
+    "category": "Category",
+    "categories": {
+      "utility": "Utility",
+      "marketing": "Marketing"
+    },
+    "optional": "(optional)",
+    "header": "Header",
+    "headerType": "Header type",
+    "headerFormats": {
+      "none": "None",
+      "text": "Text",
+      "image": "Image",
+      "video": "Video",
+      "document": "PDF"
+    },
+    "headerTextPlaceholder": "Your order update",
+    "chooseImage": "Choose image",
+    "chooseFile": "Choose sample file",
+    "mediaLimits": {
+      "image": "JPG or PNG, up to 5 MB",
+      "video": "MP4, up to 16 MB",
+      "document": "PDF, up to 16 MB"
+    },
+    "mediaHint": "{{limits}}. This is the sample for Meta's review; you can use a different file when sending the template.",
+    "body": "Body",
+    "bodyPlaceholder": "Hi {{name}}, your order {{order_number}} is ready.",
+    "bodyHint": "Use named variables like {{name}}.",
+    "examples": "Variable examples",
+    "examplePlaceholder": "Example for review",
+    "footer": "Footer",
+    "footerPlaceholder": "Reply HELP if you need assistance",
+    "buttons": "Buttons",
+    "buttonsHint": "(optional, up to 3)",
+    "addButton": "Add",
+    "buttonType": "Button type",
+    "buttonTypes": {
+      "quickReply": "Quick reply",
+      "phone": "Phone",
+      "flow": "Flow"
+    },
+    "buttonText": "Button text",
+    "removeButton": "Remove button {{label}}",
+    "publishedFlow": "Published flow",
+    "flowsLoading": "Loading…",
+    "noFlows": "No published flows",
+    "chooseFlow": "Choose a flow",
+    "preview": "Preview",
+    "previewBody": "Your template body will show up here.",
+    "previewButton": "Button",
+    "headerImageAlt": "Header image",
+    "reviewNote": "Meta reviews the content before enabling it. It starts as pending.",
+    "cancel": "Cancel",
+    "submit": "Submit for review",
+    "created": "Template submitted to Meta for review.",
+    "discard": {
+      "title": "Discard this template?",
+      "description": "You'll lose what you entered. Nothing has been submitted for review yet.",
+      "keep": "Keep editing",
+      "confirm": "Discard"
+    },
+    "errors": {
+      "name": "The name can only use lowercase letters, numbers and underscores.",
+      "body": "The template body is required.",
+      "examples": "Add an example for each variable.",
+      "headerFile": "Choose the header sample file.",
+      "flowButton": "Choose a published flow for the flow button.",
+      "fileTooLarge": "The file is larger than {{mb}} MB.",
+      "flows": "Couldn't load the flows",
+      "create": "Couldn't create the template"
+    }
+  },
   "flows": {
     "settings": {
       "description": "Build forms contacts complete without leaving WhatsApp. Responses show up in the chat and can fill in contact data.",
@@ -2765,6 +2844,7 @@
         "editJson": "Edit JSON",
         "mapping": "Field mapping",
         "sendDefaults": "Send message",
+        "createTemplate": "Create template",
         "clone": "Duplicate",
         "deprecate": "Deprecate",
         "delete": "Delete"
@@ -3110,6 +3190,30 @@
           "slot_label": "Time label",
           "confirm_label": "Confirmation button text",
           "reason_key": "Question with the reason"
+        }
+      },
+      "message": {
+        "pill": "Message",
+        "chatTitle": "Your business",
+        "source": "Message that opens the form",
+        "sendSource": "Send message (chat and automations)",
+        "templateSource": "Template {{name}} · {{status}}",
+        "sendHint": "Used by chat and automations while the 24-hour window is open. Outside that window you need a template.",
+        "templateHint": "For broadcasts and contacts outside the 24-hour window. Meta reviews it before it can be used.",
+        "loading": "Looking for this form's templates…",
+        "saveFirst": "Save the form to edit this message and create templates.",
+        "edit": "Edit message",
+        "createTemplate": "Create template with this message",
+        "publishFirst": "Publish the form to use it in a template.",
+        "retired": "A deprecated or blocked form can't be used in templates. Duplicate it and publish the copy.",
+        "noChannel": "This form's WhatsApp channel wasn't found, so its templates can't be listed or created.",
+        "loadError": "Couldn't load this form's templates.",
+        "retry": "Retry",
+        "status": {
+          "approved": "approved",
+          "pending": "in review",
+          "rejected": "rejected",
+          "other": "unavailable"
         }
       },
       "preview": {
