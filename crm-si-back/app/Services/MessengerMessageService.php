@@ -127,6 +127,7 @@ class MessengerMessageService
                 'direction' => $isEcho ? MessageDirection::OUTBOUND : MessageDirection::INBOUND,
                 'external_id' => $mid,
                 'delivered_at' => now(),
+                'reply_to_message_id' => Message::replyTargetIdByExternalId($conversation->getKey(), $message['reply_to']['mid'] ?? null),
             ], $isEcho);
 
             if ($created && ! $isEcho) {
@@ -551,6 +552,7 @@ class MessengerMessageService
         }
 
         try {
+            $message->loadReplyPreview();
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $messageData['tenant_id']));
         } catch (\Exception $e) {
@@ -649,7 +651,7 @@ class MessengerMessageService
         ];
     }
 
-    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user, ?string $messageTag = null): Message
+    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user, ?string $messageTag = null, ?Message $replyTo = null): Message
     {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -657,6 +659,7 @@ class MessengerMessageService
         $externalId = $this->postMessage($pageId, $token, [
             'recipient' => ['id' => $recipientId],
             'message' => ['text' => $content],
+            ...$this->replyToPayload($replyTo),
         ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
@@ -664,6 +667,7 @@ class MessengerMessageService
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
             'last_content' => $content,
+            'reply_to_message_id' => $replyTo?->id,
         ]);
     }
 
@@ -675,6 +679,7 @@ class MessengerMessageService
         ?string $caption,
         User $user,
         ?string $messageTag = null,
+        ?Message $replyTo = null,
     ): Message {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -690,6 +695,7 @@ class MessengerMessageService
                     ],
                 ],
             ],
+            ...$this->replyToPayload($replyTo),
         ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
@@ -700,6 +706,7 @@ class MessengerMessageService
             'media_mime_type' => $mimeType,
             'media_filename' => basename($localMediaPath),
             'last_content' => '📷 '.($caption ?: 'Imagen'),
+            'reply_to_message_id' => $replyTo?->id,
         ]);
     }
 
@@ -710,6 +717,7 @@ class MessengerMessageService
         string $mimeType,
         User $user,
         ?string $messageTag = null,
+        ?Message $replyTo = null,
     ): Message {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -725,6 +733,7 @@ class MessengerMessageService
                     ],
                 ],
             ],
+            ...$this->replyToPayload($replyTo),
         ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
@@ -735,6 +744,7 @@ class MessengerMessageService
             'media_mime_type' => $mimeType,
             'media_filename' => basename($localMediaPath),
             'last_content' => '🎵 Audio',
+            'reply_to_message_id' => $replyTo?->id,
         ]);
     }
 
@@ -788,6 +798,19 @@ class MessengerMessageService
     }
 
     /**
+     * `reply_to.mid` de la Send API (hermano de recipient/message) para
+     * responder citando un mensaje.
+     *
+     * @return array<string, mixed>
+     */
+    private function replyToPayload(?Message $replyTo): array
+    {
+        return $replyTo?->external_id
+            ? ['reply_to' => ['mid' => $replyTo->external_id]]
+            : [];
+    }
+
+    /**
      * @param  array<string, mixed>  $data
      */
     private function persistOutbound(Conversation $conversation, User $user, array $data): Message
@@ -805,6 +828,7 @@ class MessengerMessageService
             'direction' => MessageDirection::OUTBOUND,
             'delivered_at' => now(),
             'external_id' => $data['external_id'],
+            'reply_to_message_id' => $data['reply_to_message_id'] ?? null,
         ]);
 
         $conversation->update([
@@ -816,6 +840,7 @@ class MessengerMessageService
         app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
+            $message->loadReplyPreview();
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
         } catch (\Exception $e) {
