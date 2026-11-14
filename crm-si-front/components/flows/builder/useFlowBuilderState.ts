@@ -4,9 +4,29 @@ import { useMemo, useReducer } from "react"
 import { arrayMove } from "@dnd-kit/sortable"
 
 import type { WhatsAppFlowCategory } from "@/data/types"
+import { nextFreePosition, withLayout } from "@/lib/flow-builder/layout"
 import { MAX_SCREENS, isQuestionBlock } from "@/lib/flow-builder/limits"
-import { dropScreenReferences, newScreenId, syncBranchKeys, withScreenIds } from "@/lib/flow-builder/routing"
-import type { AppointmentConfig, FlowBlock, FlowDefinition, FlowScreen } from "@/lib/flow-builder/types"
+import {
+  canBeEntry,
+  canRouteTo,
+  dropScreenReferences,
+  newScreenId,
+  normalizeRoutes,
+  screenPorts,
+  screenTarget,
+  syncBranchKeys,
+  withPortTarget,
+  withScreenIds,
+  type RoutePort,
+} from "@/lib/flow-builder/routing"
+import type {
+  AppointmentConfig,
+  CanvasPosition,
+  FlowBlock,
+  FlowDefinition,
+  FlowScreen,
+  Target,
+} from "@/lib/flow-builder/types"
 
 export interface FlowBuilderSnapshot {
   name: string
@@ -14,16 +34,28 @@ export interface FlowBuilderSnapshot {
   definition: FlowDefinition
 }
 
+/** Pasos que se pueden deshacer. */
+const HISTORY_LIMIT = 50
+/** Cambios seguidos sobre el mismo campo dentro de este margen (tipear) son un solo paso. */
+const COALESCE_MS = 1000
+
 interface FlowBuilderState extends FlowBuilderSnapshot {
-  dirty: boolean
+  /** Último snapshot guardado: el estado está limpio mientras coincida con él. */
+  saved: FlowBuilderSnapshot
+  past: FlowBuilderSnapshot[]
+  future: FlowBuilderSnapshot[]
+  lastEdit: { key: string; at: number } | null
 }
 
 type ScreenPatch = Partial<Pick<FlowScreen, "title" | "footer_label" | "next">>
 
-type FlowBuilderAction =
+type EditAction =
   | { type: "addScreen"; screen: FlowScreen }
+  | { type: "insertScreen"; screen: FlowScreen; from: number; port: RoutePort }
   | { type: "removeScreen"; index: number }
-  | { type: "moveScreen"; from: number; to: number }
+  | { type: "setEntry"; index: number }
+  | { type: "setRoute"; index: number; port: RoutePort; target: Target }
+  | { type: "setPositions"; positions: Record<string, CanvasPosition> }
   | { type: "updateScreen"; index: number; patch: ScreenPatch }
   | { type: "addBlock"; screen: number; block: FlowBlock }
   | { type: "removeBlock"; screen: number; index: number }
@@ -31,6 +63,11 @@ type FlowBuilderAction =
   | { type: "updateBlock"; screen: number; index: number; block: FlowBlock }
   | { type: "setAppointment"; appointment: AppointmentConfig | null }
   | { type: "setMeta"; name?: string; categories?: WhatsAppFlowCategory[] }
+
+type FlowBuilderAction =
+  | (EditAction & { at: number })
+  | { type: "undo" }
+  | { type: "redo" }
   | { type: "replace"; snapshot: FlowBuilderSnapshot }
   | { type: "markSaved"; snapshot: FlowBuilderSnapshot }
 
@@ -53,6 +90,11 @@ function withUids(definition: FlowDefinition): FlowDefinition {
   })
 }
 
+/** Forma con la que trabaja el diagrama: uids, destinos explícitos, orden de recorrido y posiciones. */
+function prepare(definition: FlowDefinition): FlowDefinition {
+  return withLayout(normalizeRoutes(withUids(definition)))
+}
+
 function mapScreen(definition: FlowDefinition, index: number, update: (screen: FlowScreen) => FlowScreen): FlowDefinition {
   return {
     ...definition,
@@ -66,13 +108,35 @@ function followReasonKey(definition: FlowDefinition, previousKey: string, nextKe
   return { ...definition, appointment: { ...definition.appointment, reason_key: nextKey } }
 }
 
-function reduceDefinition(definition: FlowDefinition, action: FlowBuilderAction): FlowDefinition {
+/** Pantalla nueva con id único, destino explícito y posición. */
+function placeScreen(definition: FlowDefinition, screen: FlowScreen, next: Target): FlowScreen {
+  const ids = definition.screens.map((item) => item.id)
+  return {
+    ...screen,
+    id: screen.id && !ids.includes(screen.id) ? screen.id : newScreenId(ids),
+    uid: screen.uid ?? newUid(),
+    next,
+    position: screen.position ?? nextFreePosition(definition.screens),
+  }
+}
+
+function reduceDefinition(definition: FlowDefinition, action: EditAction): FlowDefinition {
   switch (action.type) {
     case "addScreen": {
       if (definition.screens.length >= MAX_SCREENS) return definition
-      const ids = definition.screens.map((screen) => screen.id)
-      const id = action.screen.id && !ids.includes(action.screen.id) ? action.screen.id : newScreenId(ids)
-      return { ...definition, screens: [...definition.screens, { ...action.screen, id, uid: action.screen.uid ?? newUid() }] }
+      const screen = placeScreen(definition, action.screen, action.screen.next ?? "end")
+      return { ...definition, screens: [...definition.screens, screen] }
+    }
+    case "insertScreen": {
+      const from = definition.screens[action.from]
+      const port = from && screenPorts(from).find((item) => item.port === action.port)
+      if (definition.screens.length >= MAX_SCREENS || !from || !port) return definition
+      // La pantalla nueva queda en medio del camino: hereda el destino y la salida pasa a apuntarla.
+      const screen = placeScreen(definition, action.screen, port.target)
+      const screens = definition.screens.map((item, i) =>
+        i === action.from ? withPortTarget(item, action.port, `screen:${screen.id}`) : item,
+      )
+      return { ...definition, screens: [...screens, screen] }
     }
     case "removeScreen": {
       if (definition.screens.length <= 1) return definition
@@ -87,8 +151,24 @@ function reduceDefinition(definition: FlowDefinition, action: FlowBuilderAction)
       }
       return next
     }
-    case "moveScreen":
-      return { ...definition, screens: arrayMove(definition.screens, action.from, action.to) }
+    case "setEntry":
+      if (action.index <= 0 || !canBeEntry(definition.screens, action.index)) return definition
+      return { ...definition, screens: arrayMove(definition.screens, action.index, 0) }
+    case "setRoute": {
+      const targetIndex = definition.screens.findIndex((screen) => screenTarget(screen.id) === action.target)
+      if (action.target !== "end" && !canRouteTo(definition.screens, action.index, targetIndex)) return definition
+      return mapScreen(definition, action.index, (screen) => withPortTarget(screen, action.port, action.target))
+    }
+    case "setPositions": {
+      let changed = false
+      const screens = definition.screens.map((screen) => {
+        const position = screen.uid ? action.positions[screen.uid] : undefined
+        if (!position || (position.x === screen.position?.x && position.y === screen.position?.y)) return screen
+        changed = true
+        return { ...screen, position }
+      })
+      return changed ? { ...definition, screens } : definition
+    }
     case "updateScreen":
       return mapScreen(definition, action.index, (screen) => ({ ...screen, ...action.patch }))
     case "addBlock":
@@ -128,37 +208,92 @@ function reduceDefinition(definition: FlowDefinition, action: FlowBuilderAction)
   }
 }
 
+/** Clave de los cambios que se agrupan al tipear sobre un mismo campo. */
+function editKey(state: FlowBuilderState, action: EditAction): string | null {
+  switch (action.type) {
+    case "updateScreen":
+      return `screen:${state.definition.screens[action.index]?.uid}:${Object.keys(action.patch).sort().join(",")}`
+    case "updateBlock":
+      return `block:${action.block.uid}`
+    case "setMeta":
+      return action.name !== undefined ? "meta:name" : null
+    case "setAppointment":
+      return action.appointment && state.definition.appointment ? "appointment" : null
+    case "setPositions":
+      return `positions:${Object.keys(action.positions).sort().join(",")}`
+    default:
+      return null
+  }
+}
+
+function snapshotOf(state: FlowBuilderSnapshot): FlowBuilderSnapshot {
+  return { name: state.name, categories: state.categories, definition: state.definition }
+}
+
+function sameSnapshot(a: FlowBuilderSnapshot, b: FlowBuilderSnapshot): boolean {
+  return a.definition === b.definition && a.name === b.name && a.categories === b.categories
+}
+
+function applyEdit(state: FlowBuilderState, action: EditAction & { at: number }): FlowBuilderState {
+  let next: FlowBuilderSnapshot
+  if (action.type === "setMeta") {
+    next = { ...snapshotOf(state), name: action.name ?? state.name, categories: action.categories ?? state.categories }
+  } else {
+    const changed = reduceDefinition(state.definition, action)
+    if (changed === state.definition) return state
+    next = { ...snapshotOf(state), definition: normalizeRoutes(changed) }
+  }
+
+  const key = editKey(state, action)
+  const coalesce = key !== null && state.lastEdit?.key === key && action.at - state.lastEdit.at < COALESCE_MS
+  return {
+    ...state,
+    ...next,
+    past: coalesce ? state.past : [...state.past, snapshotOf(state)].slice(-HISTORY_LIMIT),
+    future: [],
+    lastEdit: key !== null ? { key, at: action.at } : null,
+  }
+}
+
 function reducer(state: FlowBuilderState, action: FlowBuilderAction): FlowBuilderState {
   switch (action.type) {
-    case "replace":
-      return { ...action.snapshot, definition: withUids(action.snapshot.definition), dirty: false }
-    case "markSaved": {
-      // Sólo queda limpio si nada cambió mientras se guardaba.
-      const unchanged =
-        state.definition === action.snapshot.definition &&
-        state.name === action.snapshot.name &&
-        state.categories === action.snapshot.categories
-      return unchanged ? { ...state, dirty: false } : state
+    case "replace": {
+      const snapshot = { ...action.snapshot, definition: prepare(action.snapshot.definition) }
+      return { ...snapshot, saved: snapshot, past: [], future: [], lastEdit: null }
     }
-    case "setMeta":
+    case "markSaved":
+      return { ...state, saved: action.snapshot }
+    case "undo": {
+      const previous = state.past.at(-1)
+      if (!previous) return state
       return {
         ...state,
-        name: action.name ?? state.name,
-        categories: action.categories ?? state.categories,
-        dirty: true,
+        ...previous,
+        past: state.past.slice(0, -1),
+        future: [snapshotOf(state), ...state.future],
+        lastEdit: null,
       }
-    default: {
-      const definition = reduceDefinition(state.definition, action)
-      return definition === state.definition ? state : { ...state, definition, dirty: true }
     }
+    case "redo": {
+      const [following, ...rest] = state.future
+      if (!following) return state
+      return { ...state, ...following, past: [...state.past, snapshotOf(state)], future: rest, lastEdit: null }
+    }
+    default:
+      return applyEdit(state, action)
   }
 }
 
 export interface FlowBuilderActions {
-  /** Agrega la pantalla al final; el llamador elige su `uid` para poder seleccionarla. */
+  /** Agrega una pantalla suelta; el llamador elige su `uid` para poder seleccionarla. */
   addScreen: (screen: FlowScreen) => void
+  /** Agrega una pantalla en medio del camino que sale de `from` por `port`. */
+  insertScreen: (screen: FlowScreen, from: number, port: RoutePort) => void
   removeScreen: (index: number) => void
-  moveScreen: (from: number, to: number) => void
+  /** La pantalla pasa a ser la primera del formulario (sólo si ninguna otra la apunta). */
+  setEntry: (index: number) => void
+  setRoute: (index: number, port: RoutePort, target: Target) => void
+  setPositions: (positions: Record<string, CanvasPosition>) => void
   updateScreen: (index: number, patch: ScreenPatch) => void
   addBlock: (screen: number, block: FlowBlock) => void
   removeBlock: (screen: number, index: number) => void
@@ -166,35 +301,48 @@ export interface FlowBuilderActions {
   updateBlock: (screen: number, index: number, block: FlowBlock) => void
   setAppointment: (appointment: AppointmentConfig | null) => void
   setMeta: (meta: { name?: string; categories?: WhatsAppFlowCategory[] }) => void
+  undo: () => void
+  redo: () => void
   /** Carga una definición (inicial o recuperada) y deja el estado limpio. */
   replace: (snapshot: FlowBuilderSnapshot) => void
-  /** Marca como guardado el snapshot enviado, si no cambió nada mientras tanto. */
+  /** Marca como guardado el snapshot enviado; si algo cambió mientras se guardaba, sigue sucio. */
   markSaved: (snapshot: FlowBuilderSnapshot) => void
 }
 
 export function useFlowBuilderState(initial: FlowBuilderSnapshot) {
   const [state, dispatch] = useReducer(reducer, initial, (snapshot) =>
-    reducer({ ...snapshot, dirty: false }, { type: "replace", snapshot }),
+    reducer({ ...snapshot, saved: snapshot, past: [], future: [], lastEdit: null }, { type: "replace", snapshot }),
   )
 
   // `dispatch` es estable: las acciones también, así los hijos no se re-renderizan de más.
-  const actions = useMemo<FlowBuilderActions>(
-    () => ({
-      addScreen: (screen) => dispatch({ type: "addScreen", screen }),
-      removeScreen: (index) => dispatch({ type: "removeScreen", index }),
-      moveScreen: (from, to) => dispatch({ type: "moveScreen", from, to }),
-      updateScreen: (index, patch) => dispatch({ type: "updateScreen", index, patch }),
-      addBlock: (screen, block) => dispatch({ type: "addBlock", screen, block }),
-      removeBlock: (screen, index) => dispatch({ type: "removeBlock", screen, index }),
-      moveBlock: (screen, from, to) => dispatch({ type: "moveBlock", screen, from, to }),
-      updateBlock: (screen, index, block) => dispatch({ type: "updateBlock", screen, index, block }),
-      setAppointment: (appointment) => dispatch({ type: "setAppointment", appointment }),
-      setMeta: (meta) => dispatch({ type: "setMeta", ...meta }),
+  const actions = useMemo<FlowBuilderActions>(() => {
+    const edit = (action: EditAction) => dispatch({ ...action, at: Date.now() })
+    return {
+      addScreen: (screen) => edit({ type: "addScreen", screen }),
+      insertScreen: (screen, from, port) => edit({ type: "insertScreen", screen, from, port }),
+      removeScreen: (index) => edit({ type: "removeScreen", index }),
+      setEntry: (index) => edit({ type: "setEntry", index }),
+      setRoute: (index, port, target) => edit({ type: "setRoute", index, port, target }),
+      setPositions: (positions) => edit({ type: "setPositions", positions }),
+      updateScreen: (index, patch) => edit({ type: "updateScreen", index, patch }),
+      addBlock: (screen, block) => edit({ type: "addBlock", screen, block }),
+      removeBlock: (screen, index) => edit({ type: "removeBlock", screen, index }),
+      moveBlock: (screen, from, to) => edit({ type: "moveBlock", screen, from, to }),
+      updateBlock: (screen, index, block) => edit({ type: "updateBlock", screen, index, block }),
+      setAppointment: (appointment) => edit({ type: "setAppointment", appointment }),
+      setMeta: (meta) => edit({ type: "setMeta", ...meta }),
+      undo: () => dispatch({ type: "undo" }),
+      redo: () => dispatch({ type: "redo" }),
       replace: (snapshot) => dispatch({ type: "replace", snapshot }),
       markSaved: (snapshot) => dispatch({ type: "markSaved", snapshot }),
-    }),
-    [],
-  )
+    }
+  }, [])
 
-  return { state, dirty: state.dirty, actions }
+  return {
+    state,
+    dirty: !sameSnapshot(state, state.saved),
+    canUndo: state.past.length > 0,
+    canRedo: state.future.length > 0,
+    actions,
+  }
 }

@@ -2,7 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ChevronDown, ExternalLink, Loader2, Save, Send, TriangleAlert } from "lucide-react"
+import { ReactFlowProvider } from "@xyflow/react"
+import {
+  ArrowLeft,
+  CalendarClock,
+  ChevronDown,
+  ExternalLink,
+  Flag,
+  Loader2,
+  MousePointerClick,
+  Redo2,
+  Save,
+  Send,
+  Trash2,
+  TriangleAlert,
+  Undo2,
+  X,
+} from "lucide-react"
 
 import { useToast } from "@/components/Toast"
 import {
@@ -29,7 +45,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { WhatsAppFlow, WhatsAppFlowCategory, WhatsAppFlowValidationError } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
 import { getChannels } from "@/lib/api/channels"
@@ -50,9 +68,18 @@ import {
   mergeErrors,
   type GroupedErrors,
 } from "@/lib/flow-builder/errors"
-import { NAME_MAX, isQuestionBlock } from "@/lib/flow-builder/limits"
-import { newScreenId, usesEndpoint } from "@/lib/flow-builder/routing"
-import type { FlowBlock, FlowScreen, LongTextBlock } from "@/lib/flow-builder/types"
+import { SCREEN_NODE_WIDTH, layoutScreens, nextFreePosition, questionCount } from "@/lib/flow-builder/layout"
+import { MAX_SCREENS, NAME_MAX, isQuestionBlock } from "@/lib/flow-builder/limits"
+import { DEFAULT_APPOINTMENT } from "@/lib/flow-builder/presets"
+import {
+  canBeEntry,
+  newScreenId,
+  portOptionId,
+  screenTarget,
+  usesEndpoint,
+  type RoutePort,
+} from "@/lib/flow-builder/routing"
+import type { CanvasPosition, FlowBlock, FlowScreen, LongTextBlock } from "@/lib/flow-builder/types"
 import { charCount, validateDefinition } from "@/lib/flow-builder/validate"
 import { cn } from "@/lib/utils"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
@@ -61,7 +88,8 @@ import { AppointmentSettings } from "./AppointmentSettings"
 import { FieldErrorText } from "./BuilderField"
 import { FlowPhonePreview } from "./FlowPhonePreview"
 import { ScreenEditor } from "./ScreenEditor"
-import { ScreenList } from "./ScreenList"
+import { FlowCanvas, type FocusRequest } from "./canvas/FlowCanvas"
+import { APPOINTMENT_ID, END_ID } from "./canvas/graph"
 import { newUid, useFlowBuilderState, type FlowBuilderSnapshot } from "./useFlowBuilderState"
 
 export const FLOWS_SETTINGS_PATH = "/configuracion/formularios"
@@ -78,6 +106,8 @@ const CATEGORIES: WhatsAppFlowCategory[] = [
 ]
 
 const DESKTOP_QUERY = "(min-width: 1024px)"
+/** Separación entre una pantalla y la que se crea a su derecha. */
+const INSERT_OFFSET = { x: SCREEN_NODE_WIDTH + 104, y: 48 }
 
 function subscribeDesktop(onChange: () => void) {
   const mql = window.matchMedia(DESKTOP_QUERY)
@@ -85,7 +115,18 @@ function subscribeDesktop(onChange: () => void) {
   return () => mql.removeEventListener("change", onChange)
 }
 
-type MobileTab = "screens" | "edit" | "preview"
+function isMac(): boolean {
+  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
+}
+
+/** Si el foco está en un campo de texto o hay un diálogo abierto: los atajos del lienzo no aplican. */
+function typingOrModal(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null
+  if (element?.closest("input, textarea, select, [contenteditable=true]")) return true
+  return document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]') !== null
+}
+
+type InspectorTab = "content" | "preview"
 
 interface FlowBuilderProps {
   /** null mientras el formulario no se guardó por primera vez. */
@@ -101,11 +142,17 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
   const { t } = useTranslation()
   const router = useRouter()
   const { addToast } = useToast()
-  const { state, dirty, actions } = useFlowBuilderState(initial)
+  const { state, dirty, canUndo, canRedo, actions } = useFlowBuilderState(initial)
   const { definition } = state
 
   const [flow, setFlow] = useState<WhatsAppFlow | null>(initialFlow)
-  const [selectedUid, setSelectedUid] = useState<string | null>(() => definition.screens[0]?.uid ?? null)
+  // En pantallas angostas el editor es una hoja a pantalla completa: arranca cerrado para ver el diagrama.
+  const [selectedId, setSelectedId] = useState<string | null>(() =>
+    typeof window !== "undefined" && window.matchMedia(DESKTOP_QUERY).matches ? (definition.screens[0]?.uid ?? null) : null,
+  )
+  const [pendingRemovalUid, setPendingRemovalUid] = useState<string | null>(null)
+  const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null)
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("content")
   const [serverErrors, setServerErrors] = useState<GroupedErrors>(EMPTY_ERRORS)
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState(false)
@@ -113,8 +160,6 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
   const [publishTargetId, setPublishTargetId] = useState<number | null>(null)
   const [metaErrorsOpen, setMetaErrorsOpen] = useState(false)
   const [leaveOpen, setLeaveOpen] = useState(false)
-  const [screenToRemove, setScreenToRemove] = useState<number | null>(null)
-  const [mobileTab, setMobileTab] = useState<MobileTab>("edit")
   const [channelId, setChannelId] = useState<number | null>(channelIdProp)
   const [encryptionConfigured, setEncryptionConfigured] = useState<boolean | null>(null)
 
@@ -170,6 +215,27 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
     return () => window.removeEventListener("beforeunload", handler)
   }, [dirty])
 
+  // Deshacer / rehacer y Escape en todo el constructor, salvo mientras se escribe o hay un diálogo.
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (typingOrModal(event.target)) return
+      const modifier = event.metaKey || event.ctrlKey
+      const key = event.key.toLowerCase()
+      if (modifier && key === "z") {
+        event.preventDefault()
+        if (event.shiftKey) actions.redo()
+        else actions.undo()
+      } else if (modifier && key === "y") {
+        event.preventDefault()
+        actions.redo()
+      } else if (event.key === "Escape") {
+        setPendingRemovalUid(null)
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [actions])
+
   const clientErrors = useMemo(
     () => groupErrors(validateDefinition(definition, knownFields, t), definition),
     [definition, knownFields, t],
@@ -200,8 +266,9 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
     editable && !blockedByErrors && !busy && (!flow || dirty || flow.status === "DRAFT") && (flow !== null || channelId !== null)
 
   const screens = definition.screens
-  const selectedIndex = Math.max(0, screens.findIndex((screen) => screen.uid === selectedUid))
-  const selectedScreen = screens[selectedIndex]
+  const selectedIndex = screens.findIndex((screen) => screen.uid === selectedId)
+  const selectedScreen = selectedIndex === -1 ? null : screens[selectedIndex]
+  const appointmentSelected = selectedId === APPOINTMENT_ID && hasAppointment
 
   const questionKeys = useMemo(
     () =>
@@ -227,45 +294,142 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
     })
   }, [])
 
-  const selectScreen = (index: number) => {
-    setSelectedUid(screens[index]?.uid ?? null)
-    if (!isDesktop) setMobileTab("edit")
-  }
+  const select = useCallback((id: string | null) => {
+    setSelectedId(id)
+    setPendingRemovalUid((pending) => (pending === id ? pending : null))
+  }, [])
 
-  const addScreen = () => {
-    const screen: FlowScreen = {
+  const focus = useCallback((id: string) => setFocusRequest({ id, nonce: Date.now() }), [])
+
+  const selectAndFocus = useCallback(
+    (id: string) => {
+      select(id)
+      focus(id)
+    },
+    [select, focus],
+  )
+
+  const newScreen = useCallback(
+    (position: CanvasPosition): FlowScreen => ({
       id: newScreenId(screens.map((item) => item.id)),
       uid: newUid(),
       title: t("flows.builder.defaults.screenTitle"),
       footer_label: t("flows.builder.defaults.footerLabel"),
       blocks: [],
-    }
+      position,
+    }),
+    [screens, t],
+  )
+
+  const addScreen = useCallback(() => {
+    if (screens.length >= MAX_SCREENS) return
+    const screen = newScreen(nextFreePosition(screens))
     actions.addScreen(screen)
-    setSelectedUid(screen.uid ?? null)
-    if (!isDesktop) setMobileTab("edit")
-  }
+    setInspectorTab("content")
+    selectAndFocus(screen.uid as string)
+  }, [actions, newScreen, screens, selectAndFocus])
 
-  const removeScreen = (index: number) => {
-    const removed = screens[index]
-    if (removed?.uid === selectedUid) {
-      setSelectedUid(screens[index === 0 ? 1 : index - 1]?.uid ?? null)
-    }
-    dropServerErrors("screens", removed?.uid)
-    actions.removeScreen(index)
-  }
+  const insertScreen = useCallback(
+    (from: number, port: RoutePort, position?: CanvasPosition) => {
+      const source = screens[from]
+      if (!source || screens.length >= MAX_SCREENS) return
+      const origin = source.position ?? { x: 0, y: 0 }
+      const screen = newScreen(position ?? { x: origin.x + INSERT_OFFSET.x, y: origin.y + INSERT_OFFSET.y })
+      actions.insertScreen(screen, from, port)
+      setInspectorTab("content")
+      selectAndFocus(screen.uid as string)
+    },
+    [actions, newScreen, screens, selectAndFocus],
+  )
 
-  const requestRemoveScreen = (index: number) => {
-    if ((screens[index]?.blocks.length ?? 0) > 0) setScreenToRemove(index)
-    else removeScreen(index)
-  }
+  const removeScreen = useCallback(
+    (uid: string) => {
+      const index = screens.findIndex((screen) => screen.uid === uid)
+      if (index === -1 || screens.length <= 1) return
+      if (selectedId === uid) setSelectedId(null)
+      setPendingRemovalUid(null)
+      dropServerErrors("screens", uid)
+      actions.removeScreen(index)
+      addToast({
+        type: "info",
+        title: t("flows.builder.canvas.removed", { title: screens[index].title }),
+        description: t("flows.builder.canvas.undoHint", { shortcut: isMac() ? "⌘Z" : "Ctrl+Z" }),
+      })
+    },
+    [actions, addToast, dropServerErrors, screens, selectedId, t],
+  )
+
+  const requestRemoveScreen = useCallback(
+    (uid: string) => {
+      const screen = screens.find((item) => item.uid === uid)
+      if (!screen || screens.length <= 1) return
+      if (questionCount(screen) > 0) {
+        setPendingRemovalUid(uid)
+        if (!isDesktop) setSelectedId(null)
+      } else {
+        removeScreen(uid)
+      }
+    },
+    [isDesktop, removeScreen, screens],
+  )
+
+  const addAppointment = useCallback(() => {
+    actions.setAppointment({ ...DEFAULT_APPOINTMENT, reason_key: reasonCandidates[0]?.key ?? null })
+    select(APPOINTMENT_ID)
+  }, [actions, reasonCandidates, select])
+
+  const clearRoute = useCallback(
+    (from: number, port: RoutePort) => {
+      const screen = screens[from]
+      if (!screen) return
+      // Sin flecha, una opción sigue al botón de la pantalla y el botón termina el formulario.
+      actions.setRoute(from, port, portOptionId(port) !== null ? (screen.next ?? "end") : "end")
+    },
+    [actions, screens],
+  )
+
+  const canvasActions = useMemo(
+    () => ({
+      requestRemoveScreen,
+      confirmRemoveScreen: removeScreen,
+      cancelRemoveScreen: () => setPendingRemovalUid(null),
+      insertScreen: (from: number, port: RoutePort) => insertScreen(from, port),
+      addAppointment,
+      clearRoute,
+    }),
+    [requestRemoveScreen, removeScreen, insertScreen, addAppointment, clearRoute],
+  )
+
+  const connectRoute = useCallback(
+    (from: number, port: RoutePort, targetId: string) => {
+      if (targetId === END_ID || targetId === APPOINTMENT_ID) {
+        actions.setRoute(from, port, "end")
+        return
+      }
+      const target = screens.find((screen) => screen.uid === targetId)
+      if (target) actions.setRoute(from, port, screenTarget(target.id))
+    },
+    [actions, screens],
+  )
+
+  const arrange = useCallback(
+    (heights: Record<string, number>) => {
+      const positions = Object.fromEntries(
+        layoutScreens(screens, heights).map((screen) => [screen.uid ?? "", screen.position ?? { x: 0, y: 0 }]),
+      )
+      actions.setPositions(positions)
+    },
+    [actions, screens],
+  )
 
   const showServerErrors = (validationErrors: Record<string, string[]>, snapshot: FlowBuilderSnapshot) => {
     const grouped = groupErrors(definitionErrorsFromServer(validationErrors), snapshot.definition)
     setServerErrors(grouped)
     const index = firstScreenWithErrors(grouped, snapshot.definition)
-    if (index !== null) {
-      setSelectedUid(snapshot.definition.screens[index]?.uid ?? null)
-      if (!isDesktop) setMobileTab("edit")
+    const uid = index !== null ? snapshot.definition.screens[index]?.uid : undefined
+    if (uid) {
+      setInspectorTab("content")
+      selectAndFocus(uid)
     }
   }
 
@@ -382,38 +546,21 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
 
   const goToFirstError = () => {
     const index = firstScreenWithErrors(errors, definition)
-    if (index !== null) selectScreen(index)
-    else if (!isDesktop) setMobileTab("screens")
+    const uid = index !== null ? screens[index]?.uid : undefined
+    if (uid) {
+      setInspectorTab("content")
+      selectAndFocus(uid)
+    } else if (Object.keys(errors.appointment).length > 0 && hasAppointment) {
+      selectAndFocus(APPOINTMENT_ID)
+    }
   }
 
   const validationErrors = flow?.validation_errors ?? []
   const statusKey = flow?.status ?? "NEW"
+  const undoShortcut = isMac() ? "⌘Z" : "Ctrl+Z"
+  const redoShortcut = isMac() ? "⇧⌘Z" : "Ctrl+Y"
 
-  const screenListColumn = (
-    <div className="space-y-6">
-      <ScreenList
-        screens={screens}
-        selectedIndex={selectedIndex}
-        hasAppointment={hasAppointment}
-        errors={errors}
-        onSelect={selectScreen}
-        onAdd={addScreen}
-        onRemove={requestRemoveScreen}
-        onMove={actions.moveScreen}
-      />
-      <AppointmentSettings
-        appointment={definition.appointment}
-        reasonCandidates={reasonCandidates}
-        errors={errors.appointment}
-        onChange={(appointment) => {
-          setServerErrors((previous) => ({ ...previous, appointment: {} }))
-          actions.setAppointment(appointment)
-        }}
-      />
-    </div>
-  )
-
-  const editorColumn = selectedScreen ? (
+  const screenEditor = selectedScreen ? (
     <ScreenEditor
       key={selectedScreen.uid}
       screen={selectedScreen}
@@ -443,19 +590,72 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
     />
   ) : null
 
-  const previewColumn = (
-    <FlowPhonePreview
-      definition={definition}
-      selectedIndex={selectedIndex}
-      contactFields={contactFields}
-      onSelectScreen={(index) => setSelectedUid(screens[index]?.uid ?? null)}
+  const appointmentSettings = (
+    <AppointmentSettings
+      appointment={definition.appointment}
+      reasonCandidates={reasonCandidates}
+      errors={errors.appointment}
+      onChange={(appointment) => {
+        setServerErrors((previous) => ({ ...previous, appointment: {} }))
+        actions.setAppointment(appointment)
+        if (appointment === null && selectedId === APPOINTMENT_ID) select(null)
+      }}
     />
   )
 
+  let inspector: ReactNode
+  if (selectedScreen) {
+    inspector = (
+      <InspectorScreen
+        screen={selectedScreen}
+        index={selectedIndex}
+        tab={inspectorTab}
+        onTabChange={setInspectorTab}
+        canMakeEntry={selectedIndex > 0 && canBeEntry(screens, selectedIndex)}
+        canRemove={screens.length > 1}
+        onMakeEntry={() => actions.setEntry(selectedIndex)}
+        onRemove={() => requestRemoveScreen(selectedScreen.uid as string)}
+        onClose={() => select(null)}
+        content={screenEditor}
+        preview={
+          <FlowPhonePreview
+            definition={definition}
+            selectedIndex={selectedIndex}
+            contactFields={contactFields}
+            onSelectScreen={(index) => select(screens[index]?.uid ?? null)}
+          />
+        }
+      />
+    )
+  } else if (appointmentSelected) {
+    inspector = (
+      <InspectorShell
+        title={t("flows.builder.canvas.appointment")}
+        icon={<CalendarClock className="size-4 text-muted-foreground" aria-hidden />}
+        onClose={() => select(null)}
+      >
+        <div className="p-4">{appointmentSettings}</div>
+      </InspectorShell>
+    )
+  } else {
+    inspector = (
+      <div className="space-y-6 p-5">
+        <div className="space-y-2 pt-6">
+          <MousePointerClick className="size-5 text-muted-foreground" aria-hidden />
+          <h2 className="text-sm font-semibold text-foreground">{t("flows.builder.canvas.emptyTitle")}</h2>
+          <p className="max-w-[46ch] text-sm text-muted-foreground">{t("flows.builder.canvas.emptyHint")}</p>
+        </div>
+        {hasAppointment ? null : appointmentSettings}
+      </div>
+    )
+  }
+
+  const inspectorOpen = selectedScreen !== null || appointmentSelected
+
   return (
-    <div className="flex-1 overflow-y-auto">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="mx-auto flex w-full max-w-[1400px] flex-wrap items-start gap-3 px-4 py-3 md:px-6">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="z-20 shrink-0 border-b border-border bg-background">
+        <div className="flex w-full flex-wrap items-start gap-3 px-4 py-3 md:px-5">
           <Button variant="ghost" size="icon" onClick={goBack} aria-label={t("flows.builder.back")}>
             <ArrowLeft className="size-4" />
           </Button>
@@ -512,6 +712,14 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
           {dirty ? <span className="mt-2 text-xs text-muted-foreground">{t("flows.builder.unsaved")}</span> : null}
 
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center">
+              <HeaderIconButton label={t("flows.builder.canvas.undo")} shortcut={undoShortcut} onClick={actions.undo} disabled={!canUndo}>
+                <Undo2 className="size-4" />
+              </HeaderIconButton>
+              <HeaderIconButton label={t("flows.builder.canvas.redo")} shortcut={redoShortcut} onClick={actions.redo} disabled={!canRedo}>
+                <Redo2 className="size-4" />
+              </HeaderIconButton>
+            </div>
             {flow ? (
               <Button
                 variant="ghost"
@@ -533,10 +741,8 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
             </Button>
           </div>
         </div>
-      </header>
 
-      <div className="mx-auto w-full max-w-[1400px] px-4 pb-24 pt-4 md:px-6">
-        <div className="mb-4 space-y-2 empty:hidden">
+        <div className="space-y-2 px-4 pb-3 empty:hidden md:px-5">
           {!editable && flow ? (
             <Notice tone="warning">{t("flows.builder.notEditable", { status: t(`flows.builder.status.${flow.status}`) })}</Notice>
           ) : null}
@@ -554,32 +760,49 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
             </Notice>
           ) : null}
         </div>
+      </header>
+
+      <div className="flex min-h-[480px] flex-1">
+        <div className="flow-canvas relative min-w-0 flex-1 select-none" aria-label={t("flows.builder.canvas.label")} role="region">
+          <ReactFlowProvider>
+            <FlowCanvas
+              definition={definition}
+              errors={errors}
+              selectedId={selectedId}
+              pendingRemovalUid={pendingRemovalUid}
+              interactive={isDesktop && editable}
+              editable={editable}
+              focusRequest={focusRequest}
+              actions={canvasActions}
+              onSelect={(id) => {
+                if (id !== selectedId) setInspectorTab("content")
+                select(id)
+              }}
+              onConnectRoute={connectRoute}
+              onSetEntry={actions.setEntry}
+              onDropNewScreen={(from, port, position) => insertScreen(from, port, position)}
+              onMoveScreens={actions.setPositions}
+              onAddScreen={addScreen}
+              onArrange={arrange}
+            />
+          </ReactFlowProvider>
+        </div>
 
         {isDesktop ? (
-          <div className="grid grid-cols-[260px_minmax(0,1fr)_320px] gap-6 xl:grid-cols-[280px_minmax(0,1fr)_340px] xl:gap-8">
-            <aside className="sticky top-24 max-h-[calc(100dvh-7rem)] self-start overflow-y-auto pr-1">{screenListColumn}</aside>
-            <main className="min-w-0">{editorColumn}</main>
-            <aside className="sticky top-24 self-start">{previewColumn}</aside>
-          </div>
-        ) : (
-          <Tabs value={mobileTab} onValueChange={(value) => setMobileTab(value as MobileTab)}>
-            <TabsList className="w-full">
-              <TabsTrigger value="screens">{t("flows.builder.tabs.screens")}</TabsTrigger>
-              <TabsTrigger value="edit">{t("flows.builder.tabs.edit")}</TabsTrigger>
-              <TabsTrigger value="preview">{t("flows.builder.tabs.preview")}</TabsTrigger>
-            </TabsList>
-            <TabsContent value="screens" className="pt-4">
-              {screenListColumn}
-            </TabsContent>
-            <TabsContent value="edit" className="pt-4">
-              {editorColumn}
-            </TabsContent>
-            <TabsContent value="preview" className="pt-4">
-              {previewColumn}
-            </TabsContent>
-          </Tabs>
-        )}
+          <aside className="w-[400px] shrink-0 overflow-y-auto border-l border-border bg-background xl:w-[440px]">{inspector}</aside>
+        ) : null}
       </div>
+
+      {!isDesktop ? (
+        <Sheet open={inspectorOpen} onOpenChange={(open) => !open && select(null)}>
+          <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-0 sm:max-w-full">
+            <SheetTitle className="sr-only">
+              {selectedScreen ? selectedScreen.title : t("flows.builder.canvas.appointment")}
+            </SheetTitle>
+            {inspector}
+          </SheetContent>
+        </Sheet>
+      ) : null}
 
       <MetaErrorsDialog open={metaErrorsOpen} onOpenChange={setMetaErrorsOpen} errors={validationErrors} />
 
@@ -619,32 +842,142 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <AlertDialog open={screenToRemove !== null} onOpenChange={(open) => !open && setScreenToRemove(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("flows.builder.removeScreenConfirm.title")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("flows.builder.removeScreenConfirm.description", {
-                title: screenToRemove !== null ? (screens[screenToRemove]?.title ?? "") : "",
-              })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("flows.builder.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={() => {
-                if (screenToRemove !== null) removeScreen(screenToRemove)
-                setScreenToRemove(null)
-              }}
-            >
-              {t("flows.builder.removeScreenConfirm.confirm")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
+  )
+}
+
+function HeaderIconButton({
+  label,
+  shortcut,
+  onClick,
+  disabled,
+  children,
+}: {
+  label: string
+  shortcut: string
+  onClick: () => void
+  disabled: boolean
+  children: ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span>
+          <Button variant="ghost" size="icon" onClick={onClick} disabled={disabled} aria-label={label} aria-keyshortcuts={shortcut}>
+            {children}
+          </Button>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        {label} <span className="ml-1 font-mono text-[11px] opacity-70">{shortcut}</span>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+function InspectorShell({
+  title,
+  icon,
+  actions,
+  onClose,
+  children,
+}: {
+  title: string
+  icon: ReactNode
+  actions?: ReactNode
+  onClose: () => void
+  children: ReactNode
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex min-h-full flex-col">
+      <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background px-4 py-2.5">
+        {icon}
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" title={title}>
+          {title}
+        </h2>
+        {actions}
+        <Button variant="ghost" size="icon" className="size-8" onClick={onClose} aria-label={t("flows.builder.close")}>
+          <X className="size-4" />
+        </Button>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function InspectorScreen({
+  screen,
+  index,
+  tab,
+  onTabChange,
+  canMakeEntry,
+  canRemove,
+  onMakeEntry,
+  onRemove,
+  onClose,
+  content,
+  preview,
+}: {
+  screen: FlowScreen
+  index: number
+  tab: InspectorTab
+  onTabChange: (tab: InspectorTab) => void
+  canMakeEntry: boolean
+  canRemove: boolean
+  onMakeEntry: () => void
+  onRemove: () => void
+  onClose: () => void
+  content: ReactNode
+  preview: ReactNode
+}) {
+  const { t } = useTranslation()
+  return (
+    <InspectorShell
+      title={screen.title || t("flows.builder.screens.untitled")}
+      icon={
+        <span className="flex size-5 shrink-0 items-center justify-center rounded bg-muted font-mono text-[11px] text-muted-foreground">
+          {index + 1}
+        </span>
+      }
+      onClose={onClose}
+      actions={
+        <>
+          {canMakeEntry ? (
+            <Button variant="ghost" size="sm" className="h-8" onClick={onMakeEntry}>
+              <Flag className="size-4" />
+              {t("flows.builder.canvas.makeEntry")}
+            </Button>
+          ) : null}
+          {canRemove ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground hover:text-destructive"
+              onClick={onRemove}
+              aria-label={t("flows.builder.screens.remove")}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          ) : null}
+        </>
+      }
+    >
+      <Tabs value={tab} onValueChange={(value) => onTabChange(value as InspectorTab)} className="gap-0">
+        <div className="px-4 pt-3">
+          <TabsList className="w-full">
+            <TabsTrigger value="content">{t("flows.builder.canvas.tabContent")}</TabsTrigger>
+            <TabsTrigger value="preview">{t("flows.builder.tabs.preview")}</TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="content" className="px-4 pb-10 pt-4">
+          {content}
+        </TabsContent>
+        <TabsContent value="preview" className="px-4 pb-10 pt-4">
+          {preview}
+        </TabsContent>
+      </Tabs>
+    </InspectorShell>
   )
 }
 
