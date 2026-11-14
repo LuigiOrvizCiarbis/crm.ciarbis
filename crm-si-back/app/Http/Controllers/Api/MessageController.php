@@ -53,6 +53,12 @@ class MessageController extends Controller
         'video/mp4',
     ];
 
+    /**
+     * Canales cuyo transporte soporta responder citando un mensaje
+     * (WhatsApp `context`, Messenger/Instagram `reply_to`).
+     */
+    private const REPLYABLE_CHANNELS = [ChannelType::WHATSAPP, ChannelType::INSTAGRAM, ChannelType::FACEBOOK];
+
     public function __construct(
         private WhatsAppMessageService $messageService,
         private MailMessageService $mailService,
@@ -65,7 +71,7 @@ class MessageController extends Controller
         $this->authorize('view', $conversation);
 
         $messages = Message::query()
-            ->with(['mailDetails', 'mailAttachments', 'interactions', 'reactions', 'linkPreview'])
+            ->with(['mailDetails', 'mailAttachments', 'interactions', 'reactions', 'linkPreview', 'replyTo'])
             ->withTrashed()
             ->where('conversation_id', $conversation->id)
             ->whereNull('mail_parent_message_id')
@@ -100,6 +106,7 @@ class MessageController extends Controller
             'bcc.*' => 'required|email:rfc|max:255',
             'attachments' => 'nullable|array|max:10',
             'attachments.*' => 'file|max:10240',
+            'reply_to_message_id' => 'nullable|integer',
         ], [
             'audio.mimetypes' => 'Este formato de audio no es compatible. Probá grabar de nuevo o adjuntar un MP3, OGG o M4A.',
         ]);
@@ -114,6 +121,15 @@ class MessageController extends Controller
 
         $type = $data['type'] ?? 'text';
         $channelType = $conversation->channel?->type;
+
+        try {
+            $replyTo = isset($data['reply_to_message_id'])
+                ? $this->resolveReplyTarget($conversation, $type, (int) $data['reply_to_message_id'])
+                : null;
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
         $voice = $request->boolean('voice');
         if ($voice && ($type !== 'audio' || $channelType !== ChannelType::WHATSAPP)) {
             return response()->json(['message' => 'voice sólo está disponible para audios de WhatsApp.'], 422);
@@ -227,6 +243,7 @@ class MessageController extends Controller
                 $message = $this->sender->send(
                     $conversation, $request->user(), 'image', $data['content'] ?? null, $path, $file->getMimeType(),
                     allowHumanAgentTag: true,
+                    replyTo: $replyTo,
                 );
             } elseif ($type === 'audio' && $request->hasFile('audio')) {
                 $file = $request->file('audio');
@@ -244,6 +261,7 @@ class MessageController extends Controller
                         $conversation, $request->user(), 'audio', null, $path,
                         $voice ? 'audio/ogg' : ($file->getMimeType() ?: 'audio/mpeg'), $voice,
                         allowHumanAgentTag: true,
+                        replyTo: $replyTo,
                     );
                 } finally {
                     if ($voicePath !== null && is_file($voicePath)) {
@@ -251,7 +269,11 @@ class MessageController extends Controller
                     }
                 }
             } else {
-                $message = $this->sender->send($conversation, $request->user(), 'text', $data['content'], allowHumanAgentTag: true);
+                $message = $this->sender->send(
+                    $conversation, $request->user(), 'text', $data['content'],
+                    allowHumanAgentTag: true,
+                    replyTo: $replyTo,
+                );
             }
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -438,5 +460,31 @@ class MessageController extends Controller
         }
 
         return response()->json(['message' => 'Mensaje eliminado']);
+    }
+
+    /**
+     * Valida el mensaje citado: sólo envíos en vivo de texto/imagen/audio por
+     * canales que soportan citas, sobre un mensaje vigente de la misma
+     * conversación (y por ende del mismo tenant) que ya tenga id en el canal.
+     *
+     * @throws \InvalidArgumentException
+     */
+    private function resolveReplyTarget(Conversation $conversation, string $type, int $messageId): Message
+    {
+        if (! in_array($type, ['text', 'image', 'audio'], true)
+            || ! in_array($conversation->channel?->type, self::REPLYABLE_CHANNELS, true)) {
+            throw new \InvalidArgumentException('Responder a un mensaje no está disponible para este tipo de envío.');
+        }
+
+        $target = $conversation->messages()->withoutTrashed()->whereKey($messageId)->first();
+        if ($target === null) {
+            throw new \InvalidArgumentException('El mensaje al que querés responder ya no está disponible.');
+        }
+
+        if (empty($target->external_id)) {
+            throw new \InvalidArgumentException('Este mensaje todavía no se sincronizó con el canal y no se puede responder.');
+        }
+
+        return $target;
     }
 }

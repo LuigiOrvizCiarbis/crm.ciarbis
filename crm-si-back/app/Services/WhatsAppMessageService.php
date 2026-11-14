@@ -109,7 +109,7 @@ class WhatsAppMessageService
             // Meta puede enviarlo de varias formas: con context.edited: true, con un
             // top-level edit, o como un mensaje text cuyo context.id apunta a un
             // mensaje existente y además marca explícitamente la edición.
-            $originalEditedId = $this->detectEditedMessageOriginalId($messageData, $tenantId);
+            $originalEditedId = $this->detectEditedMessageOriginalId($messageData);
             if ($originalEditedId) {
                 return $this->handleIncomingMessageEdited($messageData, $originalEditedId, $tenantId);
             }
@@ -215,6 +215,7 @@ class WhatsAppMessageService
                 'direction' => MessageDirection::INBOUND,
                 'external_id' => $messageData['id'] ?? null,
                 'delivered_at' => $this->parseWebhookTimestamp($messageData['timestamp'] ?? null),
+                'reply_to_message_id' => Message::replyTargetIdByExternalId($conversationId, $messageData['context']['id'] ?? null),
             ];
 
             if ($flowReply !== null) {
@@ -361,7 +362,8 @@ class WhatsAppMessageService
         string $mediaUrl,
         string $mimeType,
         ?string $caption,
-        User $user
+        User $user,
+        ?Message $replyTo = null,
     ): Message {
         ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
@@ -388,6 +390,7 @@ class WhatsAppMessageService
             'image' => [
                 'id' => $whatsappMediaId,
             ],
+            ...$this->replyContext($replyTo),
         ];
 
         if ($caption) {
@@ -419,6 +422,7 @@ class WhatsAppMessageService
             'media_filename' => basename($localMediaPath),
             'direction' => MessageDirection::OUTBOUND,
             'external_id' => $externalId,
+            'reply_to_message_id' => $replyTo?->id,
         ]);
 
         $conversation->update([
@@ -430,6 +434,7 @@ class WhatsAppMessageService
         app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
+            $this->prepareForBroadcast($message);
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
         } catch (\Exception $e) {
@@ -523,7 +528,8 @@ class WhatsAppMessageService
         string $mediaUrl,
         string $mimeType,
         User $user,
-        bool $voice = false
+        bool $voice = false,
+        ?Message $replyTo = null,
     ): Message {
         ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
@@ -563,6 +569,7 @@ class WhatsAppMessageService
                     'id' => $whatsappMediaId,
                     ...($voice ? ['voice' => true] : []),
                 ],
+                ...$this->replyContext($replyTo),
             ]);
 
         if (! $sendResponse->successful()) {
@@ -584,6 +591,7 @@ class WhatsAppMessageService
             'media_filename' => basename($localMediaPath),
             'direction' => MessageDirection::OUTBOUND,
             'external_id' => $externalId,
+            'reply_to_message_id' => $replyTo?->id,
         ]);
 
         $conversation->update([
@@ -595,6 +603,7 @@ class WhatsAppMessageService
         app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
+            $this->prepareForBroadcast($message);
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
         } catch (\Exception $e) {
@@ -1013,10 +1022,8 @@ class WhatsAppMessageService
      *   1) context.edited === true (formato histórico)
      *   2) messages[].edited === true con original id en context.id
      *   3) type: "edit" con edit.original_message_id
-     *   4) Mensaje text con context.id que apunta a un mensaje INBOUND ya
-     *      existente en el CRM y con campo context.from == from (no es reply)
      */
-    private function detectEditedMessageOriginalId(array $messageData, int $tenantId): ?string
+    private function detectEditedMessageOriginalId(array $messageData): ?string
     {
         $context = $messageData['context'] ?? [];
         $originalId = $context['id'] ?? null;
@@ -1032,26 +1039,6 @@ class WhatsAppMessageService
         $editOriginalId = $messageData['edit']['original_message_id'] ?? null;
         if (($messageData['type'] ?? null) === 'edit' && $editOriginalId) {
             return $editOriginalId;
-        }
-
-        // Último recurso: si llega un mensaje de texto con context.id apuntando
-        // a un mensaje INBOUND existente del mismo remitente, es casi seguro una
-        // edición (replies suelen venir con context.from distinto del id real del
-        // mensaje referenciado, y Meta no genera "replies a sí mismo").
-        if (($messageData['type'] ?? null) === 'text' && $originalId) {
-            $from = $messageData['from'] ?? null;
-            $contextFrom = $context['from'] ?? null;
-
-            if ($from && $contextFrom && $from === $contextFrom) {
-                $existing = Message::where('tenant_id', $tenantId)
-                    ->where('external_id', $originalId)
-                    ->where('direction', MessageDirection::INBOUND)
-                    ->exists();
-
-                if ($existing) {
-                    return $originalId;
-                }
-            }
         }
 
         return null;
@@ -1316,7 +1303,7 @@ class WhatsAppMessageService
         }
 
         try {
-            $this->attachSenderNameForGroupBroadcast($message);
+            $this->prepareForBroadcast($message);
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $messageData['tenant_id']));
         } catch (\Exception $e) {
@@ -1376,6 +1363,29 @@ class WhatsAppMessageService
         if ($name) {
             $message->setAttribute('sender', ['id' => $message->sender_id, 'name' => $name]);
         }
+    }
+
+    /**
+     * Deja el mensaje listo para emitir: carga la cita y adjunta el nombre del
+     * autor (del mensaje y del citado) en grupos.
+     */
+    private function prepareForBroadcast(Message $message): void
+    {
+        $message->loadReplyPreview();
+        $this->attachSenderNameForGroupBroadcast($message);
+        if ($message->relationLoaded('replyTo') && $message->replyTo !== null) {
+            $this->attachSenderNameForGroupBroadcast($message->replyTo);
+        }
+    }
+
+    /**
+     * `context.message_id` de la Cloud API para responder citando un mensaje.
+     */
+    private function replyContext(?Message $replyTo): array
+    {
+        return $replyTo?->external_id
+            ? ['context' => ['message_id' => $replyTo->external_id]]
+            : [];
     }
 
     private function inferReadFromInboundReply(Message $inboundMessage): void
@@ -1692,6 +1702,7 @@ class WhatsAppMessageService
                 'direction' => MessageDirection::OUTBOUND,
                 'external_id' => $externalId,
                 'delivered_at' => $this->parseWebhookTimestamp($echo['timestamp'] ?? null),
+                'reply_to_message_id' => Message::replyTargetIdByExternalId($conversation->id, $echo['context']['id'] ?? null),
             ]);
         }
     }
@@ -1968,7 +1979,7 @@ class WhatsAppMessageService
         return $reaction;
     }
 
-    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
+    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user, ?Message $replyTo = null): Message
     {
         ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
@@ -1983,6 +1994,7 @@ class WhatsAppMessageService
                 'text' => [
                     'body' => $content,
                 ],
+                ...$this->replyContext($replyTo),
             ]);
 
         if (! $response->successful()) {
@@ -2001,6 +2013,7 @@ class WhatsAppMessageService
             'direction' => MessageDirection::OUTBOUND,
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
+            'reply_to_message_id' => $replyTo?->id,
         ]);
 
         $conversation->update([
@@ -2012,6 +2025,7 @@ class WhatsAppMessageService
         app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
+            $this->prepareForBroadcast($message);
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
         } catch (\Exception $e) {
