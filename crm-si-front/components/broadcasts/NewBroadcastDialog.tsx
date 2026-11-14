@@ -38,6 +38,7 @@ import {
   defaultParamSource,
   extractBodyParams,
   getHeaderMediaFormat,
+  getQuickReplyButtons,
   hasUnsupportedParams,
   resolveParamValue,
   ParamSource,
@@ -84,6 +85,8 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
   const [tagIds, setTagIds] = useState<number[]>([])
   const [excludedTagIds, setExcludedTagIds] = useState<number[]>([])
   const [customFilters, setCustomFilters] = useState<BroadcastFilter[]>([])
+  /** Índice del botón de respuesta rápida → id de la etiqueta que asigna. */
+  const [replyTags, setReplyTags] = useState<Record<number, number>>({})
   const [launch, setLaunch] = useState<"now" | "scheduled">("now")
   const [scheduledAt, setScheduledAt] = useState("")
   const [intervalSeconds, setIntervalSeconds] = useState<BroadcastPayload["interval_seconds"]>(0)
@@ -103,6 +106,7 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
   const allExcludedTagsSelected = tags.length > 0 && excludedTagIds.length === tags.length
   const bodyParams = useMemo(() => selectedTemplate ? extractBodyParams(selectedTemplate.components) : { names: [], named: false }, [selectedTemplate])
   const mediaFormat = selectedTemplate ? getHeaderMediaFormat(selectedTemplate.components) : null
+  const quickReplyButtons = useMemo(() => selectedTemplate ? getQuickReplyButtons(selectedTemplate.components) : [], [selectedTemplate])
 
   useEffect(() => {
     if (!open) return
@@ -116,6 +120,7 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
     setTagIds([])
     setExcludedTagIds([])
     setCustomFilters([])
+    setReplyTags({})
     setLaunch("now")
     setScheduledAt("")
     setIntervalSeconds(0)
@@ -135,6 +140,7 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
     setParamValues(names.map(() => ""))
     setMediaFile(null)
     setMediaUrl("")
+    setReplyTags({})
   }, [selectedTemplate])
 
   const filters = useMemo(() => ({
@@ -150,6 +156,7 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
     template_id: templateId as number,
     components: [],
     filters,
+    reply_tags: Object.entries(replyTags).map(([buttonIndex, tagId]) => ({ button_index: Number(buttonIndex), tag_id: tagId })),
     launch,
     ...(launch === "scheduled" && scheduledAt ? { scheduled_at: new Date(scheduledAt).toISOString() } : {}),
     interval_seconds: intervalSeconds,
@@ -328,6 +335,32 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
                       {paramSources[index] === "custom" && <div className="self-end"><Input value={paramValues[index]} onChange={(event) => setParamValues((current) => current.map((value, valueIndex) => valueIndex === index ? event.target.value : value))} placeholder="Valor para todos los contactos" /></div>}
                     </div>
                   ))}
+                  {quickReplyButtons.length > 0 && (
+                    <div className="space-y-3 border-t pt-4">
+                      <div><Label>Etiquetar según la respuesta</Label><p className="mt-1 text-xs text-muted-foreground">El contacto recibe la etiqueta cuando toca el botón.</p></div>
+                      {tags.length === 0 && <p className="text-sm text-muted-foreground">No hay etiquetas creadas.</p>}
+                      {tags.length > 0 && quickReplyButtons.map((button) => (
+                        <div key={button.index} className="grid items-center gap-2 sm:grid-cols-[150px_1fr]">
+                          <span className="truncate text-sm font-medium" title={button.text}>{button.text}</span>
+                          <Select
+                            value={replyTags[button.index] ? String(replyTags[button.index]) : "none"}
+                            onValueChange={(value) => setReplyTags((current) => {
+                              const next = { ...current }
+                              if (value === "none") delete next[button.index]
+                              else next[button.index] = Number(value)
+                              return next
+                            })}
+                          >
+                            <SelectTrigger aria-label={`Etiqueta para «${button.text}»`}><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Sin etiqueta</SelectItem>
+                              {tags.map((tag) => <SelectItem key={tag.id} value={String(tag.id)}>{tag.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -128,4 +128,27 @@ class WhatsAppTemplate extends Model
 
         return null;
     }
+
+    /**
+     * Posiciones (dentro de `buttons`) de los botones de respuesta rápida.
+     *
+     * @return list<int>
+     */
+    public function quickReplyButtonIndexes(): array
+    {
+        $indexes = [];
+        foreach ($this->components ?? [] as $component) {
+            if (strtoupper($component['type'] ?? '') !== 'BUTTONS') {
+                continue;
+            }
+
+            foreach (array_values($component['buttons'] ?? []) as $index => $button) {
+                if (strtoupper($button['type'] ?? '') === 'QUICK_REPLY') {
+                    $indexes[] = $index;
+                }
+            }
+        }
+
+        return $indexes;
+    }
 }

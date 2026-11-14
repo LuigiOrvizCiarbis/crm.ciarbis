@@ -24,6 +24,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageInteraction;
 use App\Models\MessageReaction;
+use App\Models\Tag;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Services\Concerns\ResolvesWhatsAppChannel;
@@ -668,7 +669,7 @@ class WhatsAppMessageService
         if (! $recipient || ! $recipient->campaign->resultsEnabled()) {
             return;
         }
-        MessageInteraction::firstOrCreate(
+        $recorded = MessageInteraction::firstOrCreate(
             ['deduplication_key' => 'reply:'.$source->external_id],
             [
                 'broadcast_recipient_id' => $recipient->id,
@@ -682,7 +683,34 @@ class WhatsAppMessageService
                 'occurred_at' => $source->created_at ?? now(),
             ],
         );
+        // Meta reintenta webhooks: solo la primera entrega etiqueta.
+        if ($recorded->wasRecentlyCreated) {
+            $this->tagContactFromReply($recipient, $interaction['value']);
+        }
         broadcast(new BroadcastResultsUpdated($recipient->campaign->id, $recipient->id));
+    }
+
+    /**
+     * Aplica la etiqueta que la difusión asoció al botón tocado. Corre en el
+     * webhook sin usuario autenticado, por eso el tenant se filtra a mano.
+     */
+    private function tagContactFromReply(BroadcastRecipient $recipient, ?string $payload): void
+    {
+        $campaign = $recipient->campaign;
+        $tagId = $campaign->replyTagIdFor($payload);
+        if ($tagId === null) {
+            return;
+        }
+
+        $tag = Tag::withoutGlobalScopes()->where('tenant_id', $campaign->tenant_id)->find($tagId);
+        $contact = Contact::withoutGlobalScopes()->where('tenant_id', $campaign->tenant_id)->find($recipient->contact_id);
+        if (! $tag || ! $contact) {
+            return;
+        }
+
+        $contact->tags()->syncWithoutDetaching([
+            $tag->id => ['tenant_id' => $campaign->tenant_id, 'assigned_by' => null],
+        ]);
     }
 
     private function recordGenericReplyInteraction(Message $source, array $messageData): void
