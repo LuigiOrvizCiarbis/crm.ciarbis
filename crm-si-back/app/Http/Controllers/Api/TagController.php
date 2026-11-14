@@ -221,10 +221,14 @@ class TagController extends Controller
             ->where('tenant_id', $tag->tenant_id)
             ->whereIn('status', [BroadcastStatus::Scheduled, BroadcastStatus::Processing])
             ->orderBy('id')
-            ->get(['id', 'name', 'status', 'audience_filters'])
+            ->get(['id', 'name', 'status', 'audience_filters', 'reply_tags'])
             ->filter(function (BroadcastCampaign $campaign) use ($tag): bool {
                 $filters = $campaign->audience_filters ?? [];
-                $tagIds = array_merge((array) ($filters['tag_ids'] ?? []), (array) ($filters['excluded_tag_ids'] ?? []));
+                $tagIds = array_merge(
+                    (array) ($filters['tag_ids'] ?? []),
+                    (array) ($filters['excluded_tag_ids'] ?? []),
+                    array_column($campaign->reply_tags ?? [], 'tag_id'),
+                );
 
                 return in_array($tag->id, array_map('intval', $tagIds), true);
             })

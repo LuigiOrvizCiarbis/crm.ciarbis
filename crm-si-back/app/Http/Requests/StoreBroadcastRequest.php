@@ -32,6 +32,13 @@ class StoreBroadcastRequest extends FormRequest
                 Rule::exists('whatsapp_templates', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId)),
             ],
             'components' => ['nullable', 'array'],
+            'reply_tags' => ['nullable', 'array', 'max:10'],
+            'reply_tags.*.button_index' => ['required', 'integer', 'min:0', 'max:9', 'distinct'],
+            'reply_tags.*.tag_id' => [
+                'required',
+                'integer',
+                Rule::exists('tags', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId)),
+            ],
             'filters' => ['nullable', 'array'],
             'filters.pipeline_stage_id' => [
                 'nullable',
