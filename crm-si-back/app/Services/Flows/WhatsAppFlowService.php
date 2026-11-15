@@ -190,6 +190,7 @@ class WhatsAppFlowService
             'builder_definition' => $flow->builder_definition,
             'field_mappings' => $flow->field_mappings,
             'send_defaults' => $flow->send_defaults,
+            'completion_message' => $flow->completion_message,
         ])->save();
 
         return $copy;

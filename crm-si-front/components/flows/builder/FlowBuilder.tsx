@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { ReactFlowProvider } from "@xyflow/react"
 import {
@@ -10,6 +10,8 @@ import {
   ExternalLink,
   Flag,
   Loader2,
+  MessageSquareReply,
+  MessageSquareText,
   MousePointerClick,
   Redo2,
   Save,
@@ -48,6 +50,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { FlowClosingPanel } from "@/components/flows/journey/FlowClosingPanel"
+import { FlowOpeningPanel } from "@/components/flows/journey/FlowOpeningPanel"
+import { useManagedTemplates } from "@/components/flows/journey/useManagedTemplates"
 import type { WhatsAppFlow, WhatsAppFlowCategory, WhatsAppFlowValidationError } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
 import { getChannels } from "@/lib/api/channels"
@@ -68,6 +73,7 @@ import {
   mergeErrors,
   type GroupedErrors,
 } from "@/lib/flow-builder/errors"
+import { responseFields } from "@/lib/flow-builder/completion"
 import { SCREEN_NODE_WIDTH, layoutScreens, nextFreePosition, questionCount } from "@/lib/flow-builder/layout"
 import { MAX_SCREENS, NAME_MAX, isQuestionBlock } from "@/lib/flow-builder/limits"
 import { expandedScreenCount, groupScreenCount, isRepeaterScreen, screenBlocks } from "@/lib/flow-builder/repeater"
@@ -92,7 +98,7 @@ import { FlowPhonePreview } from "./FlowPhonePreview"
 import { RepeaterEditor } from "./RepeaterEditor"
 import { ScreenEditor } from "./ScreenEditor"
 import { FlowCanvas, type FocusRequest } from "./canvas/FlowCanvas"
-import { APPOINTMENT_ID, END_ID } from "./canvas/graph"
+import { APPOINTMENT_ID, END_ID, START_ID, type ClosingSummary, type OpeningSummary } from "./canvas/graph"
 import { newUid, useFlowBuilderState, type FlowBuilderSnapshot } from "./useFlowBuilderState"
 
 export const FLOWS_SETTINGS_PATH = "/configuracion/formularios"
@@ -129,6 +135,13 @@ function typingOrModal(target: EventTarget | null): boolean {
   return document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]') !== null
 }
 
+/** Apertura y Cierre se guardan aparte de la definición: sólo se toman esos campos del formulario guardado. */
+function withJourney(current: WhatsAppFlow | null, saved: WhatsAppFlow): WhatsAppFlow | null {
+  if (!current) return current
+  const { send_defaults, opening, send_templates, effective_template_id, completion_message } = saved
+  return { ...current, send_defaults, opening, send_templates, effective_template_id, completion_message }
+}
+
 type InspectorTab = "content" | "preview"
 
 interface FlowBuilderProps {
@@ -163,6 +176,9 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
   const [publishTargetId, setPublishTargetId] = useState<number | null>(null)
   const [metaErrorsOpen, setMetaErrorsOpen] = useState(false)
   const [leaveOpen, setLeaveOpen] = useState(false)
+  // Apertura y Cierre se guardan aparte: sus cambios sin guardar no cuentan para Guardar/Publicar, pero se avisan.
+  const [panelDirty, setPanelDirty] = useState(false)
+  const [pendingSelection, setPendingSelection] = useState<{ id: string | null } | null>(null)
   const [channelId, setChannelId] = useState<number | null>(channelIdProp)
   const [encryptionConfigured, setEncryptionConfigured] = useState<boolean | null>(null)
 
@@ -209,14 +225,14 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
   }, [channelId, encryptionConfigured])
 
   useEffect(() => {
-    if (!dirty) return
+    if (!dirty && !panelDirty) return
     const handler = (event: BeforeUnloadEvent) => {
       event.preventDefault()
       event.returnValue = ""
     }
     window.addEventListener("beforeunload", handler)
     return () => window.removeEventListener("beforeunload", handler)
-  }, [dirty])
+  }, [dirty, panelDirty])
 
   // Deshacer / rehacer y Escape en todo el constructor, salvo mientras se escribe o hay un diálogo.
   useEffect(() => {
@@ -272,6 +288,38 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
   const selectedIndex = screens.findIndex((screen) => screen.uid === selectedId)
   const selectedScreen = selectedIndex === -1 ? null : screens[selectedIndex]
   const appointmentSelected = selectedId === APPOINTMENT_ID && hasAppointment
+  const openingSelected = selectedId === START_ID
+  const endSelected = selectedId === END_ID
+
+  const closingTemplateId = flow?.completion_message?.type === "template" ? flow.completion_message.template_id : null
+  const { templates: closingTemplateList, reload: reloadClosingTemplates } = useManagedTemplates(
+    closingTemplateId !== null ? channelId : null,
+  )
+
+  const openingSummary = useMemo<OpeningSummary | null>(() => {
+    if (!flow) return null
+    return {
+      cta: flow.send_defaults.cta,
+      readyTemplates: flow.send_templates.filter((item) => item.ready).length,
+      totalTemplates: flow.send_templates.length,
+      defaultTemplate: flow.send_templates.find((item) => item.id === flow.effective_template_id)?.name ?? null,
+      automatic: flow.opening.default_template_id === null,
+    }
+  }, [flow])
+  const closingSummary = useMemo<ClosingSummary | null>(() => {
+    const closing = flow?.completion_message
+    if (!flow) return null
+    if (!closing) return { kind: "none" }
+    if (closing.type === "text") return { kind: "text" }
+    const template = closingTemplateList?.find((item) => item.id === closing.template_id)
+    return { kind: "template", name: template?.name ?? null, status: template?.status ?? null }
+  }, [flow, closingTemplateList])
+  // El cierre sólo puede citar respuestas de la versión publicada; las preguntas nuevas del borrador, después de publicar.
+  const hasUnpublishedFields = useMemo(() => {
+    if (!flow) return false
+    const live = new Set(flow.response_fields.map((field) => field.key))
+    return responseFields(definition).some((field) => !live.has(field.key))
+  }, [flow, definition])
 
   const questionKeys = useMemo(
     () =>
@@ -300,10 +348,29 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
     })
   }, [])
 
-  const select = useCallback((id: string | null) => {
+  const applySelect = useCallback((id: string | null) => {
     setSelectedId(id)
     setPendingRemovalUid((pending) => (pending === id ? pending : null))
   }, [])
+
+  // Leído en los handlers: así `select` queda estable y no rehace las acciones del diagrama.
+  const selectionGuard = useRef({ panelDirty, selectedId })
+  useEffect(() => {
+    selectionGuard.current = { panelDirty, selectedId }
+  }, [panelDirty, selectedId])
+
+  /** Cambia de nodo; si el panel de Apertura o Cierre tiene cambios sin guardar, primero pide confirmación. */
+  const select = useCallback(
+    (id: string | null) => {
+      const guard = selectionGuard.current
+      if (guard.panelDirty && id !== guard.selectedId) {
+        setPendingSelection({ id })
+        return
+      }
+      applySelect(id)
+    },
+    [applySelect],
+  )
 
   const focus = useCallback((id: string) => setFocusRequest({ id, nonce: Date.now() }), [])
 
@@ -563,7 +630,7 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
   }
 
   const goBack = () => {
-    if (dirty) setLeaveOpen(true)
+    if (dirty || panelDirty) setLeaveOpen(true)
     else router.push(FLOWS_SETTINGS_PATH)
   }
 
@@ -679,12 +746,7 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
             selectedIndex={selectedIndex}
             contactFields={contactFields}
             onSelectScreen={(index) => select(screens[index]?.uid ?? null)}
-            message={{
-              flow,
-              channelId,
-              onSendDefaultsSaved: (saved) =>
-                setFlow((current) => (current ? { ...current, send_defaults: saved.send_defaults } : current)),
-            }}
+            message={{ flow, channelId }}
           />
         }
       />
@@ -697,6 +759,58 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
         onClose={() => select(null)}
       >
         <div className="p-4">{appointmentSettings}</div>
+      </InspectorShell>
+    )
+  } else if (openingSelected) {
+    inspector = (
+      <InspectorShell
+        title={t("flows.journey.opening.title")}
+        icon={<MessageSquareText className="size-4 text-muted-foreground" aria-hidden />}
+        onClose={() => select(null)}
+      >
+        <div className="space-y-4 p-4">
+          <p className="text-xs text-muted-foreground">{t("flows.journey.opening.description")}</p>
+          {flow ? (
+            <FlowOpeningPanel
+              key={flow.id}
+              flow={flow}
+              channelId={channelId}
+              onFlowChange={(saved) => setFlow((current) => withJourney(current, saved))}
+              onDirtyChange={setPanelDirty}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">{t("flows.journey.opening.saveFirst")}</p>
+          )}
+        </div>
+      </InspectorShell>
+    )
+  } else if (endSelected) {
+    inspector = (
+      <InspectorShell
+        title={t("flows.journey.closing.title")}
+        icon={<MessageSquareReply className="size-4 text-muted-foreground" aria-hidden />}
+        onClose={() => select(null)}
+      >
+        <div className="space-y-4 p-4">
+          <p className="text-xs text-muted-foreground">{t("flows.journey.closing.description")}</p>
+          {flow ? (
+            <FlowClosingPanel
+              key={flow.id}
+              flow={flow}
+              channelId={channelId}
+              fields={flow.response_fields}
+              hasUnpublishedFields={hasUnpublishedFields}
+              onFlowChange={(saved) => {
+                setFlow((current) => withJourney(current, saved))
+                // Puede ser una plantilla recién creada: el resumen del diagrama necesita su nombre.
+                reloadClosingTemplates()
+              }}
+              onDirtyChange={setPanelDirty}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">{t("flows.journey.closing.saveFirst")}</p>
+          )}
+        </div>
       </InspectorShell>
     )
   } else {
@@ -712,7 +826,7 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
     )
   }
 
-  const inspectorOpen = selectedScreen !== null || appointmentSelected
+  const inspectorOpen = selectedScreen !== null || appointmentSelected || openingSelected || endSelected
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -835,6 +949,8 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
               interactive={isDesktop && editable}
               editable={editable}
               focusRequest={focusRequest}
+              opening={openingSummary}
+              closing={closingSummary}
               actions={canvasActions}
               onSelect={(id) => {
                 if (id !== selectedId) setInspectorTab("content")
@@ -860,7 +976,13 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
         <Sheet open={inspectorOpen} onOpenChange={(open) => !open && select(null)}>
           <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-0 sm:max-w-full">
             <SheetTitle className="sr-only">
-              {selectedScreen ? selectedScreen.title : t("flows.builder.canvas.appointment")}
+              {selectedScreen
+                ? selectedScreen.title
+                : openingSelected
+                  ? t("flows.journey.opening.title")
+                  : endSelected
+                    ? t("flows.journey.closing.title")
+                    : t("flows.builder.canvas.appointment")}
             </SheetTitle>
             {inspector}
           </SheetContent>
@@ -901,6 +1023,27 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
             <AlertDialogCancel>{t("flows.builder.leaveConfirm.stay")}</AlertDialogCancel>
             <AlertDialogAction onClick={() => router.push(FLOWS_SETTINGS_PATH)}>
               {t("flows.builder.leaveConfirm.leave")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={pendingSelection !== null} onOpenChange={(open) => !open && setPendingSelection(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("flows.builder.panelDiscard.title")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("flows.builder.panelDiscard.description")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("flows.builder.panelDiscard.stay")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingSelection) applySelect(pendingSelection.id)
+                setPendingSelection(null)
+                setPanelDirty(false)
+              }}
+            >
+              {t("flows.builder.panelDiscard.discard")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

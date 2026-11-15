@@ -10,6 +10,7 @@ use App\Models\Channel;
 use App\Models\WhatsAppGroup;
 use App\Services\WhatsAppGroupEligibilityService;
 use App\Services\WhatsAppGroupService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -233,7 +234,7 @@ class WhatsAppGroupController extends Controller
             return $action();
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+        } catch (ModelNotFoundException $e) {
             // ModelNotFoundException extiende RuntimeException: sin este
             // catch antes, caería al 502 genérico en vez del 404 nativo.
             throw $e;

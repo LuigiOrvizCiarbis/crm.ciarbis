@@ -29,7 +29,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/Toast"
-import { Channel, WhatsAppFlow, WhatsAppTemplate } from "@/data/types"
+import { Channel, TemplateParameter, WhatsAppFlow, WhatsAppTemplate } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
 import {
   activateAutomation,
@@ -53,6 +53,7 @@ import { uploadMediaAsset } from "@/lib/api/media-assets"
 import { getManagedTemplates } from "@/lib/api/templates"
 import { getFlows } from "@/lib/api/whatsapp-flows"
 import { cn } from "@/lib/utils"
+import { templateBodyParameters, templateHeaderMediaFormat } from "@/lib/whatsapp-templates"
 
 type LeafCondition = { field: string; operator: string; value: string }
 type ConditionGroup = { operator: "AND" | "OR"; conditions: Array<LeafCondition | ConditionGroup> }
@@ -70,25 +71,7 @@ const triggers = [
 
 const operators = ["equals", "not_equals", "contains", "empty", "not_empty", "greater_than", "less_than", "in", "has_tag", "stage_is"]
 
-type ActionParameter = NonNullable<AutomationAction["config"]["parameters"]>[number]
-
-// Nombres de las variables {{...}} del body del template, en orden y sin
-// repetir. Debe contar lo mismo que WhatsAppTemplate::expectedBodyParameters()
-// en el backend, o el formulario prellenaría algo que la validación rechaza.
-function templateBodyParameters(template: WhatsAppTemplate | undefined): string[] {
-  const body = template?.components?.find((component) => component.type?.toUpperCase() === "BODY")
-  if (!body?.text) return []
-  const names = [...body.text.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g)].map((match) => match[1])
-  return [...new Set(names)]
-}
-
-// Formato del header cuando es de media (DOCUMENT/IMAGE/VIDEO), o null.
-// Debe coincidir con WhatsAppTemplate::headerMediaFormat() del backend.
-function templateHeaderMediaFormat(template: WhatsAppTemplate | undefined): string | null {
-  const header = template?.components?.find((component) => component.type?.toUpperCase() === "HEADER")
-  const format = header?.format?.toUpperCase()
-  return format === "DOCUMENT" || format === "IMAGE" || format === "VIDEO" ? format : null
-}
+type ActionParameter = TemplateParameter
 
 // Al elegir un template se prellenan sus parámetros mapeados al nombre del
 // contacto, que es el caso más común; el usuario ajusta fuente/ruta después.

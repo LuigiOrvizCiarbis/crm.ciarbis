@@ -37,7 +37,9 @@ import {
   buildGraph,
   checkConnection,
   type CanvasNode,
+  type ClosingSummary,
   type Measured,
+  type OpeningSummary,
   type RouteEdgeType,
 } from "./graph"
 import { NODE_TYPES } from "./nodes"
@@ -70,6 +72,9 @@ interface FlowCanvasProps {
   /** Si el formulario se puede editar (agregar pantallas también funciona sin arrastrar). */
   editable: boolean
   focusRequest: FocusRequest | null
+  /** Resúmenes de Apertura y Cierre; null mientras el formulario no se guardó. */
+  opening: OpeningSummary | null
+  closing: ClosingSummary | null
   actions: Omit<CanvasActions, "canAddScreen" | "hasAppointment">
   onSelect: (id: string | null) => void
   onConnectRoute: (from: number, port: RoutePort, target: string) => void
@@ -92,6 +97,8 @@ export function FlowCanvas({
   interactive,
   editable,
   focusRequest,
+  opening,
+  closing,
   actions,
   onSelect,
   onConnectRoute,
@@ -132,8 +139,10 @@ export function FlowCanvas({
         dragging,
         measured,
         interactive,
+        opening,
+        closing,
       }),
-    [definition, errors, selectedId, selectedEdgeId, pendingRemovalUid, dragging, measured, interactive],
+    [definition, errors, selectedId, selectedEdgeId, pendingRemovalUid, dragging, measured, interactive, opening, closing],
   )
 
   const screenIndex = useCallback((uid: string) => screens.findIndex((screen) => screen.uid === uid), [screens])
@@ -271,7 +280,6 @@ export function FlowCanvas({
         connectionLineComponent={ConnectionLine}
         connectionRadius={28}
         onNodeClick={(_, node) => {
-          if (node.id === START_ID || node.type === "end") return
           onSelect(node.id)
           setSelectedEdgeId(null)
         }}

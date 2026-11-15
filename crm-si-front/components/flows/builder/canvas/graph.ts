@@ -1,5 +1,6 @@
 import type { Edge, Node } from "@xyflow/react"
 
+import type { WhatsAppTemplate } from "@/data/types"
 import type { GroupedErrors } from "@/lib/flow-builder/errors"
 import { terminalPositions } from "@/lib/flow-builder/layout"
 import { isRepeaterScreen, screenBlocks } from "@/lib/flow-builder/repeater"
@@ -44,11 +45,35 @@ export interface AppointmentNodeData extends Record<string, unknown> {
   errorCount: number
 }
 
+/** Resumen de la apertura; null mientras el formulario no se guardó. */
+export interface OpeningSummary {
+  cta: string
+  readyTemplates: number
+  totalTemplates: number
+  /** Plantilla que se usa fuera de la ventana; null si ninguna está lista. */
+  defaultTemplate: string | null
+  automatic: boolean
+}
+
+/** Resumen del cierre; null mientras el formulario no se guardó. */
+export type ClosingSummary =
+  | { kind: "none" | "text" }
+  | { kind: "template"; name: string | null; status: WhatsAppTemplate["status"] | null }
+
+export interface OpeningNodeData extends Record<string, unknown> {
+  summary: OpeningSummary | null
+}
+
+export interface ClosingNodeData extends Record<string, unknown> {
+  summary: ClosingSummary | null
+}
+
 export type ScreenNodeType = Node<ScreenNodeData, "screen">
 export type RepeaterNodeType = Node<RepeaterNodeData, "repeater">
 export type AppointmentNodeType = Node<AppointmentNodeData, "appointment">
-export type TerminalNodeType = Node<Record<string, never>, "start" | "end">
-export type CanvasNode = ScreenNodeType | RepeaterNodeType | AppointmentNodeType | TerminalNodeType
+export type OpeningNodeType = Node<OpeningNodeData, "start">
+export type ClosingNodeType = Node<ClosingNodeData, "end">
+export type CanvasNode = ScreenNodeType | RepeaterNodeType | AppointmentNodeType | OpeningNodeType | ClosingNodeType
 
 export interface RouteEdgeData extends Record<string, unknown> {
   /** Pantalla y salida de la que parte; null en las flechas fijas (inicio y reserva). */
@@ -88,6 +113,8 @@ interface BuildGraphInput {
   dragging: Record<string, CanvasPosition>
   measured: Record<string, Measured>
   interactive: boolean
+  opening: OpeningSummary | null
+  closing: ClosingSummary | null
 }
 
 export function buildGraph({
@@ -99,6 +126,8 @@ export function buildGraph({
   dragging,
   measured,
   interactive,
+  opening,
+  closing,
 }: BuildGraphInput): { nodes: CanvasNode[]; edges: RouteEdgeType[] } {
   const { screens } = definition
   const hasAppointment = definition.appointment !== null
@@ -112,13 +141,13 @@ export function buildGraph({
     measured[node.id] ? ({ ...node, measured: measured[node.id] } as T) : node
 
   const nodes: CanvasNode[] = [
-    withMeasure<TerminalNodeType>({
+    withMeasure<OpeningNodeType>({
       id: START_ID,
       type: "start",
       position: terminals.start,
-      data: {},
+      selected: selectedId === START_ID,
+      data: { summary: opening },
       draggable: false,
-      selectable: false,
       deletable: false,
     }),
     ...placed.map((screen, index) => {
@@ -157,13 +186,13 @@ export function buildGraph({
           }),
         ]
       : []),
-    withMeasure<TerminalNodeType>({
+    withMeasure<ClosingNodeType>({
       id: END_ID,
       type: "end",
       position: terminals.end,
-      data: {},
+      selected: selectedId === END_ID,
+      data: { summary: closing },
       draggable: false,
-      selectable: false,
       deletable: false,
     }),
   ]

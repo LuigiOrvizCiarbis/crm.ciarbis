@@ -1302,7 +1302,18 @@
     "contactsSent": "Contactos enviados",
     "flows": {
       "send": "Enviar formulario",
-      "windowClosed": "Fuera de la ventana de 24 h: usá una plantilla con botón de formulario",
+      "windowClosed": "Fuera de la ventana de 24 h se envía con una plantilla del formulario",
+      "closedDescription": "La ventana de 24 h está cerrada: el formulario se envía con una de sus plantillas aprobadas.",
+      "closedHint": "Elegí un formulario con una plantilla lista.",
+      "template": "Plantilla",
+      "selectTemplate": "Seleccioná una plantilla",
+      "defaultTemplate": "predeterminada",
+      "templatePreview": "Así le llega",
+      "blockers": {
+        "noTemplate": "sin plantilla",
+        "templateParameters": "faltan variables de la plantilla",
+        "templateNotApproved": "plantilla sin aprobar"
+      },
       "description": "Enviá un formulario de WhatsApp para que el contacto lo complete sin salir del chat.",
       "flow": "Formulario",
       "selectFlow": "Seleccioná un formulario",
@@ -2915,8 +2926,8 @@
         "publish": "Publicar",
         "editJson": "Editar JSON",
         "mapping": "Mapeo de campos",
-        "sendDefaults": "Mensaje de envío",
-        "createTemplate": "Crear plantilla",
+        "opening": "Apertura",
+        "closing": "Cierre",
         "clone": "Duplicar",
         "deprecate": "Deprecar",
         "delete": "Eliminar"
@@ -2983,12 +2994,6 @@
         "helpAppointment": "appointment_dates devuelve available_dates; appointment_slots (con date) devuelve available_slots y selected_date; book_appointment (con slot y opcionalmente appointment_email y appointment_reason) reserva el turno.",
         "helpRouting": "complete cierra el formulario. Si usás data_api_version, el JSON también necesita routing_model."
       },
-      "sendDefaults": {
-        "title": "Mensaje de envío · {{name}}",
-        "description": "Textos que se precargan al enviar este formulario desde el chat. El agente puede cambiarlos antes de enviar.",
-        "saved": "Mensaje de envío guardado",
-        "saveError": "No se pudo guardar el mensaje de envío"
-      },
       "mapping": {
         "title": "Mapeo de campos · {{name}}",
         "description": "Elegí qué respuestas se guardan en el contacto cuando llega el formulario completo.",
@@ -3018,6 +3023,128 @@
       "created": "Campo «{{label}}» creado",
       "error": "No se pudo crear el campo",
       "choicesRequired": "Agregá al menos una opción."
+    },
+    "completion": {
+      "description": "El CRM lo manda en el chat apenas llega la respuesta, antes de correr las automatizaciones. No necesita plantilla: el cliente acaba de escribir y la ventana de 24 h está abierta.",
+      "body": "Mensaje",
+      "variablesHint": "Tocá una respuesta para citarla en el mensaje.",
+      "variablesHintJson": "Podés citar una respuesta con {{clave}}.",
+      "insert": "Insertar respuesta",
+      "unknownKeys": "Estas respuestas no existen en el formulario y quedan vacías: {{keys}}",
+      "withButton": "Agregar botón con link",
+      "buttonText": "Texto del botón",
+      "buttonPlaceholder": "Ver catálogo",
+      "url": "Link",
+      "urlInvalid": "Usá un link completo que empiece con https://",
+      "preview": "Vista previa",
+      "saved": "Mensaje al terminar guardado",
+      "saveError": "No se pudo guardar el mensaje al terminar",
+      "fields": {
+        "appointment_start": "Turno",
+        "appointment_status": "Estado del turno"
+      }
+    },
+    "journey": {
+      "noChannel": "No se encontró el canal de WhatsApp de este formulario, así que no se pueden cargar sus plantillas.",
+      "templatesLoadError": "No se pudieron cargar las plantillas.",
+      "loadingTemplates": "Cargando plantillas…",
+      "retry": "Reintentar",
+      "templateStatus": {
+        "approved": "Aprobada",
+        "pending": "En revisión",
+        "rejected": "Rechazada",
+        "other": "No disponible",
+        "parameters": "Faltan variables"
+      },
+      "params": {
+        "none": "Esta plantilla no tiene variables.",
+        "selectSource": "Elegí de dónde sale",
+        "answers": "Respuestas",
+        "answer": "Respuesta: {{label}}",
+        "contactGroup": "Contacto",
+        "contactField": "Contacto: {{label}}",
+        "contact": {
+          "name": "Contacto: Nombre",
+          "phone": "Contacto: Teléfono",
+          "email": "Contacto: Email"
+        },
+        "otherGroup": "Otro",
+        "literal": "Texto fijo",
+        "literalValue": "Texto fijo para {{name}}",
+        "literalPlaceholder": "Texto que se manda",
+        "fallback": "Si está vacío (opcional)",
+        "fallbackFor": "Si {{name}} está vacío",
+        "missingValue": "Escribí el texto fijo.",
+        "header": "Encabezado: {{format}}",
+        "formats": {
+          "IMAGE": "imagen",
+          "VIDEO": "video",
+          "DOCUMENT": "PDF"
+        },
+        "headerSource": "Origen del encabezado",
+        "file": "Archivo",
+        "chooseFile": "Elegí un archivo",
+        "uploading": "Subiendo…",
+        "fileLoaded": "Archivo cargado",
+        "uploadError": "No se pudo subir el archivo",
+        "headerUrl": "URL del archivo",
+        "missingFile": "Subí el archivo del encabezado.",
+        "missingUrl": "Usá un link completo que empiece con https://"
+      },
+      "opening": {
+        "title": "Apertura",
+        "dialogTitle": "Apertura · {{name}}",
+        "description": "Cómo le llega el formulario al cliente: con la ventana de 24 h abierta va el mensaje de envío; con la ventana cerrada, una plantilla con botón de formulario.",
+        "saveFirst": "Guardá el formulario para configurar la apertura.",
+        "messageTitle": "Mensaje de envío",
+        "messageHint": "Lo usan el chat y las automatizaciones mientras la ventana de 24 h está abierta. El agente puede cambiarlo antes de enviar.",
+        "saveMessage": "Guardar mensaje",
+        "messageSaved": "Mensaje de envío guardado",
+        "messageSaveError": "No se pudo guardar el mensaje de envío",
+        "templatesTitle": "Plantillas",
+        "templatesHint": "Fuera de la ventana de 24 h se manda la plantilla predeterminada. Completá sus variables para que quede lista.",
+        "noTemplates": "Todavía no hay plantillas con botón de este formulario.",
+        "defaultLabel": "Plantilla predeterminada",
+        "automatic": "Automática",
+        "automaticUses": "Usa la primera lista. Ahora: «{{name}}».",
+        "noneReady": "Ninguna plantilla está lista todavía.",
+        "inUse": "En uso",
+        "variables": "Variables ({{count}})",
+        "chosenNotReady": "Esta plantilla todavía no está lista: mientras tanto se usa la primera lista.",
+        "saveTemplates": "Guardar plantillas",
+        "saved": "Apertura guardada",
+        "saveError": "No se pudo guardar la apertura",
+        "refreshError": "No se pudo actualizar el formulario",
+        "createTemplate": "Crear plantilla",
+        "publishFirst": "Publicá el formulario para usarlo en una plantilla.",
+        "retired": "Un formulario deprecado o bloqueado no se puede usar en plantillas. Duplicalo y publicá la copia."
+      },
+      "closing": {
+        "title": "Cierre",
+        "dialogTitle": "Cierre · {{name}}",
+        "description": "Lo que el CRM manda en el chat cuando llega la respuesta.",
+        "saveFirst": "Guardá el formulario para configurar el cierre.",
+        "modeLabel": "Qué se manda al terminar",
+        "modes": {
+          "none": "Nada",
+          "text": "Mensaje",
+          "template": "Plantilla"
+        },
+        "noneHint": "Al terminar no se manda nada en el chat.",
+        "templateHint": "Una plantilla aprobada llega aunque la ventana de 24 h se haya cerrado mientras el cliente completaba el formulario.",
+        "template": "Plantilla",
+        "selectTemplate": "Seleccioná una plantilla",
+        "noTemplates": "No hay plantillas en este canal. Creá una de cierre.",
+        "missingTemplate": "Plantilla #{{id}} (ya no está)",
+        "opensForm": "Esta plantilla abre un formulario: no sirve como cierre. Elegí otra.",
+        "opensFormLabel": "abre un formulario",
+        "unpublishedFields": "Las preguntas nuevas se pueden usar en el cierre después de publicar.",
+        "notApproved": "No se envía hasta que Meta la apruebe.",
+        "variables": "Variables",
+        "createTemplate": "Crear plantilla de cierre",
+        "saved": "Cierre guardado",
+        "saveError": "No se pudo guardar el cierre"
+      }
     },
     "builder": {
       "title": "Constructor de formularios",
@@ -3095,8 +3222,20 @@
       },
       "canvas": {
         "label": "Diagrama del formulario",
-        "start": "Inicio",
-        "end": "Fin",
+        "saveFirst": "Guardá el formulario para configurarlo",
+        "opening": {
+          "message": "Mensaje · {{cta}}",
+          "noTemplates": "Sin plantillas",
+          "default": "Plantilla «{{name}}» · {{ready}}/{{total}} listas",
+          "defaultAutomatic": "Automática: «{{name}}» · {{ready}}/{{total}} listas",
+          "noneReady": "Plantillas: ninguna lista ({{total}})"
+        },
+        "closing": {
+          "none": "No manda nada",
+          "text": "Mensaje de texto",
+          "template": "Plantilla «{{name}}»",
+          "templateUnknown": "Plantilla"
+        },
         "entry": "Primera pantalla",
         "makeEntry": "Hacer primera",
         "appointment": "Reserva de turno",
@@ -3270,23 +3409,12 @@
         "source": "Mensaje que abre el formulario",
         "sendSource": "Mensaje de envío (chat y automatizaciones)",
         "templateSource": "Plantilla {{name}} · {{status}}",
-        "sendHint": "Lo usan el chat y las automatizaciones mientras la ventana de 24 h está abierta. Fuera de esa ventana hace falta una plantilla.",
+        "sendHint": "Lo usan el chat y las automatizaciones mientras la ventana de 24 h está abierta. Fuera de esa ventana se manda la plantilla predeterminada.",
         "templateHint": "Para difusiones y contactos fuera de la ventana de 24 h. Meta la revisa antes de que se pueda usar.",
-        "loading": "Buscando plantillas de este formulario…",
-        "saveFirst": "Guardá el formulario para editar este mensaje y crear plantillas.",
-        "edit": "Editar mensaje",
-        "createTemplate": "Crear plantilla con este mensaje",
-        "publishFirst": "Publicá el formulario para usarlo en una plantilla.",
-        "retired": "Un formulario deprecado o bloqueado no se puede usar en plantillas. Duplicalo y publicá la copia.",
-        "noChannel": "No se encontró el canal de WhatsApp de este formulario, así que no se pueden buscar ni crear sus plantillas.",
-        "loadError": "No se pudieron cargar las plantillas de este formulario.",
-        "retry": "Reintentar",
-        "status": {
-          "approved": "aprobada",
-          "pending": "en revisión",
-          "rejected": "rechazada",
-          "other": "no disponible"
-        }
+        "saveFirst": "Guardá el formulario para ver su apertura.",
+        "editInOpening": "Se edita en Apertura, en el diagrama.",
+        "templateUnavailable": "No se pudo cargar la plantilla {{name}}.",
+        "templateMissing": "La plantilla {{name}} ya no está en el canal."
       },
       "preview": {
         "screens": "Pantalla de la vista previa",
@@ -3296,7 +3424,10 @@
         "optional": "(opcional)",
         "managedBy": "Gestionado por la empresa",
         "sampleOptions": "Opciones de ejemplo: las reales salen de la agenda.",
-        "note": "Vista aproximada. Usá 'Vista previa de Meta' para ver la versión exacta."
+        "note": "Vista aproximada. Usá 'Vista previa de Meta' para ver la versión exacta.",
+        "closing": "Cierre",
+        "closingNone": "Al terminar no se manda nada. Configuralo en Cierre, en el diagrama.",
+        "closingSaveFirst": "Guardá el formulario para configurar el cierre."
       },
       "image": {
         "file": "Imagen",
@@ -3402,6 +3533,12 @@
         "description": "Tenés cambios sin guardar en este formulario. Si salís ahora, se pierden.",
         "stay": "Seguir editando",
         "leave": "Salir sin guardar"
+      },
+      "panelDiscard": {
+        "title": "¿Descartar los cambios?",
+        "description": "Tenés cambios sin guardar en este panel. ¿Descartarlos?",
+        "stay": "Seguir editando",
+        "discard": "Descartar"
       },
       "encryptionHint": "Al guardar se configura el cifrado del número automáticamente."
     }

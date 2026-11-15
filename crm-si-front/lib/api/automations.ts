@@ -1,3 +1,4 @@
+import type { TemplateParameter } from "@/data/types"
 import { throwApiError } from "./api-error"
 
 export type AutomationStatus = "draft" | "active" | "paused"
@@ -19,7 +20,7 @@ export interface AutomationAction {
   config: {
     channel_id?: number
     template_id?: number
-    parameters?: Array<{ component?: string; name?: string; source: "literal" | "field" | "media_asset"; value?: string; path?: string; fallback?: string; media_asset_id?: number }>
+    parameters?: TemplateParameter[]
     message?: string
     whatsapp_flow_id?: number
     body?: string

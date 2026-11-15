@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\WooCommerceConfig;
 use App\Services\WooCommerceService;
+use App\Services\WooCommerceUrlException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -132,7 +133,7 @@ class WooCommerceConfigController extends Controller
 
         try {
             $result = $this->woo->syncProducts($config);
-        } catch (\App\Services\WooCommerceUrlException $e) {
+        } catch (WooCommerceUrlException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
 

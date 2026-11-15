@@ -11,7 +11,8 @@ import { useToast } from "@/components/Toast"
 import { useTranslation } from "@/hooks/useTranslation"
 import { createTemplate, uploadTemplateHeader, type CreateTemplatePayload } from "@/lib/api/templates"
 import { getFlows } from "@/lib/api/whatsapp-flows"
-import type { WhatsAppFlow } from "@/data/types"
+import type { WhatsAppFlow, WhatsAppFlowTextCompletion, WhatsAppTemplate } from "@/data/types"
+import { DEFAULT_CLOSING_BODY } from "@/lib/flow-builder/completion"
 
 type HeaderFormat = "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT"
 type MediaFormat = Exclude<HeaderFormat, "NONE" | "TEXT">
@@ -49,8 +50,11 @@ export interface TemplateDraft {
   headerText: string | null
   body: string
   footer: string | null
-  flow: WhatsAppFlow
-  buttonText: string
+  /** Con formulario, la plantilla lleva su botón FLOW con `buttonText`. */
+  flow?: WhatsAppFlow
+  buttonText?: string
+  /** Botón con link, cuando no hay formulario. */
+  link?: { text: string; url: string } | null
 }
 
 /** Botones de plantilla: Meta admite hasta 25 caracteres (el mensaje interactivo, 30). */
@@ -69,6 +73,17 @@ export function flowTemplateDraft(flow: WhatsAppFlow): TemplateDraft {
     footer,
     flow,
     buttonText: cta.slice(0, BUTTON_TEXT_MAX),
+  }
+}
+
+/** Plantilla de cierre, sin botón de formulario: parte del mensaje de texto si hay uno. */
+export function closingTemplateDraft(flow: WhatsAppFlow, text: WhatsAppFlowTextCompletion | null): TemplateDraft {
+  return {
+    name: `${templateNameFrom(flow.name) || "formulario"}_cierre`,
+    headerText: null,
+    body: text?.body ?? DEFAULT_CLOSING_BODY,
+    footer: null,
+    link: text?.button_text && text.url ? { text: text.button_text.slice(0, BUTTON_TEXT_MAX), url: text.url } : null,
   }
 }
 
@@ -91,7 +106,7 @@ interface NewTemplateDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   channelId: number
-  onCreated: () => Promise<void>
+  onCreated: (template: WhatsAppTemplate) => Promise<void>
   draft?: TemplateDraft | null
 }
 
@@ -108,9 +123,11 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
   const [body, setBody] = useState(draft?.body ?? "")
   const [footer, setFooter] = useState(draft?.footer ?? "")
   const [examples, setExamples] = useState<Record<string, string>>({})
-  const [buttons, setButtons] = useState<ButtonDraft[]>(() => draft
-    ? [{ type: "FLOW", text: draft.buttonText, ...flowButtonTarget(draft.flow, draft.flow.meta_flow_id) }]
-    : [])
+  const [buttons, setButtons] = useState<ButtonDraft[]>(() => draft?.flow
+    ? [{ type: "FLOW", text: draft.buttonText ?? "", ...flowButtonTarget(draft.flow, draft.flow.meta_flow_id) }]
+    : draft?.link
+      ? [{ type: "URL", text: draft.link.text, url: draft.link.url }]
+      : [])
   const [publishedFlows, setPublishedFlows] = useState<WhatsAppFlow[] | null>(null)
   const [flowsLoading, setFlowsLoading] = useState(false)
   const hasFlowButton = buttons.some((button) => button.type === "FLOW")
@@ -220,11 +237,11 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
           ...(type === "FLOW" ? { flow_id, flow_action: flow_action ?? "navigate", ...(flow_action !== "data_exchange" && navigate_screen ? { navigate_screen } : {}) } : {}),
         })),
       })
-      await createTemplate(channelId, { name: name.trim(), language, category, parameter_format: "named", components })
+      const created = await createTemplate(channelId, { name: name.trim(), language, category, parameter_format: "named", components })
       addToast({ type: "success", title: t("templateDialog.created") })
       reset()
       onOpenChange(false)
-      await onCreated()
+      await onCreated(created)
     } catch (error: unknown) {
       addToast({ type: "error", title: (error instanceof Error && error.message) || t("templateDialog.errors.create") })
     } finally {

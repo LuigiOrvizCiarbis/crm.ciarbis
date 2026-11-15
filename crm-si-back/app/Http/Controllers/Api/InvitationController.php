@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\UserResource;
 use App\Models\Invitation;
 use App\Models\Scopes\TenantScope;
 use App\Models\Tenant;
@@ -12,8 +13,8 @@ use App\Models\WorkspaceAuditEvent;
 use App\Notifications\InvitationNotification;
 use App\Support\RolePayload;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Spatie\Permission\Models\Role;
@@ -223,7 +224,7 @@ class InvitationController extends Controller
 
         return response()->json([
             'workspace' => ['id' => $newTenantId, 'name' => $tenant?->name],
-            'user' => new \App\Http\Resources\UserResource($user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name'])),
+            'user' => new UserResource($user->load(['tenant:id,name,owner_role_id,plan_id,trial_ends_at,navigation_labels', 'tenant.plan:id,key,name'])),
             'role' => RolePayload::transform($role, $tenant),
             'permissions' => $user->getAllPermissions()->pluck('name')->values(),
             'message' => 'Te uniste al equipo exitosamente.',

@@ -19,7 +19,8 @@ export function FlowMessageCard({ message, isUser }: FlowMessageCardProps) {
   const { t, language } = useTranslation()
   const interactive = message.interactive
 
-  if (!interactive) {
+  // El cierre de texto (flow_completion) es un mensaje común: se muestra como texto.
+  if (!interactive || interactive.kind === "flow_completion") {
     return <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{message.content}</p>
   }
 
