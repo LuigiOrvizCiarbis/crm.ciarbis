@@ -33,6 +33,7 @@ class MessengerConfig extends Model
         'page_name',
         'page_access_token',
         'ai_autoreply_default',
+        'meta_dataset_id',
     ];
 
     protected $casts = [
