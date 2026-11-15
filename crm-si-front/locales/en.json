@@ -2794,6 +2794,18 @@
     "description": "It goes to Meta for review before it can be used in a broadcast.",
     "reengagement": "Use re-engagement template",
     "reengagementHint": "Use it to resume WhatsApp conversations after 24 hours. Meta sets the final category: promotional text is moved to Marketing.",
+    "purposes": {
+      "opening": {
+        "title": "Opening template",
+        "description": "Opens \"{{flow}}\" when the 24-hour window is closed. Meta reviews it before enabling it.",
+        "hint": "It starts from the send message and you can add variables like {{name}}. It's a copy: changing the message later doesn't change the template."
+      },
+      "closing": {
+        "title": "Closing template",
+        "description": "Sent when the response arrives, even if the 24-hour window has closed. Meta reviews it before enabling it.",
+        "hint": "It starts from the closing text and you can add variables like {{name}} to fill in with the answers."
+      }
+    },
     "name": "Name",
     "namePlaceholder": "order_confirmation",
     "language": "Language",
@@ -2843,6 +2855,7 @@
     "flowsLoading": "Loading…",
     "noFlows": "No published flows",
     "chooseFlow": "Choose a flow",
+    "flowButtonOpens": "Opens \"{{flow}}\"",
     "preview": "Preview",
     "previewBody": "Your template body will show up here.",
     "previewButton": "Button",
@@ -3115,7 +3128,7 @@
         "messageSaveError": "Couldn't save the send message",
         "templatesTitle": "Templates",
         "templatesHint": "Outside the 24-hour window the default template is sent. Fill in its variables so it's ready.",
-        "noTemplates": "There are no templates with this form's button yet.",
+        "noTemplates": "There are no templates that open this form yet.",
         "defaultLabel": "Default template",
         "automatic": "Automatic",
         "automaticUses": "Uses the first ready one. Now: “{{name}}”.",
@@ -3127,7 +3140,7 @@
         "saved": "Opening saved",
         "saveError": "Couldn't save the opening",
         "refreshError": "Couldn't refresh the form",
-        "createTemplate": "Create template",
+        "createTemplate": "Create template from the message",
         "publishFirst": "Publish the form to use it in a template.",
         "retired": "A deprecated or blocked form can't be used in templates. Duplicate it and publish the copy."
       },
