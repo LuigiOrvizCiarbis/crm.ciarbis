@@ -234,11 +234,13 @@ function RangeEditor({ field, value, onChange }: EditorProps<Extract<CustomField
     if (!isRangeInverted(field, nextFrom, nextTo)) schedule({ from: nextFrom, to: nextTo })
   }
 
-  const renderInput = (bound: "from" | "to") => {
+  // Una fila por extremo, con la etiqueta al costado: en dos columnas el
+  // input de fecha nativo no entraba en el popover y cortaba el ícono.
+  const renderBound = (bound: "from" | "to") => {
     const id = `custom-filter-${field.key}-${bound}`
     return (
-      <div className="space-y-1">
-        <label htmlFor={id} className="text-xs text-muted-foreground">
+      <>
+        <label htmlFor={id} className="text-sm text-muted-foreground">
           {t(`contactsPage.filters.custom.${bound}`)}
         </label>
         <Input
@@ -254,17 +256,17 @@ function RangeEditor({ field, value, onChange }: EditorProps<Extract<CustomField
           }}
           aria-invalid={inverted || undefined}
           aria-describedby={inverted ? errorId : undefined}
-          className="h-9 pointer-coarse:h-11 pointer-coarse:text-base"
+          className="h-9 tabular-nums pointer-coarse:h-11 pointer-coarse:text-base"
         />
-      </div>
+      </>
     )
   }
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-2 gap-2">
-        {renderInput("from")}
-        {renderInput("to")}
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2">
+        {renderBound("from")}
+        {renderBound("to")}
       </div>
       {inverted && (
         <p id={errorId} role="alert" className="text-xs text-destructive">
