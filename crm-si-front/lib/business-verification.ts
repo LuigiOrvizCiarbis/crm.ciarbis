@@ -1,5 +1,6 @@
 import {
   ShieldAlert,
+  ShieldBan,
   ShieldCheck,
   ShieldEllipsis,
   ShieldOff,
@@ -34,6 +35,9 @@ export type VerificationStateKey =
   | "needs_info"
   | "not_verified"
   | "rejected"
+  | "expired"
+  | "revoked"
+  | "ineligible"
   | "reconnect"
   | "permission_missing"
   | "unknown"
@@ -72,6 +76,14 @@ export function presentVerification(verification: VerificationStatusSource | nul
       return { state: "not_verified", tone: "warning", icon: ShieldAlert, cta: "verify", showHowTo: true }
     case "failed":
       return { state: "rejected", tone: "danger", icon: ShieldX, cta: "review", showHowTo: true }
+    case "expired":
+      return { state: "expired", tone: "warning", icon: ShieldAlert, cta: "verify", showHowTo: true }
+    // Ni revocado ni no elegible se resuelven con los pasos de verificación:
+    // el motivo está en el Centro de seguridad de Meta.
+    case "revoked":
+      return { state: "revoked", tone: "danger", icon: ShieldX, cta: "review" }
+    case "ineligible":
+      return { state: "ineligible", tone: "danger", icon: ShieldBan, cta: "open" }
     case "business_id_missing":
     case "token_invalid":
       return { state: "reconnect", tone: "neutral", icon: ShieldOff }

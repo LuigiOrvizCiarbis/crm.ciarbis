@@ -2573,6 +2573,18 @@
         "label": "Rechazado",
         "detail": "Meta rechazó la verificación. Revisá el motivo en el Centro de seguridad y volvé a enviar la documentación."
       },
+      "expired": {
+        "label": "Vencido",
+        "detail": "La verificación de este negocio venció. Renovala en Meta con los mismos pasos para volver a quedar verificado."
+      },
+      "revoked": {
+        "label": "Revocado",
+        "detail": "Meta quitó la verificación que tenía este negocio. Revisá el motivo en el Centro de seguridad antes de volver a enviar nada."
+      },
+      "ineligible": {
+        "label": "No elegible",
+        "detail": "Meta indica que este negocio no puede verificarse para este producto. Subir más documentos no lo cambia: revisá el detalle en Meta."
+      },
       "reconnect": {
         "label": "Reconectá el canal",
         "detail": "No pudimos leer el negocio de este número en Meta. Usá Agregar canal para volver a conectar WhatsApp."
