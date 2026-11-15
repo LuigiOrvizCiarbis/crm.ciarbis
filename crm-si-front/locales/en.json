@@ -2517,10 +2517,17 @@
   },
   "businessVerification": {
     "title": "Business verification (Meta)",
-    "subtitle": "Meta business verification status for each connected WhatsApp number.",
+    "sidebarBadge": "Business verified by Meta",
+    "subtitle": "Meta verifies the business, not each number: WhatsApp numbers that share a portfolio are shown together.",
     "refresh": "Refresh",
     "empty": "No WhatsApp channels connected.",
-    "verifyOnMeta": "Verify on Meta",
+    "loadError": "We couldn't load your WhatsApp channels.",
+    "retry": "Retry",
+    "cta": {
+      "verify": "Verify on Meta",
+      "review": "Review on Meta",
+      "open": "View on Meta"
+    },
     "howTo": {
       "trigger": "How do I verify my business?",
       "intro": "Verification is completed in Meta's Business Manager, not in the CRM. Follow these steps:",
@@ -2530,15 +2537,43 @@
       "step4": "Submit the request and wait for Meta's review. It usually takes a few days; the status here updates when you click \"Refresh\".",
       "note": "You must be an admin of the Business Manager on Meta to verify."
     },
-    "status": {
-      "verified": "Verified",
-      "pending": "In review",
-      "not_verified": "Not verified",
-      "failed": "Rejected",
-      "business_id_missing": "Reconnect the channel",
-      "permission_missing": "Missing Meta permission",
-      "token_invalid": "Reconnect the channel",
-      "unknown": "Unknown"
+    "states": {
+      "verified": {
+        "label": "Verified",
+        "detail": "Meta confirmed this business's legal identity. Nothing left to do."
+      },
+      "in_review": {
+        "label": "In review",
+        "detail": "Meta is reviewing the documents. It usually takes a few days; click Refresh to check for updates."
+      },
+      "needs_submission": {
+        "label": "Not submitted",
+        "detail": "You started verification but haven't submitted it yet. Complete the details and documents on Meta so they can review them."
+      },
+      "needs_info": {
+        "label": "Meta needs more info",
+        "detail": "Meta reviewed the request and needs more information or documents to continue."
+      },
+      "not_verified": {
+        "label": "Not verified",
+        "detail": "Until it's verified, Meta limits how many new conversations you can start per day from these numbers."
+      },
+      "rejected": {
+        "label": "Rejected",
+        "detail": "Meta rejected the verification. Check the reason in the Security Center and resubmit the documents."
+      },
+      "reconnect": {
+        "label": "Reconnect the channel",
+        "detail": "We couldn't read this number's business on Meta. Use Add channel to connect WhatsApp again."
+      },
+      "permission_missing": {
+        "label": "Missing permission",
+        "detail": "The Meta connection isn't allowed to see your business. Reconnect WhatsApp and accept every permission Meta asks for."
+      },
+      "unknown": {
+        "label": "No data",
+        "detail": "We couldn't reach Meta right now. Click Refresh in a few minutes."
+      }
     }
   },
   "profile": {
