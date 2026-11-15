@@ -1,9 +1,11 @@
 import type {
   Message,
   WhatsAppFlow,
+  WhatsAppFlowCompletionMessage,
   WhatsAppFlowCategory,
   WhatsAppFlowEncryptionStatus,
   WhatsAppFlowFieldMapping,
+  WhatsAppFlowOpening,
   WhatsAppFlowSendDefaults,
 } from "@/data/types";
 import type { FlowDefinition } from "@/lib/flow-builder/types";
@@ -24,13 +26,10 @@ export class ApiValidationError extends Error {
   }
 }
 
-export interface SendFlowInput {
-  whatsapp_flow_id: number;
-  body: string;
-  cta: string;
-  header?: string;
-  footer?: string;
-}
+/** Mensaje interactivo (ventana de 24 h abierta) o una plantilla lista del formulario (`send_templates`). */
+export type SendFlowInput =
+  | { whatsapp_flow_id: number; body: string; cta: string; header?: string; footer?: string }
+  | { whatsapp_flow_id: number; template_id: number };
 
 export type CreateFlowPayload = { name: string; categories: WhatsAppFlowCategory[] } & (
   | { flow_json: string }
@@ -44,6 +43,9 @@ export type UpdateFlowPatch = Partial<{
   builder_definition: FlowDefinition;
   field_mappings: WhatsAppFlowFieldMapping[];
   send_defaults: WhatsAppFlowSendDefaults;
+  /** Se fusiona: sólo cambian las plantillas enviadas y la predeterminada si viene la clave. */
+  opening: Partial<WhatsAppFlowOpening>;
+  completion_message: WhatsAppFlowCompletionMessage | null;
 }>;
 
 function jsonHeaders(): HeadersInit {

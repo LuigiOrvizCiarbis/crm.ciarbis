@@ -2,11 +2,12 @@
 
 import { memo, useEffect, type ReactNode } from "react"
 import { Handle, Position, useConnection, useUpdateNodeInternals, type NodeProps } from "@xyflow/react"
-import { CalendarClock, Flag, Play, Repeat, TriangleAlert } from "lucide-react"
+import { CalendarClock, Flag, MessageSquareReply, MessageSquareText, Repeat, TriangleAlert } from "lucide-react"
 
+import { templateStatusKey } from "@/components/flows/journey/TemplateStatusBadge"
 import { Button } from "@/components/ui/button"
 import { useTranslation } from "@/hooks/useTranslation"
-import { SCREEN_NODE_WIDTH, APPOINTMENT_NODE_WIDTH, questionCount } from "@/lib/flow-builder/layout"
+import { SCREEN_NODE_WIDTH, APPOINTMENT_NODE_WIDTH, JOURNEY_NODE_HEIGHT, JOURNEY_NODE_WIDTH, questionCount } from "@/lib/flow-builder/layout"
 import { isQuestionBlock } from "@/lib/flow-builder/limits"
 import { rowTitle } from "@/lib/flow-builder/repeater"
 import { cn } from "@/lib/utils"
@@ -19,10 +20,11 @@ import {
   IN_HANDLE,
   OUT_HANDLE,
   type AppointmentNodeType,
+  type ClosingNodeType,
+  type OpeningNodeType,
   type RepeaterNodeType,
   type ScreenNodeType,
   type StepNodeData,
-  type TerminalNodeType,
 } from "./graph"
 
 const MAX_SUMMARY_ROWS = 5
@@ -268,36 +270,104 @@ function AppointmentNodeComponent({ id, data, selected }: NodeProps<AppointmentN
 
 export const AppointmentNode = memo(AppointmentNodeComponent)
 
-function StartNodeComponent() {
-  const { t } = useTranslation()
-  return (
-    <div className="flex h-8 items-center gap-1.5 rounded-full border border-border bg-card pl-2.5 pr-3.5 text-xs font-medium text-muted-foreground">
-      <Play className="size-3" aria-hidden />
-      {t("flows.builder.canvas.start")}
-      <Handle id={OUT_HANDLE} type="source" position={Position.Right} className="flow-port" isConnectableEnd={false} />
-    </div>
-  )
-}
-
-export const StartNode = memo(StartNodeComponent)
-
-function EndNodeComponent({ id }: NodeProps<TerminalNodeType>) {
-  const { t } = useTranslation()
-  const { connecting, hovered } = useDropState(id)
+/** Caja de Apertura o Cierre: título y un resumen corto; al tocarla se configura en el panel. */
+function JourneyCard({
+  selected,
+  hovered,
+  icon,
+  title,
+  lines,
+  children,
+}: {
+  selected: boolean
+  hovered?: "valid" | "invalid" | null
+  icon: ReactNode
+  title: string
+  lines: string[]
+  children: ReactNode
+}) {
   return (
     <div
+      style={{ width: JOURNEY_NODE_WIDTH, height: JOURNEY_NODE_HEIGHT }}
       className={cn(
-        "relative flex h-8 items-center rounded-full border bg-card px-3.5 text-xs font-medium text-muted-foreground transition-colors duration-150",
-        hovered === "valid" ? "border-primary text-foreground" : "border-border",
+        "relative cursor-pointer rounded-lg border bg-card px-3 py-2.5 text-card-foreground shadow-sm transition-[border-color,box-shadow] duration-150 dark:shadow-none",
+        selected ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-muted-foreground/40",
+        hovered === "valid" && "border-primary ring-2 ring-primary/30",
       )}
     >
-      <DropTarget id={id} connecting={connecting} />
-      {t("flows.builder.canvas.end")}
+      {children}
+      <div className="flex items-center gap-2">
+        {icon}
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
+      </div>
+      <ul className="mt-1.5 space-y-0.5">
+        {lines.map((line, index) => (
+          <li key={index} className="truncate text-xs text-muted-foreground" title={line}>
+            {line}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
 
-export const EndNode = memo(EndNodeComponent)
+function OpeningNodeComponent({ selected, data }: NodeProps<OpeningNodeType>) {
+  const { t } = useTranslation()
+  const { summary } = data
+  const lines = summary
+    ? [
+        t("flows.builder.canvas.opening.message", { cta: summary.cta }),
+        summary.totalTemplates === 0
+          ? t("flows.builder.canvas.opening.noTemplates")
+          : summary.defaultTemplate
+            ? t(summary.automatic ? "flows.builder.canvas.opening.defaultAutomatic" : "flows.builder.canvas.opening.default", {
+                name: summary.defaultTemplate,
+                ready: summary.readyTemplates,
+                total: summary.totalTemplates,
+              })
+            : t("flows.builder.canvas.opening.noneReady", { total: summary.totalTemplates }),
+      ]
+    : [t("flows.builder.canvas.saveFirst")]
+  return (
+    <JourneyCard
+      selected={selected}
+      icon={<MessageSquareText className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
+      title={t("flows.journey.opening.title")}
+      lines={lines}
+    >
+      <Handle id={OUT_HANDLE} type="source" position={Position.Right} className="flow-port" isConnectableEnd={false} />
+    </JourneyCard>
+  )
+}
+
+export const StartNode = memo(OpeningNodeComponent)
+
+function ClosingNodeComponent({ id, selected, data }: NodeProps<ClosingNodeType>) {
+  const { t } = useTranslation()
+  const { connecting, hovered } = useDropState(id)
+  const { summary } = data
+  let lines: string[]
+  if (!summary) lines = [t("flows.builder.canvas.saveFirst")]
+  else if (summary.kind === "template")
+    lines = [
+      summary.name ? t("flows.builder.canvas.closing.template", { name: summary.name }) : t("flows.builder.canvas.closing.templateUnknown"),
+      ...(summary.status ? [t(`flows.journey.templateStatus.${templateStatusKey(summary.status)}`)] : []),
+    ]
+  else lines = [t(`flows.builder.canvas.closing.${summary.kind}`)]
+  return (
+    <JourneyCard
+      selected={selected}
+      hovered={hovered}
+      icon={<MessageSquareReply className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
+      title={t("flows.journey.closing.title")}
+      lines={lines}
+    >
+      <DropTarget id={id} connecting={connecting} />
+    </JourneyCard>
+  )
+}
+
+export const EndNode = memo(ClosingNodeComponent)
 
 export const NODE_TYPES = {
   screen: ScreenNode,

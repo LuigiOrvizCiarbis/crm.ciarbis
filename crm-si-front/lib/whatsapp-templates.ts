@@ -1,4 +1,4 @@
-import { TemplateComponent } from "@/data/types"
+import type { TemplateComponent, WhatsAppTemplate } from "@/data/types"
 
 function findComponent(components: TemplateComponent[], type: string): TemplateComponent | undefined {
   return components.find((c) => c.type?.toUpperCase() === type)
@@ -60,12 +60,34 @@ export function getHeaderMediaFormat(components: TemplateComponent[]): "IMAGE" |
 }
 
 /**
+ * Nombres de las variables {{...}} del body de la plantilla, en orden y sin
+ * repetir. Debe contar lo mismo que WhatsAppTemplate::expectedBodyParameters()
+ * en el backend, o el formulario prellenaría algo que la validación rechaza.
+ */
+export function templateBodyParameters(template: WhatsAppTemplate | undefined): string[] {
+  const body = template?.components?.find((component) => component.type?.toUpperCase() === "BODY")
+  if (!body?.text) return []
+  const names = [...body.text.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g)].map((match) => match[1])
+  return [...new Set(names)]
+}
+
+/** Formato del header cuando es de media; espejo de WhatsAppTemplate::headerMediaFormat() del backend. */
+export function templateHeaderMediaFormat(template: WhatsAppTemplate | undefined): "IMAGE" | "DOCUMENT" | "VIDEO" | null {
+  return template ? getHeaderMediaFormat(template.components ?? []) : null
+}
+
+/**
  * Botones de respuesta rápida con su posición dentro de `buttons`: es el
  * índice que Meta usa en el componente de envío del botón.
  */
 export function getQuickReplyButtons(components: TemplateComponent[]): { index: number; text: string }[] {
   const buttons = findComponent(components, "BUTTONS")?.buttons ?? []
   return buttons.flatMap((button, index) => button.type?.toUpperCase() === "QUICK_REPLY" ? [{ index, text: button.text }] : [])
+}
+
+/** Si la plantilla tiene un botón FLOW (abre un formulario de WhatsApp). */
+export function hasFlowButton(components: TemplateComponent[]): boolean {
+  return (findComponent(components, "BUTTONS")?.buttons ?? []).some((button) => button.type?.toUpperCase() === "FLOW")
 }
 
 /**

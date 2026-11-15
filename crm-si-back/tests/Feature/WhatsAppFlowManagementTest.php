@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Automation\Exceptions\ActionSkippedException;
+use App\Automation\Handlers\WhatsAppFlowActionHandler;
 use App\Enums\ChannelType;
 use App\Enums\MessageDirection;
 use App\Enums\MessageType;
@@ -10,6 +12,8 @@ use App\Enums\TemplateCategory;
 use App\Enums\TemplateStatus;
 use App\Enums\UserRole;
 use App\Enums\WhatsAppFlowStatus;
+use App\Models\AutomationAction;
+use App\Models\AutomationRun;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
@@ -325,6 +329,207 @@ class WhatsAppFlowManagementTest extends TestCase
             ->assertJsonPath('data.status', 'PUBLISHED');
 
         Http::assertNothingSent();
+    }
+
+    public function test_opening_template_variables_are_checked_against_the_template_before_saving(): void
+    {
+        Http::fake();
+        $flow = $this->publishedFlow('flow-1');
+        $template = $this->openingTemplate('tpl-1', 'Hola {{nombre}}, completá el alta');
+
+        $this->getJson("/api/whatsapp-flows/{$flow->id}")
+            ->assertJsonPath('data.send_templates.0.id', $template->id)
+            ->assertJsonPath('data.send_templates.0.issue', 'parameters')
+            ->assertJsonPath('data.effective_template_id', null);
+
+        $this->putJson("/api/whatsapp-flows/{$flow->id}", [
+            'opening' => ['default_template_id' => $template->id, 'templates' => [$template->id => ['parameters' => []]]],
+        ])->assertUnprocessable()->assertJsonValidationErrors(["opening.templates.{$template->id}.parameters"]);
+
+        $this->putJson("/api/whatsapp-flows/{$flow->id}", [
+            'opening' => ['default_template_id' => $template->id, 'templates' => [$template->id => ['parameters' => [
+                ['component' => 'body', 'name' => 'nombre', 'source' => 'field', 'path' => 'contact.name', 'fallback' => 'Hola'],
+            ]]]],
+        ])->assertOk()
+            ->assertJsonPath('data.send_templates.0.ready', true)
+            ->assertJsonPath('data.effective_template_id', $template->id);
+
+        Http::assertNothingSent();
+    }
+
+    public function test_a_default_template_that_no_longer_opens_the_flow_does_not_block_saving(): void
+    {
+        Http::fake();
+        $flow = $this->publishedFlow('flow-1');
+        $stale = $this->openingTemplate('tpl-viejo', 'Completá el alta');
+        $flow->update(['opening' => ['default_template_id' => $stale->id, 'templates' => []]]);
+        $stale->delete();
+        $current = $this->openingTemplate('tpl-nuevo', 'Completá el alta');
+
+        $this->putJson("/api/whatsapp-flows/{$flow->id}", [
+            'opening' => ['templates' => [$current->id => ['parameters' => []]]],
+        ])->assertOk()
+            ->assertJsonPath('data.opening.default_template_id', null)
+            ->assertJsonPath('data.effective_template_id', $current->id);
+
+        $this->putJson("/api/whatsapp-flows/{$flow->id}", [
+            'opening' => ['default_template_id' => $stale->id],
+        ])->assertUnprocessable()->assertJsonValidationErrors(['opening.default_template_id']);
+
+        // Un objeto vacío no cambia nada.
+        $this->putJson("/api/whatsapp-flows/{$flow->id}", ['opening' => (object) []])
+            ->assertOk()
+            ->assertJsonPath('data.effective_template_id', $current->id);
+    }
+
+    public function test_with_the_window_closed_the_form_goes_out_with_its_opening_template(): void
+    {
+        $flow = $this->publishedFlow('flow-1');
+        $template = $this->openingTemplate('tpl-1', 'Hola {{nombre}}, completá el alta');
+        $flow->update(['opening' => ['default_template_id' => null, 'templates' => [$template->id => ['parameters' => [
+            ['component' => 'body', 'name' => 'nombre', 'source' => 'field', 'path' => 'contact.name'],
+        ]]]]]);
+        Http::fake(['https://graph.facebook.com/*/123456789/messages' => Http::response(['messages' => [['id' => 'wamid.tpl-1']]])]);
+
+        // Sin plantilla y sin ventana, el mensaje interactivo no sale.
+        $this->postJson("/api/conversations/{$this->conversation->id}/send-flow", [
+            'whatsapp_flow_id' => $flow->id, 'body' => 'Completá', 'cta' => 'Abrir',
+        ])->assertUnprocessable();
+
+        $this->postJson("/api/conversations/{$this->conversation->id}/send-flow", [
+            'whatsapp_flow_id' => $flow->id,
+            'template_id' => $template->id,
+        ])->assertCreated();
+
+        $session = WhatsAppFlowSession::sole();
+        $this->assertSame(Message::where('external_id', 'wamid.tpl-1')->value('id'), $session->message_id);
+        Http::assertSent(fn (Request $request) => ($request['template']['name'] ?? null) === 'alta'
+            && collect($request['template']['components'])->contains(fn ($component) => $component['type'] === 'body'
+                && $component['parameters'][0] === ['type' => 'text', 'text' => 'Jane Doe', 'parameter_name' => 'nombre'])
+            && collect($request['template']['components'])->contains(fn ($component) => ($component['sub_type'] ?? null) === 'flow'
+                && $component['parameters'][0]['action']['flow_token'] === $session->flow_token));
+    }
+
+    public function test_automation_uses_the_default_template_outside_the_window_and_skips_without_one(): void
+    {
+        $flow = $this->publishedFlow('flow-1');
+        $handler = app(WhatsAppFlowActionHandler::class);
+        $action = (new AutomationAction)->forceFill(['config' => [
+            'channel_id' => $this->channel->id, 'whatsapp_flow_id' => $flow->id, 'body' => 'Completá', 'cta' => 'Abrir',
+        ]]);
+        $run = (new AutomationRun)->forceFill([
+            'tenant_id' => $this->conversation->tenant_id,
+            'subject_type' => 'conversation',
+            'subject_id' => $this->conversation->id,
+            'context' => [],
+        ]);
+
+        try {
+            $handler->execute($action, $run);
+            $this->fail('Sin plantilla y con la ventana cerrada la acción se tiene que saltear.');
+        } catch (ActionSkippedException $exception) {
+            $this->assertSame('messaging_window_closed', $exception->getMessage());
+        }
+
+        $this->openingTemplate('tpl-1', 'Completá el alta');
+        Http::fake(['https://graph.facebook.com/*/123456789/messages' => Http::response(['messages' => [['id' => 'wamid.tpl-2']]])]);
+
+        $result = $handler->execute($action, $run);
+
+        $this->assertSame(Message::where('external_id', 'wamid.tpl-2')->value('id'), $result['message_id']);
+        Http::assertSent(fn (Request $request) => ($request['type'] ?? null) === 'template' && $request['template']['name'] === 'alta');
+    }
+
+    public function test_sending_with_an_opening_template_that_is_not_ready_or_not_linked_is_rejected(): void
+    {
+        $flow = $this->publishedFlow('flow-1');
+        $pending = $this->openingTemplate('tpl-pendiente', 'Completá el alta', name: 'pendiente', status: TemplateStatus::Pending);
+        $unlinked = $this->openingTemplate('tpl-otro', 'Completá el alta', name: 'otro', flowId: 'flow-otro');
+        $incomplete = $this->openingTemplate('tpl-variables', 'Hola {{nombre}}', name: 'variables');
+
+        $send = fn (WhatsAppTemplate $template) => $this->postJson("/api/conversations/{$this->conversation->id}/send-flow", [
+            'whatsapp_flow_id' => $flow->id,
+            'template_id' => $template->id,
+        ])->assertUnprocessable();
+
+        $send($pending)->assertJsonPath('message', 'La plantilla «pendiente» no está aprobada por Meta.');
+        $send($unlinked)->assertJsonPath('message', 'Esa plantilla no abre este formulario.');
+        $send($incomplete)->assertJsonPath('message', 'Completá las variables de la plantilla «variables» en la apertura del formulario.');
+        $this->assertSame(0, WhatsAppFlowSession::count());
+    }
+
+    public function test_closing_message_is_checked_before_saving(): void
+    {
+        Http::fake();
+        $flow = $this->publishedFlow('flow-1');
+        $nombre = ['type' => 'short_text', 'key' => 'nombre', 'label' => 'Nombre', 'input_type' => 'text', 'required' => true];
+        $comentario = ['type' => 'long_text', 'key' => 'comentario', 'label' => 'Comentario', 'required' => false];
+        // El cliente responde la versión publicada; «comentario» sólo existe en el borrador.
+        $flow->forceFill([
+            'builder_definition' => $this->definition([$nombre, $comentario]),
+            'published_version' => ['flow_json' => $flow->flow_json, 'builder_definition' => $this->definition([$nombre]), 'field_mappings' => [], 'data_api_version' => null],
+        ])->save();
+
+        $otherConfig = WhatsAppConfig::create(['phone_number_id' => '999', 'waba_id' => 'waba-otra', 'bussines_token' => Crypt::encryptString('t')]);
+        $foreign = $this->closingTemplate('ajena', $otherConfig->id);
+        $closing = $this->closingTemplate('gracias', $this->channel->whatsapp_config_id);
+        $opensAForm = $this->openingTemplate('tpl-1', 'Completá el alta');
+        $save = fn (?array $message) => $this->putJson("/api/whatsapp-flows/{$flow->id}", ['completion_message' => $message]);
+        $template = fn (WhatsAppTemplate $template, array $parameters) => ['type' => 'template', 'template_id' => $template->id, 'parameters' => $parameters];
+        $cliente = ['component' => 'body', 'name' => 'cliente', 'source' => 'field', 'path' => 'answers.nombre'];
+
+        $save($template($foreign, [$cliente]))->assertUnprocessable()->assertJsonValidationErrors(['completion_message.template_id']);
+        $save($template($opensAForm, []))->assertUnprocessable()->assertJsonValidationErrors(['completion_message.template_id']);
+        $save($template($closing, []))->assertUnprocessable()->assertJsonValidationErrors(['completion_message.parameters']);
+        $save($template($closing, [['component' => 'body', 'name' => 'cliente', 'source' => 'field', 'path' => 'answers.comentario']]))
+            ->assertUnprocessable()->assertJsonValidationErrors(['completion_message.parameters.0.path']);
+        $save(['type' => 'text', 'body' => 'Gracias', 'button_text' => 'Ver'])->assertUnprocessable()->assertJsonValidationErrors(['completion_message.url']);
+        $save(['type' => 'text', 'body' => 'Gracias', 'button_text' => 'Ver', 'url' => 'http://petshop.example'])
+            ->assertUnprocessable()->assertJsonValidationErrors(['completion_message.url']);
+        $this->assertNull($flow->fresh()->completion_message);
+
+        $save($template($closing, [$cliente]))->assertOk()
+            ->assertJsonPath('data.completion_message', ['type' => 'template', 'template_id' => $closing->id, 'parameters' => [$cliente]])
+            ->assertJsonPath('data.response_fields', [['key' => 'nombre', 'label' => 'Nombre']]);
+
+        $save(null)->assertOk()->assertJsonPath('data.completion_message', null);
+        Http::assertNothingSent();
+    }
+
+    private function closingTemplate(string $name, int $whatsappConfigId): WhatsAppTemplate
+    {
+        return WhatsAppTemplate::create([
+            'tenant_id' => $this->channel->tenant_id,
+            'whatsapp_config_id' => $whatsappConfigId,
+            'external_id' => "tpl-{$name}",
+            'name' => $name,
+            'language' => 'es_AR',
+            'category' => TemplateCategory::Utility,
+            'status' => TemplateStatus::Approved,
+            'components' => [['type' => 'BODY', 'text' => 'Gracias {{cliente}}']],
+        ]);
+    }
+
+    private function openingTemplate(
+        string $externalId,
+        string $body,
+        string $name = 'alta',
+        string $flowId = 'flow-1',
+        TemplateStatus $status = TemplateStatus::Approved,
+    ): WhatsAppTemplate {
+        return WhatsAppTemplate::create([
+            'tenant_id' => $this->channel->tenant_id,
+            'whatsapp_config_id' => $this->channel->whatsapp_config_id,
+            'external_id' => $externalId,
+            'name' => $name,
+            'language' => 'es_AR',
+            'category' => TemplateCategory::Utility,
+            'status' => $status,
+            'components' => [
+                ['type' => 'BODY', 'text' => $body],
+                ['type' => 'BUTTONS', 'buttons' => [['type' => 'FLOW', 'text' => 'Abrir', 'flow_id' => $flowId, 'flow_action' => 'NAVIGATE']]],
+            ],
+        ]);
     }
 
     private function fakeGraphFlow(string $metaFlowId): void

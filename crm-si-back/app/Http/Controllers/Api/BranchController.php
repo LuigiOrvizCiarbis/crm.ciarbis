@@ -7,6 +7,7 @@ use App\Models\Branch;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Opportunity;
+use App\Models\Scopes\BranchScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -126,26 +127,26 @@ class BranchController extends Controller
         $since = now()->subDays($rango);
 
         return [
-            'contacts_total' => Contact::withoutGlobalScope(\App\Models\Scopes\BranchScope::class)
+            'contacts_total' => Contact::withoutGlobalScope(BranchScope::class)
                 ->where('tenant_id', $tenantId)
                 ->where('branch_id', $branchId)
                 ->count(),
-            'conversations_open' => Conversation::withoutGlobalScope(\App\Models\Scopes\BranchScope::class)
+            'conversations_open' => Conversation::withoutGlobalScope(BranchScope::class)
                 ->where('tenant_id', $tenantId)
                 ->where('branch_id', $branchId)
                 ->where('status', 'open')
                 ->count(),
-            'opportunities_count' => Opportunity::withoutGlobalScope(\App\Models\Scopes\BranchScope::class)
+            'opportunities_count' => Opportunity::withoutGlobalScope(BranchScope::class)
                 ->where('tenant_id', $tenantId)
                 ->where('branch_id', $branchId)
                 ->where('created_at', '>=', $since)
                 ->count(),
-            'opportunities_value' => (float) Opportunity::withoutGlobalScope(\App\Models\Scopes\BranchScope::class)
+            'opportunities_value' => (float) Opportunity::withoutGlobalScope(BranchScope::class)
                 ->where('tenant_id', $tenantId)
                 ->where('branch_id', $branchId)
                 ->where('created_at', '>=', $since)
                 ->sum('value'),
-            'opportunities_won' => Opportunity::withoutGlobalScope(\App\Models\Scopes\BranchScope::class)
+            'opportunities_won' => Opportunity::withoutGlobalScope(BranchScope::class)
                 ->where('tenant_id', $tenantId)
                 ->where('branch_id', $branchId)
                 ->where('status', 'won')

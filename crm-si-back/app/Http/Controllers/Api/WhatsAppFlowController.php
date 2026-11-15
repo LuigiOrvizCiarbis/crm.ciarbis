@@ -14,12 +14,16 @@ use App\Models\Channel;
 use App\Models\Conversation;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppFlow;
+use App\Models\WhatsAppTemplate;
 use App\Services\Flows\Builder\CompiledFlow;
 use App\Services\Flows\Builder\FlowDefinitionCompiler;
 use App\Services\Flows\Builder\FlowDefinitionValidator;
+use App\Services\Flows\FlowOpeningTemplates;
 use App\Services\Flows\WhatsAppFlowEncryptionService;
 use App\Services\Flows\WhatsAppFlowMessageService;
 use App\Services\Flows\WhatsAppFlowService;
+use App\Services\Templates\TemplateParameterException;
+use App\Services\Templates\TemplateParameterRenderer;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,6 +38,8 @@ class WhatsAppFlowController extends Controller
     public function __construct(
         private readonly WhatsAppFlowService $flows,
         private readonly WhatsAppFlowEncryptionService $encryption,
+        private readonly FlowOpeningTemplates $openingTemplates,
+        private readonly TemplateParameterRenderer $parameters,
     ) {}
 
     public function index(Request $request, Channel $channel): JsonResponse
@@ -46,7 +52,7 @@ class WhatsAppFlowController extends Controller
             ->get()
             ->when($request->boolean('sendable'), fn ($flows) => $flows->filter(fn (WhatsAppFlow $flow) => $flow->status->isSendable())->values());
 
-        return response()->json(['data' => WhatsAppFlowResource::collection($flows)]);
+        return response()->json(['data' => WhatsAppFlowResource::forAccount($flows, $request)]);
     }
 
     public function store(StoreWhatsAppFlowRequest $request, Channel $channel): JsonResponse
@@ -120,6 +126,9 @@ class WhatsAppFlowController extends Controller
 
         return $this->attempt(function () use ($request, $whatsappFlow) {
             $flow = $whatsappFlow;
+            // Antes de tocar Meta: un error acá no deja el formulario a medio guardar.
+            $opening = $request->has('opening') ? $this->validatedOpening($flow, $request->validated('opening') ?? []) : null;
+            $completion = $request->has('completion_message') ? $this->validatedCompletion($flow, $request->validated('completion_message')) : null;
 
             if ($request->has('name') || $request->has('categories')) {
                 $flow = $this->flows->updateMetadata($flow, $request->validated('name'), $request->validated('categories'));
@@ -147,6 +156,14 @@ class WhatsAppFlowController extends Controller
 
             if ($request->has('send_defaults')) {
                 $flow->forceFill(['send_defaults' => $request->validated('send_defaults')])->save();
+            }
+
+            if ($opening !== null) {
+                $flow->forceFill(['opening' => $opening])->save();
+            }
+
+            if ($request->has('completion_message')) {
+                $flow->forceFill(['completion_message' => $completion])->save();
             }
 
             return response()->json(['data' => new WhatsAppFlowResource($flow)]);
@@ -207,16 +224,21 @@ class WhatsAppFlowController extends Controller
         }
 
         $flow = WhatsAppFlow::findOrFail($request->validated('whatsapp_flow_id'));
+        $messages = app(WhatsAppFlowMessageService::class);
 
         try {
-            $message = app(WhatsAppFlowMessageService::class)->send($conversation, $flow, [
-                'body' => $request->validated('body'),
-                'cta' => $request->validated('cta'),
-                'header' => $request->validated('header'),
-                'footer' => $request->validated('footer'),
-            ], $request->user());
+            $message = $request->filled('template_id')
+                ? $messages->sendTemplate($conversation, $flow, $messages->openingTemplate($flow, (int) $request->validated('template_id')), $request->user())
+                : $messages->send($conversation, $flow, [
+                    'body' => (string) $request->validated('body'),
+                    'cta' => (string) $request->validated('cta'),
+                    'header' => $request->validated('header'),
+                    'footer' => $request->validated('footer'),
+                ], $request->user());
         } catch (InvalidArgumentException|MetaApiException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
+        } catch (TemplateParameterException $e) {
+            return response()->json(['message' => $this->templateParameterMessage($e)], 422);
         } catch (RuntimeException $e) {
             Log::warning('No se pudo enviar el formulario por WhatsApp', [
                 'conversation_id' => $conversation->id,
@@ -228,6 +250,150 @@ class WhatsAppFlowController extends Controller
         }
 
         return response()->json(['data' => $message], 201);
+    }
+
+    /** Mensaje para el agente según el código auditable de `TemplateParameterRenderer`. */
+    private function templateParameterMessage(TemplateParameterException $e): string
+    {
+        $code = $e->getMessage();
+
+        if (str_starts_with($code, 'missing_parameter:')) {
+            $name = substr($code, strlen('missing_parameter:'));
+
+            return "Falta un dato del contacto para completar la variable «{$name}» de la plantilla.";
+        }
+
+        return match ($code) {
+            'media_asset_not_found' => 'El archivo del encabezado de la plantilla ya no existe. Elegí otro en la apertura del formulario.',
+            'header_url_not_accessible' => 'Meta no puede descargar la URL del encabezado de la plantilla. Revisala en la apertura del formulario.',
+            default => 'No se pudo completar la plantilla.',
+        };
+    }
+
+    /**
+     * Las plantillas tienen que abrir este formulario y sus variables cubrir lo
+     * que cada una pide. Se combina con lo guardado: las plantillas que no
+     * vienen conservan su configuración.
+     *
+     * @param  array<string, mixed>  $opening
+     * @return array{default_template_id: ?int, templates: array<string, array{parameters: list<array<string, mixed>>}>}
+     */
+    private function validatedOpening(WhatsAppFlow $flow, array $opening): array
+    {
+        $linked = $this->openingTemplates->linked($flow)->keyBy('id');
+        $current = $flow->openingConfig();
+        $errors = [];
+
+        // Sólo se valida si el usuario la eligió. La guardada puede haber dejado
+        // de abrir el formulario (borrada, botón cambiado): se descarta y vuelve
+        // a ser automática, sin bloquear el resto del guardado.
+        if (array_key_exists('default_template_id', $opening)) {
+            $default = $opening['default_template_id'];
+            if ($default !== null && ! $linked->has((int) $default)) {
+                $errors['opening.default_template_id'][] = 'Elegí una plantilla que abra este formulario.';
+            }
+        } else {
+            $default = $current['default_template_id'];
+            if ($default !== null && ! $linked->has((int) $default)) {
+                $default = null;
+            }
+        }
+
+        $templates = $current['templates'];
+        foreach ($opening['templates'] ?? [] as $id => $config) {
+            $template = $linked->get((int) $id);
+            if ($template === null) {
+                $errors["opening.templates.{$id}"][] = 'Esa plantilla no abre este formulario.';
+
+                continue;
+            }
+
+            $parameters = array_values($config['parameters'] ?? []);
+            foreach ($this->parameters->validate($template, $parameters, $flow->tenant_id) as $key => $messages) {
+                $errors["opening.templates.{$id}.{$key}"] = $messages;
+            }
+            $templates[(string) $template->id] = ['parameters' => $parameters];
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
+
+        return ['default_template_id' => $default !== null ? (int) $default : null, 'templates' => $templates];
+    }
+
+    /**
+     * Una plantilla de cierre tiene que ser de la cuenta del formulario, sin
+     * botón de formulario (cada respuesta abriría otro) y con sus variables
+     * cubriendo lo que pide. Se puede guardar sin aprobar: no se envía hasta
+     * que Meta la apruebe.
+     *
+     * @param  array<string, mixed>|null  $message
+     * @return array<string, mixed>|null
+     */
+    private function validatedCompletion(WhatsAppFlow $flow, ?array $message): ?array
+    {
+        if ($message === null || $message['type'] === 'text') {
+            return $message;
+        }
+
+        $template = WhatsAppTemplate::withoutGlobalScopes()
+            ->where('tenant_id', $flow->tenant_id)
+            ->where('whatsapp_config_id', $flow->whatsapp_config_id)
+            ->find($message['template_id']);
+
+        if ($template === null) {
+            throw ValidationException::withMessages(['completion_message.template_id' => 'Elegí una plantilla de la cuenta del formulario.']);
+        }
+
+        if ($template->flowButton() !== null) {
+            throw ValidationException::withMessages(['completion_message.template_id' => 'Esa plantilla abre un formulario: como cierre le mandaría otro al cliente en cada respuesta. Elegí una sin botón de formulario.']);
+        }
+
+        $parameters = array_values($message['parameters'] ?? []);
+        $errors = [];
+        foreach ($this->parameters->validate($template, $parameters, $flow->tenant_id) as $key => $messages) {
+            $errors["completion_message.{$key}"] = $messages;
+        }
+        foreach ($this->unpublishedAnswers($flow, $parameters) as $index => $key) {
+            $errors["completion_message.parameters.{$index}.path"][] = "«{$key}» no está en la versión publicada del formulario: publicalo para usar esa respuesta.";
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
+
+        return ['type' => 'template', 'template_id' => $template->id, 'parameters' => $parameters];
+    }
+
+    /**
+     * Respuestas citadas (`answers.<clave>`) que la versión que corre el
+     * cliente no tiene: la respuesta se lee con esa versión y llegarían
+     * siempre vacías. Un formulario por JSON no declara sus claves.
+     *
+     * @param  list<array<string, mixed>>  $parameters
+     * @return array<int, string> índice del parámetro → clave
+     */
+    private function unpublishedAnswers(WhatsAppFlow $flow, array $parameters): array
+    {
+        $live = $flow->liveVersion();
+        if ($live->definition === null) {
+            return [];
+        }
+
+        $known = array_column($live->responseFields(), 'key');
+        $missing = [];
+        foreach ($parameters as $index => $parameter) {
+            $path = (string) ($parameter['path'] ?? '');
+            if (($parameter['source'] ?? null) === 'field' && str_starts_with($path, 'answers.')) {
+                $key = substr($path, strlen('answers.'));
+                if (! in_array($key, $known, true)) {
+                    $missing[$index] = $key;
+                }
+            }
+        }
+
+        return $missing;
     }
 
     /**

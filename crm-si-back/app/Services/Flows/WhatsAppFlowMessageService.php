@@ -13,17 +13,22 @@ use App\Models\Message;
 use App\Models\User;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppFlowSession;
+use App\Models\WhatsAppTemplate;
 use App\Services\AiTypingIndicatorService;
 use App\Services\MessagingWindowService;
+use App\Services\Templates\TemplateParameterException;
+use App\Services\Templates\TemplateParameterRenderer;
 use App\Services\WhatsAppMessageService;
+use App\Services\WhatsAppTemplateService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use RuntimeException;
 
 /**
- * Envía un formulario como mensaje interactivo (requiere la ventana de 24 h).
- * Fuera de la ventana se usa una plantilla con botón FLOW.
+ * Envía un formulario: como mensaje interactivo con la ventana de 24 h
+ * abierta (`send`), o con una de sus plantillas de apertura fuera de la
+ * ventana (`sendTemplate`).
  */
 class WhatsAppFlowMessageService
 {
@@ -31,7 +36,55 @@ class WhatsAppFlowMessageService
         private readonly WhatsAppFlowSessionService $sessions,
         private readonly WhatsAppMessageService $messages,
         private readonly MessagingWindowService $window,
+        private readonly FlowOpeningTemplates $openingTemplates,
+        private readonly TemplateParameterRenderer $parameters,
+        private readonly WhatsAppTemplateService $templates,
     ) {}
+
+    /**
+     * Plantilla de apertura lista para enviar: la indicada o, sin indicar, la
+     * predeterminada.
+     *
+     * @throws InvalidArgumentException si no abre el formulario o no está lista
+     */
+    public function openingTemplate(WhatsAppFlow $flow, ?int $templateId): WhatsAppTemplate
+    {
+        if ($templateId === null) {
+            return $this->openingTemplates->effective($flow)
+                ?? throw new InvalidArgumentException('El formulario no tiene una plantilla aprobada para enviarlo fuera de la ventana de 24 h.');
+        }
+
+        $template = $this->openingTemplates->linked($flow)->firstWhere('id', $templateId)
+            ?? throw new InvalidArgumentException('Esa plantilla no abre este formulario.');
+
+        return match ($this->openingTemplates->issue($flow, $template)) {
+            FlowOpeningTemplates::ISSUE_NOT_APPROVED => throw new InvalidArgumentException("La plantilla «{$template->name}» no está aprobada por Meta."),
+            FlowOpeningTemplates::ISSUE_PARAMETERS => throw new InvalidArgumentException("Completá las variables de la plantilla «{$template->name}» en la apertura del formulario."),
+            default => $template,
+        };
+    }
+
+    /**
+     * Envía el formulario con una plantilla de apertura ya resuelta
+     * (`openingTemplate` o `FlowOpeningTemplates::effective`) y sus variables
+     * configuradas. La sesión del formulario la abre
+     * `WhatsAppTemplateService::sendTemplateMessage` al ver el botón FLOW.
+     *
+     * @throws TemplateParameterException si una variable queda sin valor
+     */
+    public function sendTemplate(Conversation $conversation, WhatsAppFlow $flow, WhatsAppTemplate $template, ?User $sender): Message
+    {
+        $this->ensureSendable($conversation, $flow);
+
+        $components = $this->parameters->render(
+            $template,
+            $flow->openingParameters($template->id),
+            ['contact' => $conversation->contact?->toArray() ?? []],
+            $flow->tenant_id,
+        );
+
+        return $this->templates->sendTemplateMessage($conversation, $template, $components, $sender);
+    }
 
     /**
      * @param  array{body: string, cta: string, header?: ?string, footer?: ?string}  $options

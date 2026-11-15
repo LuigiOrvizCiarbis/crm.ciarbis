@@ -5,6 +5,7 @@ import { CalendarDays, ChevronDown, EllipsisVertical, Image as ImageIcon, X } fr
 
 import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactField } from "@/lib/api/contact-fields"
+import { responseFields } from "@/lib/flow-builder/completion"
 import { imageDataUrl, isSupportedImage } from "@/lib/flow-builder/images"
 import { IMAGE_HEIGHTS, isTextBlock } from "@/lib/flow-builder/limits"
 import { branchingBlock, optionTarget, resolveTarget } from "@/lib/flow-builder/routing"
@@ -13,17 +14,18 @@ import type { AppointmentConfig, ContentScreen, FlowBlock, FlowDefinition, Scale
 import { cn } from "@/lib/utils"
 
 import { prefillLabel } from "./BlockEditor"
+import { FlowClosingPreview } from "./FlowClosingPreview"
 import { FlowMessagePreview, type FlowMessageContext } from "./FlowMessagePreview"
 import { PhoneFrame } from "./PhoneFrame"
 
-type PreviewView = "message" | "screen" | "date" | "slot"
+type PreviewView = "message" | "screen" | "date" | "slot" | "closing"
 
 interface FlowPhonePreviewProps {
   definition: FlowDefinition
   selectedIndex: number
   contactFields: ContactField[]
   onSelectScreen: (index: number) => void
-  /** Con contexto, la vista previa suma un paso "Mensaje" con el mensaje de WhatsApp que abre el formulario. */
+  /** Con contexto, la vista previa suma la apertura ("Mensaje") al principio y el "Cierre" al final. */
   message?: FlowMessageContext
 }
 
@@ -85,6 +87,14 @@ export function FlowPhonePreview({ definition, selectedIndex, contactFields, onS
           onClick: () => setExtra({ view: target, forIndex: selectedIndex }),
         }))
       : []),
+    ...(message
+      ? [{
+          key: "closing",
+          label: t("flows.builder.preview.closing"),
+          active: view === "closing",
+          onClick: () => setExtra({ view: "closing", forIndex: selectedIndex }),
+        }]
+      : []),
   ]
 
   return (
@@ -109,7 +119,14 @@ export function FlowPhonePreview({ definition, selectedIndex, contactFields, onS
       </div>
 
       {view === "message" && message ? (
-        <FlowMessagePreview {...message} definition={definition} onOpenForm={() => openScreen(0)} />
+        <FlowMessagePreview {...message} definition={definition} contactFields={contactFields} onOpenForm={() => openScreen(0)} />
+      ) : view === "closing" && message ? (
+        <FlowClosingPreview
+          flow={message.flow}
+          channelId={message.channelId}
+          fields={responseFields(definition)}
+          contactFields={contactFields}
+        />
       ) : (
         <PhoneFrame>
           {(view === "date" || view === "slot") && appointment ? (

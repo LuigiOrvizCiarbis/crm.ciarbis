@@ -255,6 +255,16 @@ export interface WhatsAppFlow {
   has_builder_definition: boolean
   /** Textos con los que se envía; el backend completa los que falten. */
   send_defaults: WhatsAppFlowSendDefaults
+  /** Plantilla predeterminada y variables de cada plantilla que abre el formulario. */
+  opening: WhatsAppFlowOpening
+  /** Plantillas de la misma cuenta cuyo botón FLOW abre este formulario. */
+  send_templates: WhatsAppFlowSendTemplate[]
+  /** Plantilla que se usa fuera de la ventana de 24 h: la elegida si está lista; si no, la primera lista. */
+  effective_template_id: number | null
+  /** Lo que el CRM manda en el chat al recibir la respuesta; null si no manda nada. */
+  completion_message: WhatsAppFlowCompletionMessage | null
+  /** Respuestas de la versión publicada que el cierre puede citar (vacío en formularios JSON o sin publicar). */
+  response_fields: WhatsAppFlowResponseField[]
   synced_at: string | null
   published_at: string | null
   updated_at: string | null
@@ -268,6 +278,57 @@ export interface WhatsAppFlowSendDefaults {
   body: string
   footer: string | null
   cta: string
+}
+
+/** Parámetro de una plantilla: misma forma que en la acción de automatización `whatsapp_template`. */
+export interface TemplateParameter {
+  /** Por defecto `body`. */
+  component?: "body" | "header"
+  /** Variable del cuerpo ({{name}}), o el índice "1" en plantillas posicionales. */
+  name?: string
+  source: "literal" | "field" | "media_asset"
+  /** literal: texto fijo; en un encabezado de media, la URL https del archivo. */
+  value?: string
+  /** field: contact.name | contact.phone | contact.email | contact.custom_data.<key> | answers.<key> (sólo en el cierre). */
+  path?: string
+  /** Si el valor queda vacío. */
+  fallback?: string
+  /** media_asset: archivo subido con uploadMediaAsset. */
+  media_asset_id?: number
+}
+
+export interface WhatsAppFlowOpening {
+  /** Elegida a mano; null = automática. Puede apuntar a una que ya no está lista. */
+  default_template_id: number | null
+  /** Variables configuradas por id de plantilla. */
+  templates: Record<string, { parameters: TemplateParameter[] }>
+}
+
+export interface WhatsAppFlowSendTemplate {
+  id: number
+  name: string
+  language: string
+  status: WhatsAppTemplate["status"]
+  /** Aprobada y con las variables completas. */
+  ready: boolean
+  issue: null | "not_approved" | "parameters"
+}
+
+export type WhatsAppFlowCompletionMessage =
+  | {
+      type: "text"
+      body: string
+      /** El botón abre `url`; los dos van juntos o ninguno. */
+      button_text: string | null
+      url: string | null
+    }
+  | { type: "template"; template_id: number; parameters: TemplateParameter[] }
+
+export type WhatsAppFlowTextCompletion = Extract<WhatsAppFlowCompletionMessage, { type: "text" }>
+
+export interface WhatsAppFlowResponseField {
+  key: string
+  label: string
 }
 
 export interface WhatsAppFlowEncryptionStatus {
@@ -310,6 +371,12 @@ export type MessageInteractive =
       mapping_errors?: Record<string, string>
       /** Grupos repetibles respondidos: sus filas también están en `response[key]`. */
       groups?: FlowResponseGroup[]
+    }
+  | {
+      /** Mensaje al terminar: un texto normal; el botón de link también va en `content`. */
+      kind: "flow_completion"
+      whatsapp_flow_id: number
+      button: { text: string; url: string } | null
     }
 
 export interface FlowResponseGroup {

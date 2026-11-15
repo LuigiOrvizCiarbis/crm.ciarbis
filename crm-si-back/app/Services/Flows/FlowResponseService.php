@@ -32,6 +32,7 @@ class FlowResponseService
     public function __construct(
         private readonly FlowContactUpdater $contactUpdater,
         private readonly WhatsAppFlowSessionService $sessions,
+        private readonly FlowCompletionMessageService $completionMessages,
     ) {}
 
     /**
@@ -111,7 +112,9 @@ class FlowResponseService
         }
 
         // Un envío reemplazado que no usa el endpoint se puede responder igual.
-        if (in_array($session->status, [WhatsAppFlowSession::STATUS_PENDING, WhatsAppFlowSession::STATUS_SUPERSEDED], true)) {
+        $firstAnswer = in_array($session->status, [WhatsAppFlowSession::STATUS_PENDING, WhatsAppFlowSession::STATUS_SUPERSEDED], true);
+
+        if ($firstAnswer) {
             $this->sessions->complete($session, $parsed->answers);
         }
 
@@ -131,6 +134,21 @@ class FlowResponseService
             } catch (\Throwable $e) {
                 Log::warning('No se pudo emitir el aviso de respuestas no guardadas', ['message_id' => $message->id, 'error' => $e->getMessage()]);
             }
+        }
+
+        // Antes que las automatizaciones: el "gracias" llega primero al cliente.
+        // Sólo la primera respuesta del envío lo dispara.
+        if ($firstAnswer) {
+            $values = [];
+
+            foreach ($parsed->response as $key => $value) {
+                $values[(string) $key] = $this->displayValue((string) $key, $value);
+            }
+
+            // La conversación trae su propia copia del contacto, anterior a las
+            // respuestas: el cierre tiene que ver los datos recién guardados.
+            $conversation->setRelation('contact', $contact);
+            $this->completionMessages->send($session->flow, $conversation, $values);
         }
 
         EvaluateAutomationEventJob::dispatch($conversation->tenant_id, [
