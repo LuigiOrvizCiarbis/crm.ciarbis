@@ -11,6 +11,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppTemplate;
+use App\Services\Templates\TemplateParameterException;
 use App\Services\Templates\TemplateParameterRenderer;
 use App\Services\WhatsAppMessageService;
 use App\Services\WhatsAppTemplateService;
@@ -22,8 +23,9 @@ use RuntimeException;
  * Cierre del formulario: lo manda el CRM en el chat apenas llega la respuesta.
  * Puede ser un texto (el cliente acaba de responder, así que la ventana de
  * 24 h está abierta y no hace falta plantilla; con botón va como mensaje
- * interactivo `cta_url`, sin botón como texto) o una plantilla aprobada con
- * sus variables completadas con las respuestas, el contacto o texto fijo.
+ * interactivo `cta_url`, sin botón como texto, y con imagen opcional) o una
+ * plantilla aprobada con sus variables completadas con las respuestas, el
+ * contacto o texto fijo.
  */
 class FlowCompletionMessageService
 {
@@ -97,14 +99,46 @@ class FlowCompletionMessageService
     }
 
     /**
-     * @param  array{body: string, button_text: ?string, url: ?string}  $config
+     * @param  array{body: string, button_text: ?string, url: ?string, image: ?array<string, mixed>}  $config
      * @param  array<string, string>  $values
      */
     private function deliverText(WhatsAppFlow $flow, Conversation $conversation, array $config, array $values): ?Message
     {
         $body = mb_substr(trim(self::render($config['body'], $values)), 0, self::BODY_MAX);
 
-        return $body === '' ? null : $this->deliver($flow, $conversation, $body, $config['button_text'], $config['url']);
+        return $body === ''
+            ? null
+            : $this->deliver($flow, $conversation, $body, $config['button_text'], $config['url'], $this->imageLink($flow, $config['image']));
+    }
+
+    /**
+     * Una imagen que ya no está (archivo borrado, URL que dejó de ser pública)
+     * no impide el cierre: el texto sale igual, sin imagen.
+     *
+     * @param  array<string, mixed>|null  $image
+     */
+    private function imageLink(WhatsAppFlow $flow, ?array $image): ?string
+    {
+        if ($image === null) {
+            return null;
+        }
+
+        try {
+            if ($image['source'] === 'media_asset') {
+                return $this->parameters->mediaAssetUrl($image['media_asset_id'], $flow->tenant_id);
+            }
+
+            $this->parameters->assertPubliclyFetchable($image['value']);
+
+            return $image['value'];
+        } catch (TemplateParameterException $e) {
+            Log::warning('Flow: imagen del cierre no disponible, se manda sin imagen', [
+                'whatsapp_flow_id' => $flow->id,
+                'reason' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 
     /**
@@ -121,7 +155,7 @@ class FlowCompletionMessageService
         );
     }
 
-    private function deliver(WhatsAppFlow $flow, Conversation $conversation, string $body, ?string $buttonText, ?string $url): Message
+    private function deliver(WhatsAppFlow $flow, Conversation $conversation, string $body, ?string $buttonText, ?string $url, ?string $imageLink): Message
     {
         $context = $this->messages->resolveOutboundWhatsAppContext($conversation);
         $payload = [
@@ -134,9 +168,14 @@ class FlowCompletionMessageService
             $payload['type'] = 'interactive';
             $payload['interactive'] = [
                 'type' => 'cta_url',
+                ...($imageLink !== null ? ['header' => ['type' => 'image', 'image' => ['link' => $imageLink]]] : []),
                 'body' => ['text' => $body],
                 'action' => ['name' => 'cta_url', 'parameters' => ['display_text' => $buttonText, 'url' => $url]],
             ];
+        } elseif ($imageLink !== null) {
+            // Sin botón, la imagen va como mensaje de imagen con el texto de epígrafe (también hasta 1024).
+            $payload['type'] = 'image';
+            $payload['image'] = ['link' => $imageLink, 'caption' => $body];
         } else {
             $payload['type'] = 'text';
             $payload['text'] = ['body' => $body, 'preview_url' => true];
@@ -159,7 +198,8 @@ class FlowCompletionMessageService
             'conversation_id' => $conversation->id,
             'sender_type' => SenderType::SYSTEM,
             'content' => $content,
-            'message_type' => MessageType::Text,
+            'message_type' => $imageLink !== null ? MessageType::Image : MessageType::Text,
+            'media_url' => $imageLink,
             'direction' => MessageDirection::OUTBOUND,
             'external_id' => $response->json('messages.0.id'),
             'interactive' => [

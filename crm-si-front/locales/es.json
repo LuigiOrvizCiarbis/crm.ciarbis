@@ -2807,7 +2807,7 @@
       },
       "closing": {
         "title": "Plantilla de cierre",
-        "description": "Se manda al recibir la respuesta, aunque la ventana de 24 h se haya cerrado. Meta la revisa antes de habilitarla.",
+        "description": "Se manda en el chat apenas llega la respuesta. Meta la revisa antes de habilitarla.",
         "hint": "Arranca con el texto del cierre y podés sumarle variables como {{nombre}} para completarlas con las respuestas."
       }
     },
@@ -3061,6 +3061,8 @@
       "variablesHintJson": "Podés citar una respuesta con {{clave}}.",
       "insert": "Insertar respuesta",
       "unknownKeys": "Estas respuestas no existen en el formulario y quedan vacías: {{keys}}",
+      "withImage": "Agregar imagen",
+      "imageLimits": "JPG o PNG, hasta 5 MB",
       "withButton": "Agregar botón con link",
       "buttonText": "Texto del botón",
       "buttonPlaceholder": "Ver catálogo",
@@ -3161,7 +3163,7 @@
           "template": "Plantilla"
         },
         "noneHint": "Al terminar no se manda nada en el chat.",
-        "templateHint": "Una plantilla aprobada llega aunque la ventana de 24 h se haya cerrado mientras el cliente completaba el formulario.",
+        "templateHint": "Sirve si necesitás algo que el mensaje no tiene: respuestas rápidas, botón de llamada, varios botones, video o PDF. Se manda sólo cuando Meta la aprueba.",
         "template": "Plantilla",
         "selectTemplate": "Seleccioná una plantilla",
         "noTemplates": "No hay plantillas en este canal. Creá una de cierre.",

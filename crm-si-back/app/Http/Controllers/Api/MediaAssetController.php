@@ -10,9 +10,15 @@ use Illuminate\Support\Facades\Storage;
 
 class MediaAssetController extends Controller
 {
-    // Tope de Meta para documentos de template (100 MB). Se deja margen abajo
-    // porque el archivo igual viaja por HTTP hasta el CRM antes de guardarse.
-    private const MAX_KILOBYTES = 100 * 1024;
+    // Topes de Meta por tipo para los adjuntos de plantillas y mensajes: PDF
+    // (100 MB), video MP4 (16 MB) e imagen JPG/PNG (5 MB). El archivo igual
+    // viaja por HTTP hasta el CRM antes de guardarse.
+    private const MAX_KILOBYTES_BY_TYPE = [
+        'application/pdf' => 100 * 1024,
+        'video/mp4' => 16 * 1024,
+        'image/jpeg' => 5 * 1024,
+        'image/png' => 5 * 1024,
+    ];
 
     public function index(Request $request): JsonResponse
     {
@@ -29,10 +35,11 @@ class MediaAssetController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $this->authorizeManage($request);
+        // Los formularios también suben archivos: encabezados de plantilla e imagen del cierre.
+        abort_unless((bool) $request->user()?->canAny(['automations.manage', 'flows.manage']), 403);
 
         $validated = $request->validate([
-            'file' => ['required', 'file', 'mimetypes:application/pdf', 'max:'.self::MAX_KILOBYTES],
+            'file' => ['bail', 'required', 'file', 'mimetypes:'.implode(',', array_keys(self::MAX_KILOBYTES_BY_TYPE)), $this->withinTypeLimit(...)],
             'name' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -49,6 +56,14 @@ class MediaAssetController extends Controller
         ]);
 
         return response()->json(['data' => $this->serialize($asset)], 201);
+    }
+
+    private function withinTypeLimit(string $attribute, mixed $file, \Closure $fail): void
+    {
+        $limit = self::MAX_KILOBYTES_BY_TYPE[$file->getMimeType()] ?? null;
+        if ($limit !== null && $file->getSize() > $limit * 1024) {
+            $fail('El archivo supera el máximo de '.intdiv($limit, 1024).' MB que acepta WhatsApp para este tipo.');
+        }
     }
 
     public function destroy(Request $request, MediaAsset $mediaAsset): JsonResponse

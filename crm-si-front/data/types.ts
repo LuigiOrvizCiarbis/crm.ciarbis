@@ -314,6 +314,11 @@ export interface WhatsAppFlowSendTemplate {
   issue: null | "not_approved" | "parameters"
 }
 
+/** Imagen del cierre de texto, con la forma del encabezado de una plantilla: archivo del espacio o URL https. */
+export type WhatsAppFlowCompletionImage =
+  | { source: "media_asset"; media_asset_id: number }
+  | { source: "literal"; value: string }
+
 export type WhatsAppFlowCompletionMessage =
   | {
       type: "text"
@@ -321,6 +326,7 @@ export type WhatsAppFlowCompletionMessage =
       /** El botón abre `url`; los dos van juntos o ninguno. */
       button_text: string | null
       url: string | null
+      image: WhatsAppFlowCompletionImage | null
     }
   | { type: "template"; template_id: number; parameters: TemplateParameter[] }
 

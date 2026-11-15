@@ -5,6 +5,7 @@ namespace App\Services\Templates;
 use App\Enums\ContactFieldType;
 use App\Models\ContactField;
 use App\Models\MediaAsset;
+use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppTemplate;
 use App\Support\PublicUrlGuard;
 use App\Support\PublicUrlRejectedException;
@@ -164,13 +165,15 @@ class TemplateParameterRenderer
         return array_map(fn (array $parameters, string $type) => ['type' => $type, 'parameters' => $parameters], $grouped, array_keys($grouped));
     }
 
-    private function mediaAssetUrl(mixed $mediaAssetId, int $tenantId): ?string
+    /** URL pública de un archivo del espacio; también la usa la imagen del cierre de un formulario. */
+    public function mediaAssetUrl(mixed $mediaAssetId, int $tenantId): ?string
     {
         if (! $mediaAssetId) {
             return null;
         }
 
-        $asset = MediaAsset::withoutGlobalScopes()->where('tenant_id', $tenantId)->find($mediaAssetId);
+        // Sin el scope del tenant (corre en jobs) pero sí el de borrados: borrar un archivo también lo saca del disco.
+        $asset = MediaAsset::withoutGlobalScope(TenantScope::class)->where('tenant_id', $tenantId)->find($mediaAssetId);
         if (! $asset) {
             throw new TemplateParameterException('media_asset_not_found');
         }
@@ -244,7 +247,7 @@ class TemplateParameterRenderer
      * desactivan los redirects para que un 3xx no lleve la request a un host
      * interno saltándose esta validación.
      */
-    private function assertPubliclyFetchable(string $url): void
+    public function assertPubliclyFetchable(string $url): void
     {
         try {
             [$host, $port, $ips] = $this->urlGuard->assertPublicUrl($url);
