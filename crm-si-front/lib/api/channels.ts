@@ -281,19 +281,22 @@ export async function getBusinessVerification(
   return json.data;
 }
 
+export type WorkspaceBusinessVerification = Pick<BusinessVerification, "status" | "raw_verification_status">;
+
 /**
- * Si el negocio del workspace activo está verificado en Meta. Ante cualquier
- * error devuelve false: el badge sólo se muestra con una confirmación.
+ * Estado de verificación en Meta del negocio del workspace activo que más
+ * atención pide. `null` cuando no hay WhatsApp conectado o no se pudo leer:
+ * el sidebar sólo muestra lo que Meta confirmó.
  */
-export async function getWorkspaceBusinessVerified(): Promise<boolean> {
+export async function getWorkspaceBusinessVerification(): Promise<WorkspaceBusinessVerification | null> {
   const response = await fetch("/api/business-verification", {
     headers: { Accept: "application/json", ...workspaceHeaders() },
     cache: "no-store",
   });
 
-  if (!response.ok) return false;
+  if (!response.ok) return null;
 
   const json = await response.json().catch(() => null);
 
-  return json?.data?.verified === true;
+  return json?.data?.status ? json.data : null;
 }

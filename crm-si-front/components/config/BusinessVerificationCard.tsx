@@ -1,19 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import {
-  AlertCircle,
-  ChevronRight,
-  ExternalLink,
-  RefreshCw,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldEllipsis,
-  ShieldOff,
-  ShieldQuestion,
-  ShieldX,
-  type LucideIcon,
-} from "lucide-react"
+import { AlertCircle, ChevronRight, ExternalLink, RefreshCw, ShieldCheck } from "lucide-react"
 
 import { SettingsBlock } from "@/components/config/SettingsBlock"
 import { Button } from "@/components/ui/button"
@@ -28,70 +16,7 @@ import {
 import { useIsAdmin } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
 import { cn } from "@/lib/utils"
-
-type Tone = "success" | "info" | "warning" | "danger" | "neutral"
-
-// Mismo vocabulario de tono que los badges de estado (components/Badges.tsx).
-const TONE_CLASSES: Record<Tone, { tile: string; pill: string }> = {
-  success: { tile: "bg-success/10 text-success", pill: "border-success/30 bg-success/10 text-success" },
-  info: { tile: "bg-info/10 text-info", pill: "border-info/30 bg-info/10 text-info" },
-  warning: { tile: "bg-warning/10 text-warning", pill: "border-warning/30 bg-warning/10 text-warning" },
-  danger: { tile: "bg-destructive/10 text-destructive", pill: "border-destructive/30 bg-destructive/10 text-destructive" },
-  neutral: { tile: "bg-muted text-muted-foreground", pill: "border-border bg-muted text-muted-foreground" },
-}
-
-type StateKey =
-  | "verified"
-  | "in_review"
-  | "needs_submission"
-  | "needs_info"
-  | "not_verified"
-  | "rejected"
-  | "reconnect"
-  | "permission_missing"
-  | "unknown"
-
-type CtaKey = "verify" | "review" | "open"
-
-interface Presentation {
-  state: StateKey
-  tone: Tone
-  icon: LucideIcon
-  cta?: CtaKey
-  /** Sólo los estados que el admin resuelve en Meta muestran la guía de pasos. */
-  showHowTo?: boolean
-}
-
-/**
- * Traduce la respuesta del backend a lo que ve el admin. `pending` agrupa tres
- * situaciones distintas en Meta; el valor crudo dice si Meta está revisando o
- * si todavía espera algo del negocio.
- */
-function present(verification: BusinessVerification | null): Presentation {
-  switch (verification?.status) {
-    case "verified":
-      return { state: "verified", tone: "success", icon: ShieldCheck }
-    case "pending":
-      if (verification.raw_verification_status === "pending_submission") {
-        return { state: "needs_submission", tone: "warning", icon: ShieldAlert, cta: "verify", showHowTo: true }
-      }
-      if (verification.raw_verification_status === "pending_need_more_info") {
-        return { state: "needs_info", tone: "warning", icon: ShieldAlert, cta: "review" }
-      }
-      return { state: "in_review", tone: "info", icon: ShieldEllipsis, cta: "open" }
-    case "not_verified":
-      return { state: "not_verified", tone: "warning", icon: ShieldAlert, cta: "verify", showHowTo: true }
-    case "failed":
-      return { state: "rejected", tone: "danger", icon: ShieldX, cta: "review", showHowTo: true }
-    case "business_id_missing":
-    case "token_invalid":
-      return { state: "reconnect", tone: "neutral", icon: ShieldOff }
-    case "permission_missing":
-      return { state: "permission_missing", tone: "neutral", icon: ShieldOff }
-    default:
-      return { state: "unknown", tone: "neutral", icon: ShieldQuestion }
-  }
-}
+import { presentVerification, VERIFICATION_TONE_CLASSES } from "@/lib/business-verification"
 
 /** La verificación es del Business Portfolio: los números que lo comparten van juntos. */
 interface BusinessGroup {
@@ -242,9 +167,9 @@ export function BusinessVerificationCard() {
 
 function BusinessRow({ group }: { group: BusinessGroup }) {
   const { t } = useTranslation()
-  const { state, tone, icon: Icon, cta, showHowTo } = present(group.verification)
+  const { state, tone, icon: Icon, cta, showHowTo } = presentVerification(group.verification)
   const verifyUrl = group.verification?.verify_url
-  const toneClasses = TONE_CLASSES[tone]
+  const toneClasses = VERIFICATION_TONE_CLASSES[tone]
 
   return (
     <li className="flex flex-wrap items-start gap-x-3 gap-y-3 py-4">
