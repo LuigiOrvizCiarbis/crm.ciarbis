@@ -133,6 +133,55 @@ class WhatsAppBusinessVerificationTest extends TestCase
             ->assertJsonPath('data.status', 'permission_missing');
     }
 
+    public function test_workspace_summary_is_verified_and_cached_when_business_is_verified(): void
+    {
+        [, $user] = $this->makeChannel(businessId: 'BIZ_OK');
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'graph.facebook.com/*/BIZ_OK*' => Http::response([
+                'id' => 'BIZ_OK',
+                'name' => 'Acme',
+                'verification_status' => 'verified',
+            ]),
+        ]);
+
+        $this->getJson('/api/business-verification')->assertOk()->assertJsonPath('data.verified', true);
+        $this->getJson('/api/business-verification')->assertOk()->assertJsonPath('data.verified', true);
+
+        // La segunda carga sale del caché: el sidebar no consulta Graph en cada pedido.
+        Http::assertSentCount(1);
+    }
+
+    public function test_workspace_summary_is_not_verified_when_any_business_is_unverified(): void
+    {
+        [$tenant, $user] = $this->makeChannel(businessId: 'BIZ_OK');
+        $this->addChannel($tenant, $user, businessId: 'BIZ_NO');
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'graph.facebook.com/*/BIZ_OK*' => Http::response(['id' => 'BIZ_OK', 'verification_status' => 'verified']),
+            'graph.facebook.com/*/BIZ_NO*' => Http::response(['id' => 'BIZ_NO', 'verification_status' => 'not_verified']),
+        ]);
+
+        $this->getJson('/api/business-verification')->assertOk()->assertJsonPath('data.verified', false);
+    }
+
+    public function test_refreshing_a_channel_status_invalidates_the_workspace_summary(): void
+    {
+        [, $user, $channel] = $this->makeChannel(businessId: 'BIZ_FLIP');
+        Sanctum::actingAs($user);
+
+        Http::fakeSequence('graph.facebook.com/*')
+            ->push(['id' => 'BIZ_FLIP', 'verification_status' => 'not_verified'])
+            ->push(['id' => 'BIZ_FLIP', 'verification_status' => 'verified'])
+            ->push(['id' => 'BIZ_FLIP', 'verification_status' => 'verified']);
+
+        $this->getJson('/api/business-verification')->assertJsonPath('data.verified', false);
+        $this->getJson($this->endpoint($channel))->assertJsonPath('data.status', 'verified');
+        $this->getJson('/api/business-verification')->assertJsonPath('data.verified', true);
+    }
+
     private function endpoint(Channel $channel): string
     {
         return "/api/admin/channels/{$channel->id}/business-verification";
@@ -178,5 +227,24 @@ class WhatsAppBusinessVerificationTest extends TestCase
         ]);
 
         return [$tenant, $user, $channel];
+    }
+
+    private function addChannel(Tenant $tenant, User $user, string $businessId): Channel
+    {
+        $config = WhatsAppConfig::create([
+            'waba_id' => 'WABA_'.$businessId,
+            'phone_number_id' => 'PHONE_'.$businessId,
+            'business_id' => $businessId,
+            'bussines_token' => Crypt::encryptString('TOKEN_X'),
+        ]);
+
+        return Channel::create([
+            'tenant_id' => $tenant->id,
+            'user_id' => $user->id,
+            'whatsapp_config_id' => $config->id,
+            'type' => ChannelType::WHATSAPP,
+            'name' => 'WhatsApp '.$businessId,
+            'status' => 'active',
+        ]);
     }
 }
