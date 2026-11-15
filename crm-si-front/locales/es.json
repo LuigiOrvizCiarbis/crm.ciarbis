@@ -382,12 +382,47 @@
       "qualified": "Calificado",
       "customer": "Cliente",
       "inactive": "Inactivo",
-      "range": {
-        "label": "Rango",
-        "menuTitle": "Filtrar por rango",
+      "custom": {
+        "label": "Campos",
+        "labelActive": "Campos, {{count}} activos",
+        "menuTitle": "Filtrar por campo",
+        "search": "Buscar campo",
+        "noFields": "Ningún campo coincide.",
+        "back": "Volver a la lista de campos",
+        "remove": "Quitar filtro",
+        "operators": {
+          "any": "es alguno de",
+          "anyMulti": "contiene alguno de",
+          "contains": "contiene",
+          "boolean": "es",
+          "range": "entre"
+        },
+        "searchChoices": "Buscar opción",
+        "noChoices": "Ninguna opción coincide.",
+        "yes": "Sí",
+        "no": "No",
+        "noIncludesEmpty": "\"No\" incluye contactos sin completar.",
+        "containsPlaceholder": "Escribí un texto",
         "from": "Desde",
         "to": "Hasta",
-        "clear": "Limpiar filtros de rango"
+        "invalidRange": "Desde no puede ser mayor que Hasta.",
+        "summary": {
+          "contains": "contiene \"{{text}}\"",
+          "more": "{{first}} +{{count}}",
+          "between": "{{from}} → {{to}}",
+          "atLeast": "≥ {{value}}",
+          "atMost": "≤ {{value}}"
+        }
+      },
+      "active": {
+        "label": "Filtros activos",
+        "edit": "Editar filtro {{field}}: {{value}}",
+        "remove": "Quitar filtro {{field}}",
+        "clearAll": "Limpiar filtros",
+        "tags": "Etiquetas",
+        "noResults": "Ningún contacto coincide con estos filtros",
+        "results_one": "{{count}} contacto",
+        "results_other": "{{count}} contactos"
       },
       "audience": {
         "label": "Audiencia",
@@ -1145,6 +1180,7 @@
       "dialog": {
         "title": "Enviar difusión de WhatsApp",
         "subtitle": "Se enviará una plantilla a {{count}} conversación(es)",
+        "skipped": "Se omiten {{count}} conversación(es) que no son de WhatsApp",
         "backToTemplates": "Volver a la lista de plantillas",
         "searchTemplates": "Buscar plantilla...",
         "sync": "Sincronizar",
@@ -1177,7 +1213,8 @@
         "loadTemplates": "Error cargando plantillas",
         "sync": "Error sincronizando plantillas",
         "apply": "Error enviando la difusión",
-        "mixedChannels": "Seleccioná conversaciones del mismo número de WhatsApp para enviar una difusión"
+        "mixedChannels": "Las conversaciones de WhatsApp seleccionadas son de distintos números: elegí las de un solo número para enviar una difusión",
+        "noWhatsApp": "Seleccioná al menos una conversación de WhatsApp para enviar una difusión"
       }
     },
     "aiBooking": {
@@ -2491,10 +2528,17 @@
   },
   "businessVerification": {
     "title": "Verificación de negocio (Meta)",
-    "subtitle": "Estado de la verificación de tu negocio en Meta para cada número de WhatsApp conectado.",
+    "sidebarBadge": "Negocio verificado por Meta",
+    "subtitle": "Meta verifica el negocio, no cada número: los números de WhatsApp que comparten el mismo portfolio aparecen juntos.",
     "refresh": "Actualizar",
     "empty": "No hay canales de WhatsApp conectados.",
-    "verifyOnMeta": "Verificar en Meta",
+    "loadError": "No pudimos cargar los canales de WhatsApp.",
+    "retry": "Reintentar",
+    "cta": {
+      "verify": "Verificar en Meta",
+      "review": "Revisar en Meta",
+      "open": "Ver en Meta"
+    },
     "howTo": {
       "trigger": "¿Cómo verifico mi negocio?",
       "intro": "La verificación se completa en el Business Manager de Meta, no en el CRM. Seguí estos pasos:",
@@ -2504,15 +2548,43 @@
       "step4": "Enviá la solicitud y esperá la revisión de Meta. Suele tardar unos días; el estado acá se actualiza al tocar \"Actualizar\".",
       "note": "Necesitás ser administrador del Business Manager en Meta para poder verificar."
     },
-    "status": {
-      "verified": "Verificado",
-      "pending": "En revisión",
-      "not_verified": "Sin verificar",
-      "failed": "Rechazado",
-      "business_id_missing": "Reconectá el canal",
-      "permission_missing": "Falta permiso en Meta",
-      "token_invalid": "Reconectá el canal",
-      "unknown": "Desconocido"
+    "states": {
+      "verified": {
+        "label": "Verificado",
+        "detail": "Meta confirmó la identidad legal de este negocio. No tenés nada pendiente."
+      },
+      "in_review": {
+        "label": "En revisión",
+        "detail": "Meta está revisando la documentación. Suele tardar unos días; tocá Actualizar para ver si cambió."
+      },
+      "needs_submission": {
+        "label": "Sin enviar",
+        "detail": "Empezaste la verificación pero todavía no la enviaste. Completá los datos y la documentación en Meta para que la revisen."
+      },
+      "needs_info": {
+        "label": "Meta pide más datos",
+        "detail": "Meta revisó la solicitud y necesita más información o documentación para seguir."
+      },
+      "not_verified": {
+        "label": "Sin verificar",
+        "detail": "Mientras no esté verificado, Meta limita cuántas conversaciones nuevas podés iniciar por día desde estos números."
+      },
+      "rejected": {
+        "label": "Rechazado",
+        "detail": "Meta rechazó la verificación. Revisá el motivo en el Centro de seguridad y volvé a enviar la documentación."
+      },
+      "reconnect": {
+        "label": "Reconectá el canal",
+        "detail": "No pudimos leer el negocio de este número en Meta. Usá Agregar canal para volver a conectar WhatsApp."
+      },
+      "permission_missing": {
+        "label": "Falta permiso",
+        "detail": "La conexión con Meta no tiene permiso para ver tu negocio. Volvé a conectar WhatsApp y aceptá todos los permisos que pide Meta."
+      },
+      "unknown": {
+        "label": "Sin datos",
+        "detail": "No pudimos consultar a Meta en este momento. Tocá Actualizar en unos minutos."
+      }
     }
   },
   "profile": {

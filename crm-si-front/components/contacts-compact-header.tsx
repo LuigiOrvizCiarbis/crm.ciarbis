@@ -12,12 +12,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { TagFilterMenu } from "@/components/tags/TagFilterMenu"
-import { RangeFilterMenu, type RangeFilterValue } from "@/components/contacts/RangeFilterMenu"
+import { CustomFieldFilterMenu } from "@/components/contacts/CustomFieldFilterMenu"
+import type { ContactsAudience, CustomFieldFilters } from "@/components/contacts/contactFilters"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
-
-export type ContactsAudience = "all" | "clients"
 
 /** Orígenes filtrables; los usa el select del header y la hoja de filtros de teléfono. */
 export const CONTACT_SOURCES = [
@@ -34,8 +34,8 @@ interface ContactsCompactHeaderProps {
   onSourceFilter?: (source: string) => void
   tagFilterSlugs?: string[]
   onTagFilter?: (slugs: string[]) => void
-  customRangeFilter?: Record<string, RangeFilterValue>
-  onCustomRangeFilter?: (value: Record<string, RangeFilterValue>) => void
+  customFilters?: CustomFieldFilters
+  onCustomFilters?: (value: CustomFieldFilters) => void
   audience?: ContactsAudience
   onAudienceChange?: (audience: ContactsAudience) => void
   /** El control de audiencia solo tiene sentido si el tenant usa cobranzas. */
@@ -52,8 +52,8 @@ export function ContactsCompactHeader({
   onSourceFilter,
   tagFilterSlugs = [],
   onTagFilter,
-  customRangeFilter = {},
-  onCustomRangeFilter,
+  customFilters = {},
+  onCustomFilters,
   audience = "all",
   onAudienceChange,
   billingAvailable = false,
@@ -68,6 +68,7 @@ export function ContactsCompactHeader({
     if (!contactFieldsLoaded) fetchContactFields()
   }, [contactFieldsLoaded, fetchContactFields])
   const { t } = useTranslation()
+  const isMobile = useIsMobile()
   const [searchQueryInternal, setSearchQueryInternal] = useState("")
   const isSearchControlled = searchQueryProp !== undefined
   const searchQuery = isSearchControlled ? searchQueryProp : searchQueryInternal
@@ -146,11 +147,14 @@ export function ContactsCompactHeader({
             onChange={(slugs) => onTagFilter?.(slugs)}
           />
 
-          <RangeFilterMenu
-            fields={contactFields}
-            value={customRangeFilter}
-            onChange={(value) => onCustomRangeFilter?.(value)}
-          />
+          {/* En teléfono "Campos" va junto al buscador (ver /contactos): acá desbordaba la fila del título. */}
+          {!isMobile && (
+            <CustomFieldFilterMenu
+              fields={contactFields}
+              value={customFilters}
+              onChange={(value) => onCustomFilters?.(value)}
+            />
+          )}
         </div>
 
         {/* En una fila (xl+), los botones de CSV quedan en ícono hasta 1400px (2xl con el filtro de audiencia de cobranzas)

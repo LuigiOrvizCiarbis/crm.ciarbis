@@ -44,6 +44,8 @@ interface BroadcastDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   selectedIds: number[]
+  /** Conversaciones de la selección que no son de WhatsApp y no reciben la difusión. */
+  skippedCount: number
   channelId: number | null
   onSuccess: () => void
 }
@@ -52,6 +54,7 @@ export function BroadcastDialog({
   open,
   onOpenChange,
   selectedIds,
+  skippedCount,
   channelId,
   onSuccess,
 }: BroadcastDialogProps) {
@@ -220,6 +223,9 @@ export function BroadcastDialog({
           </DialogTitle>
           <DialogDescription>
             {t("chats.broadcast.dialog.subtitle", { count })}
+            {skippedCount > 0 && (
+              <span className="block">{t("chats.broadcast.dialog.skipped", { count: skippedCount })}</span>
+            )}
           </DialogDescription>
         </DialogHeader>
 
