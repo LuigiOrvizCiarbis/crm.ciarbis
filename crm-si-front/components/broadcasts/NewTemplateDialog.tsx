@@ -11,7 +11,7 @@ import { useToast } from "@/components/Toast"
 import { useTranslation } from "@/hooks/useTranslation"
 import { createTemplate, uploadTemplateHeader, type CreateTemplatePayload } from "@/lib/api/templates"
 import { getFlows } from "@/lib/api/whatsapp-flows"
-import type { WhatsAppFlow, WhatsAppFlowTextCompletion, WhatsAppTemplate } from "@/data/types"
+import type { WhatsAppFlow, WhatsAppFlowSendDefaults, WhatsAppFlowTextCompletion, WhatsAppTemplate } from "@/data/types"
 import { DEFAULT_CLOSING_BODY } from "@/lib/flow-builder/completion"
 
 type HeaderFormat = "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT"
@@ -46,11 +46,13 @@ type ButtonDraft = {
 
 /** Contenido inicial del diálogo; el que lo abre lo monta con una `key` nueva por borrador. */
 export interface TemplateDraft {
+  /** Para qué parte del formulario es: cambia los textos del diálogo y fija sus botones. */
+  purpose: "opening" | "closing"
   name: string
   headerText: string | null
   body: string
   footer: string | null
-  /** Con formulario, la plantilla lleva su botón FLOW con `buttonText`. */
+  /** Con formulario, la plantilla lleva su botón FLOW con `buttonText`; ese botón no se puede quitar. */
   flow?: WhatsAppFlow
   buttonText?: string
   /** Botón con link, cuando no hay formulario. */
@@ -63,22 +65,23 @@ const BUTTON_TEXT_MAX = 25
 const templateNameFrom = (value: string) =>
   value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60)
 
-/** Plantilla que invita a completar el formulario, armada con su mensaje de envío. */
-export function flowTemplateDraft(flow: WhatsAppFlow): TemplateDraft {
-  const { header, body, footer, cta } = flow.send_defaults
+/** Plantilla que invita a completar el formulario, armada con el mensaje de envío tal como está en pantalla. */
+export function flowTemplateDraft(flow: WhatsAppFlow, message: WhatsAppFlowSendDefaults): TemplateDraft {
   return {
+    purpose: "opening",
     name: `${templateNameFrom(flow.name) || "formulario"}_invitacion`,
-    headerText: header,
-    body,
-    footer,
+    headerText: message.header,
+    body: message.body,
+    footer: message.footer,
     flow,
-    buttonText: cta.slice(0, BUTTON_TEXT_MAX),
+    buttonText: message.cta.slice(0, BUTTON_TEXT_MAX),
   }
 }
 
 /** Plantilla de cierre, sin botón de formulario: parte del mensaje de texto si hay uno. */
 export function closingTemplateDraft(flow: WhatsAppFlow, text: WhatsAppFlowTextCompletion | null): TemplateDraft {
   return {
+    purpose: "closing",
     name: `${templateNameFrom(flow.name) || "formulario"}_cierre`,
     headerText: null,
     body: text?.body ?? DEFAULT_CLOSING_BODY,
@@ -131,6 +134,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
   const [publishedFlows, setPublishedFlows] = useState<WhatsAppFlow[] | null>(null)
   const [flowsLoading, setFlowsLoading] = useState(false)
   const hasFlowButton = buttons.some((button) => button.type === "FLOW")
+  const lockedFlow = draft?.purpose === "opening" ? draft.flow : undefined
   const [submitting, setSubmitting] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const variables = useMemo(() => [...new Set(Array.from(body.matchAll(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g)).map((match) => match[1]))], [body])
@@ -162,7 +166,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
   // al cambiar de canal porque pertenecen a la cuenta de WhatsApp del canal.
   useEffect(() => { setPublishedFlows(null) }, [channelId])
   useEffect(() => {
-    if (!open || !hasFlowButton || publishedFlows !== null || flowsLoading) return
+    if (!open || !hasFlowButton || lockedFlow || publishedFlows !== null || flowsLoading) return
     setFlowsLoading(true)
     getFlows(channelId)
       .then((flows) => setPublishedFlows(flows.filter(canUseFlowInTemplate)))
@@ -171,7 +175,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
         addToast({ type: "error", title: error instanceof Error ? error.message : t("templateDialog.errors.flows") })
       })
       .finally(() => setFlowsLoading(false))
-  }, [open, hasFlowButton, publishedFlows, flowsLoading, channelId, addToast, t])
+  }, [open, hasFlowButton, lockedFlow, publishedFlows, flowsLoading, channelId, addToast, t])
 
   const updateButton = (index: number, patch: Partial<ButtonDraft>) =>
     setButtons((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item))
@@ -268,12 +272,20 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
         ) : (
           <>
             <DialogHeader className="border-b border-border px-6 py-4">
-              <DialogTitle>{t("templateDialog.title")}</DialogTitle>
-              <DialogDescription>{t("templateDialog.description")}</DialogDescription>
-              <div className="flex flex-col items-start gap-1.5 pt-2">
-                <Button variant="outline" size="sm" type="button" onClick={applyReengagementPreset}>{t("templateDialog.reengagement")}</Button>
-                <p className="text-xs text-muted-foreground">{t("templateDialog.reengagementHint")}</p>
-              </div>
+              <DialogTitle>{draft ? t(`templateDialog.purposes.${draft.purpose}.title`) : t("templateDialog.title")}</DialogTitle>
+              <DialogDescription>
+                {draft
+                  ? t(`templateDialog.purposes.${draft.purpose}.description`, { flow: draft.flow?.name ?? "" })
+                  : t("templateDialog.description")}
+              </DialogDescription>
+              {draft ? (
+                <p className="pt-1 text-xs text-muted-foreground">{t(`templateDialog.purposes.${draft.purpose}.hint`)}</p>
+              ) : (
+                <div className="flex flex-col items-start gap-1.5 pt-2">
+                  <Button variant="outline" size="sm" type="button" onClick={applyReengagementPreset}>{t("templateDialog.reengagement")}</Button>
+                  <p className="text-xs text-muted-foreground">{t("templateDialog.reengagementHint")}</p>
+                </div>
+              )}
             </DialogHeader>
 
             <div className="grid flex-1 gap-6 overflow-y-auto px-6 py-6 lg:grid-cols-[1.3fr_0.7fr]">
@@ -388,8 +400,13 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                   </div>
                   {buttons.map((button, index) => {
                     const otherFlowButton = buttons.some((item, itemIndex) => itemIndex !== index && item.type === "FLOW")
+                    // El botón que abre el formulario de la apertura es la razón de ser de la plantilla: no se cambia ni se quita.
+                    const locked = lockedFlow !== undefined && button.type === "FLOW"
                     return (
                     <div key={index} className="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-[140px_1fr_auto]">
+                      {locked ? (
+                        <span className="flex h-10 items-center rounded-md bg-muted px-3 text-sm text-muted-foreground">{t("templateDialog.buttonTypes.flow")}</span>
+                      ) : (
                       <select
                         value={button.type}
                         onChange={(event) => changeButtonType(index, event.target.value as ButtonDraft["type"])}
@@ -399,8 +416,12 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                         <option value="QUICK_REPLY">{t("templateDialog.buttonTypes.quickReply")}</option>
                         <option value="URL">URL</option>
                         <option value="PHONE_NUMBER">{t("templateDialog.buttonTypes.phone")}</option>
-                        <option value="FLOW" disabled={otherFlowButton}>{t("templateDialog.buttonTypes.flow")}</option>
+                        {/* Un cierre con botón de formulario abriría otro formulario con cada respuesta: el backend lo rechaza. */}
+                        {draft?.purpose === "closing" ? null : (
+                          <option value="FLOW" disabled={otherFlowButton}>{t("templateDialog.buttonTypes.flow")}</option>
+                        )}
                       </select>
+                      )}
                       <Input
                         value={button.text}
                         onChange={(event) => updateButton(index, { text: event.target.value })}
@@ -414,6 +435,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                       {button.type === "PHONE_NUMBER" && (
                         <Input value={button.phone_number || ""} onChange={(event) => updateButton(index, { phone_number: event.target.value })} aria-label={t("templateDialog.buttonTypes.phone")} placeholder="54911…" />
                       )}
+                      {locked ? null : (
                       <Button
                         type="button"
                         variant="ghost"
@@ -423,7 +445,13 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                       >
                         <X className="size-4" aria-hidden="true" />
                       </Button>
-                      {button.type === "FLOW" && (
+                      )}
+                      {locked ? (
+                        <p className="flex justify-between gap-3 text-xs text-muted-foreground sm:col-span-3">
+                          <span className="min-w-0 truncate">{t("templateDialog.flowButtonOpens", { flow: lockedFlow.name })}</span>
+                          <span className="shrink-0 tabular-nums">{button.text.length}/{BUTTON_TEXT_MAX}</span>
+                        </p>
+                      ) : button.type === "FLOW" ? (
                         <div className="sm:col-span-3">
                           <label className="block space-y-1 text-xs font-medium text-muted-foreground">
                             {t("templateDialog.publishedFlow")}
@@ -444,7 +472,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                             </select>
                           </label>
                         </div>
-                      )}
+                      ) : null}
                     </div>
                     )
                   })}

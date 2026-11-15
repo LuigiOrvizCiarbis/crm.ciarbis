@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/Toast"
-import type { WhatsAppFlow } from "@/data/types"
+import type { WhatsAppFlow, WhatsAppFlowSendDefaults } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
 import { updateFlow } from "@/lib/api/whatsapp-flows"
 
@@ -22,10 +22,19 @@ interface FlowSendMessageFormProps {
   onSaved: (flow: WhatsAppFlow) => void
   /** Avisa si hay cambios sin guardar respecto de `flow`. */
   onDirtyChange?: (dirty: boolean) => void
+  /** Recibe los textos tal como están en pantalla, guardados o no. */
+  onValuesChange?: (values: WhatsAppFlowSendDefaults) => void
 }
 
+const toSendDefaults = (header: string, body: string, footer: string, cta: string): WhatsAppFlowSendDefaults => ({
+  header: header.trim() || null,
+  body: body.trim(),
+  footer: footer.trim() || null,
+  cta: cta.trim(),
+})
+
 /** Mensaje de envío: los textos con los que el chat y las automatizaciones mandan el formulario con la ventana abierta. */
-export function FlowSendMessageForm({ flow, onSaved, onDirtyChange }: FlowSendMessageFormProps) {
+export function FlowSendMessageForm({ flow, onSaved, onDirtyChange, onValuesChange }: FlowSendMessageFormProps) {
   const { t } = useTranslation()
   const { addToast } = useToast()
   const stored = flow.send_defaults
@@ -48,18 +57,15 @@ export function FlowSendMessageForm({ flow, onSaved, onDirtyChange }: FlowSendMe
     return () => onDirtyChange(false)
   }, [dirty, onDirtyChange])
 
+  useEffect(() => {
+    onValuesChange?.(toSendDefaults(header, body, footer, cta))
+  }, [header, body, footer, cta, onValuesChange])
+
   const save = async () => {
     if (!canSave) return
     setSaving(true)
     try {
-      const saved = await updateFlow(flow.id, {
-        send_defaults: {
-          header: header.trim() || null,
-          body: body.trim(),
-          footer: footer.trim() || null,
-          cta: cta.trim(),
-        },
-      })
+      const saved = await updateFlow(flow.id, { send_defaults: toSendDefaults(header, body, footer, cta) })
       onSaved(saved)
       addToast({ type: "success", title: t("flows.journey.opening.messageSaved") })
     } catch (error) {
