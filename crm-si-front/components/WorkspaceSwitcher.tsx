@@ -1,7 +1,7 @@
 "use client"
 
 import { type FormEvent, useEffect, useMemo, useState } from "react"
-import { BadgeCheck, Check, ChevronsUpDown, Loader2, Plus } from "lucide-react"
+import { Check, ChevronsUpDown, Loader2, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -10,7 +10,8 @@ import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/useAuthStore"
 import { getWorkspaceId, setWorkspaceId } from "@/lib/api/auth-token"
 import { createWorkspace, getWorkspaces } from "@/lib/api/workspaces"
-import { getWorkspaceBusinessVerified } from "@/lib/api/channels"
+import { getWorkspaceBusinessVerification, type WorkspaceBusinessVerification } from "@/lib/api/channels"
+import { presentVerification, VERIFICATION_TONE_CLASSES } from "@/lib/business-verification"
 import { useTranslation } from "@/hooks/useTranslation"
 
 export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }) {
@@ -21,7 +22,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
   const [createOpen, setCreateOpen] = useState(false)
   const [workspaceName, setWorkspaceName] = useState("")
   const [createError, setCreateError] = useState<string | null>(null)
-  const [businessVerified, setBusinessVerified] = useState(false)
+  const [verification, setVerification] = useState<WorkspaceBusinessVerification | null>(null)
   const storedTabId = getWorkspaceId()
   const activeId = storedTabId ?? storedActiveId ?? user?.tenant_id ?? null
   const active = useMemo(() => workspaces.find((workspace) => workspace.id === activeId), [workspaces, activeId])
@@ -33,7 +34,7 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
   // Cambiar de workspace recarga la página, así que basta con leerlo por workspace activo.
   useEffect(() => {
     if (activeId === null) return
-    void getWorkspaceBusinessVerified().then(setBusinessVerified)
+    void getWorkspaceBusinessVerification().then(setVerification)
   }, [activeId])
 
   function select(id: number) {
@@ -85,17 +86,23 @@ export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }
 
   if (!active && !user?.tenant?.name) return null
 
+  const seal = verification ? presentVerification(verification) : null
+  const SealIcon = seal?.icon
+  const sealLabel = seal
+    ? t("businessVerification.sidebarBadge", { state: t(`businessVerification.states.${seal.state}.label`) })
+    : null
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" disabled={loading} className={cn("h-auto w-full justify-between gap-2 rounded-xl px-3 py-2 text-left hover:bg-sidebar-accent", collapsed && "justify-center px-2")} aria-label={businessVerified ? `Cambiar workspace. ${t("businessVerification.sidebarBadge")}` : "Cambiar workspace"}>
+        <Button variant="ghost" disabled={loading} className={cn("h-auto w-full justify-between gap-2 rounded-xl px-3 py-2 text-left hover:bg-sidebar-accent", collapsed && "justify-center px-2")} aria-label={sealLabel ? `Cambiar workspace. ${sealLabel}` : "Cambiar workspace"}>
           <span className="min-w-0">
             <span className="flex min-w-0 items-center gap-1">
               <span className="truncate text-sm font-semibold">{active?.name ?? user?.tenant?.name}</span>
-              {businessVerified && !collapsed && (
-                // Relleno + trazo del color del sidebar: el check queda calado, como el sello de Meta.
-                <span className="flex shrink-0" title={t("businessVerification.sidebarBadge")}>
-                  <BadgeCheck className="size-4 fill-info text-sidebar" aria-hidden />
+              {seal && SealIcon && !collapsed && (
+                // Relleno del color del estado + trazo del color del sidebar: el símbolo queda calado, como un sello.
+                <span className="flex shrink-0" title={sealLabel ?? undefined}>
+                  <SealIcon className={cn("size-4 text-sidebar", VERIFICATION_TONE_CLASSES[seal.tone].seal)} aria-hidden />
                 </span>
               )}
             </span>
