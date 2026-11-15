@@ -2573,6 +2573,18 @@
         "label": "Rejected",
         "detail": "Meta rejected the verification. Check the reason in the Security Center and resubmit the documents."
       },
+      "expired": {
+        "label": "Expired",
+        "detail": "This business's verification expired. Renew it on Meta with the same steps to be verified again."
+      },
+      "revoked": {
+        "label": "Revoked",
+        "detail": "Meta removed this business's verification. Check the reason in the Security Center before submitting anything again."
+      },
+      "ineligible": {
+        "label": "Not eligible",
+        "detail": "Meta says this business can't be verified for this product. Uploading more documents won't change it: check the details on Meta."
+      },
       "reconnect": {
         "label": "Reconnect the channel",
         "detail": "We couldn't read this number's business on Meta. Use Add channel to connect WhatsApp again."
