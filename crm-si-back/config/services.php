@@ -180,6 +180,13 @@ return [
         // hasta 7 días después del último mensaje del contacto. Requiere el feature
         // "Human Agent" aprobado en App Review de la app de Meta. Prohibido para IA.
         'human_agent_enabled' => env('META_HUMAN_AGENT_ENABLED', false),
+
+        // Conversions API for Business Messaging: avisa a Meta ventas/leads de chats
+        // que vinieron de anuncios. Lista de plataformas habilitadas (whatsapp,
+        // facebook, instagram), mismos valores que ad_referrals.platform. Cada una
+        // requiere su permiso aprobado: whatsapp_business_manage_events, page_events,
+        // instagram_manage_events. Vacío = apagado.
+        'conversions_api_platforms' => array_values(array_filter(array_map('trim', explode(',', (string) env('META_CONVERSIONS_API_PLATFORMS', ''))))),
     ],
 
     'google_calendar' => [

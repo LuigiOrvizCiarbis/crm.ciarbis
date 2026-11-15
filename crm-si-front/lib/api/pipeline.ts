@@ -8,6 +8,8 @@ export interface PipelineStage {
   is_default: boolean
   /** Probabilidad de cierre (0 a 100) para proyectar ingresos; null si no se definió. */
   win_probability: number | null
+  /** Resultado que fija la etapa a sus oportunidades; null = en curso. */
+  outcome: "won" | "lost" | null
 }
 
 export interface Pipeline {
@@ -94,7 +96,7 @@ export async function createPipelineStage(data: {
 
 export async function updatePipelineStage(
   id: number,
-  data: { name?: string; color?: string; sort_order?: number; win_probability?: number | null }
+  data: { name?: string; color?: string; sort_order?: number; win_probability?: number | null; outcome?: "won" | "lost" | null }
 ): Promise<PipelineStage> {
   const res = await fetch(`/api/pipeline-stages/${id}`, {
     method: "PUT",

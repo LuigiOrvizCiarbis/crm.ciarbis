@@ -25,6 +25,7 @@ ARG NEXT_PUBLIC_REVERB_APP_KEY
 ARG NEXT_PUBLIC_REVERB_HOST
 ARG NEXT_PUBLIC_REVERB_PORT
 ARG NEXT_PUBLIC_REVERB_SCHEME
+ARG NEXT_PUBLIC_META_CONVERSIONS_API_ENABLED
 # El token de Sentry (subida de source maps) se monta como BuildKit secret solo
 # durante este paso: no queda en ningún layer ni en la metadata de la imagen.
 # Es opcional: si el secret no existe, el build funciona y se saltea la subida.
