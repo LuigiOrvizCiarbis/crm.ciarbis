@@ -5,7 +5,6 @@ namespace App\Http\Requests;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
-use App\Models\ProductField;
 
 class ImportProductsRequest extends FormRequest
 {
@@ -62,9 +61,12 @@ class ImportProductsRequest extends FormRequest
                             $validator->errors()->add('mapping', 'El mapeo de campos personalizados no es válido.');
                         }
                     }
+
                     continue;
                 }
-                if ($key === 'has_headers' || $key === 'proposed_fields') continue;
+                if ($key === 'has_headers' || $key === 'proposed_fields') {
+                    continue;
+                }
                 if (! is_int($index) || $index < 0) {
                     $validator->errors()->add('mapping', "La columna '{$key}' no es válida.");
                 }

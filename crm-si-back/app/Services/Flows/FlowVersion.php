@@ -135,4 +135,36 @@ final readonly class FlowVersion
     {
         return $this->definition !== null ? FlowDefinitionExpander::groups($this->definition) : [];
     }
+
+    /**
+     * Claves de la respuesta legible (`FlowResponseService`): preguntas, grupos
+     * repetibles como una sola clave y el turno. Vacío en formularios JSON.
+     *
+     * @return list<array{key: string, label: string}>
+     */
+    public function responseFields(): array
+    {
+        $fields = [];
+
+        foreach ($this->definition['screens'] ?? [] as $screen) {
+            if (FlowDefinitionExpander::isRepeater($screen)) {
+                $fields[] = ['key' => (string) $screen['key'], 'label' => (string) ($screen['title'] ?? $screen['key'])];
+
+                continue;
+            }
+
+            foreach ($screen['blocks'] ?? [] as $block) {
+                if (is_string($block['key'] ?? null) && filled($block['label'] ?? null)) {
+                    $fields[] = ['key' => $block['key'], 'label' => (string) $block['label']];
+                }
+            }
+        }
+
+        if (($this->definition['appointment'] ?? null) !== null) {
+            $fields[] = ['key' => 'appointment_start', 'label' => 'Turno'];
+            $fields[] = ['key' => 'appointment_status', 'label' => 'Estado del turno'];
+        }
+
+        return $fields;
+    }
 }

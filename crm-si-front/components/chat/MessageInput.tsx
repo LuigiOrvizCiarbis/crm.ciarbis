@@ -506,7 +506,7 @@ export function MessageInput({
       label: t("chats.flows.send"),
       Icon: ClipboardList,
       tone: "bg-primary/10 text-primary",
-      disabled: disabled || windowStatus === "closed",
+      disabled,
       onClick: () => { setIsActionsOpen(false); setIsFlowDialogOpen(true) },
     }] : []),
     {
@@ -785,7 +785,7 @@ export function MessageInput({
                   variant="ghost"
                   size="sm"
                   className="hidden shrink-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5"
-                  disabled={disabled || windowStatus === "closed"}
+                  disabled={disabled}
                   onClick={() => setIsFlowDialogOpen(true)}
                   aria-label={t("chats.flows.send")}
                   title={windowStatus === "closed" ? t("chats.flows.windowClosed") : t("chats.flows.send")}
@@ -941,7 +941,7 @@ export function MessageInput({
         </div>
       </div>
       {supportsContactSharing && onShareContacts && <ContactShareDialog open={isContactShareOpen} onOpenChange={setIsContactShareOpen} onSend={onShareContacts} disabled={composerDisabled} />}
-      {canSendFlows && channelId && onSendFlow && <FlowPickerDialog open={isFlowDialogOpen} onOpenChange={setIsFlowDialogOpen} channelId={channelId} onSend={onSendFlow} disabled={disabled || windowStatus === "closed"} />}
+      {canSendFlows && channelId && onSendFlow && <FlowPickerDialog open={isFlowDialogOpen} onOpenChange={setIsFlowDialogOpen} channelId={channelId} onSend={onSendFlow} windowClosed={windowStatus === "closed"} disabled={disabled} />}
     </div>
   )
 }

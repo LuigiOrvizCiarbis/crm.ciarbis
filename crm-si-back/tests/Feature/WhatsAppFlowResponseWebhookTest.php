@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Enums\ChannelType;
 use App\Enums\ContactFieldType;
+use App\Enums\TemplateCategory;
+use App\Enums\TemplateStatus;
 use App\Enums\UserRole;
 use App\Enums\WhatsAppFlowStatus;
 use App\Jobs\EvaluateAutomationEventJob;
@@ -17,6 +19,7 @@ use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppFlowSession;
+use App\Models\WhatsAppTemplate;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Crypt;
@@ -121,6 +124,87 @@ class WhatsAppFlowResponseWebhookTest extends TestCase
         $this->assertSame(WhatsAppFlowSession::STATUS_COMPLETED, $replaced->status);
         $this->assertSame(['correo' => 'ana@x.com'], $replaced->response);
         $this->assertSame(WhatsAppFlowSession::STATUS_COMPLETED, $newer->fresh()->status);
+    }
+
+    public function test_first_reply_sends_the_completion_message_with_its_link_button(): void
+    {
+        $this->flow->update(['completion_message' => [
+            'type' => 'text',
+            'body' => 'Listo, registramos el DNI {{dni}}.{{sin_respuesta}}',
+            'button_text' => 'Ver catálogo',
+            'url' => 'https://petshop.example/catalogo',
+        ]]);
+        $this->flowSession('flow-token-1', WhatsAppFlowSession::STATUS_PENDING);
+
+        $this->reply('flow-token-1', ['dni' => '30111222']);
+
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/messages')
+            && $request['type'] === 'interactive'
+            && $request['interactive']['type'] === 'cta_url'
+            && $request['interactive']['body']['text'] === 'Listo, registramos el DNI 30111222.'
+            && $request['interactive']['action']['parameters'] === ['display_text' => 'Ver catálogo', 'url' => 'https://petshop.example/catalogo']);
+
+        $sent = Message::where('conversation_id', $this->conversation->id)->where('direction', 'outbound')->sole();
+        $this->assertSame('flow_completion', $sent->interactive['kind']);
+        $this->assertStringContainsString('https://petshop.example/catalogo', $sent->content);
+    }
+
+    public function test_answering_an_already_completed_send_does_not_repeat_the_completion_message(): void
+    {
+        $this->flow->update(['completion_message' => ['type' => 'text', 'body' => 'Gracias']]);
+        $this->flowSession('flow-token-1', WhatsAppFlowSession::STATUS_COMPLETED);
+
+        $this->reply('flow-token-1', ['dni' => '30111222']);
+
+        Http::assertNotSent(fn ($request) => str_ends_with($request->url(), '/messages'));
+    }
+
+    public function test_a_template_closing_fills_its_variables_with_the_answers(): void
+    {
+        $template = WhatsAppTemplate::create([
+            'tenant_id' => $this->flow->tenant_id,
+            'whatsapp_config_id' => $this->flow->whatsapp_config_id,
+            'external_id' => 'tpl-gracias',
+            'name' => 'gracias',
+            'language' => 'es_AR',
+            'category' => TemplateCategory::Utility,
+            'status' => TemplateStatus::Approved,
+            'components' => [['type' => 'BODY', 'text' => 'Recibimos el DNI {{dni}}']],
+        ]);
+        $this->flow->update(['completion_message' => ['type' => 'template', 'template_id' => $template->id, 'parameters' => [
+            ['component' => 'body', 'name' => 'dni', 'source' => 'field', 'path' => 'answers.dni'],
+        ]]]);
+        $this->flowSession('flow-token-1', WhatsAppFlowSession::STATUS_PENDING);
+
+        $this->reply('flow-token-1', ['dni' => '30111222']);
+
+        Http::assertSent(fn ($request) => ($request['type'] ?? null) === 'template'
+            && $request['template']['name'] === 'gracias'
+            && $request['template']['components'][0]['parameters'][0] === ['type' => 'text', 'text' => '30111222', 'parameter_name' => 'dni']);
+    }
+
+    public function test_a_template_closing_uses_the_contact_data_the_form_just_saved(): void
+    {
+        $template = WhatsAppTemplate::create([
+            'tenant_id' => $this->flow->tenant_id,
+            'whatsapp_config_id' => $this->flow->whatsapp_config_id,
+            'external_id' => 'tpl-confirmacion',
+            'name' => 'confirmacion',
+            'language' => 'es_AR',
+            'category' => TemplateCategory::Utility,
+            'status' => TemplateStatus::Approved,
+            'components' => [['type' => 'BODY', 'text' => 'Te escribimos a {{correo}}']],
+        ]);
+        $this->flow->update(['completion_message' => ['type' => 'template', 'template_id' => $template->id, 'parameters' => [
+            ['component' => 'body', 'name' => 'correo', 'source' => 'field', 'path' => 'contact.email'],
+        ]]]);
+        $this->flowSession('flow-token-1', WhatsAppFlowSession::STATUS_PENDING);
+
+        $this->reply('flow-token-1', ['correo' => 'ana@x.com']);
+
+        Http::assertSent(fn ($request) => ($request['type'] ?? null) === 'template'
+            && $request['template']['name'] === 'confirmacion'
+            && $request['template']['components'][0]['parameters'][0] === ['type' => 'text', 'text' => 'ana@x.com', 'parameter_name' => 'correo']);
     }
 
     private function flowSession(string $token, string $status): WhatsAppFlowSession

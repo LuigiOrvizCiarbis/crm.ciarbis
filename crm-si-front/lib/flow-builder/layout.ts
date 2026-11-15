@@ -4,15 +4,16 @@ import { branchingBlock, resolveTarget, screenTargets } from "./routing";
 import type { CanvasPosition, FlowDefinition, FlowScreen } from "./types";
 
 /**
- * Ubicación de las cajas del diagrama. Las pantallas guardan su posición en la definición; el inicio,
- * la reserva de turno y el fin se ubican solos alrededor de ellas.
+ * Ubicación de las cajas del diagrama. Las pantallas guardan su posición en la definición; la apertura,
+ * la reserva de turno y el cierre se ubican solos alrededor de ellas.
  */
 
 export const SCREEN_NODE_WIDTH = 248;
 export const APPOINTMENT_NODE_WIDTH = 216;
 export const APPOINTMENT_NODE_HEIGHT = 92;
-export const TERMINAL_NODE_HEIGHT = 32;
-const START_NODE_WIDTH = 88;
+/** Apertura y Cierre: cajas de tamaño fijo, con un resumen de dos líneas. */
+export const JOURNEY_NODE_WIDTH = 200;
+export const JOURNEY_NODE_HEIGHT = 84;
 const COLUMN_GAP = 104;
 const ROW_GAP = 40;
 const MAX_SUMMARY_ROWS = 5;
@@ -96,9 +97,9 @@ export function terminalPositions(screens: FlowScreen[], heights: Record<string,
 
   const appointment = hasAppointment ? { x: right, y: middle - APPOINTMENT_NODE_HEIGHT / 2 } : null;
   return {
-    start: { x: entry.x - START_NODE_WIDTH - 56, y: entry.y + entry.height / 2 - TERMINAL_NODE_HEIGHT / 2 },
+    start: { x: entry.x - JOURNEY_NODE_WIDTH - 56, y: entry.y + entry.height / 2 - JOURNEY_NODE_HEIGHT / 2 },
     appointment,
-    end: { x: appointment ? right + APPOINTMENT_NODE_WIDTH + 72 : right, y: middle - TERMINAL_NODE_HEIGHT / 2 },
+    end: { x: appointment ? right + APPOINTMENT_NODE_WIDTH + 72 : right, y: middle - JOURNEY_NODE_HEIGHT / 2 },
   };
 }
 

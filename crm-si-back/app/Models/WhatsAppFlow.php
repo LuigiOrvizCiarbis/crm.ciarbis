@@ -36,6 +36,8 @@ class WhatsAppFlow extends Model
         'published_at',
         'builder_definition',
         'send_defaults',
+        'opening',
+        'completion_message',
         'published_version',
     ];
 
@@ -46,6 +48,8 @@ class WhatsAppFlow extends Model
         'field_mappings' => 'array',
         'builder_definition' => 'array',
         'send_defaults' => 'array',
+        'opening' => 'array',
+        'completion_message' => 'array',
         'published_version' => 'array',
         'synced_at' => 'datetime',
         'published_at' => 'datetime',
@@ -85,6 +89,65 @@ class WhatsAppFlow extends Model
         $heading = collect($blocks)->first(fn ($block) => ($block['type'] ?? null) === 'heading' && filled($block['text'] ?? null));
 
         return $heading['text'] ?? null;
+    }
+
+    /**
+     * Plantillas de apertura (para la ventana de 24 h cerrada): la elegida como
+     * predeterminada y las variables configuradas por id de plantilla. Las
+     * resuelve `FlowOpeningTemplates`.
+     *
+     * @return array{default_template_id: ?int, templates: array<string, array{parameters: list<array<string, mixed>>}>}
+     */
+    public function openingConfig(): array
+    {
+        $stored = $this->opening ?? [];
+        $templates = [];
+
+        foreach (is_array($stored['templates'] ?? null) ? $stored['templates'] : [] as $id => $config) {
+            $templates[(string) $id] = ['parameters' => array_values((array) ($config['parameters'] ?? []))];
+        }
+
+        return [
+            'default_template_id' => isset($stored['default_template_id']) ? (int) $stored['default_template_id'] : null,
+            'templates' => $templates,
+        ];
+    }
+
+    /** @return list<array<string, mixed>> variables configuradas para esa plantilla de apertura */
+    public function openingParameters(int $templateId): array
+    {
+        return $this->openingConfig()['templates'][(string) $templateId]['parameters'] ?? [];
+    }
+
+    /**
+     * Cierre: lo que el CRM manda en el chat cuando llega la respuesta (local,
+     * nunca va a Meta). Un texto (con botón de link opcional, que sólo existe
+     * con texto y URL) o una plantilla con sus variables.
+     *
+     * @return array{type: 'text', body: string, button_text: ?string, url: ?string}|array{type: 'template', template_id: int, parameters: list<array<string, mixed>>}|null
+     */
+    public function completionMessage(): ?array
+    {
+        $stored = $this->completion_message ?? [];
+
+        if (($stored['type'] ?? null) === 'template') {
+            return isset($stored['template_id'])
+                ? ['type' => 'template', 'template_id' => (int) $stored['template_id'], 'parameters' => array_values((array) ($stored['parameters'] ?? []))]
+                : null;
+        }
+
+        if (($stored['type'] ?? null) !== 'text' || ! filled($stored['body'] ?? null)) {
+            return null;
+        }
+
+        $hasButton = filled($stored['button_text'] ?? null) && filled($stored['url'] ?? null);
+
+        return [
+            'type' => 'text',
+            'body' => (string) $stored['body'],
+            'button_text' => $hasButton ? (string) $stored['button_text'] : null,
+            'url' => $hasButton ? (string) $stored['url'] : null,
+        ];
     }
 
     /** Versión que se está editando (la que se publica). */

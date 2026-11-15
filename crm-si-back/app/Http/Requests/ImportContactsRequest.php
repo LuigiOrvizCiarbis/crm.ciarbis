@@ -2,10 +2,10 @@
 
 namespace App\Http\Requests;
 
+use App\Models\ContactField;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
-use App\Models\ContactField;
 
 class ImportContactsRequest extends FormRequest
 {
@@ -58,6 +58,7 @@ class ImportContactsRequest extends FormRequest
                             $validator->errors()->add('mapping', "El campo personalizado '{$fieldKey}' no existe.");
                         }
                     }
+
                     continue;
                 }
                 if ($key !== 'has_headers' && (! is_int($index) || $index < 0)) {

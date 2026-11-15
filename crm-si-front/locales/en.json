@@ -1265,7 +1265,18 @@
     "contactsSent": "Contacts sent",
     "flows": {
       "send": "Send form",
-      "windowClosed": "Outside the 24h window: use a template with a form button",
+      "windowClosed": "Outside the 24-hour window it's sent with one of the form's templates",
+      "closedDescription": "The 24-hour window is closed: the form is sent with one of its approved templates.",
+      "closedHint": "Pick a form with a ready template.",
+      "template": "Template",
+      "selectTemplate": "Select a template",
+      "defaultTemplate": "default",
+      "templatePreview": "What the contact gets",
+      "blockers": {
+        "noTemplate": "no template",
+        "templateParameters": "template variables missing",
+        "templateNotApproved": "template not approved"
+      },
       "description": "Send a WhatsApp form so the contact can fill it in without leaving the chat.",
       "flow": "Form",
       "selectFlow": "Select a form",
@@ -2843,8 +2854,8 @@
         "publish": "Publish",
         "editJson": "Edit JSON",
         "mapping": "Field mapping",
-        "sendDefaults": "Send message",
-        "createTemplate": "Create template",
+        "opening": "Opening",
+        "closing": "Closing",
         "clone": "Duplicate",
         "deprecate": "Deprecate",
         "delete": "Delete"
@@ -2911,12 +2922,6 @@
         "helpAppointment": "appointment_dates returns available_dates; appointment_slots (with date) returns available_slots and selected_date; book_appointment (with slot and optionally appointment_email and appointment_reason) books the appointment.",
         "helpRouting": "complete closes the flow. If you use data_api_version, the JSON also needs a routing_model."
       },
-      "sendDefaults": {
-        "title": "Send message · {{name}}",
-        "description": "Texts prefilled when this form is sent from the chat. Agents can change them before sending.",
-        "saved": "Send message saved",
-        "saveError": "Couldn't save the send message"
-      },
       "mapping": {
         "title": "Field mapping · {{name}}",
         "description": "Choose which responses are saved to the contact when the completed flow arrives.",
@@ -2946,6 +2951,128 @@
       "created": "Field “{{label}}” created",
       "error": "Couldn't create the field",
       "choicesRequired": "Add at least one option."
+    },
+    "completion": {
+      "description": "The CRM sends it in the chat as soon as the response arrives, before automations run. No template needed: the customer just wrote, so the 24-hour window is open.",
+      "body": "Message",
+      "variablesHint": "Tap an answer to quote it in the message.",
+      "variablesHintJson": "You can quote an answer with {{key}}.",
+      "insert": "Insert answer",
+      "unknownKeys": "These answers don't exist in the form and will be empty: {{keys}}",
+      "withButton": "Add a link button",
+      "buttonText": "Button text",
+      "buttonPlaceholder": "See catalog",
+      "url": "Link",
+      "urlInvalid": "Use a full link starting with https://",
+      "preview": "Preview",
+      "saved": "Completion message saved",
+      "saveError": "Couldn't save the completion message",
+      "fields": {
+        "appointment_start": "Appointment",
+        "appointment_status": "Appointment status"
+      }
+    },
+    "journey": {
+      "noChannel": "This form's WhatsApp channel wasn't found, so its templates can't be loaded.",
+      "templatesLoadError": "Couldn't load the templates.",
+      "loadingTemplates": "Loading templates…",
+      "retry": "Retry",
+      "templateStatus": {
+        "approved": "Approved",
+        "pending": "In review",
+        "rejected": "Rejected",
+        "other": "Unavailable",
+        "parameters": "Variables missing"
+      },
+      "params": {
+        "none": "This template has no variables.",
+        "selectSource": "Choose where it comes from",
+        "answers": "Answers",
+        "answer": "Answer: {{label}}",
+        "contactGroup": "Contact",
+        "contactField": "Contact: {{label}}",
+        "contact": {
+          "name": "Contact: Name",
+          "phone": "Contact: Phone",
+          "email": "Contact: Email"
+        },
+        "otherGroup": "Other",
+        "literal": "Fixed text",
+        "literalValue": "Fixed text for {{name}}",
+        "literalPlaceholder": "Text to send",
+        "fallback": "If empty (optional)",
+        "fallbackFor": "If {{name}} is empty",
+        "missingValue": "Enter the fixed text.",
+        "header": "Header: {{format}}",
+        "formats": {
+          "IMAGE": "image",
+          "VIDEO": "video",
+          "DOCUMENT": "PDF"
+        },
+        "headerSource": "Header source",
+        "file": "File",
+        "chooseFile": "Choose a file",
+        "uploading": "Uploading…",
+        "fileLoaded": "File uploaded",
+        "uploadError": "Couldn't upload the file",
+        "headerUrl": "File URL",
+        "missingFile": "Upload the header file.",
+        "missingUrl": "Use a full link starting with https://"
+      },
+      "opening": {
+        "title": "Opening",
+        "dialogTitle": "Opening · {{name}}",
+        "description": "How the form reaches the customer: with the 24-hour window open it's the send message; with the window closed, a template with a form button.",
+        "saveFirst": "Save the form to set up the opening.",
+        "messageTitle": "Send message",
+        "messageHint": "Used by chat and automations while the 24-hour window is open. Agents can change it before sending.",
+        "saveMessage": "Save message",
+        "messageSaved": "Send message saved",
+        "messageSaveError": "Couldn't save the send message",
+        "templatesTitle": "Templates",
+        "templatesHint": "Outside the 24-hour window the default template is sent. Fill in its variables so it's ready.",
+        "noTemplates": "There are no templates with this form's button yet.",
+        "defaultLabel": "Default template",
+        "automatic": "Automatic",
+        "automaticUses": "Uses the first ready one. Now: “{{name}}”.",
+        "noneReady": "No template is ready yet.",
+        "inUse": "In use",
+        "variables": "Variables ({{count}})",
+        "chosenNotReady": "This template isn't ready yet: the first ready one is used meanwhile.",
+        "saveTemplates": "Save templates",
+        "saved": "Opening saved",
+        "saveError": "Couldn't save the opening",
+        "refreshError": "Couldn't refresh the form",
+        "createTemplate": "Create template",
+        "publishFirst": "Publish the form to use it in a template.",
+        "retired": "A deprecated or blocked form can't be used in templates. Duplicate it and publish the copy."
+      },
+      "closing": {
+        "title": "Closing",
+        "dialogTitle": "Closing · {{name}}",
+        "description": "What the CRM sends in the chat when the response arrives.",
+        "saveFirst": "Save the form to set up the closing.",
+        "modeLabel": "What's sent on completion",
+        "modes": {
+          "none": "Nothing",
+          "text": "Message",
+          "template": "Template"
+        },
+        "noneHint": "Nothing is sent in the chat on completion.",
+        "templateHint": "An approved template arrives even if the 24-hour window closed while the customer was filling in the form.",
+        "template": "Template",
+        "selectTemplate": "Select a template",
+        "noTemplates": "There are no templates in this channel. Create a closing one.",
+        "missingTemplate": "Template #{{id}} (no longer exists)",
+        "opensForm": "This template opens a form, so it can't be used as a closing. Choose another one.",
+        "opensFormLabel": "opens a form",
+        "unpublishedFields": "New questions can be used in the closing after you publish.",
+        "notApproved": "It won't be sent until Meta approves it.",
+        "variables": "Variables",
+        "createTemplate": "Create closing template",
+        "saved": "Closing saved",
+        "saveError": "Couldn't save the closing"
+      }
     },
     "builder": {
       "title": "Form builder",
@@ -3023,8 +3150,20 @@
       },
       "canvas": {
         "label": "Form diagram",
-        "start": "Start",
-        "end": "End",
+        "saveFirst": "Save the form to set it up",
+        "opening": {
+          "message": "Message · {{cta}}",
+          "noTemplates": "No templates",
+          "default": "Template “{{name}}” · {{ready}}/{{total}} ready",
+          "defaultAutomatic": "Automatic: “{{name}}” · {{ready}}/{{total}} ready",
+          "noneReady": "Templates: none ready ({{total}})"
+        },
+        "closing": {
+          "none": "Sends nothing",
+          "text": "Text message",
+          "template": "Template “{{name}}”",
+          "templateUnknown": "Template"
+        },
         "entry": "First screen",
         "makeEntry": "Make first",
         "appointment": "Appointment booking",
@@ -3198,23 +3337,12 @@
         "source": "Message that opens the form",
         "sendSource": "Send message (chat and automations)",
         "templateSource": "Template {{name}} · {{status}}",
-        "sendHint": "Used by chat and automations while the 24-hour window is open. Outside that window you need a template.",
+        "sendHint": "Used by chat and automations while the 24-hour window is open. Outside that window the default template is sent.",
         "templateHint": "For broadcasts and contacts outside the 24-hour window. Meta reviews it before it can be used.",
-        "loading": "Looking for this form's templates…",
-        "saveFirst": "Save the form to edit this message and create templates.",
-        "edit": "Edit message",
-        "createTemplate": "Create template with this message",
-        "publishFirst": "Publish the form to use it in a template.",
-        "retired": "A deprecated or blocked form can't be used in templates. Duplicate it and publish the copy.",
-        "noChannel": "This form's WhatsApp channel wasn't found, so its templates can't be listed or created.",
-        "loadError": "Couldn't load this form's templates.",
-        "retry": "Retry",
-        "status": {
-          "approved": "approved",
-          "pending": "in review",
-          "rejected": "rejected",
-          "other": "unavailable"
-        }
+        "saveFirst": "Save the form to see its opening.",
+        "editInOpening": "Edit it in Opening, on the diagram.",
+        "templateUnavailable": "Couldn't load the {{name}} template.",
+        "templateMissing": "The {{name}} template is no longer in the channel."
       },
       "preview": {
         "screens": "Preview screen",
@@ -3224,7 +3352,10 @@
         "optional": "(optional)",
         "managedBy": "Managed by the business",
         "sampleOptions": "Sample options: the real ones come from the schedule.",
-        "note": "Approximate view. Use 'Meta preview' to see the exact version."
+        "note": "Approximate view. Use 'Meta preview' to see the exact version.",
+        "closing": "Closing",
+        "closingNone": "Nothing is sent on completion. Set it up in Closing, on the diagram.",
+        "closingSaveFirst": "Save the form to set up the closing."
       },
       "image": {
         "file": "Image",
@@ -3330,6 +3461,12 @@
         "description": "This form has unsaved changes. If you leave now, they'll be lost.",
         "stay": "Keep editing",
         "leave": "Leave without saving"
+      },
+      "panelDiscard": {
+        "title": "Discard changes?",
+        "description": "This panel has unsaved changes. Discard them?",
+        "stay": "Keep editing",
+        "discard": "Discard"
       },
       "encryptionHint": "Saving sets up the number's encryption automatically."
     }
