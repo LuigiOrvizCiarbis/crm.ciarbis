@@ -281,8 +281,27 @@ class WhatsAppController extends Controller
             ], 422);
         }
 
+        // El admin acaba de pedir una lectura fresca: el sidebar debe reflejarla
+        // en la próxima carga en vez de esperar al vencimiento del caché.
+        $service->forgetWorkspace($channel->tenant_id);
+
         return response()->json([
             'data' => $service->statusFor($config),
+        ]);
+    }
+
+    /**
+     * Indica si el negocio del workspace activo está verificado en Meta. Lo lee
+     * cualquier miembro: sólo expone un booleano para el badge del sidebar.
+     *
+     * GET /api/business-verification
+     */
+    public function workspaceBusinessVerification(
+        Request $request,
+        WhatsAppBusinessVerificationService $service
+    ): JsonResponse {
+        return response()->json([
+            'data' => ['verified' => $service->workspaceVerified($request->user()->tenant_id)],
         ]);
     }
 

@@ -280,3 +280,20 @@ export async function getBusinessVerification(
 
   return json.data;
 }
+
+/**
+ * Si el negocio del workspace activo está verificado en Meta. Ante cualquier
+ * error devuelve false: el badge sólo se muestra con una confirmación.
+ */
+export async function getWorkspaceBusinessVerified(): Promise<boolean> {
+  const response = await fetch("/api/business-verification", {
+    headers: { Accept: "application/json", ...workspaceHeaders() },
+    cache: "no-store",
+  });
+
+  if (!response.ok) return false;
+
+  const json = await response.json().catch(() => null);
+
+  return json?.data?.verified === true;
+}

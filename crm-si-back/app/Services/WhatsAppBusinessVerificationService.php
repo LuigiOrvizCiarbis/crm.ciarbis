@@ -2,8 +2,11 @@
 
 namespace App\Services;
 
+use App\Enums\ChannelType;
+use App\Models\Channel;
 use App\Models\WhatsAppConfig;
 use App\Support\MetaOAuth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -34,6 +37,15 @@ class WhatsAppBusinessVerificationService
     public const STATUS_TOKEN_INVALID = 'token_invalid';
 
     public const STATUS_UNKNOWN = 'unknown';
+
+    /**
+     * Una verificación aprobada casi nunca se revierte: se cachea largo. Otro
+     * estado puede pasar a verificado en cualquier momento, así que se relee
+     * más seguido.
+     */
+    private const WORKSPACE_VERIFIED_TTL_HOURS = 12;
+
+    private const WORKSPACE_PENDING_TTL_MINUTES = 30;
 
     /**
      * Resuelve el estado de verificación para una WhatsAppConfig.
@@ -71,6 +83,68 @@ class WhatsAppBusinessVerificationService
 
         // Paso 2: leer verification_status del Business Portfolio.
         return $this->fetchBusinessStatus($businessId, $token);
+    }
+
+    /**
+     * ¿Están verificados en Meta todos los negocios de los canales de WhatsApp
+     * activos del workspace? Sin canales de WhatsApp no hay nada que mostrar
+     * como verificado, así que devuelve false.
+     *
+     * Se consulta en cada carga de la app (sidebar), por eso se cachea por
+     * tenant en lugar de golpear Graph API en cada pedido.
+     */
+    public function workspaceVerified(int $tenantId): bool
+    {
+        $cached = Cache::get($this->workspaceCacheKey($tenantId));
+        if (is_bool($cached)) {
+            return $cached;
+        }
+
+        $verified = $this->resolveWorkspaceVerified($tenantId);
+
+        Cache::put(
+            $this->workspaceCacheKey($tenantId),
+            $verified,
+            $verified
+                ? now()->addHours(self::WORKSPACE_VERIFIED_TTL_HOURS)
+                : now()->addMinutes(self::WORKSPACE_PENDING_TTL_MINUTES),
+        );
+
+        return $verified;
+    }
+
+    /** Invalida el resumen del workspace tras una lectura fresca del estado. */
+    public function forgetWorkspace(int $tenantId): void
+    {
+        Cache::forget($this->workspaceCacheKey($tenantId));
+    }
+
+    private function resolveWorkspaceVerified(int $tenantId): bool
+    {
+        $configs = WhatsAppConfig::query()
+            ->whereIn('id', Channel::query()
+                ->where('tenant_id', $tenantId)
+                ->ofType(ChannelType::WHATSAPP)
+                ->active()
+                ->whereNotNull('whatsapp_config_id')
+                ->select('whatsapp_config_id'))
+            ->get()
+            // Varios números del mismo portfolio comparten verificación: una
+            // consulta por negocio alcanza.
+            ->unique(fn (WhatsAppConfig $config) => $config->business_id ?? "config:{$config->id}");
+
+        if ($configs->isEmpty()) {
+            return false;
+        }
+
+        return $configs->every(
+            fn (WhatsAppConfig $config) => $this->statusFor($config)['status'] === self::STATUS_VERIFIED,
+        );
+    }
+
+    private function workspaceCacheKey(int $tenantId): string
+    {
+        return "wa:business_verified:tenant:{$tenantId}";
     }
 
     /**
