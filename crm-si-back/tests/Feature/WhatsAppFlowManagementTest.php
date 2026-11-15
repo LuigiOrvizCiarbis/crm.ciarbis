@@ -17,6 +17,7 @@ use App\Models\AutomationRun;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
+use App\Models\MediaAsset;
 use App\Models\Message;
 use App\Models\Tenant;
 use App\Models\User;
@@ -486,11 +487,22 @@ class WhatsAppFlowManagementTest extends TestCase
         $save(['type' => 'text', 'body' => 'Gracias', 'button_text' => 'Ver'])->assertUnprocessable()->assertJsonValidationErrors(['completion_message.url']);
         $save(['type' => 'text', 'body' => 'Gracias', 'button_text' => 'Ver', 'url' => 'http://petshop.example'])
             ->assertUnprocessable()->assertJsonValidationErrors(['completion_message.url']);
+        $asset = fn (string $mime) => MediaAsset::create(['tenant_id' => $flow->tenant_id, 'name' => 'archivo', 'path' => 'media/archivo', 'mime_type' => $mime, 'size' => 1200]);
+        $withImage = fn (array $image) => ['type' => 'text', 'body' => 'Gracias', 'image' => $image];
+        $save($withImage(['source' => 'media_asset', 'media_asset_id' => 999999]))->assertUnprocessable()->assertJsonValidationErrors(['completion_message.image.media_asset_id']);
+        $save($withImage(['source' => 'media_asset', 'media_asset_id' => $asset('application/pdf')->id]))
+            ->assertUnprocessable()->assertJsonValidationErrors(['completion_message.image.media_asset_id']);
+        $save($withImage(['source' => 'literal', 'value' => 'http://cdn.example/gracias.png']))->assertUnprocessable()->assertJsonValidationErrors(['completion_message.image.value']);
+        $save($withImage(['source' => 'literal', 'value' => 'https://127.0.0.1/gracias.png']))->assertUnprocessable()->assertJsonValidationErrors(['completion_message.image.value']);
         $this->assertNull($flow->fresh()->completion_message);
 
         $save($template($closing, [$cliente]))->assertOk()
             ->assertJsonPath('data.completion_message', ['type' => 'template', 'template_id' => $closing->id, 'parameters' => [$cliente]])
             ->assertJsonPath('data.response_fields', [['key' => 'nombre', 'label' => 'Nombre']]);
+
+        $photo = $asset('image/jpeg');
+        $save($withImage(['source' => 'media_asset', 'media_asset_id' => $photo->id]))->assertOk()
+            ->assertJsonPath('data.completion_message.image', ['source' => 'media_asset', 'media_asset_id' => $photo->id]);
 
         $save(null)->assertOk()->assertJsonPath('data.completion_message', null);
         Http::assertNothingSent();

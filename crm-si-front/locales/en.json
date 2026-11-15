@@ -2790,7 +2790,7 @@
       },
       "closing": {
         "title": "Closing template",
-        "description": "Sent when the response arrives, even if the 24-hour window has closed. Meta reviews it before enabling it.",
+        "description": "Sent in the chat as soon as the response arrives. Meta reviews it before enabling it.",
         "hint": "It starts from the closing text and you can add variables like {{name}} to fill in with the answers."
       }
     },
@@ -3044,6 +3044,8 @@
       "variablesHintJson": "You can quote an answer with {{key}}.",
       "insert": "Insert answer",
       "unknownKeys": "These answers don't exist in the form and will be empty: {{keys}}",
+      "withImage": "Add an image",
+      "imageLimits": "JPG or PNG, up to 5 MB",
       "withButton": "Add a link button",
       "buttonText": "Button text",
       "buttonPlaceholder": "See catalog",
@@ -3144,7 +3146,7 @@
           "template": "Template"
         },
         "noneHint": "Nothing is sent in the chat on completion.",
-        "templateHint": "An approved template arrives even if the 24-hour window closed while the customer was filling in the form.",
+        "templateHint": "Use it when you need something the message doesn't have: quick replies, a call button, several buttons, video or PDF. It's only sent once Meta approves it.",
         "template": "Template",
         "selectTemplate": "Select a template",
         "noTemplates": "There are no templates in this channel. Create a closing one.",

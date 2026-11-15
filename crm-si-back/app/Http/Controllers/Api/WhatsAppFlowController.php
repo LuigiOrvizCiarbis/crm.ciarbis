@@ -12,6 +12,7 @@ use App\Http\Requests\UpdateWhatsAppFlowRequest;
 use App\Http\Resources\WhatsAppFlowResource;
 use App\Models\Channel;
 use App\Models\Conversation;
+use App\Models\MediaAsset;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppTemplate;
@@ -24,6 +25,8 @@ use App\Services\Flows\WhatsAppFlowMessageService;
 use App\Services\Flows\WhatsAppFlowService;
 use App\Services\Templates\TemplateParameterException;
 use App\Services\Templates\TemplateParameterRenderer;
+use App\Support\PublicUrlGuard;
+use App\Support\PublicUrlRejectedException;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -40,7 +43,11 @@ class WhatsAppFlowController extends Controller
         private readonly WhatsAppFlowEncryptionService $encryption,
         private readonly FlowOpeningTemplates $openingTemplates,
         private readonly TemplateParameterRenderer $parameters,
+        private readonly PublicUrlGuard $urlGuard,
     ) {}
+
+    /** Tipos de imagen que Meta acepta en un mensaje. */
+    private const CLOSING_IMAGE_TYPES = ['image/jpeg', 'image/png'];
 
     public function index(Request $request, Channel $channel): JsonResponse
     {
@@ -333,8 +340,12 @@ class WhatsAppFlowController extends Controller
      */
     private function validatedCompletion(WhatsAppFlow $flow, ?array $message): ?array
     {
-        if ($message === null || $message['type'] === 'text') {
-            return $message;
+        if ($message === null) {
+            return null;
+        }
+
+        if ($message['type'] === 'text') {
+            return $this->validatedTextCompletion($flow, $message);
         }
 
         $template = WhatsAppTemplate::withoutGlobalScopes()
@@ -364,6 +375,44 @@ class WhatsAppFlowController extends Controller
         }
 
         return ['type' => 'template', 'template_id' => $template->id, 'parameters' => $parameters];
+    }
+
+    /**
+     * La imagen se revisa al guardar: un archivo de otro espacio o que no es
+     * JPG/PNG, o una URL privada, fallarían recién en cada envío.
+     *
+     * @param  array<string, mixed>  $message
+     * @return array<string, mixed>
+     */
+    private function validatedTextCompletion(WhatsAppFlow $flow, array $message): array
+    {
+        $image = WhatsAppFlow::closingImage($message['image'] ?? null);
+
+        if ($image !== null && $image['source'] === 'media_asset') {
+            $asset = MediaAsset::where('tenant_id', $flow->tenant_id)->find($image['media_asset_id']);
+            if ($asset === null) {
+                throw ValidationException::withMessages(['completion_message.image.media_asset_id' => 'Elegí un archivo del espacio.']);
+            }
+            if (! in_array($asset->mime_type, self::CLOSING_IMAGE_TYPES, true)) {
+                throw ValidationException::withMessages(['completion_message.image.media_asset_id' => 'WhatsApp sólo acepta imágenes JPG o PNG.']);
+            }
+        }
+
+        if ($image !== null && $image['source'] === 'literal') {
+            try {
+                $this->urlGuard->assertPublicUrl($image['value']);
+            } catch (PublicUrlRejectedException) {
+                throw ValidationException::withMessages(['completion_message.image.value' => 'Usá una URL pública: Meta tiene que poder descargar la imagen.']);
+            }
+        }
+
+        return [
+            'type' => 'text',
+            'body' => $message['body'],
+            'button_text' => $message['button_text'] ?? null,
+            'url' => $message['url'] ?? null,
+            'image' => $image,
+        ];
     }
 
     /**

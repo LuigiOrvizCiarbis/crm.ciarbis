@@ -9,13 +9,14 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/Toast"
-import type { WhatsAppFlow, WhatsAppFlowResponseField } from "@/data/types"
+import type { TemplateParameter, WhatsAppFlow, WhatsAppFlowCompletionImage, WhatsAppFlowResponseField } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
-import { updateFlow } from "@/lib/api/whatsapp-flows"
+import { ApiValidationError, updateFlow } from "@/lib/api/whatsapp-flows"
 import { DEFAULT_CLOSING_BODY } from "@/lib/flow-builder/completion"
-import { answerLabel } from "@/lib/template-parameters"
+import { answerLabel, parameterIssue } from "@/lib/template-parameters"
 
 import { ChatBubble } from "./journey/ChatBubble"
+import { HeaderRow } from "./journey/TemplateParametersEditor"
 
 /** Límites de Meta: cuerpo de un mensaje interactivo y texto del botón de link. */
 const BODY_MAX = 1024
@@ -30,6 +31,19 @@ function isHttpsUrl(value: string): boolean {
     return false
   }
 }
+
+// La imagen se edita con el mismo campo que el encabezado de una plantilla (archivo o URL).
+const imageParameter = (image: WhatsAppFlowCompletionImage | null | undefined): TemplateParameter =>
+  image?.source === "literal"
+    ? { component: "header", source: "literal", value: image.value }
+    : { component: "header", source: "media_asset", media_asset_id: image?.media_asset_id }
+
+const completionImage = (parameter: TemplateParameter): WhatsAppFlowCompletionImage | null =>
+  parameter.source === "literal"
+    ? { source: "literal", value: parameter.value?.trim() ?? "" }
+    : parameter.media_asset_id
+      ? { source: "media_asset", media_asset_id: parameter.media_asset_id }
+      : null
 
 interface FlowCompletionMessageFormProps {
   flow: WhatsAppFlow
@@ -51,17 +65,34 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
   const [buttonText, setButtonText] = useState(stored?.button_text ?? "")
   const [url, setUrl] = useState(stored?.url ?? "")
   const [saving, setSaving] = useState(false)
+  const [withImage, setWithImage] = useState(Boolean(stored?.image))
+  const [image, setImage] = useState<TemplateParameter>(() => imageParameter(stored?.image))
+  // Sólo un archivo subido en esta sesión tiene URL para la vista previa; uno guardado se ve como ícono.
+  const [uploaded, setUploaded] = useState<{ id: number; url: string } | null>(null)
+  const [imageErrors, setImageErrors] = useState<string[]>([])
 
   const labels = new Map(fields.map((field) => [field.key, answerLabel(field, t)]))
   const unknownKeys = [...new Set([...body.matchAll(PLACEHOLDER)].map((match) => match[1]))].filter(
     (key) => fields.length > 0 && !labels.has(key),
   )
   const urlInvalid = withButton && url.trim() !== "" && !isHttpsUrl(url.trim())
-  const valid = body.trim() !== "" && (!withButton || (buttonText.trim() !== "" && isHttpsUrl(url.trim())))
+  const valid =
+    body.trim() !== "" &&
+    (!withButton || (buttonText.trim() !== "" && isHttpsUrl(url.trim()))) &&
+    (!withImage || parameterIssue(image) === null)
   const dirty =
     body.trim() !== (stored?.body ?? DEFAULT_CLOSING_BODY) ||
     withButton !== Boolean(stored?.button_text) ||
-    (withButton && (buttonText.trim() !== (stored?.button_text ?? "") || url.trim() !== (stored?.url ?? "")))
+    (withButton && (buttonText.trim() !== (stored?.button_text ?? "") || url.trim() !== (stored?.url ?? ""))) ||
+    withImage !== Boolean(stored?.image) ||
+    (withImage && JSON.stringify(completionImage(image)) !== JSON.stringify(stored?.image ?? null))
+  const imagePreviewUrl = !withImage
+    ? null
+    : image.source === "literal"
+      ? (isHttpsUrl(image.value?.trim() ?? "") ? (image.value?.trim() ?? null) : null)
+      : uploaded && uploaded.id === image.media_asset_id
+        ? uploaded.url
+        : null
 
   useEffect(() => {
     if (!onDirtyChange) return
@@ -92,11 +123,16 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
           body: body.trim(),
           button_text: withButton ? buttonText.trim() : null,
           url: withButton ? url.trim() : null,
+          image: withImage ? completionImage(image) : null,
         },
       })
+      setImageErrors([])
       onSaved(saved)
       addToast({ type: "success", title: t("flows.completion.saved") })
     } catch (error) {
+      if (error instanceof ApiValidationError) {
+        setImageErrors(Object.entries(error.errors).filter(([key]) => key.startsWith("completion_message.image")).flatMap(([, messages]) => messages))
+      }
       addToast({
         type: "error",
         title: t("flows.completion.saveError"),
@@ -146,6 +182,30 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
 
       <div className="space-y-3 rounded-lg border border-border p-3">
         <div className="flex items-center justify-between gap-3">
+          <Label htmlFor={`completion-${flow.id}-image`} className="text-sm font-medium">
+            {t("flows.completion.withImage")}
+          </Label>
+          <Switch id={`completion-${flow.id}-image`} checked={withImage} onCheckedChange={setWithImage} />
+        </div>
+        {withImage ? (
+          <HeaderRow
+            parameter={image}
+            format="IMAGE"
+            id={`completion-${flow.id}-image-source`}
+            label={t("flows.completion.imageLimits")}
+            disabled={saving}
+            errors={imageErrors}
+            onChange={(next) => {
+              setImage(next)
+              setImageErrors([])
+            }}
+            onUploaded={(asset) => setUploaded({ id: asset.id, url: asset.url })}
+          />
+        ) : null}
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-border p-3">
+        <div className="flex items-center justify-between gap-3">
           <Label htmlFor={`completion-${flow.id}-button`} className="text-sm font-medium">
             {t("flows.completion.withButton")}
           </Label>
@@ -186,7 +246,7 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
         <div className="rounded-lg bg-[#efeae2] p-3 dark:bg-muted/40">
           <ChatBubble
             content={{
-              header: null,
+              header: withImage ? { kind: "image", url: imagePreviewUrl } : null,
               body: preview,
               footer: null,
               buttons: withButton && buttonText.trim() ? [{ text: buttonText, kind: "link" }] : [],
