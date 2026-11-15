@@ -2528,7 +2528,7 @@
   },
   "businessVerification": {
     "title": "Verificación de negocio (Meta)",
-    "sidebarBadge": "Negocio verificado por Meta",
+    "sidebarBadge": "Verificación del negocio en Meta: {{state}}",
     "subtitle": "Meta verifica el negocio, no cada número: los números de WhatsApp que comparten el mismo portfolio aparecen juntos.",
     "refresh": "Actualizar",
     "empty": "No hay canales de WhatsApp conectados.",

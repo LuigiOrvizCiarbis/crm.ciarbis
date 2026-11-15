@@ -146,25 +146,43 @@ class WhatsAppBusinessVerificationTest extends TestCase
             ]),
         ]);
 
-        $this->getJson('/api/business-verification')->assertOk()->assertJsonPath('data.verified', true);
-        $this->getJson('/api/business-verification')->assertOk()->assertJsonPath('data.verified', true);
+        $this->getJson('/api/business-verification')->assertOk()->assertJsonPath('data.status', 'verified');
+        $this->getJson('/api/business-verification')->assertOk()->assertJsonPath('data.status', 'verified');
 
         // La segunda carga sale del caché: el sidebar no consulta Graph en cada pedido.
         Http::assertSentCount(1);
     }
 
-    public function test_workspace_summary_is_not_verified_when_any_business_is_unverified(): void
+    public function test_workspace_summary_reports_the_business_that_needs_most_attention(): void
     {
         [$tenant, $user] = $this->makeChannel(businessId: 'BIZ_OK');
-        $this->addChannel($tenant, $user, businessId: 'BIZ_NO');
+        $this->addChannel($tenant, $user, businessId: 'BIZ_REVIEW');
+        $this->addChannel($tenant, $user, businessId: 'BIZ_DRAFT');
         Sanctum::actingAs($user);
 
         Http::fake([
             'graph.facebook.com/*/BIZ_OK*' => Http::response(['id' => 'BIZ_OK', 'verification_status' => 'verified']),
-            'graph.facebook.com/*/BIZ_NO*' => Http::response(['id' => 'BIZ_NO', 'verification_status' => 'not_verified']),
+            'graph.facebook.com/*/BIZ_REVIEW*' => Http::response(['id' => 'BIZ_REVIEW', 'verification_status' => 'pending']),
+            'graph.facebook.com/*/BIZ_DRAFT*' => Http::response(['id' => 'BIZ_DRAFT', 'verification_status' => 'pending_submission']),
         ]);
 
-        $this->getJson('/api/business-verification')->assertOk()->assertJsonPath('data.verified', false);
+        // "Sin enviar" espera algo del negocio: gana sobre "en revisión" y "verificado".
+        $this->getJson('/api/business-verification')
+            ->assertOk()
+            ->assertJsonPath('data.status', 'pending')
+            ->assertJsonPath('data.raw_verification_status', 'pending_submission');
+    }
+
+    public function test_workspace_summary_is_null_when_no_business_can_be_read(): void
+    {
+        [, $user] = $this->makeChannel(businessId: 'BIZ_DENIED');
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'graph.facebook.com/*' => Http::response(['error' => ['code' => 10, 'message' => 'Permission denied']], 403),
+        ]);
+
+        $this->getJson('/api/business-verification')->assertOk()->assertJsonPath('data', null);
     }
 
     public function test_refreshing_a_channel_status_invalidates_the_workspace_summary(): void
@@ -177,9 +195,9 @@ class WhatsAppBusinessVerificationTest extends TestCase
             ->push(['id' => 'BIZ_FLIP', 'verification_status' => 'verified'])
             ->push(['id' => 'BIZ_FLIP', 'verification_status' => 'verified']);
 
-        $this->getJson('/api/business-verification')->assertJsonPath('data.verified', false);
+        $this->getJson('/api/business-verification')->assertJsonPath('data.status', 'not_verified');
         $this->getJson($this->endpoint($channel))->assertJsonPath('data.status', 'verified');
-        $this->getJson('/api/business-verification')->assertJsonPath('data.verified', true);
+        $this->getJson('/api/business-verification')->assertJsonPath('data.status', 'verified');
     }
 
     private function endpoint(Channel $channel): string
