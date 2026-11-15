@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import type { TemplateParameter, WhatsAppFlow, WhatsAppFlowOpening, WhatsAppTemplate } from "@/data/types"
+import type { TemplateParameter, WhatsAppFlow, WhatsAppFlowOpening, WhatsAppFlowSendDefaults, WhatsAppTemplate } from "@/data/types"
 import { usePermission } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
 import { ApiValidationError, getFlow, updateFlow } from "@/lib/api/whatsapp-flows"
@@ -64,6 +64,8 @@ export function FlowOpeningPanel({ flow, channelId, onFlowChange, onDirtyChange 
   const [saving, setSaving] = useState(false)
   const [templateDraft, setTemplateDraft] = useState<{ key: string; draft: TemplateDraft } | null>(null)
   const [sendDirty, setSendDirty] = useState(false)
+  // La plantilla nueva parte del mensaje tal como se ve en pantalla, aunque todavía no se haya guardado.
+  const [sendMessage, setSendMessage] = useState<WhatsAppFlowSendDefaults>(flow.send_defaults)
 
   const context: ParameterContext = useMemo(
     () => ({ answers: [], contactFields: contactFieldsStore.fields }),
@@ -187,7 +189,7 @@ export function FlowOpeningPanel({ flow, channelId, onFlowChange, onDirtyChange 
           </h3>
           <p className="text-xs text-muted-foreground">{t("flows.journey.opening.messageHint")}</p>
         </div>
-        <FlowSendMessageForm key={flow.id} flow={flow} onSaved={onFlowChange} onDirtyChange={setSendDirty} />
+        <FlowSendMessageForm key={flow.id} flow={flow} onSaved={onFlowChange} onDirtyChange={setSendDirty} onValuesChange={setSendMessage} />
       </section>
 
       <section className="space-y-3 border-t border-border pt-5" aria-labelledby={`flow-${flow.id}-opening-templates`}>
@@ -310,7 +312,7 @@ export function FlowOpeningPanel({ flow, channelId, onFlowChange, onDirtyChange 
               size="sm"
               variant="outline"
               disabled={!usable || channelId === null}
-              onClick={() => setTemplateDraft({ key: `${flow.id}-${Date.now()}`, draft: flowTemplateDraft(flow) })}
+              onClick={() => setTemplateDraft({ key: `${flow.id}-${Date.now()}`, draft: flowTemplateDraft(flow, sendMessage) })}
             >
               <MessageSquarePlus className="size-4" />
               {t("flows.journey.opening.createTemplate")}
