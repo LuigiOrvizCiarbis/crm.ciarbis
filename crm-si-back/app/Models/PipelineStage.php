@@ -22,6 +22,7 @@ class PipelineStage extends Model
         'sort_order',
         'is_default',
         'win_probability',
+        'outcome',
     ];
 
     protected $casts = [
@@ -30,6 +31,10 @@ class PipelineStage extends Model
 
     public const NEXT_MONTH_PLACEHOLDER = '{mes_siguiente}';
 
+    public const OUTCOME_WON = 'won';
+
+    public const OUTCOME_LOST = 'lost';
+
     // Hardcodeados para no depender de los datos de locale de Carbon.
     private const MONTH_NAMES = [
         1 => 'Enero', 2 => 'Febrero', 3 => 'Marzo', 4 => 'Abril',
@@ -37,19 +42,22 @@ class PipelineStage extends Model
         9 => 'Septiembre', 10 => 'Octubre', 11 => 'Noviembre', 12 => 'Diciembre',
     ];
 
-    /** Etapas por defecto del pipeline predeterminado: [nombre o plantilla, color]. */
+    /**
+     * Etapas por defecto del pipeline predeterminado: [nombre o plantilla,
+     * color, resultado que fija a sus oportunidades (null = en curso)].
+     */
     private const DEFAULT_STAGES = [
-        ['Lead/Prospecto', '#3beaf7'],
-        ['Interesado', '#e6fd72'],
-        ['Contactar '.self::NEXT_MONTH_PLACEHOLDER, '#e6fd72'],
-        ['1era Reunión', '#fcdc69'],
-        ['2da Reunión', '#dfc35d'],
-        ['Negociación', '#e4992f'],
-        ['Cierre', '#9dff8a'],
-        ['Oferta/Adelanto/Reserva', '#78e25a'],
-        ['Cliente Convertido/Ganado', '#5be17d'],
-        ['Partner/Colega/Proveedor', '#bb3bf7'],
-        ['Perdido/No le interesa', '#fe165b'],
+        ['Lead/Prospecto', '#3beaf7', null],
+        ['Interesado', '#e6fd72', null],
+        ['Contactar '.self::NEXT_MONTH_PLACEHOLDER, '#e6fd72', null],
+        ['1era Reunión', '#fcdc69', null],
+        ['2da Reunión', '#dfc35d', null],
+        ['Negociación', '#e4992f', null],
+        ['Cierre', '#9dff8a', null],
+        ['Oferta/Adelanto/Reserva', '#78e25a', null],
+        ['Cliente Convertido/Ganado', '#5be17d', self::OUTCOME_WON],
+        ['Partner/Colega/Proveedor', '#bb3bf7', null],
+        ['Perdido/No le interesa', '#fe165b', self::OUTCOME_LOST],
     ];
 
     /**
@@ -69,12 +77,12 @@ class PipelineStage extends Model
      * Etapas por defecto en orden, listas para insertar (todas las filas con
      * las mismas claves, como exige insert()).
      *
-     * @return list<array{name: string, name_template: ?string, color: string, sort_order: int, is_default: bool}>
+     * @return list<array{name: string, name_template: ?string, color: string, sort_order: int, is_default: bool, outcome: ?string}>
      */
     public static function defaultBlueprint(): array
     {
         $stages = [];
-        foreach (self::DEFAULT_STAGES as $i => [$label, $color]) {
+        foreach (self::DEFAULT_STAGES as $i => [$label, $color, $outcome]) {
             $templated = str_contains($label, self::NEXT_MONTH_PLACEHOLDER);
             $stages[] = [
                 'name' => $templated ? self::renderNameTemplate($label) : $label,
@@ -82,10 +90,21 @@ class PipelineStage extends Model
                 'color' => $color,
                 'sort_order' => $i + 1,
                 'is_default' => $i === 0,
+                'outcome' => $outcome,
             ];
         }
 
         return $stages;
+    }
+
+    /** Resultado (won/lost) que la etapa fija a sus oportunidades; null = en curso. */
+    public static function outcomeOf(?int $stageId): ?string
+    {
+        if ($stageId === null) {
+            return null;
+        }
+
+        return static::withoutGlobalScopes()->whereKey($stageId)->value('outcome');
     }
 
     protected static function booted(): void
