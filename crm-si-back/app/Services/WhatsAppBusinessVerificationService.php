@@ -30,6 +30,15 @@ class WhatsAppBusinessVerificationService
 
     public const STATUS_FAILED = 'failed';
 
+    /** La verificación venció: hay que renovarla en Meta. */
+    public const STATUS_EXPIRED = 'expired';
+
+    /** Meta quitó una verificación que ya estaba aprobada. */
+    public const STATUS_REVOKED = 'revoked';
+
+    /** El negocio no puede verificarse para el producto: más documentos no lo cambian. */
+    public const STATUS_INELIGIBLE = 'ineligible';
+
     public const STATUS_BUSINESS_ID_MISSING = 'business_id_missing';
 
     public const STATUS_PERMISSION_MISSING = 'permission_missing';
@@ -46,6 +55,16 @@ class WhatsAppBusinessVerificationService
     private const WORKSPACE_VERIFIED_TTL_HOURS = 12;
 
     private const WORKSPACE_PENDING_TTL_MINUTES = 30;
+
+    /**
+     * Orden de atención para el resumen del workspace: gana el negocio que más
+     * necesita al usuario. Lo que no se pudo leer en Meta (canal a reconectar,
+     * permiso, error) queda justo antes de "verificado": no se puede afirmar
+     * nada, pero tampoco tapa un rechazo o un "sin verificar" de otro negocio.
+     */
+    private const ATTENTION_RANK_UNREADABLE = 8;
+
+    private const ATTENTION_RANK_VERIFIED = 9;
 
     /**
      * Resuelve el estado de verificación para una WhatsAppConfig.
@@ -86,31 +105,35 @@ class WhatsAppBusinessVerificationService
     }
 
     /**
-     * ¿Están verificados en Meta todos los negocios de los canales de WhatsApp
-     * activos del workspace? Sin canales de WhatsApp no hay nada que mostrar
-     * como verificado, así que devuelve false.
+     * Estado de verificación en Meta del negocio del workspace que más atención
+     * pide, entre los canales de WhatsApp activos. `null` cuando no hay canales
+     * de WhatsApp o ningún negocio se pudo leer: el sidebar sólo muestra lo que
+     * Meta informó.
      *
      * Se consulta en cada carga de la app (sidebar), por eso se cachea por
      * tenant en lugar de golpear Graph API en cada pedido.
+     *
+     * @return array{status: string, raw_verification_status: string|null}|null
      */
-    public function workspaceVerified(int $tenantId): bool
+    public function workspaceVerification(int $tenantId): ?array
     {
+        // Envuelto en un array para poder cachear también el resultado `null`.
         $cached = Cache::get($this->workspaceCacheKey($tenantId));
-        if (is_bool($cached)) {
-            return $cached;
+        if (is_array($cached) && array_key_exists('summary', $cached)) {
+            return $cached['summary'];
         }
 
-        $verified = $this->resolveWorkspaceVerified($tenantId);
+        $summary = $this->resolveWorkspaceVerification($tenantId);
 
         Cache::put(
             $this->workspaceCacheKey($tenantId),
-            $verified,
-            $verified
+            ['summary' => $summary],
+            $summary !== null && $summary['status'] === self::STATUS_VERIFIED
                 ? now()->addHours(self::WORKSPACE_VERIFIED_TTL_HOURS)
                 : now()->addMinutes(self::WORKSPACE_PENDING_TTL_MINUTES),
         );
 
-        return $verified;
+        return $summary;
     }
 
     /** Invalida el resumen del workspace tras una lectura fresca del estado. */
@@ -119,9 +142,12 @@ class WhatsAppBusinessVerificationService
         Cache::forget($this->workspaceCacheKey($tenantId));
     }
 
-    private function resolveWorkspaceVerified(int $tenantId): bool
+    /**
+     * @return array{status: string, raw_verification_status: string|null}|null
+     */
+    private function resolveWorkspaceVerification(int $tenantId): ?array
     {
-        $configs = WhatsAppConfig::query()
+        $mostUrgent = WhatsAppConfig::query()
             ->whereIn('id', Channel::query()
                 ->where('tenant_id', $tenantId)
                 ->ofType(ChannelType::WHATSAPP)
@@ -131,20 +157,48 @@ class WhatsAppBusinessVerificationService
             ->get()
             // Varios números del mismo portfolio comparten verificación: una
             // consulta por negocio alcanza.
-            ->unique(fn (WhatsAppConfig $config) => $config->business_id ?? "config:{$config->id}");
+            ->unique(fn (WhatsAppConfig $config) => $config->business_id ?? "config:{$config->id}")
+            ->map(fn (WhatsAppConfig $config) => $this->statusFor($config))
+            ->sortBy(fn (array $result) => $this->attentionRank($result))
+            ->first();
 
-        if ($configs->isEmpty()) {
-            return false;
+        if ($mostUrgent === null || $this->attentionRank($mostUrgent) === self::ATTENTION_RANK_UNREADABLE) {
+            return null;
         }
 
-        return $configs->every(
-            fn (WhatsAppConfig $config) => $this->statusFor($config)['status'] === self::STATUS_VERIFIED,
-        );
+        return [
+            'status' => $mostUrgent['status'],
+            'raw_verification_status' => $mostUrgent['raw_verification_status'],
+        ];
+    }
+
+    /**
+     * Menor = pide más atención. `pending` agrupa tres situaciones de Meta: lo
+     * que espera algo del negocio va antes de lo que Meta está revisando.
+     *
+     * @param  array{status: string, raw_verification_status: string|null}  $result
+     */
+    private function attentionRank(array $result): int
+    {
+        return match ($result['status']) {
+            self::STATUS_REVOKED => 0,
+            self::STATUS_FAILED => 1,
+            self::STATUS_INELIGIBLE => 2,
+            self::STATUS_EXPIRED => 3,
+            self::STATUS_NOT_VERIFIED => 4,
+            self::STATUS_PENDING => match ($result['raw_verification_status']) {
+                'pending_need_more_info' => 5,
+                'pending_submission' => 6,
+                default => 7,
+            },
+            self::STATUS_VERIFIED => self::ATTENTION_RANK_VERIFIED,
+            default => self::ATTENTION_RANK_UNREADABLE,
+        };
     }
 
     private function workspaceCacheKey(int $tenantId): string
     {
-        return "wa:business_verified:tenant:{$tenantId}";
+        return "wa:business_verification:tenant:{$tenantId}";
     }
 
     /**
@@ -230,8 +284,10 @@ class WhatsAppBusinessVerificationService
     }
 
     /**
-     * Normaliza el verification_status crudo de Meta.
-     * Valores reales observados en prod: not_verified, pending_submission.
+     * Normaliza el verification_status crudo de Meta. Enum documentado en la
+     * Graph API (nodo Business): expired, failed, ineligible, not_verified,
+     * pending, pending_need_more_info, pending_submission, rejected, revoked,
+     * verified. Valores reales observados en prod: not_verified, pending_submission.
      */
     private function normalizeStatus(?string $raw): string
     {
@@ -239,7 +295,9 @@ class WhatsAppBusinessVerificationService
             'verified' => self::STATUS_VERIFIED,
             'pending', 'pending_submission', 'pending_need_more_info' => self::STATUS_PENDING,
             'rejected', 'failed' => self::STATUS_FAILED,
-            'not_verified', null => self::STATUS_NOT_VERIFIED,
+            'expired' => self::STATUS_EXPIRED,
+            'revoked' => self::STATUS_REVOKED,
+            'ineligible' => self::STATUS_INELIGIBLE,
             default => self::STATUS_NOT_VERIFIED,
         };
     }

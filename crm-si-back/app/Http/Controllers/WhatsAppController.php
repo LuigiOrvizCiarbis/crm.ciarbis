@@ -291,8 +291,9 @@ class WhatsAppController extends Controller
     }
 
     /**
-     * Indica si el negocio del workspace activo está verificado en Meta. Lo lee
-     * cualquier miembro: sólo expone un booleano para el badge del sidebar.
+     * Estado de verificación en Meta del negocio del workspace activo, para el
+     * badge del sidebar. Lo lee cualquier miembro: sólo expone el estado, sin
+     * ids, nombres ni enlaces del negocio. `data` es null sin nada que mostrar.
      *
      * GET /api/business-verification
      */
@@ -301,7 +302,7 @@ class WhatsAppController extends Controller
         WhatsAppBusinessVerificationService $service
     ): JsonResponse {
         return response()->json([
-            'data' => ['verified' => $service->workspaceVerified($request->user()->tenant_id)],
+            'data' => $service->workspaceVerification($request->user()->tenant_id),
         ]);
     }
 

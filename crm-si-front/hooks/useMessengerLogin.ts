@@ -132,11 +132,15 @@ export const useMessengerLogin = () => {
     //                            docs del Send API)
     //  - business_management  → ya aprobado en la app, necesario para páginas
     //                            administradas vía Business Manager
+    //  - page_events          → Conversions API (ventas de chats que vinieron de
+    //                            anuncios); detrás de un env hasta que App Review
+    //                            apruebe el acceso avanzado
     const scope = [
       "pages_show_list",
       "pages_manage_metadata",
       "pages_messaging",
       "business_management",
+      ...(process.env.NEXT_PUBLIC_META_CONVERSIONS_API_ENABLED === "true" ? ["page_events"] : []),
     ].join(",");
 
     // El provider va en el state para que el callback compartido sepa a quién

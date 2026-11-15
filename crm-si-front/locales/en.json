@@ -625,6 +625,11 @@
       "empty": "No stages yet. Add the first one.",
       "editHint": "Edit the name or color and click away to save. Drag to reorder.",
       "probabilityHint": "The % is each stage win probability: the Panel uses it to project revenue. Empty = not counted.",
+      "outcomeHint": "Won/Lost close the opportunity when it moves to that stage. If the chat came from a Meta ad, Won reports the sale to Meta.",
+      "outcomeAria": "Outcome of {{name}}",
+      "outcomeNone": "In progress",
+      "outcomeWon": "Won",
+      "outcomeLost": "Lost",
       "reorderAria": "Move stage {{name}}",
       "deleteAria": "Delete stage {{name}}",
       "nameAria": "Stage name",
@@ -2528,7 +2533,7 @@
   },
   "businessVerification": {
     "title": "Business verification (Meta)",
-    "sidebarBadge": "Business verified by Meta",
+    "sidebarBadge": "Meta business verification: {{state}}",
     "subtitle": "Meta verifies the business, not each number: WhatsApp numbers that share a portfolio are shown together.",
     "refresh": "Refresh",
     "empty": "No WhatsApp channels connected.",
@@ -2572,6 +2577,18 @@
       "rejected": {
         "label": "Rejected",
         "detail": "Meta rejected the verification. Check the reason in the Security Center and resubmit the documents."
+      },
+      "expired": {
+        "label": "Expired",
+        "detail": "This business's verification expired. Renew it on Meta with the same steps to be verified again."
+      },
+      "revoked": {
+        "label": "Revoked",
+        "detail": "Meta removed this business's verification. Check the reason in the Security Center before submitting anything again."
+      },
+      "ineligible": {
+        "label": "Not eligible",
+        "detail": "Meta says this business can't be verified for this product. Uploading more documents won't change it: check the details on Meta."
       },
       "reconnect": {
         "label": "Reconnect the channel",

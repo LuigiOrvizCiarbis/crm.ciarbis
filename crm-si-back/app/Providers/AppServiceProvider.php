@@ -29,6 +29,7 @@ use App\Models\WhatsAppTemplate;
 use App\Observers\ContactAutomationObserver;
 use App\Observers\ConversationAutomationObserver;
 use App\Observers\MessageObserver;
+use App\Observers\OpportunityConversionObserver;
 use App\Policies\BranchPolicy;
 use App\Policies\ChannelPolicy;
 use App\Policies\ContactPolicy;
@@ -99,6 +100,7 @@ class AppServiceProvider extends ServiceProvider
         Message::observe(MessageObserver::class);
         Contact::observe(ContactAutomationObserver::class);
         Conversation::observe(ConversationAutomationObserver::class);
+        Opportunity::observe(OpportunityConversionObserver::class);
 
         // Rate limit del endpoint público de webhooks entrantes: por api key
         // (varios tenants pueden compartir IP), con fallback a IP si no vino la key.
