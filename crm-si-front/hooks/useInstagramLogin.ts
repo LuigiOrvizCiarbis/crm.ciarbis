@@ -135,6 +135,9 @@ export const useInstagramLogin = () => {
       "instagram_manage_comments",
       messagingPermission,
       "business_management",
+      // Conversions API (ventas de chats que vinieron de anuncios); detrás de un
+      // env hasta que App Review apruebe el acceso avanzado.
+      ...(process.env.NEXT_PUBLIC_META_CONVERSIONS_API_ENABLED === "true" ? ["instagram_manage_events"] : []),
     ].join(",");
 
     const state = crypto.randomUUID();

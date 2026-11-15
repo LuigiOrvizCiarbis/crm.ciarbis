@@ -91,6 +91,7 @@ class WhatsAppConfig extends Model
         'flows_public_key',
         'flows_public_key_uploaded_at',
         'flows_endpoint_token',
+        'meta_dataset_id',
     ];
 
     protected $casts = [

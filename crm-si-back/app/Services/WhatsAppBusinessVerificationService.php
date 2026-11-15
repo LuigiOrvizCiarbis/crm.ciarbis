@@ -30,6 +30,15 @@ class WhatsAppBusinessVerificationService
 
     public const STATUS_FAILED = 'failed';
 
+    /** La verificación venció: hay que renovarla en Meta. */
+    public const STATUS_EXPIRED = 'expired';
+
+    /** Meta quitó una verificación que ya estaba aprobada. */
+    public const STATUS_REVOKED = 'revoked';
+
+    /** El negocio no puede verificarse para el producto: más documentos no lo cambian. */
+    public const STATUS_INELIGIBLE = 'ineligible';
+
     public const STATUS_BUSINESS_ID_MISSING = 'business_id_missing';
 
     public const STATUS_PERMISSION_MISSING = 'permission_missing';
@@ -53,9 +62,9 @@ class WhatsAppBusinessVerificationService
      * permiso, error) queda justo antes de "verificado": no se puede afirmar
      * nada, pero tampoco tapa un rechazo o un "sin verificar" de otro negocio.
      */
-    private const ATTENTION_RANK_UNREADABLE = 5;
+    private const ATTENTION_RANK_UNREADABLE = 8;
 
-    private const ATTENTION_RANK_VERIFIED = 6;
+    private const ATTENTION_RANK_VERIFIED = 9;
 
     /**
      * Resuelve el estado de verificación para una WhatsAppConfig.
@@ -172,12 +181,15 @@ class WhatsAppBusinessVerificationService
     private function attentionRank(array $result): int
     {
         return match ($result['status']) {
-            self::STATUS_FAILED => 0,
-            self::STATUS_NOT_VERIFIED => 1,
+            self::STATUS_REVOKED => 0,
+            self::STATUS_FAILED => 1,
+            self::STATUS_INELIGIBLE => 2,
+            self::STATUS_EXPIRED => 3,
+            self::STATUS_NOT_VERIFIED => 4,
             self::STATUS_PENDING => match ($result['raw_verification_status']) {
-                'pending_need_more_info' => 2,
-                'pending_submission' => 3,
-                default => 4,
+                'pending_need_more_info' => 5,
+                'pending_submission' => 6,
+                default => 7,
             },
             self::STATUS_VERIFIED => self::ATTENTION_RANK_VERIFIED,
             default => self::ATTENTION_RANK_UNREADABLE,
@@ -272,8 +284,10 @@ class WhatsAppBusinessVerificationService
     }
 
     /**
-     * Normaliza el verification_status crudo de Meta.
-     * Valores reales observados en prod: not_verified, pending_submission.
+     * Normaliza el verification_status crudo de Meta. Enum documentado en la
+     * Graph API (nodo Business): expired, failed, ineligible, not_verified,
+     * pending, pending_need_more_info, pending_submission, rejected, revoked,
+     * verified. Valores reales observados en prod: not_verified, pending_submission.
      */
     private function normalizeStatus(?string $raw): string
     {
@@ -281,7 +295,9 @@ class WhatsAppBusinessVerificationService
             'verified' => self::STATUS_VERIFIED,
             'pending', 'pending_submission', 'pending_need_more_info' => self::STATUS_PENDING,
             'rejected', 'failed' => self::STATUS_FAILED,
-            'not_verified', null => self::STATUS_NOT_VERIFIED,
+            'expired' => self::STATUS_EXPIRED,
+            'revoked' => self::STATUS_REVOKED,
+            'ineligible' => self::STATUS_INELIGIBLE,
             default => self::STATUS_NOT_VERIFIED,
         };
     }

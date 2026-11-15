@@ -625,6 +625,11 @@
       "empty": "No stages yet. Add the first one.",
       "editHint": "Edit the name or color and click away to save. Drag to reorder.",
       "probabilityHint": "The % is each stage win probability: the Panel uses it to project revenue. Empty = not counted.",
+      "outcomeHint": "Won/Lost close the opportunity when it moves to that stage. If the chat came from a Meta ad, Won reports the sale to Meta.",
+      "outcomeAria": "Outcome of {{name}}",
+      "outcomeNone": "In progress",
+      "outcomeWon": "Won",
+      "outcomeLost": "Lost",
       "reorderAria": "Move stage {{name}}",
       "deleteAria": "Delete stage {{name}}",
       "nameAria": "Stage name",
@@ -2573,6 +2578,18 @@
         "label": "Rejected",
         "detail": "Meta rejected the verification. Check the reason in the Security Center and resubmit the documents."
       },
+      "expired": {
+        "label": "Expired",
+        "detail": "This business's verification expired. Renew it on Meta with the same steps to be verified again."
+      },
+      "revoked": {
+        "label": "Revoked",
+        "detail": "Meta removed this business's verification. Check the reason in the Security Center before submitting anything again."
+      },
+      "ineligible": {
+        "label": "Not eligible",
+        "detail": "Meta says this business can't be verified for this product. Uploading more documents won't change it: check the details on Meta."
+      },
       "reconnect": {
         "label": "Reconnect the channel",
         "detail": "We couldn't read this number's business on Meta. Use Add channel to connect WhatsApp again."
@@ -2790,7 +2807,7 @@
       },
       "closing": {
         "title": "Closing template",
-        "description": "Sent when the response arrives, even if the 24-hour window has closed. Meta reviews it before enabling it.",
+        "description": "Sent in the chat as soon as the response arrives. Meta reviews it before enabling it.",
         "hint": "It starts from the closing text and you can add variables like {{name}} to fill in with the answers."
       }
     },
@@ -3044,6 +3061,8 @@
       "variablesHintJson": "You can quote an answer with {{key}}.",
       "insert": "Insert answer",
       "unknownKeys": "These answers don't exist in the form and will be empty: {{keys}}",
+      "withImage": "Add an image",
+      "imageLimits": "JPG or PNG, up to 5 MB",
       "withButton": "Add a link button",
       "buttonText": "Button text",
       "buttonPlaceholder": "See catalog",
@@ -3144,7 +3163,7 @@
           "template": "Template"
         },
         "noneHint": "Nothing is sent in the chat on completion.",
-        "templateHint": "An approved template arrives even if the 24-hour window closed while the customer was filling in the form.",
+        "templateHint": "Use it when you need something the message doesn't have: quick replies, a call button, several buttons, video or PDF. It's only sent once Meta approves it.",
         "template": "Template",
         "selectTemplate": "Select a template",
         "noTemplates": "There are no templates in this channel. Create a closing one.",

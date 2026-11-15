@@ -122,9 +122,9 @@ class WhatsAppFlow extends Model
     /**
      * Cierre: lo que el CRM manda en el chat cuando llega la respuesta (local,
      * nunca va a Meta). Un texto (con botón de link opcional, que sólo existe
-     * con texto y URL) o una plantilla con sus variables.
+     * con texto y URL, e imagen opcional) o una plantilla con sus variables.
      *
-     * @return array{type: 'text', body: string, button_text: ?string, url: ?string}|array{type: 'template', template_id: int, parameters: list<array<string, mixed>>}|null
+     * @return array{type: 'text', body: string, button_text: ?string, url: ?string, image: array{source: 'media_asset', media_asset_id: int}|array{source: 'literal', value: string}|null}|array{type: 'template', template_id: int, parameters: list<array<string, mixed>>}|null
      */
     public function completionMessage(): ?array
     {
@@ -147,7 +147,25 @@ class WhatsAppFlow extends Model
             'body' => (string) $stored['body'],
             'button_text' => $hasButton ? (string) $stored['button_text'] : null,
             'url' => $hasButton ? (string) $stored['url'] : null,
+            'image' => self::closingImage($stored['image'] ?? null),
         ];
+    }
+
+    /**
+     * Imagen del cierre de texto, con la forma del encabezado de una plantilla:
+     * un archivo del espacio o una URL pública.
+     *
+     * @return array{source: 'media_asset', media_asset_id: int}|array{source: 'literal', value: string}|null
+     */
+    public static function closingImage(mixed $image): ?array
+    {
+        $source = is_array($image) ? ($image['source'] ?? null) : null;
+
+        return match (true) {
+            $source === 'media_asset' && filled($image['media_asset_id'] ?? null) => ['source' => 'media_asset', 'media_asset_id' => (int) $image['media_asset_id']],
+            $source === 'literal' && filled($image['value'] ?? null) => ['source' => 'literal', 'value' => (string) $image['value']],
+            default => null,
+        };
     }
 
     /** Versión que se está editando (la que se publica). */

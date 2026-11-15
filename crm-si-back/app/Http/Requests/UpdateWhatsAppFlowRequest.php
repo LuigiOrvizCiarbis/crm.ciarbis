@@ -37,12 +37,17 @@ class UpdateWhatsAppFlowRequest extends FormRequest
             'opening.templates' => ['sometimes', 'array', 'max:50'],
             'opening.templates.*' => ['array'],
             ...$this->parameterRules('opening.templates.*.parameters', self::CONTACT_PATH),
-            // null lo desactiva. Texto: límites de Meta, cuerpo 1024 y botón de link 20.
+            // null lo desactiva. Texto: límites de Meta, cuerpo 1024 y botón de link 20; la
+            // imagen, con la forma del encabezado de plantilla (archivo del espacio o URL https).
             'completion_message' => ['sometimes', 'nullable', 'array'],
             'completion_message.type' => ['required_with:completion_message', Rule::in(['text', 'template'])],
             'completion_message.body' => ['exclude_unless:completion_message.type,text', 'required', 'string', 'max:1024'],
             'completion_message.button_text' => ['exclude_unless:completion_message.type,text', 'nullable', 'string', 'max:20', 'required_with:completion_message.url'],
             'completion_message.url' => ['exclude_unless:completion_message.type,text', 'nullable', 'url:https', 'max:2000', 'required_with:completion_message.button_text'],
+            'completion_message.image' => ['exclude_unless:completion_message.type,text', 'nullable', 'array'],
+            'completion_message.image.source' => ['exclude_unless:completion_message.type,text', 'required_with:completion_message.image', Rule::in(['media_asset', 'literal'])],
+            'completion_message.image.media_asset_id' => ['exclude_unless:completion_message.type,text', 'exclude_unless:completion_message.image.source,media_asset', 'required', 'integer'],
+            'completion_message.image.value' => ['exclude_unless:completion_message.type,text', 'exclude_unless:completion_message.image.source,literal', 'required', 'url:https', 'max:2000'],
             'completion_message.template_id' => ['exclude_unless:completion_message.type,template', 'required', 'integer'],
             ...$this->parameterRules('completion_message.parameters', self::CONTACT_OR_ANSWER_PATH, 'completion_message.type,template'),
         ];
