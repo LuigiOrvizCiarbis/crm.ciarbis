@@ -138,8 +138,8 @@ function typingOrModal(target: EventTarget | null): boolean {
 /** Apertura y Cierre se guardan aparte de la definición: sólo se toman esos campos del formulario guardado. */
 function withJourney(current: WhatsAppFlow | null, saved: WhatsAppFlow): WhatsAppFlow | null {
   if (!current) return current
-  const { send_defaults, opening, send_templates, effective_template_id, completion_message } = saved
-  return { ...current, send_defaults, opening, send_templates, effective_template_id, completion_message }
+  const { send_defaults, send_defaults_saved, opening, send_templates, effective_template_id, completion_message } = saved
+  return { ...current, send_defaults, send_defaults_saved, opening, send_templates, effective_template_id, completion_message }
 }
 
 type InspectorTab = "content" | "preview"
@@ -785,6 +785,7 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
               channelId={channelId}
               onFlowChange={(saved) => setFlow((current) => withJourney(current, saved))}
               onDirtyChange={setPanelDirty}
+              onPublish={() => void startPublish()}
             />
           ) : (
             <p className="text-sm text-muted-foreground">{t("flows.journey.opening.saveFirst")}</p>

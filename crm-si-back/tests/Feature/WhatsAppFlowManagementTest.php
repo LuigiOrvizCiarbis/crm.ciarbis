@@ -193,6 +193,45 @@ class WhatsAppFlowManagementTest extends TestCase
             && $request['interactive']['action']['parameters']['flow_action_payload']['screen'] === 'DATOS');
     }
 
+    public function test_send_message_variables_are_checked_on_save_and_filled_with_the_contact_on_send(): void
+    {
+        $this->inboundMessage();
+        $flow = $this->publishedFlow('flow-1');
+        $save = fn (array $message) => $this->putJson("/api/whatsapp-flows/{$flow->id}", [
+            'send_defaults' => ['header' => null, 'footer' => null, 'cta' => 'Completar', ...$message],
+        ]);
+
+        $save(['body' => 'Hola {{nombre}}, completá tus datos'])->assertUnprocessable()->assertJsonValidationErrors(['send_defaults.variables']);
+        $save(['body' => 'Hola {{Nombre Completo}}', 'variables' => []])->assertUnprocessable()->assertJsonValidationErrors(['send_defaults.body']);
+        $save(['body' => 'Hola', 'footer' => 'Gracias {{nombre}}'])->assertUnprocessable()->assertJsonValidationErrors(['send_defaults.footer']);
+        $save([
+            'body' => 'Hola {{nombre}}, tu plan {{plan}}',
+            'variables' => [
+                ['name' => 'nombre', 'source' => 'field', 'path' => 'contact.email', 'fallback' => 'cliente'],
+                ['name' => 'plan', 'source' => 'literal', 'value' => 'Pro'],
+                ['name' => 'sobra', 'source' => 'literal', 'value' => 'x'],
+            ],
+        ])->assertOk()->assertJsonCount(2, 'data.send_defaults.variables');
+
+        Http::fake(['https://graph.facebook.com/*/123456789/messages' => Http::response(['messages' => [['id' => 'wamid.flow-1']]])]);
+        $this->postJson("/api/conversations/{$this->conversation->id}/send-flow", [
+            'whatsapp_flow_id' => $flow->id,
+            'body' => 'Hola {{nombre}}, tu plan {{plan}}',
+            'cta' => 'Completar',
+        ])->assertCreated();
+
+        // El contacto no tiene email: va el respaldo.
+        Http::assertSent(fn (Request $request) => ($request['interactive']['body']['text'] ?? null) === 'Hola cliente, tu plan Pro');
+
+        // Una variable que la apertura no configuró no sale literal al cliente.
+        $this->postJson("/api/conversations/{$this->conversation->id}/send-flow", [
+            'whatsapp_flow_id' => $flow->id,
+            'body' => 'Hola {{apodo}}',
+            'cta' => 'Completar',
+        ])->assertUnprocessable()->assertJsonPath('message', 'Falta un dato del contacto para completar la variable «apodo».');
+        Http::assertSentCount(1);
+    }
+
     public function test_resending_a_builder_flow_opens_with_the_unfinished_answers_and_closes_the_previous_send(): void
     {
         $this->inboundMessage();
@@ -346,13 +385,15 @@ class WhatsAppFlowManagementTest extends TestCase
 
         $this->getJson("/api/whatsapp-flows/{$flow->id}")
             ->assertJsonPath('data.send_defaults.body', WhatsAppFlow::DEFAULT_SEND_BODY)
-            ->assertJsonPath('data.send_defaults.cta', WhatsAppFlow::DEFAULT_SEND_CTA);
+            ->assertJsonPath('data.send_defaults.cta', WhatsAppFlow::DEFAULT_SEND_CTA)
+            ->assertJsonPath('data.send_defaults_saved', false);
 
         $this->putJson("/api/whatsapp-flows/{$flow->id}", [
             'send_defaults' => ['header' => null, 'body' => 'Completá tus datos', 'footer' => null, 'cta' => 'Abrir'],
         ])->assertOk()
             ->assertJsonPath('data.send_defaults.body', 'Completá tus datos')
             ->assertJsonPath('data.send_defaults.cta', 'Abrir')
+            ->assertJsonPath('data.send_defaults_saved', true)
             ->assertJsonPath('data.status', 'PUBLISHED');
 
         Http::assertNothingSent();

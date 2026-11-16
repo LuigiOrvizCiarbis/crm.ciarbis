@@ -28,11 +28,15 @@ class UpdateWhatsAppFlowRequest extends FormRequest
             'field_mappings' => ['sometimes', 'array', 'max:50'],
             'field_mappings.*.response_key' => ['required', 'string', 'max:120', 'regex:/^[A-Za-z0-9_.]+$/'],
             'field_mappings.*.target' => ['required', 'string', 'max:150', 'regex:/^(contact\.name|contact\.email|custom_data\.[A-Za-z0-9_]+)$/'],
+            // Sólo el cuerpo admite variables: Meta no las acepta en el pie ni en el botón,
+            // y en el encabezado pediría un ejemplo más.
             'send_defaults' => ['sometimes', 'array'],
-            'send_defaults.header' => ['nullable', 'string', 'max:60'],
+            'send_defaults.header' => ['nullable', 'string', 'max:60', 'not_regex:/\{\{/'],
             'send_defaults.body' => ['required_with:send_defaults', 'string', 'max:1024'],
-            'send_defaults.footer' => ['nullable', 'string', 'max:60'],
-            'send_defaults.cta' => ['required_with:send_defaults', 'string', 'max:30'],
+            'send_defaults.footer' => ['nullable', 'string', 'max:60', 'not_regex:/\{\{/'],
+            'send_defaults.cta' => ['required_with:send_defaults', 'string', 'max:30', 'not_regex:/\{\{/'],
+            ...$this->parameterRules('send_defaults.variables', self::CONTACT_PATH),
+            'send_defaults.variables' => ['sometimes', 'array', 'max:20'],
             'opening' => ['sometimes', 'array'],
             'opening.default_template_id' => ['nullable', 'integer'],
             'opening.templates' => ['sometimes', 'array', 'max:50'],
@@ -95,5 +99,13 @@ class UpdateWhatsAppFlowRequest extends FormRequest
             $key = substr($mapping['target'], strlen('custom_data.'));
             abort_unless(in_array($key, $known, true), 422, "El campo «{$key}» no existe.");
         }
+    }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'send_defaults.*.not_regex' => 'Las variables sólo van en el mensaje, no en el encabezado, el pie ni el botón.',
+        ];
     }
 }
