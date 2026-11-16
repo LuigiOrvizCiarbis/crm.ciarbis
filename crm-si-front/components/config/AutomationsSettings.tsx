@@ -663,7 +663,7 @@ function ActionEditor({ index, action, channels, templates, flows, documentField
             }} t={t} />
           </Field>
           <div className="md:col-span-2">
-            <Field label={t("settings.automations.flowBody")}><Textarea rows={3} maxLength={1024} value={config.body ?? ""} onChange={(event) => onChange({ ...action, config: { ...config, body: event.target.value } })} /></Field>
+            <Field label={t("settings.automations.flowBody")}><Textarea rows={3} maxLength={1024} value={config.body ?? ""} onChange={(event) => onChange({ ...action, config: { ...config, body: event.target.value } })} /><span className="block text-xs text-muted-foreground">{t("settings.automations.flowBodyHint")}</span></Field>
           </div>
           <Field label={t("settings.automations.flowCta")}><Input maxLength={30} value={config.cta ?? ""} onChange={(event) => onChange({ ...action, config: { ...config, cta: event.target.value } })} placeholder={t("settings.automations.flowCtaPlaceholder")} /></Field>
         </div>

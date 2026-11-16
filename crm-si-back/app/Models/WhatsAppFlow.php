@@ -68,8 +68,10 @@ class WhatsAppFlow extends Model
     /**
      * Textos del mensaje con el que se envía el formulario. Sin textos
      * guardados, el cuerpo es el primer título del constructor (si lo hay).
+     * `variables` dice de dónde sale cada `{{nombre}}` del cuerpo, con la
+     * forma de los parámetros de plantilla.
      *
-     * @return array{header: ?string, body: string, footer: ?string, cta: string}
+     * @return array{header: ?string, body: string, footer: ?string, cta: string, variables: list<array<string, mixed>>}
      */
     public function sendDefaults(): array
     {
@@ -80,6 +82,7 @@ class WhatsAppFlow extends Model
             'body' => filled($stored['body'] ?? null) ? $stored['body'] : ($this->firstHeading() ?? self::DEFAULT_SEND_BODY),
             'footer' => filled($stored['footer'] ?? null) ? $stored['footer'] : null,
             'cta' => filled($stored['cta'] ?? null) ? $stored['cta'] : self::DEFAULT_SEND_CTA,
+            'variables' => array_values($stored['variables'] ?? []),
         ];
     }
 

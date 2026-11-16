@@ -11,7 +11,7 @@ import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactField } from "@/lib/api/contact-fields"
 import { isRepeaterScreen } from "@/lib/flow-builder/repeater"
 import type { FlowDefinition, TextBlock } from "@/lib/flow-builder/types"
-import { templateBodyPreview, templateParameterRows } from "@/lib/template-parameters"
+import { bodyPreview, templateBodyPreview, templateParameterRows, type ParameterContext } from "@/lib/template-parameters"
 
 import { ChatScreen } from "./ChatScreen"
 
@@ -26,10 +26,13 @@ export interface FlowMessageContext {
 const DEFAULT_SEND_BODY = "Tocá el botón para completar el formulario."
 const DEFAULT_SEND_CTA = "Completar"
 
-function sendMessage(flow: WhatsAppFlow | null, definition: FlowDefinition): BubbleContent {
+type Translate = (key: string, params?: Record<string, string | number>) => string
+
+function sendMessage(flow: WhatsAppFlow | null, definition: FlowDefinition, context: ParameterContext, t: Translate): BubbleContent {
   if (flow) {
-    const { header, body, footer, cta } = flow.send_defaults
-    return { header: header ? { kind: "text", text: header } : null, body, footer, buttons: [{ text: cta, kind: "flow" }] }
+    const { header, body, footer, cta, variables } = flow.send_defaults
+    const text = bodyPreview(body, variables, context, t)
+    return { header: header ? { kind: "text", text: header } : null, body: text, footer, buttons: [{ text: cta, kind: "flow" }] }
   }
   const entry = definition.screens[0]
   const heading = entry && !isRepeaterScreen(entry)
@@ -56,7 +59,7 @@ export function FlowMessagePreview({ flow, channelId, definition, contactFields,
   const context = useMemo(() => ({ answers: [], contactFields }), [contactFields])
 
   // Una plantilla elegida que no se puede mostrar no cae en el mensaje de envío: se avisa en su lugar.
-  let message: BubbleContent | null = sendMessage(flow, definition)
+  let message: BubbleContent | null = sendMessage(flow, definition, context, t)
   let notice: string | null = null
   if (flow && selected) {
     if (full) {
