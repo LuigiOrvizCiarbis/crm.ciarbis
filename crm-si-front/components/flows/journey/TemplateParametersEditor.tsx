@@ -31,7 +31,8 @@ const HEADER_ACCEPT: Record<"IMAGE" | "VIDEO" | "DOCUMENT", string> = {
 }
 
 interface TemplateParametersEditorProps {
-  template: WhatsAppTemplate
+  /** Sin plantilla (variables de un texto propio) no hay encabezado de media. */
+  template?: WhatsAppTemplate
   /** Filas de `templateParameterRows`: encabezado de media primero, después una por variable. */
   parameters: TemplateParameter[]
   onChange: (parameters: TemplateParameter[]) => void

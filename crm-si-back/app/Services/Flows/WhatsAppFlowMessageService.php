@@ -87,16 +87,26 @@ class WhatsAppFlowMessageService
     }
 
     /**
+     * Las `{{variables}}` del cuerpo se completan con los datos del contacto,
+     * como las configuró la apertura del formulario.
+     *
      * @param  array{body: string, cta: string, header?: ?string, footer?: ?string}  $options
+     *
+     * @throws TemplateParameterException si una variable no está configurada o queda sin valor
      */
     public function send(Conversation $conversation, WhatsAppFlow $flow, array $options, ?User $sender): Message
     {
         $this->ensureSendable($conversation, $flow);
         $this->window->assertOpen($conversation);
 
+        $body = $this->parameters->renderText(
+            $options['body'],
+            $flow->sendDefaults()['variables'],
+            ['contact' => $conversation->contact?->toArray() ?? []],
+            $flow->tenant_id,
+        );
         $context = $this->messages->resolveOutboundWhatsAppContext($conversation);
         $session = $this->sessions->open($flow, $conversation);
-        $body = $options['body'];
         $cta = $options['cta'];
         $header = filled($options['header'] ?? null) ? $options['header'] : null;
         $footer = filled($options['footer'] ?? null) ? $options['footer'] : null;

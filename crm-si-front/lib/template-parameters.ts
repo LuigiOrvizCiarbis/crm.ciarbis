@@ -50,12 +50,16 @@ export function templateParameterRows(
     const header = stored.find((parameter) => parameter.component === "header")
     rows.push(header && header.source !== "field" ? { ...header, component: "header" } : { component: "header", source: "media_asset" })
   }
+  return [...rows, ...bodyParameterRows(templateBodyParameters(template), stored, context)]
+}
+
+/** Una fila por variable del cuerpo: la guardada (por nombre o, sin nombre, por posición) o una sugerida. */
+export function bodyParameterRows(names: string[], stored: TemplateParameter[], context: ParameterContext): TemplateParameter[] {
   const storedBody = stored.filter((parameter) => (parameter.component ?? "body") === "body")
-  templateBodyParameters(template).forEach((name, index) => {
+  return names.map((name, index) => {
     const match = storedBody.find((parameter) => parameter.name === name) ?? (storedBody[index]?.name ? undefined : storedBody[index])
-    rows.push(match ? { ...match, component: "body", name } : defaultBodyParameter(name, context))
+    return match ? { ...match, component: "body", name } : defaultBodyParameter(name, context)
   })
-  return rows
 }
 
 function isHttpsUrl(value: string): boolean {
@@ -141,11 +145,15 @@ export function templateBodyPreview(
   context: ParameterContext,
   t: Translate,
 ): string {
-  const body = template.components.find((component) => component.type.toUpperCase() === "BODY")?.text ?? ""
+  return bodyPreview(template.components.find((component) => component.type.toUpperCase() === "BODY")?.text ?? "", parameters, context, t)
+}
+
+/** Un texto con cada `{{variable}}` reemplazada por su etiqueta, p. ej. `[Nombre]`. */
+export function bodyPreview(text: string, parameters: TemplateParameter[], context: ParameterContext, t: Translate): string {
   const byName = new Map(
     parameters.filter((parameter) => (parameter.component ?? "body") === "body").map((parameter) => [parameter.name ?? "", parameter]),
   )
-  return body.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, name: string) => {
+  return text.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, name: string) => {
     const parameter = byName.get(name)
     return parameter ? parameterLabel(parameter, context, t) : `[${name}]`
   })
