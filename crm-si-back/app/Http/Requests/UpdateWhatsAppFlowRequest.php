@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\ContactField;
+use App\Rules\UniqueFlowName;
 use App\Services\Templates\TemplateParameterRenderer;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -19,7 +20,7 @@ class UpdateWhatsAppFlowRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['sometimes', 'string', 'max:200'],
+            'name' => ['sometimes', 'string', 'max:200', new UniqueFlowName($this->route('whatsappFlow')?->whatsapp_config_id, $this->route('whatsappFlow')?->id)],
             'categories' => ['sometimes', 'array', 'min:1'],
             'categories.*' => ['string', Rule::in(StoreWhatsAppFlowRequest::CATEGORIES)],
             'builder_definition' => ['sometimes', 'array', 'prohibits:flow_json'],

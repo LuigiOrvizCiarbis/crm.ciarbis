@@ -170,6 +170,8 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null)
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("content")
   const [serverErrors, setServerErrors] = useState<GroupedErrors>(EMPTY_ERRORS)
+  // Rechazo del nombre (ya lo usa otro formulario de la cuenta): vale mientras no se cambie el nombre.
+  const [takenName, setTakenName] = useState<{ name: string; message: string } | null>(null)
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [openingPreview, setOpeningPreview] = useState(false)
@@ -274,7 +276,9 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
       ? t("flows.builder.errors.required")
       : charCount(state.name) > NAME_MAX
         ? t("flows.builder.errors.tooLong", { max: NAME_MAX })
-        : null
+        : takenName && takenName.name === state.name.trim()
+          ? takenName.message
+          : null
   const categoriesError = state.categories.length === 0 ? t("flows.builder.errors.categoriesRequired") : null
 
   const editable = !flow || flow.status === "DRAFT" || flow.status === "PUBLISHED"
@@ -563,7 +567,11 @@ export function FlowBuilder({ initialFlow, channelId: channelIdProp, initial, on
       }
       return saved
     } catch (error) {
-      if (error instanceof ApiValidationError) showServerErrors(error.errors, snapshot)
+      if (error instanceof ApiValidationError) {
+        showServerErrors(error.errors, snapshot)
+        const nameMessage = error.errors.name?.[0]
+        setTakenName(nameMessage ? { name: payload.name, message: nameMessage } : null)
+      }
       addToast({
         type: "error",
         title: t("flows.builder.toasts.saveError"),

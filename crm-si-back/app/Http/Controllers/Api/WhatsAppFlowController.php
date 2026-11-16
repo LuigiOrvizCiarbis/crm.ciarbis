@@ -16,9 +16,11 @@ use App\Models\MediaAsset;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppTemplate;
+use App\Rules\UniqueFlowName;
 use App\Services\Flows\Builder\CompiledFlow;
 use App\Services\Flows\Builder\FlowDefinitionCompiler;
 use App\Services\Flows\Builder\FlowDefinitionValidator;
+use App\Services\Flows\FlowNameTakenException;
 use App\Services\Flows\FlowOpeningTemplates;
 use App\Services\Flows\WhatsAppFlowEncryptionService;
 use App\Services\Flows\WhatsAppFlowMessageService;
@@ -489,12 +491,15 @@ class WhatsAppFlowController extends Controller
     }
 
     /**
-     * Errores de negocio y de Meta se devuelven como 422 con su mensaje.
+     * Errores de negocio y de Meta se devuelven como 422 con su mensaje; un
+     * nombre repetido, como error del campo para que el formulario lo marque.
      */
     private function attempt(Closure $action): JsonResponse|Response
     {
         try {
             return $action();
+        } catch (FlowNameTakenException) {
+            throw ValidationException::withMessages(['name' => UniqueFlowName::MESSAGE]);
         } catch (InvalidArgumentException|RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }

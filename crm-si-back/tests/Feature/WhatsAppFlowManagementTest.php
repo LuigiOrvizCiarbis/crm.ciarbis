@@ -148,6 +148,32 @@ class WhatsAppFlowManagementTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_a_name_already_used_in_the_whatsapp_account_is_rejected_before_and_after_meta(): void
+    {
+        // Uno creado en WhatsApp Manager y sin sincronizar sólo lo conoce Meta.
+        Http::fake(['https://graph.facebook.com/*/waba-test/flows' => Http::response(['error' => [
+            'code' => 100,
+            'message' => 'Invalid parameter',
+            'error_user_msg' => 'Flow name should be unique within one WhatsApp Business Account. Please select another name for your Flow.',
+        ]], 400)]);
+        $existing = $this->publishedFlow('flow-1');
+        // Otro número de la misma cuenta (WABA): Meta exige nombres únicos en toda la cuenta.
+        $sibling = WhatsAppConfig::create(['phone_number_id' => '555', 'waba_id' => 'waba-test', 'bussines_token' => Crypt::encryptString('t')]);
+        $siblingChannel = Channel::create([...$this->channel->only(['tenant_id', 'user_id', 'type', 'status']), 'name' => 'Otro número', 'whatsapp_config_id' => $sibling->id]);
+        $create = fn (Channel $channel, string $name) => $this->postJson("/api/channels/{$channel->id}/flows", [
+            'name' => $name,
+            'categories' => ['OTHER'],
+            'flow_json' => json_encode(['version' => '7.3', 'screens' => [['id' => 'DATOS']]]),
+        ]);
+
+        $create($siblingChannel, 'Alta')->assertUnprocessable()->assertJsonValidationErrors(['name']);
+        $this->postJson("/api/whatsapp-flows/{$existing->id}/clone", ['name' => 'Alta'])->assertUnprocessable()->assertJsonValidationErrors(['name']);
+        Http::assertNothingSent();
+
+        // Sin otro formulario local con ese nombre, el rechazo llega de Meta y se marca igual en el campo.
+        $create($this->channel, 'Encuesta')->assertUnprocessable()->assertJsonValidationErrors(['name']);
+    }
+
     public function test_sending_a_flow_from_the_chat_opens_a_session_and_sends_its_token(): void
     {
         $this->inboundMessage();
