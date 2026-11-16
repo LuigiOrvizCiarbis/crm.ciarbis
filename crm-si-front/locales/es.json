@@ -625,7 +625,9 @@
       "empty": "Aún no hay etapas. Agregá la primera.",
       "editHint": "Editá el nombre o color y hacé clic fuera para guardar. Arrastrá para reordenar.",
       "probabilityHint": "El % es la probabilidad de cierre de cada etapa: el Panel la usa para proyectar los ingresos. Vacío = no suma.",
-      "outcomeHint": "Ganado/Perdido cierran la oportunidad al moverla a esa etapa. Si el chat vino de un anuncio de Meta, Ganado le avisa la venta a Meta.",
+      "outcomeHint": "Resultado: Ganado/Perdido cierran la oportunidad cuando se mueve a esa etapa; las que ya están ahí no cambian. Ganado le informa la venta a Meta si el chat vino de un anuncio de WhatsApp.",
+      "outcomeColumn": "Resultado",
+      "probabilityColumn": "Prob.",
       "outcomeAria": "Resultado de {{name}}",
       "outcomeNone": "En curso",
       "outcomeWon": "Ganado",
@@ -647,6 +649,18 @@
       "errorLoad": "No se pudieron cargar las etapas.",
       "newColorAria": "Color de la nueva etapa",
       "probabilityAria": "Probabilidad de cierre de {{name}}"
+    },
+    "saleValue": {
+      "title": "¿Cuál fue el valor de la venta?",
+      "description": "{{name}} pasa a una etapa Ganado sin valor cargado. Si el chat vino de un anuncio de WhatsApp, este monto es el que se le informa a Meta y no se puede corregir después.",
+      "label": "Valor de la venta (ARS)",
+      "save": "Guardar y marcar ganada",
+      "skip": "Seguir sin valor",
+      "noPermission": "No tenés permiso para cargar el valor. Si seguís, la venta queda sin monto."
+    },
+    "outcomeToast": {
+      "won": "Oportunidad ganada",
+      "lost": "Oportunidad perdida"
     }
   },
   "auth": {
