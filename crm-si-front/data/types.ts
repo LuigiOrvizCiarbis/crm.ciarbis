@@ -255,6 +255,8 @@ export interface WhatsAppFlow {
   has_builder_definition: boolean
   /** Textos con los que se envía; el backend completa los que falten. */
   send_defaults: WhatsAppFlowSendDefaults
+  /** false: `send_defaults` son los sugeridos (primer título del constructor y «Completar»), sin guardar. */
+  send_defaults_saved: boolean
   /** Plantilla predeterminada y variables de cada plantilla que abre el formulario. */
   opening: WhatsAppFlowOpening
   /** Plantillas de la misma cuenta cuyo botón FLOW abre este formulario. */
@@ -275,9 +277,12 @@ export interface WhatsAppFlow {
 
 export interface WhatsAppFlowSendDefaults {
   header: string | null
+  /** Puede llevar `{{variables}}`; `variables` dice de dónde sale cada una. */
   body: string
   footer: string | null
   cta: string
+  /** Variables del cuerpo, con la forma de los parámetros de plantilla (dato del contacto o texto fijo). */
+  variables: TemplateParameter[]
 }
 
 /** Parámetro de una plantilla: misma forma que en la acción de automatización `whatsapp_template`. */
@@ -314,6 +319,11 @@ export interface WhatsAppFlowSendTemplate {
   issue: null | "not_approved" | "parameters"
 }
 
+/** Imagen del cierre de texto, con la forma del encabezado de una plantilla: archivo del espacio o URL https. */
+export type WhatsAppFlowCompletionImage =
+  | { source: "media_asset"; media_asset_id: number }
+  | { source: "literal"; value: string }
+
 export type WhatsAppFlowCompletionMessage =
   | {
       type: "text"
@@ -321,6 +331,7 @@ export type WhatsAppFlowCompletionMessage =
       /** El botón abre `url`; los dos van juntos o ninguno. */
       button_text: string | null
       url: string | null
+      image: WhatsAppFlowCompletionImage | null
     }
   | { type: "template"; template_id: number; parameters: TemplateParameter[] }
 

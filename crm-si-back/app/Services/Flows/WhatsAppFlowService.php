@@ -24,6 +24,9 @@ class WhatsAppFlowService
     /** Formulario viejo que Meta no deja editar: hay que duplicarlo. */
     private const ERROR_NOT_EDITABLE = 139001;
 
+    /** Parámetro inválido: entre otros casos, un nombre que ya usa otro formulario de la cuenta. */
+    private const ERROR_INVALID_PARAMETER = 100;
+
     public function __construct(
         private readonly WhatsAppFlowEncryptionService $encryption,
     ) {}
@@ -370,6 +373,12 @@ class WhatsAppFlowService
         }
 
         $message = $response->json('error.error_user_msg') ?: $response->json('error.message', $response->body());
+
+        // El código 100 es genérico: sólo el texto distingue el nombre repetido. Un formulario
+        // creado en WhatsApp Manager y no sincronizado no lo detecta la validación local.
+        if ((int) $response->json('error.code') === self::ERROR_INVALID_PARAMETER && str_contains(strtolower((string) $message), 'unique')) {
+            throw new FlowNameTakenException((string) $message);
+        }
 
         throw new RuntimeException('Meta rechazó la operación: '.$message);
     }

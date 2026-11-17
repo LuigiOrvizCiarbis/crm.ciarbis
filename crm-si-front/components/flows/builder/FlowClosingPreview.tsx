@@ -41,7 +41,8 @@ export function FlowClosingPreview({ flow, channelId, fields, contactFields }: F
       <ChatScreen>
         <ChatBubble
           content={{
-            header: null,
+            // Un archivo guardado se ve como ícono: la vista previa sólo conoce la URL de los links.
+            header: closing.image ? { kind: "image", url: closing.image.source === "literal" ? closing.image.value : null } : null,
             body: closing.body.replace(PLACEHOLDER, (_, key: string) => `[${labels.get(key) ?? key}]`),
             footer: null,
             buttons: closing.button_text ? [{ text: closing.button_text, kind: "link" }] : [],

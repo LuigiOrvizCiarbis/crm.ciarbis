@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\ContactField;
+use App\Rules\UniqueFlowName;
 use App\Services\Templates\TemplateParameterRenderer;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -19,7 +20,7 @@ class UpdateWhatsAppFlowRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['sometimes', 'string', 'max:200'],
+            'name' => ['sometimes', 'string', 'max:200', new UniqueFlowName($this->route('whatsappFlow')?->whatsapp_config_id, $this->route('whatsappFlow')?->id)],
             'categories' => ['sometimes', 'array', 'min:1'],
             'categories.*' => ['string', Rule::in(StoreWhatsAppFlowRequest::CATEGORIES)],
             'builder_definition' => ['sometimes', 'array', 'prohibits:flow_json'],
@@ -27,22 +28,31 @@ class UpdateWhatsAppFlowRequest extends FormRequest
             'field_mappings' => ['sometimes', 'array', 'max:50'],
             'field_mappings.*.response_key' => ['required', 'string', 'max:120', 'regex:/^[A-Za-z0-9_.]+$/'],
             'field_mappings.*.target' => ['required', 'string', 'max:150', 'regex:/^(contact\.name|contact\.email|custom_data\.[A-Za-z0-9_]+)$/'],
+            // Sólo el cuerpo admite variables: Meta no las acepta en el pie ni en el botón,
+            // y en el encabezado pediría un ejemplo más.
             'send_defaults' => ['sometimes', 'array'],
-            'send_defaults.header' => ['nullable', 'string', 'max:60'],
+            'send_defaults.header' => ['nullable', 'string', 'max:60', 'not_regex:/\{\{/'],
             'send_defaults.body' => ['required_with:send_defaults', 'string', 'max:1024'],
-            'send_defaults.footer' => ['nullable', 'string', 'max:60'],
-            'send_defaults.cta' => ['required_with:send_defaults', 'string', 'max:30'],
+            'send_defaults.footer' => ['nullable', 'string', 'max:60', 'not_regex:/\{\{/'],
+            'send_defaults.cta' => ['required_with:send_defaults', 'string', 'max:30', 'not_regex:/\{\{/'],
+            ...$this->parameterRules('send_defaults.variables', self::CONTACT_PATH),
+            'send_defaults.variables' => ['sometimes', 'array', 'max:20'],
             'opening' => ['sometimes', 'array'],
             'opening.default_template_id' => ['nullable', 'integer'],
             'opening.templates' => ['sometimes', 'array', 'max:50'],
             'opening.templates.*' => ['array'],
             ...$this->parameterRules('opening.templates.*.parameters', self::CONTACT_PATH),
-            // null lo desactiva. Texto: límites de Meta, cuerpo 1024 y botón de link 20.
+            // null lo desactiva. Texto: límites de Meta, cuerpo 1024 y botón de link 20; la
+            // imagen, con la forma del encabezado de plantilla (archivo del espacio o URL https).
             'completion_message' => ['sometimes', 'nullable', 'array'],
             'completion_message.type' => ['required_with:completion_message', Rule::in(['text', 'template'])],
             'completion_message.body' => ['exclude_unless:completion_message.type,text', 'required', 'string', 'max:1024'],
             'completion_message.button_text' => ['exclude_unless:completion_message.type,text', 'nullable', 'string', 'max:20', 'required_with:completion_message.url'],
             'completion_message.url' => ['exclude_unless:completion_message.type,text', 'nullable', 'url:https', 'max:2000', 'required_with:completion_message.button_text'],
+            'completion_message.image' => ['exclude_unless:completion_message.type,text', 'nullable', 'array'],
+            'completion_message.image.source' => ['exclude_unless:completion_message.type,text', 'required_with:completion_message.image', Rule::in(['media_asset', 'literal'])],
+            'completion_message.image.media_asset_id' => ['exclude_unless:completion_message.type,text', 'exclude_unless:completion_message.image.source,media_asset', 'required', 'integer'],
+            'completion_message.image.value' => ['exclude_unless:completion_message.type,text', 'exclude_unless:completion_message.image.source,literal', 'required', 'url:https', 'max:2000'],
             'completion_message.template_id' => ['exclude_unless:completion_message.type,template', 'required', 'integer'],
             ...$this->parameterRules('completion_message.parameters', self::CONTACT_OR_ANSWER_PATH, 'completion_message.type,template'),
         ];
@@ -89,5 +99,13 @@ class UpdateWhatsAppFlowRequest extends FormRequest
             $key = substr($mapping['target'], strlen('custom_data.'));
             abort_unless(in_array($key, $known, true), 422, "El campo «{$key}» no existe.");
         }
+    }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'send_defaults.*.not_regex' => 'Las variables sólo van en el mensaje, no en el encabezado, el pie ni el botón.',
+        ];
     }
 }

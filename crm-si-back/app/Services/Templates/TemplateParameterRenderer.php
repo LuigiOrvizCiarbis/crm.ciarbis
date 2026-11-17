@@ -5,6 +5,7 @@ namespace App\Services\Templates;
 use App\Enums\ContactFieldType;
 use App\Models\ContactField;
 use App\Models\MediaAsset;
+use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppTemplate;
 use App\Support\PublicUrlGuard;
 use App\Support\PublicUrlRejectedException;
@@ -24,6 +25,9 @@ use Illuminate\Support\Facades\Http;
 class TemplateParameterRenderer
 {
     public const SOURCES = ['literal', 'field', 'media_asset'];
+
+    /** Variable nombrada de un texto, como en las plantillas de Meta: `{{nombre}}`. */
+    public const VARIABLE = '/\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/';
 
     public function __construct(private PublicUrlGuard $urlGuard) {}
 
@@ -122,22 +126,8 @@ class TemplateParameterRenderer
         $mediaFormat = $template->headerMediaFormat();
         $grouped = [];
         foreach ($parameters as $parameter) {
-            $source = $parameter['source'] ?? null;
-            [$value, $appOwned] = match ($source) {
-                'literal' => [$parameter['value'] ?? null, false],
-                'media_asset' => [$this->mediaAssetUrl($parameter['media_asset_id'] ?? null, $tenantId), true],
-                default => $this->resolveFieldValue($context, (string) ($parameter['path'] ?? ''), $tenantId),
-            };
-            if ($value === null || $value === '') {
-                $value = $parameter['fallback'] ?? null;
-                $appOwned = false;
-            }
-            if ($value === null || $value === '') {
-                throw new TemplateParameterException('missing_parameter:'.($parameter['name'] ?? $parameter['path'] ?? 'unknown'));
-            }
-
+            [$value, $appOwned] = $this->resolve($parameter, $context, $tenantId);
             $component = strtolower($parameter['component'] ?? 'body');
-
             // El header de media espera la URL del archivo, con la forma
             // {type:"document",document:{link:...}} (o image/video), no un texto.
             if ($component === 'header' && $mediaFormat !== null) {
@@ -154,7 +144,7 @@ class TemplateParameterRenderer
                 continue;
             }
 
-            $rendered = ['type' => 'text', 'text' => is_scalar($value) ? (string) $value : (string) json_encode($value, JSON_UNESCAPED_UNICODE)];
+            $rendered = ['type' => 'text', 'text' => self::asText($value)];
             if (! empty($parameter['name'])) {
                 $rendered['parameter_name'] = $parameter['name'];
             }
@@ -164,13 +154,68 @@ class TemplateParameterRenderer
         return array_map(fn (array $parameters, string $type) => ['type' => $type, 'parameters' => $parameters], $grouped, array_keys($grouped));
     }
 
-    private function mediaAssetUrl(mixed $mediaAssetId, int $tenantId): ?string
+    /**
+     * Reemplaza cada `{{nombre}}` de un texto por el valor de su variable, con
+     * las mismas fuentes y respaldo que una plantilla. Lo usa el mensaje que
+     * abre un formulario, que se manda tal cual con la ventana abierta.
+     *
+     * @param  list<array<string, mixed>>  $parameters  variables del cuerpo, por `name`
+     * @param  array<string, mixed>  $context  valores para las rutas `field`
+     *
+     * @throws TemplateParameterException si una variable no está configurada o queda sin valor
+     */
+    public function renderText(string $text, array $parameters, array $context, int $tenantId): string
+    {
+        $byName = collect($parameters)->keyBy(fn (array $parameter) => (string) ($parameter['name'] ?? ''));
+
+        return (string) preg_replace_callback(self::VARIABLE, function (array $match) use ($byName, $context, $tenantId) {
+            $parameter = $byName->get($match[1]) ?? throw new TemplateParameterException('missing_parameter:'.$match[1]);
+
+            return self::asText($this->resolve($parameter, $context, $tenantId)[0]);
+        }, $text);
+    }
+
+    /**
+     * Valor de un parámetro y si es un archivo propio de la app (público por
+     * construcción); vacío usa el respaldo.
+     *
+     * @param  array<string, mixed>  $parameter
+     * @return array{mixed, bool}
+     *
+     * @throws TemplateParameterException si queda sin valor
+     */
+    private function resolve(array $parameter, array $context, int $tenantId): array
+    {
+        [$value, $appOwned] = match ($parameter['source'] ?? null) {
+            'literal' => [$parameter['value'] ?? null, false],
+            'media_asset' => [$this->mediaAssetUrl($parameter['media_asset_id'] ?? null, $tenantId), true],
+            default => $this->resolveFieldValue($context, (string) ($parameter['path'] ?? ''), $tenantId),
+        };
+        if ($value === null || $value === '') {
+            $value = $parameter['fallback'] ?? null;
+            $appOwned = false;
+        }
+        if ($value === null || $value === '') {
+            throw new TemplateParameterException('missing_parameter:'.($parameter['name'] ?? $parameter['path'] ?? 'unknown'));
+        }
+
+        return [$value, $appOwned];
+    }
+
+    private static function asText(mixed $value): string
+    {
+        return is_scalar($value) ? (string) $value : (string) json_encode($value, JSON_UNESCAPED_UNICODE);
+    }
+
+    /** URL pública de un archivo del espacio; también la usa la imagen del cierre de un formulario. */
+    public function mediaAssetUrl(mixed $mediaAssetId, int $tenantId): ?string
     {
         if (! $mediaAssetId) {
             return null;
         }
 
-        $asset = MediaAsset::withoutGlobalScopes()->where('tenant_id', $tenantId)->find($mediaAssetId);
+        // Sin el scope del tenant (corre en jobs) pero sí el de borrados: borrar un archivo también lo saca del disco.
+        $asset = MediaAsset::withoutGlobalScope(TenantScope::class)->where('tenant_id', $tenantId)->find($mediaAssetId);
         if (! $asset) {
             throw new TemplateParameterException('media_asset_not_found');
         }
@@ -244,7 +289,7 @@ class TemplateParameterRenderer
      * desactivan los redirects para que un 3xx no lleve la request a un host
      * interno saltándose esta validación.
      */
-    private function assertPubliclyFetchable(string $url): void
+    public function assertPubliclyFetchable(string $url): void
     {
         try {
             [$host, $port, $ips] = $this->urlGuard->assertPublicUrl($url);

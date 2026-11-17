@@ -60,6 +60,8 @@ class WhatsAppFlowResource extends JsonResource
             'has_published_version' => $this->hasPublishedVersion(),
             'has_builder_definition' => $this->builder_definition !== null,
             'send_defaults' => $this->sendDefaults(),
+            // false: los textos son los sugeridos (primer título del constructor y «Completar»).
+            'send_defaults_saved' => $this->send_defaults !== null,
             // Apertura con la ventana de 24 h cerrada: plantillas que abren el formulario.
             'opening' => $this->openingConfig(),
             'send_templates' => $opening['templates'],

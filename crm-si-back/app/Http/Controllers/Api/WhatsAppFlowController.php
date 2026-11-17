@@ -12,22 +12,28 @@ use App\Http\Requests\UpdateWhatsAppFlowRequest;
 use App\Http\Resources\WhatsAppFlowResource;
 use App\Models\Channel;
 use App\Models\Conversation;
+use App\Models\MediaAsset;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppTemplate;
+use App\Rules\UniqueFlowName;
 use App\Services\Flows\Builder\CompiledFlow;
 use App\Services\Flows\Builder\FlowDefinitionCompiler;
 use App\Services\Flows\Builder\FlowDefinitionValidator;
+use App\Services\Flows\FlowNameTakenException;
 use App\Services\Flows\FlowOpeningTemplates;
 use App\Services\Flows\WhatsAppFlowEncryptionService;
 use App\Services\Flows\WhatsAppFlowMessageService;
 use App\Services\Flows\WhatsAppFlowService;
 use App\Services\Templates\TemplateParameterException;
 use App\Services\Templates\TemplateParameterRenderer;
+use App\Support\PublicUrlGuard;
+use App\Support\PublicUrlRejectedException;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
@@ -40,7 +46,11 @@ class WhatsAppFlowController extends Controller
         private readonly WhatsAppFlowEncryptionService $encryption,
         private readonly FlowOpeningTemplates $openingTemplates,
         private readonly TemplateParameterRenderer $parameters,
+        private readonly PublicUrlGuard $urlGuard,
     ) {}
+
+    /** Tipos de imagen que Meta acepta en un mensaje. */
+    private const CLOSING_IMAGE_TYPES = ['image/jpeg', 'image/png'];
 
     public function index(Request $request, Channel $channel): JsonResponse
     {
@@ -129,6 +139,7 @@ class WhatsAppFlowController extends Controller
             // Antes de tocar Meta: un error acá no deja el formulario a medio guardar.
             $opening = $request->has('opening') ? $this->validatedOpening($flow, $request->validated('opening') ?? []) : null;
             $completion = $request->has('completion_message') ? $this->validatedCompletion($flow, $request->validated('completion_message')) : null;
+            $sendDefaults = $request->has('send_defaults') ? $this->validatedSendDefaults($flow, $request->validated('send_defaults')) : null;
 
             if ($request->has('name') || $request->has('categories')) {
                 $flow = $this->flows->updateMetadata($flow, $request->validated('name'), $request->validated('categories'));
@@ -154,8 +165,8 @@ class WhatsAppFlowController extends Controller
                 $flow->forceFill(['field_mappings' => array_values($request->validated('field_mappings'))])->save();
             }
 
-            if ($request->has('send_defaults')) {
-                $flow->forceFill(['send_defaults' => $request->validated('send_defaults')])->save();
+            if ($sendDefaults !== null) {
+                $flow->forceFill(['send_defaults' => $sendDefaults])->save();
             }
 
             if ($opening !== null) {
@@ -260,7 +271,7 @@ class WhatsAppFlowController extends Controller
         if (str_starts_with($code, 'missing_parameter:')) {
             $name = substr($code, strlen('missing_parameter:'));
 
-            return "Falta un dato del contacto para completar la variable «{$name}» de la plantilla.";
+            return "Falta un dato del contacto para completar la variable «{$name}».";
         }
 
         return match ($code) {
@@ -268,6 +279,62 @@ class WhatsAppFlowController extends Controller
             'header_url_not_accessible' => 'Meta no puede descargar la URL del encabezado de la plantilla. Revisala en la apertura del formulario.',
             default => 'No se pudo completar la plantilla.',
         };
+    }
+
+    /**
+     * Cada `{{nombre}}` del mensaje necesita de dónde salir (un dato del
+     * contacto o un texto fijo); si no, el envío fallaría con cada contacto.
+     * Se guardan sólo las variables que usa el cuerpo.
+     *
+     * @param  array<string, mixed>  $message
+     * @return array{header: ?string, body: string, footer: ?string, cta: string, variables: list<array<string, mixed>>}
+     */
+    private function validatedSendDefaults(WhatsAppFlow $flow, array $message): array
+    {
+        $body = (string) $message['body'];
+        $errors = [];
+
+        preg_match_all('/\{\{(.*?)\}\}/', $body, $written);
+        $invalid = array_filter($written[0], fn (string $variable) => preg_match(TemplateParameterRenderer::VARIABLE, $variable) !== 1);
+        if ($invalid !== []) {
+            $errors['send_defaults.body'][] = 'Escribí las variables en minúscula, sin espacios ni acentos, como {{nombre}}: '.implode(', ', $invalid).'.';
+        }
+
+        preg_match_all(TemplateParameterRenderer::VARIABLE, $body, $used);
+        $byName = collect($message['variables'] ?? [])->keyBy(fn (array $variable) => (string) ($variable['name'] ?? ''));
+        $variables = [];
+        foreach (array_unique($used[1]) as $name) {
+            $variable = $byName->get($name);
+            if ($variable === null) {
+                $errors['send_defaults.variables'][] = "Elegí de dónde sale {{{$name}}}.";
+
+                continue;
+            }
+            $variables[] = ['component' => 'body', 'name' => $name, ...Arr::except($variable, ['component', 'name'])];
+        }
+
+        foreach ($this->parameters->validateParameters($variables, $flow->tenant_id) as $key => $messages) {
+            $errors['send_defaults.variables.'.substr($key, strlen('parameters.'))] = $messages;
+        }
+        foreach ($variables as $index => $variable) {
+            if (! in_array($variable['source'], ['field', 'literal'], true)) {
+                $errors["send_defaults.variables.{$index}.source"][] = 'Una variable del mensaje sale de un dato del contacto o de un texto fijo.';
+            } elseif ($variable['source'] === 'literal' && blank($variable['value'] ?? null)) {
+                $errors["send_defaults.variables.{$index}.value"][] = 'Escribí el texto fijo.';
+            }
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
+
+        return [
+            'header' => $message['header'] ?? null,
+            'body' => $body,
+            'footer' => $message['footer'] ?? null,
+            'cta' => (string) $message['cta'],
+            'variables' => $variables,
+        ];
     }
 
     /**
@@ -333,8 +400,12 @@ class WhatsAppFlowController extends Controller
      */
     private function validatedCompletion(WhatsAppFlow $flow, ?array $message): ?array
     {
-        if ($message === null || $message['type'] === 'text') {
-            return $message;
+        if ($message === null) {
+            return null;
+        }
+
+        if ($message['type'] === 'text') {
+            return $this->validatedTextCompletion($flow, $message);
         }
 
         $template = WhatsAppTemplate::withoutGlobalScopes()
@@ -364,6 +435,44 @@ class WhatsAppFlowController extends Controller
         }
 
         return ['type' => 'template', 'template_id' => $template->id, 'parameters' => $parameters];
+    }
+
+    /**
+     * La imagen se revisa al guardar: un archivo de otro espacio o que no es
+     * JPG/PNG, o una URL privada, fallarían recién en cada envío.
+     *
+     * @param  array<string, mixed>  $message
+     * @return array<string, mixed>
+     */
+    private function validatedTextCompletion(WhatsAppFlow $flow, array $message): array
+    {
+        $image = WhatsAppFlow::closingImage($message['image'] ?? null);
+
+        if ($image !== null && $image['source'] === 'media_asset') {
+            $asset = MediaAsset::where('tenant_id', $flow->tenant_id)->find($image['media_asset_id']);
+            if ($asset === null) {
+                throw ValidationException::withMessages(['completion_message.image.media_asset_id' => 'Elegí un archivo del espacio.']);
+            }
+            if (! in_array($asset->mime_type, self::CLOSING_IMAGE_TYPES, true)) {
+                throw ValidationException::withMessages(['completion_message.image.media_asset_id' => 'WhatsApp sólo acepta imágenes JPG o PNG.']);
+            }
+        }
+
+        if ($image !== null && $image['source'] === 'literal') {
+            try {
+                $this->urlGuard->assertPublicUrl($image['value']);
+            } catch (PublicUrlRejectedException) {
+                throw ValidationException::withMessages(['completion_message.image.value' => 'Usá una URL pública: Meta tiene que poder descargar la imagen.']);
+            }
+        }
+
+        return [
+            'type' => 'text',
+            'body' => $message['body'],
+            'button_text' => $message['button_text'] ?? null,
+            'url' => $message['url'] ?? null,
+            'image' => $image,
+        ];
     }
 
     /**
@@ -440,12 +549,15 @@ class WhatsAppFlowController extends Controller
     }
 
     /**
-     * Errores de negocio y de Meta se devuelven como 422 con su mensaje.
+     * Errores de negocio y de Meta se devuelven como 422 con su mensaje; un
+     * nombre repetido, como error del campo para que el formulario lo marque.
      */
     private function attempt(Closure $action): JsonResponse|Response
     {
         try {
             return $action();
+        } catch (FlowNameTakenException) {
+            throw ValidationException::withMessages(['name' => UniqueFlowName::MESSAGE]);
         } catch (InvalidArgumentException|RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }

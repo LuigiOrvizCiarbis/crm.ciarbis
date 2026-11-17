@@ -13,6 +13,7 @@ use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\ContactField;
 use App\Models\Conversation;
+use App\Models\MediaAsset;
 use App\Models\Message;
 use App\Models\Tenant;
 use App\Models\User;
@@ -149,6 +150,39 @@ class WhatsAppFlowResponseWebhookTest extends TestCase
         $this->assertStringContainsString('https://petshop.example/catalogo', $sent->content);
     }
 
+    public function test_a_text_closing_carries_its_image_and_still_goes_out_when_the_image_is_gone(): void
+    {
+        $asset = MediaAsset::create(['tenant_id' => $this->flow->tenant_id, 'name' => 'gracias.jpg', 'path' => 'media/gracias.jpg', 'mime_type' => 'image/jpeg', 'size' => 1200]);
+        $image = ['source' => 'media_asset', 'media_asset_id' => $asset->id];
+        $closing = fn (array $extra) => $this->flow->update(['completion_message' => ['type' => 'text', 'body' => 'Gracias, DNI {{dni}}', 'image' => $image, ...$extra]]);
+        $messages = fn () => Http::recorded(fn ($request) => str_ends_with($request->url(), '/messages'));
+
+        // Con botón, la imagen es el encabezado del mensaje interactivo.
+        $closing(['button_text' => 'Ver catálogo', 'url' => 'https://petshop.example/catalogo']);
+        $this->flowSession('flow-token-1', WhatsAppFlowSession::STATUS_PENDING);
+        $this->reply('flow-token-1', ['dni' => '30111222']);
+        $this->assertSame(['type' => 'image', 'image' => ['link' => $asset->publicUrl()]], $messages()->last()[0]['interactive']['header']);
+
+        // Sin botón, va como mensaje de imagen con el texto de epígrafe.
+        $closing([]);
+        $this->flowSession('flow-token-2', WhatsAppFlowSession::STATUS_PENDING);
+        $this->reply('flow-token-2', ['dni' => '30111222'], 'wamid.reply-2');
+        $request = $messages()->last()[0];
+        $this->assertSame('image', $request['type']);
+        $this->assertSame(['link' => $asset->publicUrl(), 'caption' => 'Gracias, DNI 30111222'], $request['image']);
+        $sent = Message::where('conversation_id', $this->conversation->id)->where('direction', 'outbound')->latest('id')->first();
+        $this->assertSame('image', $sent->message_type->value);
+        $this->assertSame($asset->publicUrl(), $sent->media_url);
+
+        // Un archivo borrado no frena el cierre: sale el texto solo.
+        $asset->delete();
+        $this->flowSession('flow-token-3', WhatsAppFlowSession::STATUS_PENDING);
+        $this->reply('flow-token-3', ['dni' => '30111222'], 'wamid.reply-3');
+        $request = $messages()->last()[0];
+        $this->assertSame('text', $request['type']);
+        $this->assertSame('Gracias, DNI 30111222', $request['text']['body']);
+    }
+
     public function test_answering_an_already_completed_send_does_not_repeat_the_completion_message(): void
     {
         $this->flow->update(['completion_message' => ['type' => 'text', 'body' => 'Gracias']]);
@@ -220,7 +254,7 @@ class WhatsAppFlowResponseWebhookTest extends TestCase
         ]);
     }
 
-    private function reply(string $token, array $answers): void
+    private function reply(string $token, array $answers, string $messageId = 'wamid.reply-1'): void
     {
         $this->postJson('/api/whatsapp-webhook', ['entry' => [[
             'id' => 'waba-test',
@@ -231,7 +265,7 @@ class WhatsAppFlowResponseWebhookTest extends TestCase
                     'contacts' => [['profile' => ['name' => 'Ana'], 'wa_id' => '5492235112208']],
                     'messages' => [[
                         'from' => '5492235112208',
-                        'id' => 'wamid.reply-1',
+                        'id' => $messageId,
                         'timestamp' => (string) now()->timestamp,
                         'type' => 'interactive',
                         'context' => ['id' => 'wamid.flow-1'],

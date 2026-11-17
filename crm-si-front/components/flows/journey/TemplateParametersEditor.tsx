@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import type { TemplateParameter, WhatsAppTemplate } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
-import { uploadMediaAsset } from "@/lib/api/media-assets"
+import { uploadMediaAsset, type MediaAsset } from "@/lib/api/media-assets"
 import {
   ANSWER_PREFIX,
   CONTACT_PATHS,
@@ -31,7 +31,8 @@ const HEADER_ACCEPT: Record<"IMAGE" | "VIDEO" | "DOCUMENT", string> = {
 }
 
 interface TemplateParametersEditorProps {
-  template: WhatsAppTemplate
+  /** Sin plantilla (variables de un texto propio) no hay encabezado de media. */
+  template?: WhatsAppTemplate
   /** Filas de `templateParameterRows`: encabezado de media primero, después una por variable. */
   parameters: TemplateParameter[]
   onChange: (parameters: TemplateParameter[]) => void
@@ -195,20 +196,27 @@ function BodyRow({
   )
 }
 
-function HeaderRow({
+/** Archivo del espacio o URL https para un encabezado de media; también lo usa la imagen del cierre de texto. */
+export function HeaderRow({
   parameter,
   format,
   errors,
   id,
   disabled,
+  label,
   onChange,
+  onUploaded,
 }: {
   parameter: TemplateParameter
   format: "IMAGE" | "VIDEO" | "DOCUMENT"
   errors?: string[]
   id: string
   disabled: boolean
+  /** Reemplaza el rótulo «Encabezado: …». */
+  label?: string
   onChange: (next: TemplateParameter) => void
+  /** Recibe el archivo recién subido, por ejemplo para mostrarlo en la vista previa. */
+  onUploaded?: (asset: MediaAsset) => void
 }) {
   const { t } = useTranslation()
   const [uploading, setUploading] = useState(false)
@@ -225,6 +233,7 @@ function HeaderRow({
       const asset = await uploadMediaAsset(file)
       setUploadedName(asset.name)
       onChange({ component: "header", source: "media_asset", media_asset_id: asset.id })
+      onUploaded?.(asset)
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : t("flows.journey.params.uploadError"))
     } finally {
@@ -236,7 +245,7 @@ function HeaderRow({
     <div className="space-y-2 rounded-md bg-muted/40 p-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs font-medium text-muted-foreground">
-          {t("flows.journey.params.header", { format: t(`flows.journey.params.formats.${format}`) })}
+          {label ?? t("flows.journey.params.header", { format: t(`flows.journey.params.formats.${format}`) })}
         </span>
         <ToggleGroup
           type="single"
@@ -275,7 +284,11 @@ function HeaderRow({
             className="sr-only"
             accept={HEADER_ACCEPT[format]}
             disabled={disabled || uploading}
-            onChange={(event) => void upload(event.target.files?.[0])}
+            onChange={(event) => {
+              void upload(event.target.files?.[0])
+              // Vaciarlo deja volver a elegir el mismo archivo después de un error.
+              event.target.value = ""
+            }}
           />
         </label>
       ) : (

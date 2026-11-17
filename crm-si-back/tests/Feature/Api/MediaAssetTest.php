@@ -40,14 +40,18 @@ class MediaAssetTest extends TestCase
         Storage::disk('public')->assertExists(MediaAsset::first()->path);
     }
 
-    public function test_non_pdf_upload_is_rejected(): void
+    public function test_uploads_follow_whatsapp_types_and_limits(): void
     {
         Storage::fake('public');
         Sanctum::actingAs($this->owner());
+        $upload = fn (string $name, int $kilobytes, string $mime) => $this->postJson('/api/media-assets', [
+            'file' => UploadedFile::fake()->create($name, $kilobytes, $mime),
+        ]);
 
-        $this->postJson('/api/media-assets', [
-            'file' => UploadedFile::fake()->create('foto.png', 50, 'image/png'),
-        ])->assertUnprocessable()->assertJsonValidationErrors('file');
+        $upload('foto.png', 50, 'image/png')->assertCreated()->assertJsonPath('data.mime_type', 'image/png');
+        $upload('video.mp4', 900, 'video/mp4')->assertCreated();
+        $upload('foto.gif', 50, 'image/gif')->assertUnprocessable()->assertJsonValidationErrors('file');
+        $upload('grande.jpg', 6 * 1024, 'image/jpeg')->assertUnprocessable()->assertJsonValidationErrors('file');
     }
 
     public function test_assets_are_scoped_to_tenant(): void
