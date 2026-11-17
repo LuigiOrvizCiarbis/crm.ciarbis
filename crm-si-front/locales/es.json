@@ -2112,6 +2112,19 @@
     "emailMismatchHint": "Cerrá sesión y registrate con ese email, o pedí una nueva invitación.",
     "inviteDescription": "Invitá personas por email y elegí su rol antes de que entren."
   },
+  "richText": {
+    "toolbar": "Formato del texto",
+    "bold": "Negrita",
+    "italic": "Cursiva",
+    "strike": "Tachado",
+    "code": "Monoespaciado",
+    "bullets": "Lista con viñetas",
+    "numbers": "Lista numerada",
+    "quote": "Cita",
+    "link": "Link",
+    "linkText": "texto del link",
+    "emoji": "Emojis"
+  },
   "common": {
     "save": "Guardar",
     "saving": "Guardando...",
@@ -3079,6 +3092,11 @@
       "buttonPlaceholder": "Ver catálogo",
       "url": "Link",
       "urlInvalid": "Usá un link completo que empiece con https://",
+      "header": "Encabezado (opcional)",
+      "footer": "Pie (opcional)",
+      "headerIsImage": "Con imagen, el encabezado es la imagen.",
+      "headerFooterNeedButton": "El encabezado y el pie sólo van con botón: WhatsApp no los admite en un mensaje de texto.",
+      "variablesOutsideBody": "Las variables sólo van en el texto, no en el encabezado ni en el pie.",
       "preview": "Vista previa",
       "saved": "Mensaje al terminar guardado",
       "saveError": "No se pudo guardar el mensaje al terminar",

@@ -190,7 +190,9 @@ class FlowDefinitionCompiler
         $component = ['type' => self::COMPONENTS[$type]];
 
         if (! $this->isQuestion($block)) {
-            return $component + ['text' => $block['text']];
+            // Párrafo y nota admiten el markdown de Meta (Flow JSON 5.1+): **negrita**, *cursiva*,
+            // ~~tachado~~, listas y links. Título y subtítulo no.
+            return $component + ['text' => $block['text']] + (in_array($type, ['body', 'caption'], true) ? ['markdown' => true] : []);
         }
 
         $component += [

@@ -152,6 +152,12 @@ class MediaAssetDownloadTest extends TestCase
         $admin->assignRole('Admin');
 
         $this->actingAs($admin)->get("/api/media-assets/{$asset->id}/download")->assertOk();
+
+        // Quien arma formularios sube la imagen de la apertura y tiene que verla en la vista previa.
+        $flowEditor = User::factory()->create(['tenant_id' => $tenant->id]);
+        $flowEditor->givePermissionTo('flows.manage');
+
+        $this->actingAs($flowEditor)->get("/api/media-assets/{$asset->id}/download")->assertOk();
     }
 
     #[Test]

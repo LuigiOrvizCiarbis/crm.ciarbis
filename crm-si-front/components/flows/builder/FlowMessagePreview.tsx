@@ -7,6 +7,7 @@ import { templateStatusKey } from "@/components/flows/journey/TemplateStatusBadg
 import { useManagedTemplates } from "@/components/flows/journey/useManagedTemplates"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { WhatsAppFlow } from "@/data/types"
+import { useImagePreviewUrl } from "@/hooks/useImagePreviewUrl"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactField } from "@/lib/api/contact-fields"
 import { isRepeaterScreen } from "@/lib/flow-builder/repeater"
@@ -28,16 +29,17 @@ const DEFAULT_SEND_CTA = "Completar"
 
 type Translate = (key: string, params?: Record<string, string | number>) => string
 
-function sendMessage(flow: WhatsAppFlow | null, definition: FlowDefinition, context: ParameterContext, t: Translate): BubbleContent {
+function sendMessage(
+  flow: WhatsAppFlow | null,
+  definition: FlowDefinition,
+  context: ParameterContext,
+  imageUrl: string | null,
+  t: Translate,
+): BubbleContent {
   if (flow) {
     const { header, image, body, footer, cta, variables } = flow.send_defaults
     const text = bodyPreview(body, variables, context, t)
-    // Un archivo guardado se ve como ícono: la vista previa sólo conoce la URL de los links.
-    const top: BubbleContent["header"] = image
-      ? { kind: "image", url: image.source === "literal" ? image.value : null }
-      : header
-        ? { kind: "text", text: header }
-        : null
+    const top: BubbleContent["header"] = image ? { kind: "image", url: imageUrl } : header ? { kind: "text", text: header } : null
     return { header: top, body: text, footer, buttons: [{ text: cta, kind: "flow" }] }
   }
   const entry = definition.screens[0]
@@ -63,9 +65,10 @@ export function FlowMessagePreview({ flow, channelId, definition, contactFields,
   const selected = source === "send" ? undefined : linked.find((item) => item.id === source)
   const full = selected ? templates?.find((template) => template.id === selected.id) : undefined
   const context = useMemo(() => ({ answers: [], contactFields }), [contactFields])
+  const imageUrl = useImagePreviewUrl(flow?.send_defaults.image)
 
   // Una plantilla elegida que no se puede mostrar no cae en el mensaje de envío: se avisa en su lugar.
-  let message: BubbleContent | null = sendMessage(flow, definition, context, t)
+  let message: BubbleContent | null = sendMessage(flow, definition, context, imageUrl, t)
   let notice: string | null = null
   if (flow && selected) {
     if (full) {
