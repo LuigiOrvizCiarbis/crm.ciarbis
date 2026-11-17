@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Eye, EyeOff, Loader2, MessageSquare } from "lucide-react"
@@ -21,7 +21,10 @@ import {
 import { useAuthStore } from "@/store/useAuthStore"
 import { LanguageSwitcher } from "@/components/LanguageSwitcher"
 import { clearWorkspaceId, setWorkspaceId } from "@/lib/api/auth-token"
-import { accountHomePath } from "@/lib/account-session"
+import { accountHomePath, switchToAccount } from "@/lib/account-session"
+import { SavedAccountSummary, useSavedAccounts } from "@/components/AccountSwitcherItems"
+
+const noopSubscribe = () => () => {}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -36,6 +39,11 @@ export default function LoginPage() {
   // Sin sesión activa, ?add=1 se ignora y es un login normal.
   const isAddingAccount = searchParams.get("add") === "1" && isAuthenticated
   const { t } = useTranslation()
+  const savedAccounts = useSavedAccounts()
+  const [switchingUserId, setSwitchingUserId] = useState<number | null>(null)
+  // Las cuentas guardadas viven en localStorage: mostrarlas recién en el
+  // cliente evita que el HTML del servidor (sin cuentas) no coincida.
+  const isClient = useSyncExternalStore(noopSubscribe, () => true, () => false)
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -85,6 +93,16 @@ export default function LoginPage() {
     }
   }
 
+  const handleContinueAs = async (userId: number) => {
+    setError("")
+    setSwitchingUserId(userId)
+    // Si funciona, switchToAccount recarga la página en la cuenta elegida.
+    if (!(await switchToAccount(userId))) {
+      setError(t("auth.savedAccountUnavailable"))
+      setSwitchingUserId(null)
+    }
+  }
+
   return (
     <Card className="w-full max-w-full overflow-hidden">
       <CardHeader className="text-center space-y-4">
@@ -105,6 +123,31 @@ export default function LoginPage() {
           <LanguageSwitcher />
         </div>
       </CardHeader>
+
+      {isClient && !isAddingAccount && savedAccounts.length > 0 ? (
+        <CardContent className="space-y-3">
+          <p className="text-sm font-medium">{t("auth.savedAccountsTitle")}</p>
+          <ul className="space-y-2">
+            {savedAccounts.map((account) => (
+              <li key={account.user.id}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-auto w-full justify-start gap-3 py-2"
+                  disabled={switchingUserId !== null || isLoading}
+                  onClick={() => void handleContinueAs(account.user.id)}
+                >
+                  <SavedAccountSummary user={account.user} />
+                  {switchingUserId === account.user.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                  ) : null}
+                </Button>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-center text-muted-foreground">{t("auth.savedAccountsDivider")}</p>
+        </CardContent>
+      ) : null}
 
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">

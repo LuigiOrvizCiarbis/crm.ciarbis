@@ -6,8 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { createOpportunity, getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
 import { fetchPipelineStages, getPipelines, type Pipeline, type PipelineStage } from "@/lib/api/pipeline"
+import { needsSaleValue, useSaleValueGuard } from "@/components/sale-value-guard"
 
-type ExistingOpportunity = { id: number; title: string; pipeline_id: number; pipeline_stage_id: number | null; pipeline?: { name: string } }
+type ExistingOpportunity = {
+  id: number
+  title: string
+  value?: number | string | null
+  pipeline_id: number
+  pipeline_stage_id: number | null
+  pipeline?: { name: string }
+}
 
 export function ContactPipelineDialog({
   contact,
@@ -31,6 +39,7 @@ export function ContactPipelineDialog({
   const [opportunityId, setOpportunityId] = useState(0)
   const [mode, setMode] = useState<"create" | "move">("create")
   const [saving, setSaving] = useState(false)
+  const { confirmSaleValue, dialog: saleValueDialog } = useSaleValueGuard()
   const [error, setError] = useState("")
   const [loadFailed, setLoadFailed] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
@@ -67,12 +76,22 @@ export function ContactPipelineDialog({
 
   const save = async () => {
     if (!contact || !pipelineId || !stageId) return setError("Elegí un embudo y una etapa.")
+    if (mode === "move" && !opportunityId) return setError("Elegí una oportunidad para mover.")
+
+    const outcome = stages.find((stage) => stage.id === stageId)?.outcome
+    const currentValue = mode === "move" ? opportunities.find((item) => item.id === opportunityId)?.value : null
+    let value: number | undefined
+    if (needsSaleValue(outcome, currentValue)) {
+      const decision = await confirmSaleValue(contact.name)
+      if (!decision) return
+      value = decision.value
+    }
+
     setSaving(true)
     setError("")
     try {
       if (mode === "move") {
-        if (!opportunityId) throw new Error("Elegí una oportunidad para mover.")
-        await updateOpportunityStage(opportunityId, stageId, pipelineId)
+        await updateOpportunityStage(opportunityId, stageId, pipelineId, value)
       } else {
         await createOpportunity({
           contact_id: contact.id,
@@ -81,6 +100,7 @@ export function ContactPipelineDialog({
           pipeline_stage_id: stageId,
           title: `Oportunidad - ${contact.name}`,
           source_type: linkedConversationId ? "conversation" : "manual",
+          ...(value !== undefined ? { value } : {}),
         })
       }
       onSaved()
@@ -92,7 +112,7 @@ export function ContactPipelineDialog({
     }
   }
 
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent>
+  return <><Dialog open={open} onOpenChange={onOpenChange}><DialogContent>
     <DialogHeader>
       <DialogTitle>{conversationId ? `Nueva oportunidad para ${contact?.name}` : `Agregar a ${contact?.name} al embudo`}</DialogTitle>
       <DialogDescription>{conversationId ? "Queda vinculada a este chat." : "Creá una oportunidad o mové una existente."}</DialogDescription>
@@ -110,5 +130,5 @@ export function ContactPipelineDialog({
       )}
     </div>
     <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button><Button disabled={saving || !pipelines.length || !stages.length} onClick={() => void save()}>{saving ? "Guardando…" : mode === "move" ? "Mover oportunidad" : "Crear oportunidad"}</Button></DialogFooter>
-  </DialogContent></Dialog>
+  </DialogContent></Dialog>{saleValueDialog}</>
 }

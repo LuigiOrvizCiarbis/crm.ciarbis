@@ -9,7 +9,7 @@ import { isTrialExpired } from "@/lib/trial"
 import { useConfigStore } from "@/store/useConfigStore"
 import { firstAccessibleSection } from "@/lib/section-access"
 import { clearWorkspaceId, setWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
-import { signOut } from "@/lib/account-session"
+import { discardActiveAccount } from "@/lib/account-session"
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -103,7 +103,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
           
           if (!res.ok) {
             // Token inválido: cerrar esta cuenta y pasar a la siguiente guardada
-            await signOut()
+            await discardActiveAccount()
             return
           }
 

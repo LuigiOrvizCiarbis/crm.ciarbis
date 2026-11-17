@@ -93,14 +93,19 @@ export async function getOpportunitySummary(pipelineId?: number): Promise<Opport
   return payload as OpportunitySummary;
 }
 
-export async function updateOpportunityStage(opportunityId: number, stageId: number, pipelineId?: number) {
+/** `value` viaja en el mismo guardado: al ganar, la venta que se informa a Meta ya lo lleva. */
+export async function updateOpportunityStage(opportunityId: number, stageId: number, pipelineId?: number, value?: number) {
   const response = await fetch(`/api/opportunities/${opportunityId}/stage`, {
     method: "PATCH",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ pipeline_stage_id: stageId, ...(pipelineId ? { pipeline_id: pipelineId } : {}) }),
+    body: JSON.stringify({
+      pipeline_stage_id: stageId,
+      ...(pipelineId ? { pipeline_id: pipelineId } : {}),
+      ...(value !== undefined ? { value } : {}),
+    }),
   });
 
   const payload = await response.json().catch(() => ({}));

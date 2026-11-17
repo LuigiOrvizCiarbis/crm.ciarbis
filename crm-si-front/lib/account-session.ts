@@ -51,10 +51,32 @@ export async function switchToAccount(userId: number): Promise<boolean> {
 }
 
 /**
- * Cierra sólo la cuenta activa (el servidor revoca su token) y entra en la
- * guardada usada más recientemente; sin cuentas utilizables vuelve a /login.
+ * Cierre de sesión pedido por el usuario: cierra sólo la cuenta activa. Las
+ * demás siguen guardadas y se eligen desde /login; no se entra en otra sola.
  */
 export async function signOut(): Promise<void> {
+  await closeActiveAccount()
+  window.location.replace("/login")
+}
+
+/**
+ * El token de la cuenta activa dejó de servir: se cierra esa cuenta y se
+ * entra en la guardada usada más recientemente; sin cuentas utilizables vuelve a /login.
+ */
+export async function discardActiveAccount(): Promise<void> {
+  await closeActiveAccount()
+
+  let next = mostRecentSavedAccount(useAuthStore.getState().savedAccounts)
+  while (next) {
+    if (await switchToAccount(next.user.id)) return
+    useAuthStore.getState().forgetSavedAccount(next.user.id)
+    next = mostRecentSavedAccount(useAuthStore.getState().savedAccounts)
+  }
+  window.location.replace("/login")
+}
+
+/** El servidor revoca el token activo y conserva el de las cuentas guardadas. */
+async function closeActiveAccount(): Promise<void> {
   const { savedAccounts, logout } = useAuthStore.getState()
   await fetch("/api/auth/logout", {
     method: "POST",
@@ -64,12 +86,4 @@ export async function signOut(): Promise<void> {
     // Ignorar errores: la sesión local se cierra de todos modos.
   })
   logout()
-
-  let next = mostRecentSavedAccount(useAuthStore.getState().savedAccounts)
-  while (next) {
-    if (await switchToAccount(next.user.id)) return
-    useAuthStore.getState().forgetSavedAccount(next.user.id)
-    next = mostRecentSavedAccount(useAuthStore.getState().savedAccounts)
-  }
-  window.location.replace("/login")
 }
