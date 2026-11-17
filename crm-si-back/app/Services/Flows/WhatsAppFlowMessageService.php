@@ -105,10 +105,12 @@ class WhatsAppFlowMessageService
             ['contact' => $conversation->contact?->toArray() ?? []],
             $flow->tenant_id,
         );
+        $imageLink = $this->imageLink($flow);
         $context = $this->messages->resolveOutboundWhatsAppContext($conversation);
         $session = $this->sessions->open($flow, $conversation);
         $cta = $options['cta'];
-        $header = filled($options['header'] ?? null) ? $options['header'] : null;
+        // Meta admite un solo encabezado: la imagen de la apertura reemplaza al de texto.
+        $header = $imageLink === null && filled($options['header'] ?? null) ? $options['header'] : null;
         $footer = filled($options['footer'] ?? null) ? $options['footer'] : null;
 
         $interactive = [
@@ -117,7 +119,9 @@ class WhatsAppFlowMessageService
             'action' => ['name' => 'flow', 'parameters' => $this->parameters($flow, $session, $cta)],
         ];
 
-        if ($header !== null) {
+        if ($imageLink !== null) {
+            $interactive['header'] = ['type' => 'image', 'image' => ['link' => $imageLink]];
+        } elseif ($header !== null) {
             $interactive['header'] = ['type' => 'text', 'text' => $header];
         }
 
@@ -159,6 +163,7 @@ class WhatsAppFlowMessageService
                 'body' => $body,
                 'cta' => $cta,
                 'header' => $header,
+                'image' => $imageLink,
                 'footer' => $footer,
             ],
         ]);
@@ -184,6 +189,30 @@ class WhatsAppFlowMessageService
         }
 
         return $message;
+    }
+
+    /**
+     * Imagen de encabezado de la apertura. Una que ya no está (archivo
+     * borrado, URL que dejó de ser pública) no impide el envío: el mensaje
+     * sale sin imagen.
+     */
+    private function imageLink(WhatsAppFlow $flow): ?string
+    {
+        $image = $flow->sendDefaults()['image'];
+        if ($image === null) {
+            return null;
+        }
+
+        try {
+            return $this->parameters->imageUrl($image, $flow->tenant_id);
+        } catch (TemplateParameterException $e) {
+            Log::warning('Flow: imagen de la apertura no disponible, se manda sin imagen', [
+                'whatsapp_flow_id' => $flow->id,
+                'reason' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 
     private function ensureSendable(Conversation $conversation, WhatsAppFlow $flow): void

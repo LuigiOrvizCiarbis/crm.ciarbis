@@ -7,11 +7,9 @@ import { useManagedTemplates } from "@/components/flows/journey/useManagedTempla
 import type { WhatsAppFlow, WhatsAppFlowResponseField } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactField } from "@/lib/api/contact-fields"
-import { answerLabel, templateBodyPreview, templateParameterRows } from "@/lib/template-parameters"
+import { bodyParameterRows, bodyPreview, templateBodyPreview, templateParameterRows, textVariableNames } from "@/lib/template-parameters"
 
 import { ChatScreen } from "./ChatScreen"
-
-const PLACEHOLDER = /\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g
 
 interface FlowClosingPreviewProps {
   flow: WhatsAppFlow | null
@@ -36,14 +34,14 @@ export function FlowClosingPreview({ flow, channelId, fields, contactFields }: F
   }
 
   if (closing.type === "text") {
-    const labels = new Map(fields.map((field) => [field.key, answerLabel(field, t)]))
+    const rows = bodyParameterRows(textVariableNames(closing.body), closing.variables, context)
     return (
       <ChatScreen>
         <ChatBubble
           content={{
             // Un archivo guardado se ve como ícono: la vista previa sólo conoce la URL de los links.
             header: closing.image ? { kind: "image", url: closing.image.source === "literal" ? closing.image.value : null } : null,
-            body: closing.body.replace(PLACEHOLDER, (_, key: string) => `[${labels.get(key) ?? key}]`),
+            body: bodyPreview(closing.body, rows, context, t),
             footer: null,
             buttons: closing.button_text ? [{ text: closing.button_text, kind: "link" }] : [],
           }}

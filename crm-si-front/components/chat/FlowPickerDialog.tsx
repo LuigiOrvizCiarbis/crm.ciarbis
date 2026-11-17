@@ -194,10 +194,15 @@ export function FlowPickerDialog({ open, onOpenChange, channelId, onSend, window
             )
           ) : (
             <>
-              <div className="space-y-1.5">
-                <Label htmlFor="flow-picker-header">{t("chats.flows.header")}</Label>
-                <Input id="flow-picker-header" value={header} maxLength={HEADER_FOOTER_MAX} onChange={(event) => setHeader(event.target.value)} />
-              </div>
+              {selectedFlow?.send_defaults.image ? (
+                // Meta admite un solo encabezado: con la imagen de la apertura no va el de texto.
+                <p className="text-xs text-muted-foreground">{t("chats.flows.withImage")}</p>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label htmlFor="flow-picker-header">{t("chats.flows.header")}</Label>
+                  <Input id="flow-picker-header" value={header} maxLength={HEADER_FOOTER_MAX} onChange={(event) => setHeader(event.target.value)} />
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label htmlFor="flow-picker-body">{t("chats.flows.body")}</Label>
                 <Textarea id="flow-picker-body" value={body} maxLength={BODY_MAX} rows={4} onChange={(event) => setBody(event.target.value)} />

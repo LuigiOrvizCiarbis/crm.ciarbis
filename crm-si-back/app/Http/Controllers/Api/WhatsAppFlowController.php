@@ -20,6 +20,7 @@ use App\Rules\UniqueFlowName;
 use App\Services\Flows\Builder\CompiledFlow;
 use App\Services\Flows\Builder\FlowDefinitionCompiler;
 use App\Services\Flows\Builder\FlowDefinitionValidator;
+use App\Services\Flows\FlowCompletionMessageService;
 use App\Services\Flows\FlowNameTakenException;
 use App\Services\Flows\FlowOpeningTemplates;
 use App\Services\Flows\WhatsAppFlowEncryptionService;
@@ -50,7 +51,7 @@ class WhatsAppFlowController extends Controller
     ) {}
 
     /** Tipos de imagen que Meta acepta en un mensaje. */
-    private const CLOSING_IMAGE_TYPES = ['image/jpeg', 'image/png'];
+    private const MESSAGE_IMAGE_TYPES = ['image/jpeg', 'image/png'];
 
     public function index(Request $request, Channel $channel): JsonResponse
     {
@@ -284,13 +285,15 @@ class WhatsAppFlowController extends Controller
     /**
      * Cada `{{nombre}}` del mensaje necesita de dónde salir (un dato del
      * contacto o un texto fijo); si no, el envío fallaría con cada contacto.
-     * Se guardan sólo las variables que usa el cuerpo.
+     * Se guardan sólo las variables que usa el cuerpo. La imagen reemplaza al
+     * encabezado de texto: Meta admite un solo encabezado.
      *
      * @param  array<string, mixed>  $message
-     * @return array{header: ?string, body: string, footer: ?string, cta: string, variables: list<array<string, mixed>>}
+     * @return array{header: ?string, image: ?array<string, mixed>, body: string, footer: ?string, cta: string, variables: list<array<string, mixed>>}
      */
     private function validatedSendDefaults(WhatsAppFlow $flow, array $message): array
     {
+        $image = $this->validatedImage($flow, $message['image'] ?? null, 'send_defaults.image');
         $body = (string) $message['body'];
         $errors = [];
 
@@ -313,15 +316,8 @@ class WhatsAppFlowController extends Controller
             $variables[] = ['component' => 'body', 'name' => $name, ...Arr::except($variable, ['component', 'name'])];
         }
 
-        foreach ($this->parameters->validateParameters($variables, $flow->tenant_id) as $key => $messages) {
-            $errors['send_defaults.variables.'.substr($key, strlen('parameters.'))] = $messages;
-        }
-        foreach ($variables as $index => $variable) {
-            if (! in_array($variable['source'], ['field', 'literal'], true)) {
-                $errors["send_defaults.variables.{$index}.source"][] = 'Una variable del mensaje sale de un dato del contacto o de un texto fijo.';
-            } elseif ($variable['source'] === 'literal' && blank($variable['value'] ?? null)) {
-                $errors["send_defaults.variables.{$index}.value"][] = 'Escribí el texto fijo.';
-            }
+        foreach ($this->variableErrors($variables, 'send_defaults.variables', $flow->tenant_id) as $key => $messages) {
+            $errors[$key] = $messages;
         }
 
         if ($errors !== []) {
@@ -329,12 +325,68 @@ class WhatsAppFlowController extends Controller
         }
 
         return [
-            'header' => $message['header'] ?? null,
+            'header' => $image === null ? ($message['header'] ?? null) : null,
+            'image' => $image,
             'body' => $body,
             'footer' => $message['footer'] ?? null,
             'cta' => (string) $message['cta'],
             'variables' => $variables,
         ];
+    }
+
+    /**
+     * La imagen de un mensaje se revisa al guardar: un archivo de otro espacio
+     * o que no es JPG/PNG, o una URL privada, fallarían recién en cada envío.
+     *
+     * @return array{source: 'media_asset', media_asset_id: int}|array{source: 'literal', value: string}|null
+     */
+    private function validatedImage(WhatsAppFlow $flow, mixed $image, string $prefix): ?array
+    {
+        $image = WhatsAppFlow::messageImage($image);
+
+        if ($image !== null && $image['source'] === 'media_asset') {
+            $asset = MediaAsset::where('tenant_id', $flow->tenant_id)->find($image['media_asset_id']);
+            if ($asset === null) {
+                throw ValidationException::withMessages(["{$prefix}.media_asset_id" => 'Elegí un archivo del espacio.']);
+            }
+            if (! in_array($asset->mime_type, self::MESSAGE_IMAGE_TYPES, true)) {
+                throw ValidationException::withMessages(["{$prefix}.media_asset_id" => 'WhatsApp sólo acepta imágenes JPG o PNG.']);
+            }
+        }
+
+        if ($image !== null && $image['source'] === 'literal') {
+            try {
+                $this->urlGuard->assertPublicUrl($image['value']);
+            } catch (PublicUrlRejectedException) {
+                throw ValidationException::withMessages(["{$prefix}.value" => 'Usá una URL pública: Meta tiene que poder descargar la imagen.']);
+            }
+        }
+
+        return $image;
+    }
+
+    /**
+     * Forma de las variables de un texto propio (no plantilla): salen de un
+     * dato o de un texto fijo, nunca de un archivo.
+     *
+     * @param  list<array<string, mixed>>  $variables
+     * @return array<string, list<string>>
+     */
+    private function variableErrors(array $variables, string $prefix, int $tenantId): array
+    {
+        $errors = [];
+        foreach ($this->parameters->validateParameters($variables, $tenantId) as $key => $messages) {
+            $errors[$prefix.'.'.substr($key, strlen('parameters.'))] = $messages;
+        }
+        foreach ($variables as $index => $variable) {
+            if (! in_array($variable['source'], ['field', 'literal'], true)) {
+                $errors["{$prefix}.{$index}.source"][] = 'Una variable del texto sale de un dato o de un texto fijo.';
+            } elseif ($variable['source'] === 'literal' && blank($variable['value'] ?? null)) {
+                $errors["{$prefix}.{$index}.value"][] = 'Escribí el texto fijo.';
+            }
+        }
+
+        return $errors;
     }
 
     /**
@@ -438,32 +490,32 @@ class WhatsAppFlowController extends Controller
     }
 
     /**
-     * La imagen se revisa al guardar: un archivo de otro espacio o que no es
-     * JPG/PNG, o una URL privada, fallarían recién en cada envío.
+     * Las `{{variables}}` configuradas salen de una respuesta, un dato del
+     * contacto o un texto fijo; una sin configurar es la respuesta con esa
+     * clave. Se guardan sólo las que usa el texto.
      *
      * @param  array<string, mixed>  $message
      * @return array<string, mixed>
      */
     private function validatedTextCompletion(WhatsAppFlow $flow, array $message): array
     {
-        $image = WhatsAppFlow::closingImage($message['image'] ?? null);
+        $image = $this->validatedImage($flow, $message['image'] ?? null, 'completion_message.image');
 
-        if ($image !== null && $image['source'] === 'media_asset') {
-            $asset = MediaAsset::where('tenant_id', $flow->tenant_id)->find($image['media_asset_id']);
-            if ($asset === null) {
-                throw ValidationException::withMessages(['completion_message.image.media_asset_id' => 'Elegí un archivo del espacio.']);
-            }
-            if (! in_array($asset->mime_type, self::CLOSING_IMAGE_TYPES, true)) {
-                throw ValidationException::withMessages(['completion_message.image.media_asset_id' => 'WhatsApp sólo acepta imágenes JPG o PNG.']);
+        $byName = collect($message['variables'] ?? [])->keyBy(fn (array $variable) => (string) ($variable['name'] ?? ''));
+        preg_match_all(FlowCompletionMessageService::PLACEHOLDER, (string) $message['body'], $used);
+        $variables = [];
+        foreach (array_unique($used[1]) as $name) {
+            if ($variable = $byName->get($name)) {
+                $variables[] = ['component' => 'body', 'name' => $name, ...Arr::except($variable, ['component', 'name'])];
             }
         }
 
-        if ($image !== null && $image['source'] === 'literal') {
-            try {
-                $this->urlGuard->assertPublicUrl($image['value']);
-            } catch (PublicUrlRejectedException) {
-                throw ValidationException::withMessages(['completion_message.image.value' => 'Usá una URL pública: Meta tiene que poder descargar la imagen.']);
-            }
+        $errors = $this->variableErrors($variables, 'completion_message.variables', $flow->tenant_id);
+        foreach ($this->unpublishedAnswers($flow, $variables) as $index => $key) {
+            $errors["completion_message.variables.{$index}.path"][] = "«{$key}» no está en la versión publicada del formulario: publicalo para usar esa respuesta.";
+        }
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
         }
 
         return [
@@ -472,6 +524,7 @@ class WhatsAppFlowController extends Controller
             'button_text' => $message['button_text'] ?? null,
             'url' => $message['url'] ?? null,
             'image' => $image,
+            'variables' => $variables,
         ];
     }
 

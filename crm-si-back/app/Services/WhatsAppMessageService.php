@@ -26,12 +26,14 @@ use App\Models\MessageInteraction;
 use App\Models\MessageReaction;
 use App\Models\Tag;
 use App\Models\User;
-use App\Models\WhatsAppConfig;
+use App\Models\WhatsAppGroup;
+use App\Models\WhatsAppGroupParticipant;
 use App\Services\Concerns\ResolvesWhatsAppChannel;
 use App\Services\Concerns\ResolvesWhatsAppCredentials;
 use App\Services\Flows\FlowResponseService;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -296,7 +298,7 @@ class WhatsAppMessageService
 
     private function resolveGroupConversation(string $groupWaId, Channel $channel): ?Conversation
     {
-        $group = \App\Models\WhatsAppGroup::query()
+        $group = WhatsAppGroup::query()
             ->where('group_id', $groupWaId)
             ->where('channel_id', $channel->id)
             ->first();
@@ -316,7 +318,7 @@ class WhatsAppMessageService
             return;
         }
 
-        \App\Models\WhatsAppGroupParticipant::updateOrCreate(
+        WhatsAppGroupParticipant::updateOrCreate(
             [
                 'whatsapp_group_id' => $group->id,
                 'wa_id' => $messageData['from'] ?? '',
@@ -1178,8 +1180,13 @@ class WhatsAppMessageService
     {
         $alerts = preg_replace('/\D+/', '', (string) config('services.si_crm_alerts.display_number'));
         $candidate = preg_replace('/\D+/', '', (string) $phone);
-        if (str_starts_with($alerts, '549')) $alerts = '54'.substr($alerts, 3);
-        if (str_starts_with($candidate, '549')) $candidate = '54'.substr($candidate, 3);
+        if (str_starts_with($alerts, '549')) {
+            $alerts = '54'.substr($alerts, 3);
+        }
+        if (str_starts_with($candidate, '549')) {
+            $candidate = '54'.substr($candidate, 3);
+        }
+
         return $alerts !== '' && $candidate !== '' && hash_equals($alerts, $candidate);
     }
 
@@ -2210,7 +2217,7 @@ class WhatsAppMessageService
      * 24 h desde el último mensaje del contacto. Se tipa para que el usuario
      * reciba la instrucción de usar una plantilla en vez del body crudo.
      */
-    public function throwIfWindowClosed(\Illuminate\Http\Client\Response $response): void
+    public function throwIfWindowClosed(Response $response): void
     {
         if ((int) $response->json('error.code') === 131047) {
             throw MetaApiException::fromGraphResponse(ChannelType::WHATSAPP, $response->json());

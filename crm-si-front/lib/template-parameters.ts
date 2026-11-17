@@ -1,4 +1,4 @@
-import type { TemplateParameter, WhatsAppFlowResponseField, WhatsAppTemplate } from "@/data/types"
+import type { TemplateParameter, WhatsAppFlowImage, WhatsAppFlowResponseField, WhatsAppTemplate } from "@/data/types"
 import type { ContactField } from "@/lib/api/contact-fields"
 import { templateBodyParameters, templateHeaderMediaFormat } from "@/lib/whatsapp-templates"
 
@@ -95,6 +95,40 @@ export function cleanParameters(parameters: TemplateParameter[]): TemplateParame
     const fallback = parameter.fallback?.trim()
     return { ...base, source: "field", path: parameter.path, ...(fallback ? { fallback } : {}) }
   })
+}
+
+/** Mismas variables: compara lo que se guarda, no la forma del objeto. */
+export function sameParameters(a: TemplateParameter[], b: TemplateParameter[]): boolean {
+  const key = (parameter: TemplateParameter) =>
+    [parameter.name ?? "", parameter.source, parameter.path ?? "", parameter.value ?? "", parameter.fallback ?? ""].join("\u0000")
+  return a.length === b.length && a.every((parameter, index) => key(parameter) === key(b[index]))
+}
+
+/** `{{clave}}` de un texto propio (cierre de texto), en orden y sin repetir. */
+export function textVariableNames(text: string): string[] {
+  return [...new Set([...text.matchAll(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g)].map((match) => match[1]))]
+}
+
+/** La imagen de un mensaje se edita con el mismo campo que el encabezado de una plantilla (archivo o URL). */
+export const imageParameter = (image: WhatsAppFlowImage | null | undefined): TemplateParameter =>
+  image?.source === "literal"
+    ? { component: "header", source: "literal", value: image.value }
+    : { component: "header", source: "media_asset", media_asset_id: image?.media_asset_id }
+
+export const imageFromParameter = (parameter: TemplateParameter): WhatsAppFlowImage | null =>
+  parameter.source === "literal"
+    ? { source: "literal", value: parameter.value?.trim() ?? "" }
+    : parameter.media_asset_id
+      ? { source: "media_asset", media_asset_id: parameter.media_asset_id }
+      : null
+
+/** URL para mostrar la imagen: un link https, o un archivo recién subido en esta pantalla. Uno ya guardado se ve como ícono. */
+export function imagePreviewUrl(parameter: TemplateParameter, uploaded: { id: number; url: string } | null): string | null {
+  if (parameter.source === "literal") {
+    const value = parameter.value?.trim() ?? ""
+    return value.startsWith("https://") ? value : null
+  }
+  return uploaded && uploaded.id === parameter.media_asset_id ? uploaded.url : null
 }
 
 export interface ParameterErrors {

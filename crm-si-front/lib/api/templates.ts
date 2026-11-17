@@ -58,6 +58,24 @@ export async function uploadTemplateHeader(channelId: number, file: File): Promi
   return data;
 }
 
+/** Ejemplo del encabezado desde un archivo del espacio o una URL pública (la imagen de la apertura de un formulario). */
+export async function uploadTemplateHeaderExample(
+  channelId: number,
+  source: { media_asset_id: number } | { url: string },
+): Promise<{ header_handle: string }> {
+  const body = new FormData();
+  if ("media_asset_id" in source) body.append("media_asset_id", String(source.media_asset_id));
+  else body.append("url", source.url);
+  const res = await fetch(`/api/channels/${channelId}/templates/media`, {
+    method: "POST",
+    headers: { ...workspaceHeaders() },
+    body,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throwApiError(res.status, data, "Error al cargar la imagen de ejemplo");
+  return data;
+}
+
 export async function syncTemplates(channelId: number): Promise<{ message: string; count: number }> {
   const res = await fetch(`/api/channels/${channelId}/templates/sync`, {
     method: "POST",

@@ -171,8 +171,21 @@ class TemplateParameterRenderer
         return (string) preg_replace_callback(self::VARIABLE, function (array $match) use ($byName, $context, $tenantId) {
             $parameter = $byName->get($match[1]) ?? throw new TemplateParameterException('missing_parameter:'.$match[1]);
 
-            return self::asText($this->resolve($parameter, $context, $tenantId)[0]);
+            return $this->textValue($parameter, $context, $tenantId);
         }, $text);
+    }
+
+    /**
+     * Valor en texto de una variable (con su respaldo si queda vacía).
+     *
+     * @param  array<string, mixed>  $parameter
+     * @param  array<string, mixed>  $context
+     *
+     * @throws TemplateParameterException si queda sin valor
+     */
+    public function textValue(array $parameter, array $context, int $tenantId): string
+    {
+        return self::asText($this->resolve($parameter, $context, $tenantId)[0]);
     }
 
     /**
@@ -221,6 +234,25 @@ class TemplateParameterRenderer
         }
 
         return $asset->publicUrl();
+    }
+
+    /**
+     * URL que Meta descarga para la imagen de un mensaje propio (apertura o
+     * cierre de un formulario): un archivo del espacio o una URL pública.
+     *
+     * @param  array{source: string, media_asset_id?: int, value?: string}  $image
+     *
+     * @throws TemplateParameterException si el archivo ya no está o la URL dejó de ser pública
+     */
+    public function imageUrl(array $image, int $tenantId): string
+    {
+        if ($image['source'] === 'media_asset') {
+            return (string) $this->mediaAssetUrl($image['media_asset_id'] ?? null, $tenantId);
+        }
+
+        $this->assertPubliclyFetchable((string) $image['value']);
+
+        return (string) $image['value'];
     }
 
     /**
