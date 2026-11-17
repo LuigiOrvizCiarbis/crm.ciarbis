@@ -3608,5 +3608,83 @@
       },
       "encryptionHint": "Al guardar se configura el cifrado del número automáticamente."
     }
+  },
+  "instagramComments": {
+    "title": "Comentarios de Instagram",
+    "subtitle": "Gestioná comentarios públicos, respuestas privadas y moderación.",
+    "loadError": "No se pudieron cargar los comentarios",
+    "actionError": "No se pudo completar la acción",
+    "pending": "Pendientes",
+    "detail": "Detalle",
+    "loading": "Cargando…",
+    "empty": "No hay comentarios.",
+    "selectComment": "Seleccioná un comentario.",
+    "unknownUser": "usuario",
+    "noText": "(sin texto)",
+    "media": "Media {{id}}",
+    "replyPlaceholder": "Escribí una respuesta…",
+    "replyPublic": "Responder públicamente",
+    "replyPrivate": "Enviar por privado",
+    "hide": "Ocultar",
+    "unhide": "Mostrar",
+    "delete": "Eliminar",
+    "privateReplyDeadline": "Respuesta privada disponible hasta {{date}}",
+    "status": {
+      "new": "Nuevo",
+      "in_progress": "En curso",
+      "resolved": "Resuelto"
+    },
+    "deleteDialog": {
+      "title": "¿Eliminar comentario?",
+      "description": "Esta acción también lo marca como resuelto en el CRM.",
+      "cancel": "Cancelar",
+      "confirm": "Eliminar"
+    },
+    "automations": {
+      "title": "Respuestas automáticas",
+      "description": "Cuando alguien comenta una palabra, enviá un mensaje privado dentro de la ventana de Meta.",
+      "newRule": "Nueva regla",
+      "loadingRules": "Cargando reglas…",
+      "empty": "Creá una regla para convertir comentarios en conversaciones privadas.",
+      "connectInstagram": "Conectá una cuenta profesional de Instagram para crear reglas.",
+      "channelFallback": "Canal",
+      "edit": "Editar",
+      "pause": "Pausar",
+      "activate": "Activar",
+      "status": {
+        "active": "Activa",
+        "paused": "Pausada",
+        "draft": "Borrador"
+      },
+      "toast": {
+        "loadError": "No se pudieron cargar las automatizaciones",
+        "validation": "Completá canal, palabras clave y mensaje",
+        "updated": "Respuesta automática actualizada",
+        "activated": "Respuesta automática activada",
+        "saveError": "No se pudo guardar",
+        "rulePaused": "Automatización pausada",
+        "ruleActivated": "Automatización activada",
+        "toggleError": "No se pudo cambiar el estado"
+      },
+      "dialog": {
+        "newTitle": "Nueva respuesta automática",
+        "editTitle": "Editar respuesta automática",
+        "description": "La palabra se busca como término completo, sin distinguir mayúsculas ni acentos.",
+        "name": "Nombre",
+        "defaultName": "Responder palabra clave",
+        "namePlaceholder": "Ej. Enviar catálogo",
+        "channel": "Canal",
+        "channelPlaceholder": "Seleccioná un canal",
+        "keywords": "Palabras clave",
+        "keywordsHint": " (separadas por coma)",
+        "keywordsPlaceholder": "precio, catálogo, info",
+        "message": "Mensaje privado",
+        "messagePlaceholder": "¡Gracias por comentar! Te escribimos por privado.",
+        "metaHint": "Meta permite una respuesta privada por comentario durante 7 días. La regla queda registrada y puede pausarse cuando quieras.",
+        "cancel": "Cancelar",
+        "saveChanges": "Guardar cambios",
+        "createAndActivate": "Crear y activar"
+      }
+    }
   }
 }
