@@ -625,7 +625,9 @@
       "empty": "No stages yet. Add the first one.",
       "editHint": "Edit the name or color and click away to save. Drag to reorder.",
       "probabilityHint": "The % is each stage win probability: the Panel uses it to project revenue. Empty = not counted.",
-      "outcomeHint": "Won/Lost close the opportunity when it moves to that stage. If the chat came from a Meta ad, Won reports the sale to Meta.",
+      "outcomeHint": "Outcome: Won/Lost close the opportunity when it moves to that stage; the ones already there don't change. Won reports the sale to Meta if the chat came from a WhatsApp ad.",
+      "outcomeColumn": "Outcome",
+      "probabilityColumn": "Prob.",
       "outcomeAria": "Outcome of {{name}}",
       "outcomeNone": "In progress",
       "outcomeWon": "Won",
@@ -647,6 +649,18 @@
       "errorLoad": "Couldn't load the stages.",
       "newColorAria": "New stage color",
       "probabilityAria": "Win probability for {{name}}"
+    },
+    "saleValue": {
+      "title": "What was the sale amount?",
+      "description": "{{name}} is moving to a Won stage with no amount. If the chat came from a WhatsApp ad, this is the amount reported to Meta, and it can't be corrected later.",
+      "label": "Sale amount (ARS)",
+      "save": "Save and mark won",
+      "skip": "Continue without amount",
+      "noPermission": "You don't have permission to set the amount. If you continue, the sale is recorded without one."
+    },
+    "outcomeToast": {
+      "won": "Opportunity won",
+      "lost": "Opportunity lost"
     }
   },
   "auth": {
@@ -655,6 +669,9 @@
     "addAccountTitle": "Add another account",
     "addAccountSubtitle": "Sign in with another account. {{email}} stays saved so you can switch back anytime.",
     "cancelAddAccount": "Back to my account",
+    "savedAccountsTitle": "Continue with a signed-in account",
+    "savedAccountsDivider": "or sign in with another account",
+    "savedAccountUnavailable": "That session is no longer available. Sign in again with your email and password.",
     "email": "Email address",
     "password": "Password",
     "rememberMe": "Remember me",

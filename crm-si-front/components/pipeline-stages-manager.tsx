@@ -403,6 +403,17 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
 
   return (
     <div className="space-y-4">
+      {stages.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-pretty text-xs text-muted-foreground">{t("pipeline.stages.outcomeHint")}</p>
+          {/* Títulos de columna: los campos ya tienen aria-label propio. */}
+          <div aria-hidden="true" className="hidden items-center justify-end gap-3 text-xs font-medium text-muted-foreground sm:flex">
+            <span className="w-[4.5rem] pr-2 text-right">{t("pipeline.stages.probabilityColumn")}</span>
+            <span className="w-[7.5rem] pl-3">{t("pipeline.stages.outcomeColumn")}</span>
+            {canManage && <span className="w-8" />}
+          </div>
+        </div>
+      )}
       <DndContext sensors={sensors} accessibility={dndAccessibility} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext
           items={stages.map((s) => s.id.toString())}
@@ -462,7 +473,6 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
         <div className="space-y-1 text-pretty text-xs text-muted-foreground">
           <p>{t("pipeline.stages.editHint")}</p>
           <p>{t("pipeline.stages.probabilityHint")}</p>
-          <p>{t("pipeline.stages.outcomeHint")}</p>
         </div>
       )}
 

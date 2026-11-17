@@ -11,6 +11,7 @@ import { updateConversationStage, assignConversationUser } from "@/lib/api/conve
 import { getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
 import { ChatOpportunityRail, type ChatOpportunity } from "@/components/ChatOpportunityRail"
 import { ContactPipelineDialog } from "@/components/contact-pipeline-dialog"
+import { needsSaleValue, useSaleValueGuard } from "@/components/sale-value-guard"
 import type { Tag } from "@/lib/api/tags"
 import { useTranslation } from "@/hooks/useTranslation"
 import { TagChips } from "@/components/tags/TagChips"
@@ -100,6 +101,7 @@ export function ChatQuickBar({
 }: ChatQuickBarProps) {
   const { addToast } = useToast()
   const { t } = useTranslation()
+  const { confirmSaleValue, dialog: saleValueDialog } = useSaleValueGuard()
   const fieldId = useId()
   const stageLabelId = `${fieldId}-stage`
   const priorityLabelId = `${fieldId}-priority`
@@ -257,22 +259,36 @@ export function ChatQuickBar({
     addToast({ type: "success", title: t("chats.opportunityCreated"), description: created?.title ?? t("chats.opportunityLinkedToChat") })
   }
 
-  const handleOpportunityStageChange = (opportunity: ChatOpportunity, stageId: number) => {
+  const handleOpportunityStageChange = async (opportunity: ChatOpportunity, stageId: number) => {
     const stage = stagesByPipeline[opportunity.pipeline_id]?.find((s) => s.id === stageId)
     if (!stage || stageId === opportunity.pipeline_stage_id) return
 
+    let value: number | undefined
+    if (needsSaleValue(stage.outcome, opportunity.value)) {
+      const decision = await confirmSaleValue(opportunity.title)
+      if (!decision) return
+      value = decision.value
+    }
+
     const originChatId = chatId
     setPendingOpportunityId(opportunity.id)
-    updateOpportunityStage(opportunity.id, stageId, opportunity.pipeline_id)
+    updateOpportunityStage(opportunity.id, stageId, opportunity.pipeline_id, value)
       .then(() => {
         setLoadedOpportunities((current) => current?.chatId === originChatId
-          ? { ...current, items: current.items.map((item) => item.id === opportunity.id ? { ...item, pipeline_stage_id: stageId } : item) }
+          ? {
+              ...current,
+              items: current.items.map((item) => item.id === opportunity.id
+                ? { ...item, pipeline_stage_id: stageId, ...(value !== undefined ? { value } : {}) }
+                : item),
+            }
           : current)
         // Si ya se cambió de chat, la etapa del chat sincronizada es del anterior.
         if (opportunity.pipeline?.is_default && currentChatIdRef.current === originChatId) onChangeStage(stageId, stage.name)
         addToast({
           type: "success",
-          title: t("chats.opportunityUpdated"),
+          title: stage.outcome === "won"
+            ? t("pipeline.outcomeToast.won")
+            : stage.outcome === "lost" ? t("pipeline.outcomeToast.lost") : t("chats.opportunityUpdated"),
           description: `${opportunity.title} → ${stage.name}`,
         })
       })
@@ -288,7 +304,7 @@ export function ChatQuickBar({
 
   const openNewOpportunity = () => setIsNewOpportunityOpen(true)
 
-  const handleStageChange = (stageId: number) => {
+  const handleStageChange = async (stageId: number) => {
     // Encontrar la etapa por ID
     const stage = pipelineStages.find(s => s.id === stageId);
     if (!stage) {
@@ -300,9 +316,18 @@ export function ChatQuickBar({
       return;
     }
 
+    // Sin oportunidad todavía: el backend crea una en esta etapa. Los grupos
+    // (sin contacto) no tienen oportunidades.
+    let value: number | undefined
+    if (contact && needsSaleValue(stage.outcome, null)) {
+      const decision = await confirmSaleValue(contact.name)
+      if (!decision) return
+      value = decision.value
+    }
+
     // Llamar a la API para actualizar (ahora con el ID numérico)
     const originChatId = chatId
-    updateConversationStage(chatId, stageId)
+    updateConversationStage(chatId, stageId, value)
       .then(() => {
         // ✅ IMPORTANTE: Notificar al padre para que actualice su estado
         onChangeStage(stageId, stage.name);
@@ -311,7 +336,9 @@ export function ChatQuickBar({
 
         addToast({
           type: "success",
-          title: t("chats.stageUpdated"),
+          title: contact && stage.outcome === "won"
+            ? t("pipeline.outcomeToast.won")
+            : contact && stage.outcome === "lost" ? t("pipeline.outcomeToast.lost") : t("chats.stageUpdated"),
           description: `${t("chats.stageChangedTo")} ${stage.name}`,
         });
       })
@@ -826,6 +853,7 @@ export function ChatQuickBar({
         onOpenChange={setIsNewOpportunityOpen}
         onSaved={() => void handleOpportunityCreated()}
       />
+      {saleValueDialog}
     </div>
       )
     })()
