@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, type ComponentProps, type ReactNode } from "react"
+import { useRef, useState, type ComponentProps, type ReactNode, type RefObject } from "react"
 import { Bold, Code, Italic, Link, List, ListOrdered, Quote, Smile, Strikethrough } from "lucide-react"
 
 import { EmojiPicker } from "@/components/chat/EmojiPicker"
@@ -14,8 +14,10 @@ import { cn } from "@/lib/utils"
 type Field = HTMLTextAreaElement | HTMLInputElement
 
 /** Aplica un cambio al campo y deja la selección donde corresponde; uno que pasa el máximo no se aplica. */
-function useFieldEdits<T extends Field>(value: string, onValueChange: (value: string) => void, maxLength?: number) {
-  const ref = useRef<T>(null)
+function useFieldEdits<T extends Field>(value: string, onValueChange: (value: string) => void, maxLength?: number, outerRef?: RefObject<T>) {
+  const ownRef = useRef<T>(null)
+  // Quien usa el campo puede pasar su ref para insertar texto en el cursor (por ejemplo, una variable).
+  const ref = outerRef ?? ownRef
   const selection = () => {
     const field = ref.current
     return { start: field?.selectionStart ?? value.length, end: field?.selectionEnd ?? value.length }
@@ -76,17 +78,18 @@ function EmojiButton({ onSelect, disabled }: { onSelect: (emoji: string) => void
   )
 }
 
-type FormattedTextareaProps = Omit<ComponentProps<"textarea">, "value" | "onChange"> & {
+type FormattedTextareaProps = Omit<ComponentProps<"textarea">, "value" | "onChange" | "ref"> & {
   value: string
   onValueChange: (value: string) => void
   /** Qué formato entiende el destino: un mensaje de WhatsApp o un texto de pantalla del formulario. */
   dialect: RichTextDialect
+  textareaRef?: RefObject<HTMLTextAreaElement>
 }
 
 /** Textarea con botones de formato y emojis; escribe las marcas que el destino interpreta. */
-export function FormattedTextarea({ value, onValueChange, dialect, maxLength, disabled, className, ref: outerRef, ...props }: FormattedTextareaProps) {
+export function FormattedTextarea({ value, onValueChange, dialect, maxLength, disabled, className, textareaRef, ...props }: FormattedTextareaProps) {
   const { t } = useTranslation()
-  const { ref, selection, apply } = useFieldEdits<HTMLTextAreaElement>(value, onValueChange, maxLength)
+  const { ref, selection, apply } = useFieldEdits<HTMLTextAreaElement>(value, onValueChange, maxLength, textareaRef)
   const markers = FORMAT_MARKERS[dialect]
 
   const wrap = (marker: string) => {
@@ -154,12 +157,7 @@ export function FormattedTextarea({ value, onValueChange, dialect, maxLength, di
       </div>
       <Textarea
         {...props}
-        ref={(node) => {
-          ref.current = node
-          // Quien lo usa puede insertar texto en el cursor (por ejemplo, una variable).
-          if (typeof outerRef === "function") outerRef(node)
-          else if (outerRef) outerRef.current = node
-        }}
+        ref={ref}
         value={value}
         maxLength={maxLength}
         disabled={disabled}
@@ -170,7 +168,7 @@ export function FormattedTextarea({ value, onValueChange, dialect, maxLength, di
   )
 }
 
-type EmojiInputProps = Omit<ComponentProps<"input">, "value" | "onChange"> & {
+type EmojiInputProps = Omit<ComponentProps<"input">, "value" | "onChange" | "ref"> & {
   value: string
   onValueChange: (value: string) => void
 }
