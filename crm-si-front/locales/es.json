@@ -3669,6 +3669,13 @@
       "edit": "Editar",
       "pause": "Pausar",
       "activate": "Activar",
+      "delete": "Eliminar regla",
+      "deleteDialog": {
+        "title": "¿Eliminar respuesta automática?",
+        "description": "La regla «{{name}}» deja de responder comentarios. No se puede deshacer.",
+        "cancel": "Cancelar",
+        "confirm": "Eliminar"
+      },
       "status": {
         "active": "Activa",
         "paused": "Pausada",
@@ -3682,7 +3689,9 @@
         "saveError": "No se pudo guardar",
         "rulePaused": "Automatización pausada",
         "ruleActivated": "Automatización activada",
-        "toggleError": "No se pudo cambiar el estado"
+        "toggleError": "No se pudo cambiar el estado",
+        "deleted": "Respuesta automática eliminada",
+        "deleteError": "No se pudo eliminar la regla"
       },
       "dialog": {
         "newTitle": "Nueva respuesta automática",
