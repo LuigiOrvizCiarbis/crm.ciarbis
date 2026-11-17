@@ -8,16 +8,22 @@ use App\Http\Requests\CreateWhatsAppTemplateRequest;
 use App\Http\Requests\SendTemplateRequest;
 use App\Models\Channel;
 use App\Models\Conversation;
+use App\Models\MediaAsset;
 use App\Models\WhatsAppTemplate;
 use App\Services\WhatsAppTemplateService;
+use App\Support\PublicUrlGuard;
+use App\Support\PublicUrlRejectedException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 
 class WhatsAppTemplateController extends Controller
 {
     public function __construct(
         public WhatsAppTemplateService $templateService,
+        private PublicUrlGuard $urlGuard,
     ) {}
 
     /**
@@ -100,17 +106,61 @@ class WhatsAppTemplateController extends Controller
             return response()->json(['message' => 'Este canal no tiene configuración de WhatsApp'], 404);
         }
 
+        // El ejemplo sale de un archivo subido, de un archivo del espacio o de
+        // una URL pública (la imagen de la apertura de un formulario).
         $request->validate([
-            'file' => 'required|file|mimetypes:image/jpeg,image/png,video/mp4,application/pdf|max:16384',
+            'file' => 'required_without_all:media_asset_id,url|file|mimetypes:image/jpeg,image/png,video/mp4,application/pdf|max:16384',
+            'media_asset_id' => 'nullable|integer',
+            'url' => 'nullable|url:https|max:2000',
         ]);
 
         try {
+            [$contents, $mimeType, $fileName] = $this->headerExample($request, $channel);
+
             return response()->json([
-                'header_handle' => $this->templateService->uploadTemplateHeaderHandle($waConfig, $request->file('file')),
+                'header_handle' => $this->templateService->uploadTemplateHeaderContents($waConfig, $contents, $mimeType, $fileName),
             ], 201);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+    }
+
+    /**
+     * @return array{string, string, string} contenido, tipo y nombre del archivo de ejemplo
+     *
+     * @throws \RuntimeException si el archivo no es del espacio o la URL no es pública
+     */
+    private function headerExample(Request $request, Channel $channel): array
+    {
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+
+            return [$file->get(), (string) $file->getMimeType(), $file->getClientOriginalName()];
+        }
+
+        if ($request->filled('media_asset_id')) {
+            $asset = MediaAsset::where('tenant_id', $channel->tenant_id)->find($request->integer('media_asset_id'))
+                ?? throw new \RuntimeException('Elegí un archivo del espacio.');
+
+            return [(string) Storage::disk('public')->get($asset->path), (string) $asset->mime_type, (string) $asset->name];
+        }
+
+        $url = (string) $request->input('url');
+        try {
+            $this->urlGuard->assertPublicUrl($url);
+        } catch (PublicUrlRejectedException) {
+            throw new \RuntimeException('Usá una URL pública: Meta tiene que poder descargar el archivo.');
+        }
+        // Sin seguir redirecciones: una pública podría redirigir a una dirección interna.
+        $response = Http::timeout(20)->withoutRedirecting()->get($url);
+        if (! $response->successful()) {
+            throw new \RuntimeException('No se pudo descargar el archivo de la URL.');
+        }
+        if (strlen($response->body()) > 16 * 1024 * 1024) {
+            throw new \RuntimeException('El archivo de la URL supera los 16 MB.');
+        }
+
+        return [$response->body(), strtok((string) $response->header('Content-Type'), ';') ?: 'application/octet-stream', basename((string) parse_url($url, PHP_URL_PATH)) ?: 'ejemplo'];
     }
 
     public function destroy(Request $request, Channel $channel, WhatsAppTemplate $template): Response|JsonResponse

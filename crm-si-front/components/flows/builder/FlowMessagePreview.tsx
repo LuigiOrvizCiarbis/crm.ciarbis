@@ -30,9 +30,15 @@ type Translate = (key: string, params?: Record<string, string | number>) => stri
 
 function sendMessage(flow: WhatsAppFlow | null, definition: FlowDefinition, context: ParameterContext, t: Translate): BubbleContent {
   if (flow) {
-    const { header, body, footer, cta, variables } = flow.send_defaults
+    const { header, image, body, footer, cta, variables } = flow.send_defaults
     const text = bodyPreview(body, variables, context, t)
-    return { header: header ? { kind: "text", text: header } : null, body: text, footer, buttons: [{ text: cta, kind: "flow" }] }
+    // Un archivo guardado se ve como ícono: la vista previa sólo conoce la URL de los links.
+    const top: BubbleContent["header"] = image
+      ? { kind: "image", url: image.source === "literal" ? image.value : null }
+      : header
+        ? { kind: "text", text: header }
+        : null
+    return { header: top, body: text, footer, buttons: [{ text: cta, kind: "flow" }] }
   }
   const entry = definition.screens[0]
   const heading = entry && !isRepeaterScreen(entry)

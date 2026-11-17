@@ -7,6 +7,7 @@ use App\Enums\TemplateCategory;
 use App\Enums\TemplateStatus;
 use App\Enums\UserRole;
 use App\Models\Channel;
+use App\Models\MediaAsset;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
@@ -17,6 +18,7 @@ use App\Support\RoleProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
@@ -65,6 +67,29 @@ class WhatsAppTemplateCreationTest extends TestCase
             'name' => 'order_ready', 'language' => 'es_AR', 'category' => 'UTILITY',
             'components' => [['type' => 'BODY', 'text' => 'Hola {{nombre}}']],
         ])->assertStatus(422);
+    }
+
+    public function test_header_example_can_come_from_a_workspace_file_but_not_from_another_tenant(): void
+    {
+        [$user, $channel] = $this->context();
+        config(['services.facebook.app_id' => 'app-1']);
+        Storage::fake('public');
+        Storage::disk('public')->put('media-assets/portada.png', 'png-bytes');
+        $asset = MediaAsset::create(['tenant_id' => $channel->tenant_id, 'name' => 'portada.png', 'path' => 'media-assets/portada.png', 'mime_type' => 'image/png', 'size' => 9]);
+        $foreign = MediaAsset::create(['tenant_id' => Tenant::create(['name' => 'Otra'])->id, 'name' => 'x.png', 'path' => 'media-assets/portada.png', 'mime_type' => 'image/png', 'size' => 9]);
+        Http::fake([
+            'https://graph.facebook.com/*/app-1/uploads' => Http::response(['id' => 'upload:1']),
+            'https://graph.facebook.com/*/upload:1' => Http::response(['h' => '4::handle']),
+        ]);
+        Sanctum::actingAs($user);
+
+        $this->postJson("/api/channels/{$channel->id}/templates/media", ['media_asset_id' => $foreign->id])->assertUnprocessable();
+        $this->postJson("/api/channels/{$channel->id}/templates/media", ['media_asset_id' => $asset->id])
+            ->assertCreated()->assertJsonPath('header_handle', '4::handle');
+
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/app-1/uploads')
+            && $request['file_type'] === 'image/png' && $request['file_length'] === 9);
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/upload:1') && $request->body() === 'png-bytes');
     }
 
     public function test_meta_creation_error_includes_the_specific_user_message(): void
@@ -122,7 +147,9 @@ class WhatsAppTemplateCreationTest extends TestCase
     {
         $registrar = app(PermissionRegistrar::class);
         $registrar->setPermissionsTeamId(null);
-        foreach (PermissionCatalog::all() as $permission) Permission::findOrCreate($permission, 'web');
+        foreach (PermissionCatalog::all() as $permission) {
+            Permission::findOrCreate($permission, 'web');
+        }
         $registrar->forgetCachedPermissions();
         $tenant = Tenant::create(['name' => 'Acme '.uniqid()]);
         app(RoleProvisioner::class)->provisionDefaultRoles($tenant);
@@ -133,6 +160,7 @@ class WhatsAppTemplateCreationTest extends TestCase
             'phone_number_id' => '123456789', 'display_phone_number' => '+54 9 11 0000-0000',
             'waba_id' => 'waba-test', 'bussines_token' => Crypt::encryptString('test-token'),
         ]);
+
         return [$user, Channel::create([
             'tenant_id' => $tenant->id, 'user_id' => $user->id, 'type' => ChannelType::WHATSAPP,
             'name' => 'WhatsApp', 'status' => 'active', 'whatsapp_config_id' => $config->id,

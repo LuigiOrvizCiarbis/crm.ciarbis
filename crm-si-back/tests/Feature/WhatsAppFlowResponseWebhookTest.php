@@ -150,6 +150,25 @@ class WhatsAppFlowResponseWebhookTest extends TestCase
         $this->assertStringContainsString('https://petshop.example/catalogo', $sent->content);
     }
 
+    public function test_a_text_closing_can_quote_the_contact_with_a_fallback(): void
+    {
+        $this->flow->update(['completion_message' => [
+            'type' => 'text',
+            'body' => 'Gracias {{cliente}}, DNI {{dni}}. Te escribimos a {{correo_contacto}}.',
+            'variables' => [
+                ['component' => 'body', 'name' => 'cliente', 'source' => 'field', 'path' => 'contact.name'],
+                ['component' => 'body', 'name' => 'correo_contacto', 'source' => 'field', 'path' => 'contact.custom_data.correo_alt', 'fallback' => 'tu email'],
+            ],
+        ]]);
+        $this->flowSession('flow-token-1', WhatsAppFlowSession::STATUS_PENDING);
+
+        $this->reply('flow-token-1', ['dni' => '30111222']);
+
+        // {{dni}} sin configurar sigue siendo la respuesta; el contacto sin ese campo usa el respaldo.
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/messages')
+            && ($request['text']['body'] ?? null) === "Gracias {$this->contact->name}, DNI 30111222. Te escribimos a tu email.");
+    }
+
     public function test_a_text_closing_carries_its_image_and_still_goes_out_when_the_image_is_gone(): void
     {
         $asset = MediaAsset::create(['tenant_id' => $this->flow->tenant_id, 'name' => 'gracias.jpg', 'path' => 'media/gracias.jpg', 'mime_type' => 'image/jpeg', 'size' => 1200]);

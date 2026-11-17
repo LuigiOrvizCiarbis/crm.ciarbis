@@ -1,9 +1,10 @@
 "use client"
 
-import type { ChangeEvent } from "react"
+import { useState, type ChangeEvent } from "react"
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import type { TemplateParameter, WhatsAppFlowSendDefaults } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -12,22 +13,29 @@ import {
   bodyParameterRows,
   bodyPreview,
   cleanParameters,
+  imageFromParameter,
+  imageParameter,
+  imagePreviewUrl,
+  parameterIssue,
   type ParameterContext,
   type ParameterErrors,
 } from "@/lib/template-parameters"
 
 import { ChatBubble } from "./ChatBubble"
 import { invalidVariables, messageVariableNames } from "./openingTemplate"
-import { TemplateParametersEditor } from "./TemplateParametersEditor"
+import { HeaderRow, TemplateParametersEditor } from "./TemplateParametersEditor"
 
 /** Mismos límites que Meta para el mensaje interactivo de flow. */
 const BODY_MAX = 1024
 const CTA_MAX = 30
 const HEADER_FOOTER_MAX = 60
 
-/** Textos tal como se escriben (los opcionales vacíos son "") y las variables tocadas. */
+/** Textos tal como se escriben (los opcionales vacíos son ""), la imagen y las variables tocadas. */
 export interface SendMessageValues {
   header: string
+  /** Con imagen no va el encabezado de texto: Meta admite uno solo. */
+  withImage: boolean
+  image: TemplateParameter
   body: string
   footer: string
   cta: string
@@ -36,6 +44,8 @@ export interface SendMessageValues {
 
 export const sendValuesFrom = (message: WhatsAppFlowSendDefaults): SendMessageValues => ({
   header: message.header ?? "",
+  withImage: message.image !== null,
+  image: imageParameter(message.image),
   body: message.body,
   footer: message.footer ?? "",
   cta: message.cta,
@@ -46,8 +56,12 @@ export const sendValuesFrom = (message: WhatsAppFlowSendDefaults): SendMessageVa
 export const variableRows = (values: SendMessageValues, context: ParameterContext): TemplateParameter[] =>
   bodyParameterRows(messageVariableNames(values.body), values.variables, context)
 
+/** La imagen está activada pero falta el archivo o la URL. */
+export const imageIncomplete = (values: SendMessageValues): boolean => values.withImage && parameterIssue(values.image) !== null
+
 export const toSendDefaults = (values: SendMessageValues, context: ParameterContext): WhatsAppFlowSendDefaults => ({
-  header: values.header.trim() || null,
+  header: values.withImage ? null : values.header.trim() || null,
+  image: values.withImage ? imageFromParameter(values.image) : null,
   body: values.body.trim(),
   footer: values.footer.trim() || null,
   cta: values.cta.trim(),
@@ -61,6 +75,8 @@ interface FlowSendMessageFieldsProps {
   context: ParameterContext
   /** Errores 422 de `send_defaults.variables`. */
   variableErrors?: ParameterErrors
+  /** Errores 422 de `send_defaults.image`. */
+  imageErrors?: string[]
   disabled?: boolean
 }
 
@@ -71,6 +87,7 @@ export function FlowSendMessageFields({
   onChange,
   context,
   variableErrors = NO_PARAMETER_ERRORS,
+  imageErrors = [],
   disabled,
 }: FlowSendMessageFieldsProps) {
   const { t } = useTranslation()
@@ -79,13 +96,41 @@ export function FlowSendMessageFields({
   const message = toSendDefaults(values, context)
   const rows = variableRows(values, context)
   const invalid = invalidVariables(values.body)
-  const outsideBody = [values.header, values.footer, values.cta].some((text) => text.includes("{{"))
+  const outsideBody = [values.withImage ? "" : values.header, values.footer, values.cta].some((text) => text.includes("{{"))
+  // Sólo un archivo subido en esta pantalla tiene URL para la vista previa; uno guardado se ve como ícono.
+  const [uploaded, setUploaded] = useState<{ id: number; url: string } | null>(null)
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1.5">
-        <Label htmlFor={`${idPrefix}-header`}>{t("chats.flows.header")}</Label>
-        <Input id={`${idPrefix}-header`} value={values.header} maxLength={HEADER_FOOTER_MAX} disabled={disabled} onChange={change("header")} />
+      <div className="space-y-3 rounded-lg border border-border p-3">
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor={`${idPrefix}-image`} className="text-sm font-medium">
+            {t("flows.completion.withImage")}
+          </Label>
+          <Switch
+            id={`${idPrefix}-image`}
+            checked={values.withImage}
+            disabled={disabled}
+            onCheckedChange={(withImage) => onChange({ ...values, withImage })}
+          />
+        </div>
+        {values.withImage ? (
+          <HeaderRow
+            parameter={values.image}
+            format="IMAGE"
+            id={`${idPrefix}-image-source`}
+            label={t("flows.journey.opening.imageHint")}
+            disabled={Boolean(disabled)}
+            errors={imageErrors}
+            onChange={(image) => onChange({ ...values, image })}
+            onUploaded={(asset) => setUploaded({ id: asset.id, url: asset.url })}
+          />
+        ) : (
+          <div className="space-y-1.5">
+            <Label htmlFor={`${idPrefix}-header`}>{t("chats.flows.header")}</Label>
+            <Input id={`${idPrefix}-header`} value={values.header} maxLength={HEADER_FOOTER_MAX} disabled={disabled} onChange={change("header")} />
+          </div>
+        )}
       </div>
       <div className="space-y-1.5">
         <Label htmlFor={`${idPrefix}-body`}>{t("chats.flows.body")}</Label>
@@ -143,7 +188,11 @@ export function FlowSendMessageFields({
         <div className="rounded-lg bg-[#efeae2] p-3 dark:bg-muted/40">
           <ChatBubble
             content={{
-              header: message.header ? { kind: "text", text: message.header } : null,
+              header: values.withImage
+                ? { kind: "image", url: imagePreviewUrl(values.image, uploaded) }
+                : message.header
+                  ? { kind: "text", text: message.header }
+                  : null,
               body: bodyPreview(message.body, rows, context, t),
               footer: message.footer,
               buttons: message.cta ? [{ text: message.cta, kind: "flow" }] : [],

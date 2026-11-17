@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\Contact;
-use App\Models\Message;
 use App\Models\User;
 use App\Models\WhatsAppGroup;
 use App\Models\WhatsAppGroupParticipant;
