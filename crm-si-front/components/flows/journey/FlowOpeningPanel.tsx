@@ -14,6 +14,7 @@ import {
   cleanParameters,
   parameterErrorsFrom,
   parametersComplete,
+  sameParameters,
   templateBodyPreview,
   templateParameterRows,
   type ParameterContext,
@@ -22,9 +23,9 @@ import { cn } from "@/lib/utils"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 
 import { ChatBubble, templateBubble } from "./ChatBubble"
-import { FlowSendMessageFields, sendValuesFrom, toSendDefaults, type SendMessageValues } from "./FlowSendMessageFields"
+import { FlowSendMessageFields, imageIncomplete, sendValuesFrom, toSendDefaults, type SendMessageValues } from "./FlowSendMessageFields"
 import { OpeningTemplateRequest } from "./OpeningTemplateRequest"
-import { matchesMessage, requestProblem, sameVariables } from "./openingTemplate"
+import { matchesMessage, messageTemplateParameters, requestProblem } from "./openingTemplate"
 import { TemplateParametersEditor } from "./TemplateParametersEditor"
 import { TemplateStatusBadge, templateStatusKey } from "./TemplateStatusBadge"
 import { useManagedTemplates } from "./useManagedTemplates"
@@ -83,11 +84,15 @@ export function FlowOpeningPanel({ flow, channelId, onFlowChange, onDirtyChange,
   const stored = flow.send_defaults
   const messageDirty =
     message.header !== stored.header ||
+    JSON.stringify(message.image) !== JSON.stringify(stored.image) ||
     message.body !== stored.body ||
     message.footer !== stored.footer ||
     message.cta !== stored.cta ||
-    !sameVariables(message.variables, stored.variables)
-  const messageValid = requestProblem(message) !== "incomplete"
+    !sameParameters(message.variables, stored.variables)
+  const missingImage = imageIncomplete(values)
+  const messageValid = requestProblem(message) !== "incomplete" && !missingImage
+  // Lo que la plantilla que sigue al mensaje recibe en cada envío: la imagen y las variables del mensaje.
+  const followedParameters = messageTemplateParameters(message)
 
   const linked = flow.send_templates
   const storedDefault = flow.opening.default_template_id
@@ -102,11 +107,11 @@ export function FlowOpeningPanel({ flow, channelId, onFlowChange, onDirtyChange,
   const usable = canUseFlowInTemplate(flow)
   const retired = flow.status === "DEPRECATED" || flow.status === "BLOCKED"
 
-  // Una plantilla con el mismo texto que el mensaje usa sus variables: se configuran una sola vez, en el mensaje.
-  const followsMessage = (template: WhatsAppTemplate) => message.variables.length > 0 && matchesMessage(template, message)
+  // Una plantilla con el mismo texto que el mensaje usa su imagen y sus variables: se configuran una sola vez, en el mensaje.
+  const followsMessage = (template: WhatsAppTemplate) => followedParameters.length > 0 && matchesMessage(template, message)
   const rowsFor = (template: WhatsAppTemplate) =>
     followsMessage(template)
-      ? message.variables
+      ? followedParameters
       : templateParameterRows(template, draft.parameters[template.id] ?? flow.opening.templates[String(template.id)]?.parameters ?? [], context)
 
   const editedIncomplete = Object.keys(draft.parameters).some((id) => {
@@ -169,7 +174,7 @@ export function FlowOpeningPanel({ flow, channelId, onFlowChange, onDirtyChange,
         return template ? [[String(id), { parameters: cleanParameters(rowsFor(template)) }]] : []
       }),
     )
-    if (requested && message.variables.length > 0) parameters[String(requested.id)] = { parameters: message.variables }
+    if (requested && followedParameters.length > 0) parameters[String(requested.id)] = { parameters: followedParameters }
     const patch: UpdateFlowPatch = {}
     if (messageDirty || !flow.send_defaults_saved) patch.send_defaults = message
     if (defaultChange !== undefined || Object.keys(parameters).length > 0) {
@@ -222,7 +227,7 @@ export function FlowOpeningPanel({ flow, channelId, onFlowChange, onDirtyChange,
   }
 
   const otherErrors = Object.entries(errors)
-    .filter(([key]) => !/^(opening\.templates\.\d+\.parameters|send_defaults\.variables)/.test(key))
+    .filter(([key]) => !/^(opening\.templates\.\d+\.parameters|send_defaults\.(variables|image))/.test(key))
     .flatMap(([, messages]) => messages)
   const id = `flow-${flow.id}-opening`
 
@@ -232,6 +237,7 @@ export function FlowOpeningPanel({ flow, channelId, onFlowChange, onDirtyChange,
         flow={flow}
         channelId={channelId}
         message={message}
+        incomplete={missingImage}
         templates={templates}
         onRequested={handleRequested}
         onCancel={onCancel}
@@ -372,6 +378,7 @@ export function FlowOpeningPanel({ flow, channelId, onFlowChange, onDirtyChange,
           onChange={setValues}
           context={context}
           variableErrors={parameterErrorsFrom(errors, "send_defaults.variables")}
+          imageErrors={Object.entries(errors).filter(([key]) => key.startsWith("send_defaults.image")).flatMap(([, messages]) => messages)}
           disabled={saving}
         />
       </section>

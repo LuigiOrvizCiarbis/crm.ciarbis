@@ -37,6 +37,11 @@ class UpdateWhatsAppFlowRequest extends FormRequest
             'send_defaults.cta' => ['required_with:send_defaults', 'string', 'max:30', 'not_regex:/\{\{/'],
             ...$this->parameterRules('send_defaults.variables', self::CONTACT_PATH),
             'send_defaults.variables' => ['sometimes', 'array', 'max:20'],
+            // Imagen de encabezado (reemplaza al de texto): archivo del espacio o URL https.
+            'send_defaults.image' => ['nullable', 'array'],
+            'send_defaults.image.source' => ['required_with:send_defaults.image', Rule::in(['media_asset', 'literal'])],
+            'send_defaults.image.media_asset_id' => ['exclude_unless:send_defaults.image.source,media_asset', 'required', 'integer'],
+            'send_defaults.image.value' => ['exclude_unless:send_defaults.image.source,literal', 'required', 'url:https', 'max:2000'],
             'opening' => ['sometimes', 'array'],
             'opening.default_template_id' => ['nullable', 'integer'],
             'opening.templates' => ['sometimes', 'array', 'max:50'],
@@ -55,6 +60,9 @@ class UpdateWhatsAppFlowRequest extends FormRequest
             'completion_message.image.value' => ['exclude_unless:completion_message.type,text', 'exclude_unless:completion_message.image.source,literal', 'required', 'url:https', 'max:2000'],
             'completion_message.template_id' => ['exclude_unless:completion_message.type,template', 'required', 'integer'],
             ...$this->parameterRules('completion_message.parameters', self::CONTACT_OR_ANSWER_PATH, 'completion_message.type,template'),
+            // El cierre de texto: de dónde sale cada {{variable}} (sin configurar, es la respuesta con esa clave).
+            ...$this->parameterRules('completion_message.variables', self::CONTACT_OR_ANSWER_PATH, 'completion_message.type,text'),
+            'completion_message.variables' => ['exclude_unless:completion_message.type,text', 'sometimes', 'array', 'max:20'],
         ];
     }
 

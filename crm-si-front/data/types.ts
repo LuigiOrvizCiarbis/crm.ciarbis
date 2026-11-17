@@ -276,7 +276,10 @@ export interface WhatsAppFlow {
 }
 
 export interface WhatsAppFlowSendDefaults {
+  /** Sin imagen. Meta admite un solo encabezado: con imagen, este queda en null. */
   header: string | null
+  /** Imagen de encabezado (reemplaza al de texto). */
+  image: WhatsAppFlowImage | null
   /** Puede llevar `{{variables}}`; `variables` dice de dónde sale cada una. */
   body: string
   footer: string | null
@@ -319,8 +322,8 @@ export interface WhatsAppFlowSendTemplate {
   issue: null | "not_approved" | "parameters"
 }
 
-/** Imagen del cierre de texto, con la forma del encabezado de una plantilla: archivo del espacio o URL https. */
-export type WhatsAppFlowCompletionImage =
+/** Imagen de encabezado de la apertura o del cierre de texto: archivo del espacio o URL https. */
+export type WhatsAppFlowImage =
   | { source: "media_asset"; media_asset_id: number }
   | { source: "literal"; value: string }
 
@@ -331,7 +334,9 @@ export type WhatsAppFlowCompletionMessage =
       /** El botón abre `url`; los dos van juntos o ninguno. */
       button_text: string | null
       url: string | null
-      image: WhatsAppFlowCompletionImage | null
+      image: WhatsAppFlowImage | null
+      /** De dónde sale cada `{{clave}}`: respuesta, dato del contacto o texto fijo. Sin configurar, es la respuesta con esa clave. */
+      variables: TemplateParameter[]
     }
   | { type: "template"; template_id: number; parameters: TemplateParameter[] }
 
@@ -365,6 +370,8 @@ export type MessageInteractive =
       body: string
       cta: string
       header?: string | null
+      /** URL de la imagen de encabezado de la apertura, si la llevó. */
+      image?: string | null
       footer?: string | null
       /** Avance del cliente en el formulario; llega por `message.edited`. */
       progress?: MessageFlowProgress | null

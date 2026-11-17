@@ -31,6 +31,9 @@ class FlowCompletionMessageService
 {
     private const BODY_MAX = 1024;
 
+    /** `{{clave}}` del cierre de texto: una respuesta o una variable configurada. */
+    public const PLACEHOLDER = '/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/';
+
     public function __construct(
         private readonly WhatsAppMessageService $messages,
         private readonly WhatsAppTemplateService $templates,
@@ -99,16 +102,40 @@ class FlowCompletionMessageService
     }
 
     /**
-     * @param  array{body: string, button_text: ?string, url: ?string, image: ?array<string, mixed>}  $config
+     * @param  array{body: string, button_text: ?string, url: ?string, image: ?array<string, mixed>, variables: list<array<string, mixed>>}  $config
      * @param  array<string, string>  $values
      */
     private function deliverText(WhatsAppFlow $flow, Conversation $conversation, array $config, array $values): ?Message
     {
-        $body = mb_substr(trim(self::render($config['body'], $values)), 0, self::BODY_MAX);
+        $body = mb_substr(trim(self::render($config['body'], [...$values, ...$this->variableValues($flow, $conversation, $config['variables'], $values)])), 0, self::BODY_MAX);
 
         return $body === ''
             ? null
             : $this->deliver($flow, $conversation, $body, $config['button_text'], $config['url'], $this->imageLink($flow, $config['image']));
+    }
+
+    /**
+     * Valor de cada variable configurada del texto (respuesta, dato del contacto
+     * ya actualizado o texto fijo). Una que queda sin valor ni respaldo va
+     * vacía, como una respuesta que falta: el cierre sale igual.
+     *
+     * @param  list<array<string, mixed>>  $variables
+     * @param  array<string, string>  $values
+     * @return array<string, string>
+     */
+    private function variableValues(WhatsAppFlow $flow, Conversation $conversation, array $variables, array $values): array
+    {
+        $context = ['contact' => $conversation->contact?->toArray() ?? [], 'answers' => $values];
+        $resolved = [];
+        foreach ($variables as $variable) {
+            try {
+                $resolved[(string) $variable['name']] = $this->parameters->textValue($variable, $context, $flow->tenant_id);
+            } catch (TemplateParameterException) {
+                $resolved[(string) $variable['name']] = '';
+            }
+        }
+
+        return $resolved;
     }
 
     /**
@@ -124,13 +151,7 @@ class FlowCompletionMessageService
         }
 
         try {
-            if ($image['source'] === 'media_asset') {
-                return $this->parameters->mediaAssetUrl($image['media_asset_id'], $flow->tenant_id);
-            }
-
-            $this->parameters->assertPubliclyFetchable($image['value']);
-
-            return $image['value'];
+            return $this->parameters->imageUrl($image, $flow->tenant_id);
         } catch (TemplateParameterException $e) {
             Log::warning('Flow: imagen del cierre no disponible, se manda sin imagen', [
                 'whatsapp_flow_id' => $flow->id,
@@ -142,14 +163,14 @@ class FlowCompletionMessageService
     }
 
     /**
-     * Reemplaza {{clave}} por la respuesta; una clave sin respuesta queda vacía.
+     * Reemplaza {{clave}} por su valor; una clave sin valor queda vacía.
      *
      * @param  array<string, string>  $values
      */
     public static function render(string $template, array $values): string
     {
         return (string) preg_replace_callback(
-            '/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/',
+            self::PLACEHOLDER,
             fn (array $match) => $values[$match[1]] ?? '',
             $template,
         );

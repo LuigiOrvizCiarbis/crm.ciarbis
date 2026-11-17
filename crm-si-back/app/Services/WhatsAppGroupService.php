@@ -3,11 +3,13 @@
 namespace App\Services;
 
 use App\Models\Channel;
+use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppGroup;
 use App\Services\Concerns\ResolvesWhatsAppCredentials;
 use App\Support\MetaOAuth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * Cliente saliente de la Groups API de Meta. No hay endpoint para agregar
@@ -52,7 +54,7 @@ class WhatsAppGroupService
 
         $waConfig = $channel->whatsappConfig;
         $eligibility = $this->eligibilityService->statusFor($waConfig);
-        if ($eligibility['status'] !== \App\Models\WhatsAppConfig::GROUPS_ELIGIBLE) {
+        if ($eligibility['status'] !== WhatsAppConfig::GROUPS_ELIGIBLE) {
             throw new \InvalidArgumentException($eligibility['reason_message']);
         }
 
@@ -79,7 +81,7 @@ class WhatsAppGroupService
 
         // Algunas respuestas de Meta pueden traer el request_id directo; si no,
         // se genera uno propio para poder correlacionar igual con el webhook.
-        $requestId = $response->json('request_id') ?? (string) \Illuminate\Support\Str::uuid();
+        $requestId = $response->json('request_id') ?? (string) Str::uuid();
 
         return WhatsAppGroup::create([
             'tenant_id' => $channel->tenant_id,

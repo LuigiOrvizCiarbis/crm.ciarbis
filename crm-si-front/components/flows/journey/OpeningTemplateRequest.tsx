@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { WhatsAppFlow, WhatsAppFlowSendDefaults, WhatsAppTemplate } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
-import { createTemplate } from "@/lib/api/templates"
+import { createTemplate, uploadTemplateHeaderExample } from "@/lib/api/templates"
 
 import { openingTemplateComponents, requestProblem, suggestTemplateName } from "./openingTemplate"
 
@@ -19,6 +19,8 @@ interface OpeningTemplateRequestProps {
   channelId: number
   /** El mensaje tal como está en pantalla: es el texto de la plantilla. */
   message: WhatsAppFlowSendDefaults
+  /** Al mensaje le falta algo que `message` no muestra (p. ej. la imagen activada sin archivo). */
+  incomplete?: boolean
   /** Plantillas del canal, para no repetir nombre. */
   templates: WhatsAppTemplate[] | null
   /** Recibe la plantilla creada en Meta (pendiente de aprobación). */
@@ -27,14 +29,14 @@ interface OpeningTemplateRequestProps {
 }
 
 /** Pide a Meta aprobar el mensaje como plantilla: sólo nombre e idioma, el texto ya está escrito. */
-export function OpeningTemplateRequest({ flow, channelId, message, templates, onRequested, onCancel }: OpeningTemplateRequestProps) {
+export function OpeningTemplateRequest({ flow, channelId, message, incomplete = false, templates, onRequested, onCancel }: OpeningTemplateRequestProps) {
   const { t } = useTranslation()
   const [language, setLanguage] = useState<string>(TEMPLATE_LANGUAGES[0].value)
   const [name, setName] = useState(() => suggestTemplateName(flow, templates, TEMPLATE_LANGUAGES[0].value))
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const problem = requestProblem(message)
+  const problem = incomplete ? "incomplete" : requestProblem(message)
   const nameError = !/^[a-z0-9_]+$/.test(name)
     ? t("flows.journey.opening.request.nameInvalid")
     : templates?.some((item) => item.name === name && item.language === language)
@@ -47,13 +49,18 @@ export function OpeningTemplateRequest({ flow, channelId, message, templates, on
     setSubmitting(true)
     setError(null)
     try {
+      // Meta pide un ejemplo de la imagen para revisar la plantilla; cada envío lleva la imagen de la apertura.
+      const image = message.image
+      const headerHandle = image
+        ? (await uploadTemplateHeaderExample(channelId, image.source === "media_asset" ? { media_asset_id: image.media_asset_id } : { url: image.value })).header_handle
+        : null
       const created = await createTemplate(channelId, {
         name,
         language,
         // Meta define la categoría final al revisarla.
         category: "UTILITY",
         parameter_format: "named",
-        components: openingTemplateComponents(flow, message),
+        components: openingTemplateComponents(flow, message, headerHandle),
       })
       await onRequested(created)
     } catch (requestError) {

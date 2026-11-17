@@ -193,6 +193,30 @@ class WhatsAppFlowManagementTest extends TestCase
             && $request['interactive']['action']['parameters']['flow_action_payload']['screen'] === 'DATOS');
     }
 
+    public function test_the_opening_image_replaces_the_text_header_and_goes_out_with_the_message(): void
+    {
+        $this->inboundMessage();
+        $flow = $this->publishedFlow('flow-1');
+        $asset = fn (string $mime) => MediaAsset::create(['tenant_id' => $flow->tenant_id, 'name' => 'portada', 'path' => 'media-assets/portada', 'mime_type' => $mime, 'size' => 1200]);
+        $save = fn (array $image) => $this->putJson("/api/whatsapp-flows/{$flow->id}", ['send_defaults' => [
+            'header' => 'Hola', 'body' => 'Completá tus datos', 'footer' => null, 'cta' => 'Completar', 'image' => $image,
+        ]]);
+
+        $save(['source' => 'media_asset', 'media_asset_id' => $asset('application/pdf')->id])
+            ->assertUnprocessable()->assertJsonValidationErrors(['send_defaults.image.media_asset_id']);
+        $photo = $asset('image/jpeg');
+        $save(['source' => 'media_asset', 'media_asset_id' => $photo->id])->assertOk()
+            ->assertJsonPath('data.send_defaults.image', ['source' => 'media_asset', 'media_asset_id' => $photo->id])
+            ->assertJsonPath('data.send_defaults.header', null);
+
+        Http::fake(['https://graph.facebook.com/*/123456789/messages' => Http::response(['messages' => [['id' => 'wamid.flow-1']]])]);
+        $this->postJson("/api/conversations/{$this->conversation->id}/send-flow", [
+            'whatsapp_flow_id' => $flow->id, 'body' => 'Completá tus datos', 'cta' => 'Completar', 'header' => 'Ignorado',
+        ])->assertCreated()->assertJsonPath('data.interactive.image', $photo->publicUrl());
+
+        Http::assertSent(fn (Request $request) => ($request['interactive']['header'] ?? null) === ['type' => 'image', 'image' => ['link' => $photo->publicUrl()]]);
+    }
+
     public function test_send_message_variables_are_checked_on_save_and_filled_with_the_contact_on_send(): void
     {
         $this->inboundMessage();
@@ -561,6 +585,9 @@ class WhatsAppFlowManagementTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['completion_message.image.media_asset_id']);
         $save($withImage(['source' => 'literal', 'value' => 'http://cdn.example/gracias.png']))->assertUnprocessable()->assertJsonValidationErrors(['completion_message.image.value']);
         $save($withImage(['source' => 'literal', 'value' => 'https://127.0.0.1/gracias.png']))->assertUnprocessable()->assertJsonValidationErrors(['completion_message.image.value']);
+        $withVariable = fn (array $variable) => ['type' => 'text', 'body' => 'Gracias {{quien}}', 'variables' => [['name' => 'quien', ...$variable]]];
+        $save($withVariable(['source' => 'literal', 'value' => '']))->assertUnprocessable()->assertJsonValidationErrors(['completion_message.variables.0.value']);
+        $save($withVariable(['source' => 'field', 'path' => 'answers.comentario']))->assertUnprocessable()->assertJsonValidationErrors(['completion_message.variables.0.path']);
         $this->assertNull($flow->fresh()->completion_message);
 
         $save($template($closing, [$cliente]))->assertOk()
@@ -570,6 +597,13 @@ class WhatsAppFlowManagementTest extends TestCase
         $photo = $asset('image/jpeg');
         $save($withImage(['source' => 'media_asset', 'media_asset_id' => $photo->id]))->assertOk()
             ->assertJsonPath('data.completion_message.image', ['source' => 'media_asset', 'media_asset_id' => $photo->id]);
+        // Sólo se guardan las variables que usa el texto.
+        $save(['type' => 'text', 'body' => 'Gracias {{quien}}', 'variables' => [
+            ['name' => 'quien', 'source' => 'field', 'path' => 'contact.name', 'fallback' => 'cliente'],
+            ['name' => 'sobra', 'source' => 'literal', 'value' => 'x'],
+        ]])->assertOk()->assertJsonPath('data.completion_message.variables', [
+            ['component' => 'body', 'name' => 'quien', 'source' => 'field', 'path' => 'contact.name', 'fallback' => 'cliente'],
+        ]);
 
         $save(null)->assertOk()->assertJsonPath('data.completion_message', null);
         Http::assertNothingSent();
