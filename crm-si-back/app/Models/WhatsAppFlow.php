@@ -71,14 +71,18 @@ class WhatsAppFlow extends Model
      * `variables` dice de dónde sale cada `{{nombre}}` del cuerpo, con la
      * forma de los parámetros de plantilla.
      *
-     * @return array{header: ?string, body: string, footer: ?string, cta: string, variables: list<array<string, mixed>>}
+     * @return array{header: ?string, image: array{source: 'media_asset', media_asset_id: int}|array{source: 'literal', value: string}|null, body: string, footer: ?string, cta: string, variables: list<array<string, mixed>>}
      */
     public function sendDefaults(): array
     {
         $stored = $this->send_defaults ?? [];
 
+        $image = self::messageImage($stored['image'] ?? null);
+
         return [
-            'header' => filled($stored['header'] ?? null) ? $stored['header'] : null,
+            // Meta admite un solo encabezado: con imagen no va el de texto.
+            'header' => $image === null && filled($stored['header'] ?? null) ? $stored['header'] : null,
+            'image' => $image,
             'body' => filled($stored['body'] ?? null) ? $stored['body'] : ($this->firstHeading() ?? self::DEFAULT_SEND_BODY),
             'footer' => filled($stored['footer'] ?? null) ? $stored['footer'] : null,
             'cta' => filled($stored['cta'] ?? null) ? $stored['cta'] : self::DEFAULT_SEND_CTA,
@@ -150,17 +154,18 @@ class WhatsAppFlow extends Model
             'body' => (string) $stored['body'],
             'button_text' => $hasButton ? (string) $stored['button_text'] : null,
             'url' => $hasButton ? (string) $stored['url'] : null,
-            'image' => self::closingImage($stored['image'] ?? null),
+            'image' => self::messageImage($stored['image'] ?? null),
+            'variables' => array_values((array) ($stored['variables'] ?? [])),
         ];
     }
 
     /**
-     * Imagen del cierre de texto, con la forma del encabezado de una plantilla:
-     * un archivo del espacio o una URL pública.
+     * Imagen de encabezado de la apertura o del cierre de texto, con la forma
+     * del encabezado de una plantilla: un archivo del espacio o una URL pública.
      *
      * @return array{source: 'media_asset', media_asset_id: int}|array{source: 'literal', value: string}|null
      */
-    public static function closingImage(mixed $image): ?array
+    public static function messageImage(mixed $image): ?array
     {
         $source = is_array($image) ? ($image['source'] ?? null) : null;
 

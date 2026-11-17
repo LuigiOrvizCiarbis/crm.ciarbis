@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -9,20 +9,41 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/Toast"
-import type { TemplateParameter, WhatsAppFlow, WhatsAppFlowCompletionImage, WhatsAppFlowResponseField } from "@/data/types"
+import type { TemplateParameter, WhatsAppFlow, WhatsAppFlowResponseField } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
 import { ApiValidationError, updateFlow } from "@/lib/api/whatsapp-flows"
 import { DEFAULT_CLOSING_BODY } from "@/lib/flow-builder/completion"
-import { answerLabel, parameterIssue } from "@/lib/template-parameters"
+import {
+  answerLabel,
+  bodyParameterRows,
+  bodyPreview,
+  cleanParameters,
+  imageFromParameter,
+  imageParameter,
+  imagePreviewUrl,
+  NO_PARAMETER_ERRORS,
+  parameterErrorsFrom,
+  parameterIssue,
+  parametersComplete,
+  sameParameters,
+  textVariableNames,
+  type ParameterContext,
+} from "@/lib/template-parameters"
+import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 
 import { ChatBubble } from "./journey/ChatBubble"
-import { HeaderRow } from "./journey/TemplateParametersEditor"
+import { HeaderRow, TemplateParametersEditor } from "./journey/TemplateParametersEditor"
 
 /** Límites de Meta: cuerpo de un mensaje interactivo y texto del botón de link. */
 const BODY_MAX = 1024
 const BUTTON_MAX = 20
 
-const PLACEHOLDER = /\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g
+/** Datos del contacto que se insertan con un toque; `bodyParameterRows` los reconoce por el nombre. */
+const CONTACT_TOKENS = [
+  { key: "contacto_nombre", label: "flows.journey.params.contact.name" },
+  { key: "contacto_email", label: "flows.journey.params.contact.email" },
+  { key: "contacto_telefono", label: "flows.journey.params.contact.phone" },
+] as const
 
 function isHttpsUrl(value: string): boolean {
   try {
@@ -31,19 +52,6 @@ function isHttpsUrl(value: string): boolean {
     return false
   }
 }
-
-// La imagen se edita con el mismo campo que el encabezado de una plantilla (archivo o URL).
-const imageParameter = (image: WhatsAppFlowCompletionImage | null | undefined): TemplateParameter =>
-  image?.source === "literal"
-    ? { component: "header", source: "literal", value: image.value }
-    : { component: "header", source: "media_asset", media_asset_id: image?.media_asset_id }
-
-const completionImage = (parameter: TemplateParameter): WhatsAppFlowCompletionImage | null =>
-  parameter.source === "literal"
-    ? { source: "literal", value: parameter.value?.trim() ?? "" }
-    : parameter.media_asset_id
-      ? { source: "media_asset", media_asset_id: parameter.media_asset_id }
-      : null
 
 interface FlowCompletionMessageFormProps {
   flow: WhatsAppFlow
@@ -71,28 +79,34 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
   const [uploaded, setUploaded] = useState<{ id: number; url: string } | null>(null)
   const [imageErrors, setImageErrors] = useState<string[]>([])
 
-  const labels = new Map(fields.map((field) => [field.key, answerLabel(field, t)]))
-  const unknownKeys = [...new Set([...body.matchAll(PLACEHOLDER)].map((match) => match[1]))].filter(
-    (key) => fields.length > 0 && !labels.has(key),
+  const contactFieldsStore = useContactFieldsStore()
+  const { fetch: fetchContactFields } = contactFieldsStore
+  useEffect(() => {
+    void fetchContactFields()
+  }, [fetchContactFields])
+  const context: ParameterContext = useMemo(
+    () => ({ answers: fields, contactFields: contactFieldsStore.fields }),
+    [fields, contactFieldsStore.fields],
   )
+  const [variables, setVariables] = useState<TemplateParameter[]>(stored?.variables ?? [])
+  const [variableErrors, setVariableErrors] = useState(NO_PARAMETER_ERRORS)
+  // Una {{clave}} sin configurar es la respuesta con esa clave; las demás sugieren un dato del contacto.
+  const rows = bodyParameterRows(textVariableNames(body), variables, context)
+  const storedRows = bodyParameterRows(textVariableNames(stored?.body ?? DEFAULT_CLOSING_BODY), stored?.variables ?? [], context)
   const urlInvalid = withButton && url.trim() !== "" && !isHttpsUrl(url.trim())
   const valid =
     body.trim() !== "" &&
     (!withButton || (buttonText.trim() !== "" && isHttpsUrl(url.trim()))) &&
-    (!withImage || parameterIssue(image) === null)
+    (!withImage || parameterIssue(image) === null) &&
+    parametersComplete(rows)
   const dirty =
     body.trim() !== (stored?.body ?? DEFAULT_CLOSING_BODY) ||
     withButton !== Boolean(stored?.button_text) ||
     (withButton && (buttonText.trim() !== (stored?.button_text ?? "") || url.trim() !== (stored?.url ?? ""))) ||
     withImage !== Boolean(stored?.image) ||
-    (withImage && JSON.stringify(completionImage(image)) !== JSON.stringify(stored?.image ?? null))
-  const imagePreviewUrl = !withImage
-    ? null
-    : image.source === "literal"
-      ? (isHttpsUrl(image.value?.trim() ?? "") ? (image.value?.trim() ?? null) : null)
-      : uploaded && uploaded.id === image.media_asset_id
-        ? uploaded.url
-        : null
+    (withImage && JSON.stringify(imageFromParameter(image)) !== JSON.stringify(stored?.image ?? null)) ||
+    !sameParameters(cleanParameters(rows), cleanParameters(storedRows))
+  const previewUrl = withImage ? imagePreviewUrl(image, uploaded) : null
 
   useEffect(() => {
     if (!onDirtyChange) return
@@ -123,15 +137,18 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
           body: body.trim(),
           button_text: withButton ? buttonText.trim() : null,
           url: withButton ? url.trim() : null,
-          image: withImage ? completionImage(image) : null,
+          image: withImage ? imageFromParameter(image) : null,
+          variables: cleanParameters(rows),
         },
       })
       setImageErrors([])
+      setVariableErrors(NO_PARAMETER_ERRORS)
       onSaved(saved)
       addToast({ type: "success", title: t("flows.completion.saved") })
     } catch (error) {
       if (error instanceof ApiValidationError) {
         setImageErrors(Object.entries(error.errors).filter(([key]) => key.startsWith("completion_message.image")).flatMap(([, messages]) => messages))
+        setVariableErrors(parameterErrorsFrom(error.errors, "completion_message.variables"))
       }
       addToast({
         type: "error",
@@ -143,7 +160,7 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
     }
   }
 
-  const preview = body.replace(PLACEHOLDER, (_, key: string) => `[${labels.get(key) ?? key}]`)
+  const preview = bodyPreview(body, rows, context, t)
 
   return (
     <div className="space-y-4">
@@ -161,24 +178,39 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
           aria-invalid={body.trim() === ""}
         />
         <div className="flex items-start justify-between gap-2 text-xs text-muted-foreground">
-          <span>{fields.length > 0 ? t("flows.completion.variablesHint") : t("flows.completion.variablesHintJson")}</span>
+          <span>{t("flows.completion.variablesHint")}</span>
           <span className="shrink-0">{body.length}/{BODY_MAX}</span>
         </div>
-        {fields.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("flows.completion.insert")}>
-            {fields.map((field) => (
-              <Button key={field.key} type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insertField(field.key)}>
-                {answerLabel(field, t)}
-              </Button>
-            ))}
-          </div>
-        ) : null}
-        {unknownKeys.length > 0 ? (
-          <p className="text-xs text-amber-600 dark:text-amber-400">
-            {t("flows.completion.unknownKeys", { keys: unknownKeys.map((key) => `{{${key}}}`).join(", ") })}
-          </p>
-        ) : null}
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("flows.completion.insert")}>
+          {fields.map((field) => (
+            <Button key={field.key} type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insertField(field.key)}>
+              {answerLabel(field, t)}
+            </Button>
+          ))}
+          {CONTACT_TOKENS.map((token) => (
+            <Button key={token.key} type="button" size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insertField(token.key)}>
+              {t(token.label)}
+            </Button>
+          ))}
+        </div>
       </div>
+
+      {rows.length > 0 ? (
+        <div className="space-y-2 rounded-lg border border-border p-3">
+          <p className="text-xs font-medium text-foreground">{t("flows.journey.opening.variablesTitle")}</p>
+          <TemplateParametersEditor
+            parameters={rows}
+            onChange={(next) => {
+              setVariables(next)
+              setVariableErrors(NO_PARAMETER_ERRORS)
+            }}
+            context={context}
+            errors={variableErrors}
+            idPrefix={`completion-${flow.id}-variable`}
+            disabled={saving}
+          />
+        </div>
+      ) : null}
 
       <div className="space-y-3 rounded-lg border border-border p-3">
         <div className="flex items-center justify-between gap-3">
@@ -246,7 +278,7 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
         <div className="rounded-lg bg-[#efeae2] p-3 dark:bg-muted/40">
           <ChatBubble
             content={{
-              header: withImage ? { kind: "image", url: imagePreviewUrl } : null,
+              header: withImage ? { kind: "image", url: previewUrl } : null,
               body: preview,
               footer: null,
               buttons: withButton && buttonText.trim() ? [{ text: buttonText, kind: "link" }] : [],

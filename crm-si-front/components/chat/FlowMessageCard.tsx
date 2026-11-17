@@ -61,6 +61,10 @@ export function FlowMessageCard({ message, isUser }: FlowMessageCardProps) {
             </span>
           ) : null}
         </span>
+        {interactive.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={interactive.image} alt="" className="max-h-48 w-full rounded-md object-cover" />
+        ) : null}
         {interactive.header && <p className="text-sm font-semibold">{interactive.header}</p>}
         <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{interactive.body}</p>
         {interactive.footer && <p className="text-xs opacity-70">{interactive.footer}</p>}

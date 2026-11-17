@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\ChannelType;
+use App\Exceptions\MetaApiException;
 use App\Models\Conversation;
 use App\Models\Message;
 
@@ -29,7 +30,7 @@ class SystemMessageSender
 
     /**
      * @throws \RuntimeException si el canal no tiene transporte o el envío falla.
-     * @throws \App\Exceptions\MetaApiException si la ventana de mensajería está cerrada.
+     * @throws MetaApiException si la ventana de mensajería está cerrada.
      */
     public function send(Conversation $conversation, string $content): Message
     {

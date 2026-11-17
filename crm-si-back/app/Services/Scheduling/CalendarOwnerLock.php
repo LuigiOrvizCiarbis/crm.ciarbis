@@ -10,7 +10,7 @@ class CalendarOwnerLock
     /**
      * @template T
      *
-     * @param callable(CalendarRequestBudget): T $operation
+     * @param  callable(CalendarRequestBudget): T  $operation
      * @return T
      */
     public function run(int $ownerId, callable $operation): mixed

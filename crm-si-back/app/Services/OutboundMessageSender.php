@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\ChannelType;
+use App\Exceptions\MetaApiException;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
@@ -43,7 +44,7 @@ class OutboundMessageSender
      * controller rechaza citas en mail, y los programados nunca citan).
      *
      * @throws InvalidArgumentException si el canal no tiene transporte de envío
-     * @throws \App\Exceptions\MetaApiException si la ventana de mensajería está cerrada
+     * @throws MetaApiException si la ventana de mensajería está cerrada
      */
     public function send(
         Conversation $conversation,

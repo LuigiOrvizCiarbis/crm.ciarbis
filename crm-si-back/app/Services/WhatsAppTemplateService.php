@@ -10,14 +10,15 @@ use App\Events\MessageSent;
 use App\Events\TenantMessageReceived;
 use App\Models\Conversation;
 use App\Models\Message;
-use App\Models\User;
 use App\Models\Scopes\TenantScope;
+use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
 use App\Services\Concerns\ResolvesWhatsAppCredentials;
 use App\Services\Flows\WhatsAppFlowSessionService;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -131,19 +132,27 @@ class WhatsAppTemplateService
      */
     public function uploadTemplateHeaderHandle(WhatsAppConfig $config, UploadedFile $file): string
     {
+        return $this->uploadTemplateHeaderContents($config, $file->get(), (string) $file->getMimeType(), $file->getClientOriginalName());
+    }
+
+    /**
+     * Sube el ejemplo del encabezado de una plantilla con la API de carga
+     * reanudable de Meta y devuelve su `header_handle`.
+     */
+    public function uploadTemplateHeaderContents(WhatsAppConfig $config, string $contents, string $mimeType, string $fileName): string
+    {
         $token = $config->getDecryptedToken();
         $appId = config('services.facebook.app_id');
         if (! $token || ! $appId) {
             throw new \RuntimeException('Faltan credenciales de Meta para cargar el archivo de ejemplo.');
         }
 
-        $contents = $file->get();
         $session = Http::withToken($token)
             ->timeout(60)
             ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$appId}/uploads", [
                 'file_length' => strlen($contents),
-                'file_type' => $file->getMimeType(),
-                'file_name' => $file->getClientOriginalName(),
+                'file_type' => $mimeType,
+                'file_name' => $fileName,
             ]);
 
         if (! $session->successful() || ! $session->json('id')) {
@@ -152,7 +161,7 @@ class WhatsAppTemplateService
 
         $upload = Http::withToken($token)
             ->withHeaders(['file_offset' => '0'])
-            ->withBody($contents, $file->getMimeType() ?: 'application/octet-stream')
+            ->withBody($contents, $mimeType ?: 'application/octet-stream')
             ->timeout(120)
             ->post('https://graph.facebook.com/'.$this->graphVersion().'/'.$session->json('id'));
 
@@ -444,9 +453,9 @@ class WhatsAppTemplateService
      * serializado de components; hay que verificarla contra una plantilla
      * real sincronizada antes de confiar en ella en producción.
      *
-     * @return \Illuminate\Support\Collection<int, WhatsAppTemplate>
+     * @return Collection<int, WhatsAppTemplate>
      */
-    public function findGroupInviteTemplates(int $whatsappConfigId): \Illuminate\Support\Collection
+    public function findGroupInviteTemplates(int $whatsappConfigId): Collection
     {
         return WhatsAppTemplate::where('whatsapp_config_id', $whatsappConfigId)
             ->where('status', TemplateStatus::Approved)
