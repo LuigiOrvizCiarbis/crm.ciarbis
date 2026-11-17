@@ -23,6 +23,7 @@ class OpportunityController extends Controller
         'conversation.channel:id,name,type',
         'pipelineStage:id,name,sort_order,is_default',
         'pipeline:id,name,is_default',
+        'metaPurchaseEvent:id,opportunity_id,status,error,sent_at',
     ];
 
     public function index(Request $request): JsonResponse

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Opportunity extends Model
 {
@@ -155,6 +156,12 @@ class Opportunity extends Model
     public function tasks(): HasMany
     {
         return $this->hasMany(Task::class);
+    }
+
+    /** Venta informada a Meta (Conversions API); existe solo si el chat vino de un anuncio. */
+    public function metaPurchaseEvent(): HasOne
+    {
+        return $this->hasOne(MetaConversionEvent::class)->where('event_name', MetaConversionEvent::PURCHASE);
     }
 
     public function scopeVisibleTo(Builder $query, User $user): Builder
