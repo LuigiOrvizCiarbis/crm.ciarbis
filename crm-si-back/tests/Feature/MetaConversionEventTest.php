@@ -53,8 +53,10 @@ class MetaConversionEventTest extends TestCase
 
         $this->moveTo($opportunity, self::WON_STAGE);
 
+        // Graph rechaza (error 100) un cuerpo cuya raíz no sea un objeto, como "[]".
         Http::assertSent(fn (Request $request) => $request->method() === 'POST'
-            && $request->url() === 'https://graph.facebook.com/v21.0/waba-test/dataset');
+            && $request->url() === 'https://graph.facebook.com/v21.0/waba-test/dataset'
+            && $request->body() === '{}');
         Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/DS_1/events')
             && $request['data'][0]['event_name'] === 'Purchase'
             && $request['data'][0]['action_source'] === 'business_messaging'
