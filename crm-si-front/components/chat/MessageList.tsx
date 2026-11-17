@@ -632,7 +632,7 @@ export const MessageList = memo(function MessageList({
         )}
 
         {/* El formato *negrita* / _cursiva_ es de WhatsApp: en Instagram o Messenger los asteriscos se ven tal cual. */}
-        <WhatsAppFormattingContext value={channelType === ChannelType.WHATSAPP}>
+        <WhatsAppFormattingContext.Provider value={channelType === ChannelType.WHATSAPP}>
         <div className="space-y-4" role="log" aria-live="off" aria-label={t("chats.threadLabel")}>
           {messages.map((msg, index) => {
             const msgTimestamp = msg.delivered_at || msg.created_at
@@ -719,7 +719,7 @@ export const MessageList = memo(function MessageList({
             )
           })}
           </div>
-        </WhatsAppFormattingContext>
+        </WhatsAppFormattingContext.Provider>
         </div>
       </div>
       {/* El log no anuncia por sí mismo (leería todo el historial al cargar o paginar);

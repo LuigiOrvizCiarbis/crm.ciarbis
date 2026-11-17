@@ -3626,5 +3626,83 @@
       },
       "encryptionHint": "Saving sets up the number's encryption automatically."
     }
+  },
+  "instagramComments": {
+    "title": "Instagram comments",
+    "subtitle": "Manage public comments, private replies and moderation.",
+    "loadError": "Couldn't load comments",
+    "actionError": "Couldn't complete the action",
+    "pending": "Pending",
+    "detail": "Details",
+    "loading": "Loading…",
+    "empty": "No comments yet.",
+    "selectComment": "Select a comment.",
+    "unknownUser": "user",
+    "noText": "(no text)",
+    "media": "Media {{id}}",
+    "replyPlaceholder": "Write a reply…",
+    "replyPublic": "Reply publicly",
+    "replyPrivate": "Send privately",
+    "hide": "Hide",
+    "unhide": "Show",
+    "delete": "Delete",
+    "privateReplyDeadline": "Private reply available until {{date}}",
+    "status": {
+      "new": "New",
+      "in_progress": "In progress",
+      "resolved": "Resolved"
+    },
+    "deleteDialog": {
+      "title": "Delete comment?",
+      "description": "This also marks it as resolved in the CRM.",
+      "cancel": "Cancel",
+      "confirm": "Delete"
+    },
+    "automations": {
+      "title": "Automatic replies",
+      "description": "When someone comments a keyword, send them a private message within Meta's window.",
+      "newRule": "New rule",
+      "loadingRules": "Loading rules…",
+      "empty": "Create a rule to turn comments into private conversations.",
+      "connectInstagram": "Connect an Instagram professional account to create rules.",
+      "channelFallback": "Channel",
+      "edit": "Edit",
+      "pause": "Pause",
+      "activate": "Activate",
+      "status": {
+        "active": "Active",
+        "paused": "Paused",
+        "draft": "Draft"
+      },
+      "toast": {
+        "loadError": "Couldn't load automations",
+        "validation": "Fill in channel, keywords and message",
+        "updated": "Automatic reply updated",
+        "activated": "Automatic reply activated",
+        "saveError": "Couldn't save",
+        "rulePaused": "Automation paused",
+        "ruleActivated": "Automation activated",
+        "toggleError": "Couldn't change the status"
+      },
+      "dialog": {
+        "newTitle": "New automatic reply",
+        "editTitle": "Edit automatic reply",
+        "description": "Keywords match whole words, ignoring case and accents.",
+        "name": "Name",
+        "defaultName": "Reply to keyword",
+        "namePlaceholder": "e.g. Send catalog",
+        "channel": "Channel",
+        "channelPlaceholder": "Select a channel",
+        "keywords": "Keywords",
+        "keywordsHint": " (comma-separated)",
+        "keywordsPlaceholder": "price, catalog, info",
+        "message": "Private message",
+        "messagePlaceholder": "Thanks for your comment! We'll message you privately.",
+        "metaHint": "Meta allows one private reply per comment for 7 days. The rule stays saved and you can pause it anytime.",
+        "cancel": "Cancel",
+        "saveChanges": "Save changes",
+        "createAndActivate": "Create and activate"
+      }
+    }
   }
 }

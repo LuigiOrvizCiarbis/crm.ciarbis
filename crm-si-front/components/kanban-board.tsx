@@ -28,7 +28,8 @@ import { fetchPipelineStages } from "@/lib/api/pipeline"
 import { getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
 import { needsSaleValue, useSaleValueGuard } from "@/components/sale-value-guard"
 import { EMPTY_PIPELINE_FILTERS, hasActiveFilters, type PipelineFilters } from "@/components/pipeline-compact-header"
-import { Phone, Mail, Calendar, GripVertical, Clock, Loader2, TrendingUp, MessageSquare, ArrowRightLeft, Check, Columns3 } from "lucide-react"
+import { Phone, Mail, Calendar, GripVertical, Clock, Loader2, TrendingUp, MessageSquare, ArrowRightLeft, Check, Columns3, CheckCircle2, AlertCircle } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   DndContext,
   DragOverlay,
@@ -81,6 +82,54 @@ interface Opportunity {
       type: number
     } | null
   } | null
+  /** Venta informada a Meta; solo existe si el chat vino de un anuncio y la oportunidad se ganó. */
+  meta_purchase_event?: {
+    status: "pending" | "sending" | "sent" | "failed"
+    error: string | null
+    sent_at: string | null
+  } | null
+}
+
+// Motivos que guarda el backend como código; los demás son el mensaje de Meta.
+const META_ERROR_MESSAGES: Record<string, string> = {
+  missing_channel_credentials: "El canal de WhatsApp no tiene credenciales guardadas: reconectalo.",
+}
+
+/** Si la venta llegó a Meta. El motivo de un error se ve al pasar el puntero o enfocar la línea. */
+function MetaSaleStatus({ event }: { event: NonNullable<Opportunity["meta_purchase_event"]> }) {
+  if (event.status === "sent") {
+    return (
+      <p className="flex items-center gap-1 text-xs text-success">
+        <CheckCircle2 className="size-3 shrink-0" aria-hidden="true" />
+        <span className="truncate">
+          Venta informada a Meta{event.sent_at ? ` · ${formatShortDate(event.sent_at)}` : ""}
+        </span>
+      </p>
+    )
+  }
+
+  if (event.status === "failed") {
+    const reason = (event.error && META_ERROR_MESSAGES[event.error]) || event.error || "Meta no aceptó la venta."
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <p tabIndex={0} className="flex items-center gap-1 text-xs text-destructive outline-none focus-visible:underline">
+            <AlertCircle className="size-3 shrink-0" aria-hidden="true" />
+            <span className="truncate">No se pudo informar la venta a Meta</span>
+            <span className="sr-only">: {reason}</span>
+          </p>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs text-pretty">{reason}</TooltipContent>
+      </Tooltip>
+    )
+  }
+
+  return (
+    <p className="flex items-center gap-1 text-xs text-muted-foreground">
+      <Loader2 className="size-3 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+      <span className="truncate">Informando la venta a Meta…</span>
+    </p>
+  )
 }
 
 interface PipelineStage {
@@ -302,6 +351,8 @@ function OpportunityCard({
               <span>{formatShortDate(referenceDate)}</span>
             </div>
           </div>
+
+          {opportunity.meta_purchase_event && <MetaSaleStatus event={opportunity.meta_purchase_event} />}
 
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="truncate">{lastActivityText}</span>
