@@ -69,6 +69,10 @@ class MetaConversionEventTest extends TestCase
         $event = MetaConversionEvent::where('opportunity_id', $opportunity->id)->where('event_name', 'Purchase')->sole();
         $this->assertSame('sent', $event->status);
         $this->assertSame('DS_1', $channel->whatsappConfig->fresh()->meta_dataset_id);
+
+        $this->getJson("/api/opportunities/{$opportunity->id}")
+            ->assertOk()
+            ->assertJsonPath('data.meta_purchase_event.status', 'sent');
     }
 
     public function test_winning_again_does_not_resend_purchase(): void
@@ -171,6 +175,11 @@ class MetaConversionEventTest extends TestCase
         $event = MetaConversionEvent::where('opportunity_id', $opportunity->id)->where('event_name', 'Purchase')->sole();
         $this->assertSame('failed', $event->status);
         $this->assertNotEmpty($event->error);
+
+        $this->getJson('/api/opportunities')
+            ->assertOk()
+            ->assertJsonPath('data.0.meta_purchase_event.status', 'failed')
+            ->assertJsonPath('data.0.meta_purchase_event.error', $event->error);
     }
 
     /**
