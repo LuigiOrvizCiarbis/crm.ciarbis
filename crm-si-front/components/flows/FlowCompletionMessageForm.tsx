@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/Toast"
 import type { TemplateParameter, WhatsAppFlow, WhatsAppFlowResponseField } from "@/data/types"
+import { useImagePreviewUrl } from "@/hooks/useImagePreviewUrl"
 import { useTranslation } from "@/hooks/useTranslation"
 import { ApiValidationError, updateFlow } from "@/lib/api/whatsapp-flows"
 import { DEFAULT_CLOSING_BODY } from "@/lib/flow-builder/completion"
@@ -20,7 +21,6 @@ import {
   cleanParameters,
   imageFromParameter,
   imageParameter,
-  imagePreviewUrl,
   NO_PARAMETER_ERRORS,
   parameterErrorsFrom,
   parameterIssue,
@@ -75,8 +75,6 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
   const [saving, setSaving] = useState(false)
   const [withImage, setWithImage] = useState(Boolean(stored?.image))
   const [image, setImage] = useState<TemplateParameter>(() => imageParameter(stored?.image))
-  // Sólo un archivo subido en esta sesión tiene URL para la vista previa; uno guardado se ve como ícono.
-  const [uploaded, setUploaded] = useState<{ id: number; url: string } | null>(null)
   const [imageErrors, setImageErrors] = useState<string[]>([])
 
   const contactFieldsStore = useContactFieldsStore()
@@ -106,7 +104,7 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
     withImage !== Boolean(stored?.image) ||
     (withImage && JSON.stringify(imageFromParameter(image)) !== JSON.stringify(stored?.image ?? null)) ||
     !sameParameters(cleanParameters(rows), cleanParameters(storedRows))
-  const previewUrl = withImage ? imagePreviewUrl(image, uploaded) : null
+  const previewUrl = useImagePreviewUrl(withImage ? imageFromParameter(image) : null)
 
   useEffect(() => {
     if (!onDirtyChange) return
@@ -231,7 +229,6 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
               setImage(next)
               setImageErrors([])
             }}
-            onUploaded={(asset) => setUploaded({ id: asset.id, url: asset.url })}
           />
         ) : null}
       </div>

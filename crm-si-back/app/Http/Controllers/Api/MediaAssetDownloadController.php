@@ -76,8 +76,9 @@ class MediaAssetDownloadController extends Controller
      * puede ver la ficha puede abrir su adjunto. No se exige
      * document_extraction.use, porque leer un archivo ya cargado no es extraer.
      *
-     * Un asset sin contacto es de la biblioteca de automations y conserva su
-     * permiso histórico.
+     * Un asset sin contacto es de la biblioteca (automations y formularios) y
+     * se lee con el mismo permiso con que se sube: quien arma la imagen de un
+     * formulario la ve en la vista previa.
      */
     private function authorizeAccess(Request $request, MediaAsset $mediaAsset): void
     {
@@ -88,7 +89,7 @@ class MediaAssetDownloadController extends Controller
         abort_unless($user && $mediaAsset->tenant_id === $user->tenant_id, 404);
 
         if ($mediaAsset->contact_id === null) {
-            abort_unless((bool) $user->can('automations.manage'), 403);
+            abort_unless((bool) $user->canAny(['automations.manage', 'flows.manage']), 403);
 
             return;
         }

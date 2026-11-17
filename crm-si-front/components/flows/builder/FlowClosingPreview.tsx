@@ -5,6 +5,7 @@ import { useMemo } from "react"
 import { ChatBubble, templateBubble } from "@/components/flows/journey/ChatBubble"
 import { useManagedTemplates } from "@/components/flows/journey/useManagedTemplates"
 import type { WhatsAppFlow, WhatsAppFlowResponseField } from "@/data/types"
+import { useImagePreviewUrl } from "@/hooks/useImagePreviewUrl"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactField } from "@/lib/api/contact-fields"
 import { bodyParameterRows, bodyPreview, templateBodyPreview, templateParameterRows, textVariableNames } from "@/lib/template-parameters"
@@ -24,6 +25,7 @@ export function FlowClosingPreview({ flow, channelId, fields, contactFields }: F
   const closing = flow?.completion_message ?? null
   const { templates, loading, failed, reload } = useManagedTemplates(closing?.type === "template" ? channelId : null)
   const context = useMemo(() => ({ answers: fields, contactFields }), [fields, contactFields])
+  const imageUrl = useImagePreviewUrl(closing?.type === "text" ? closing.image : null)
 
   if (!flow || closing === null) {
     return (
@@ -39,8 +41,7 @@ export function FlowClosingPreview({ flow, channelId, fields, contactFields }: F
       <ChatScreen>
         <ChatBubble
           content={{
-            // Un archivo guardado se ve como ícono: la vista previa sólo conoce la URL de los links.
-            header: closing.image ? { kind: "image", url: closing.image.source === "literal" ? closing.image.value : null } : null,
+            header: closing.image ? { kind: "image", url: imageUrl } : null,
             body: bodyPreview(closing.body, rows, context, t),
             footer: null,
             buttons: closing.button_text ? [{ text: closing.button_text, kind: "link" }] : [],

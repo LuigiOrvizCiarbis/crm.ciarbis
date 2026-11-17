@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, type ChangeEvent } from "react"
+import { type ChangeEvent } from "react"
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import type { TemplateParameter, WhatsAppFlowSendDefaults } from "@/data/types"
+import { useImagePreviewUrl } from "@/hooks/useImagePreviewUrl"
 import { useTranslation } from "@/hooks/useTranslation"
 import {
   NO_PARAMETER_ERRORS,
@@ -15,7 +16,6 @@ import {
   cleanParameters,
   imageFromParameter,
   imageParameter,
-  imagePreviewUrl,
   parameterIssue,
   type ParameterContext,
   type ParameterErrors,
@@ -97,8 +97,7 @@ export function FlowSendMessageFields({
   const rows = variableRows(values, context)
   const invalid = invalidVariables(values.body)
   const outsideBody = [values.withImage ? "" : values.header, values.footer, values.cta].some((text) => text.includes("{{"))
-  // Sólo un archivo subido en esta pantalla tiene URL para la vista previa; uno guardado se ve como ícono.
-  const [uploaded, setUploaded] = useState<{ id: number; url: string } | null>(null)
+  const imageUrl = useImagePreviewUrl(values.withImage ? imageFromParameter(values.image) : null)
 
   return (
     <div className="space-y-3">
@@ -123,7 +122,6 @@ export function FlowSendMessageFields({
             disabled={Boolean(disabled)}
             errors={imageErrors}
             onChange={(image) => onChange({ ...values, image })}
-            onUploaded={(asset) => setUploaded({ id: asset.id, url: asset.url })}
           />
         ) : (
           <div className="space-y-1.5">
@@ -189,7 +187,7 @@ export function FlowSendMessageFields({
           <ChatBubble
             content={{
               header: values.withImage
-                ? { kind: "image", url: imagePreviewUrl(values.image, uploaded) }
+                ? { kind: "image", url: imageUrl }
                 : message.header
                   ? { kind: "text", text: message.header }
                   : null,
