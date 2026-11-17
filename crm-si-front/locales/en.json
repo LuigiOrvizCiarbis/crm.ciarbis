@@ -2112,6 +2112,19 @@
     "emailMismatchHint": "Log out and register with that email, or ask for a new invitation.",
     "inviteDescription": "Invite people by email and pick their role before they join."
   },
+  "richText": {
+    "toolbar": "Text formatting",
+    "bold": "Bold",
+    "italic": "Italic",
+    "strike": "Strikethrough",
+    "code": "Monospace",
+    "bullets": "Bulleted list",
+    "numbers": "Numbered list",
+    "quote": "Quote",
+    "link": "Link",
+    "linkText": "link text",
+    "emoji": "Emojis"
+  },
   "common": {
     "save": "Save",
     "saving": "Saving...",
@@ -3079,6 +3092,11 @@
       "buttonPlaceholder": "See catalog",
       "url": "Link",
       "urlInvalid": "Use a full link starting with https://",
+      "header": "Header (optional)",
+      "footer": "Footer (optional)",
+      "headerIsImage": "With an image, the image is the header.",
+      "headerFooterNeedButton": "Header and footer only go with a button: WhatsApp doesn't allow them in a text message.",
+      "variablesOutsideBody": "Variables only go in the text, not in the header or footer.",
       "preview": "Preview",
       "saved": "Completion message saved",
       "saveError": "Couldn't save the completion message",

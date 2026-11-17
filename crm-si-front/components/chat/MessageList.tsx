@@ -1,5 +1,6 @@
 import { Message, TranslationLanguage } from "@/data/types"
 import { MessageBubble } from "./MessageBubble"
+import { WhatsAppFormattingContext } from "./MessageText"
 import { getDayLabel, isSameDay, parseTemplateContent } from "./messageThreadUtils"
 import { ThreadBackdrop } from "./ThreadBackdrop"
 import { ChannelType } from "@/data/enums"
@@ -630,6 +631,8 @@ export const MessageList = memo(function MessageList({
           </div>
         )}
 
+        {/* El formato *negrita* / _cursiva_ es de WhatsApp: en Instagram o Messenger los asteriscos se ven tal cual. */}
+        <WhatsAppFormattingContext value={channelType === ChannelType.WHATSAPP}>
         <div className="space-y-4" role="log" aria-live="off" aria-label={t("chats.threadLabel")}>
           {messages.map((msg, index) => {
             const msgTimestamp = msg.delivered_at || msg.created_at
@@ -716,6 +719,7 @@ export const MessageList = memo(function MessageList({
             )
           })}
           </div>
+        </WhatsAppFormattingContext>
         </div>
       </div>
       {/* El log no anuncia por sí mismo (leería todo el historial al cargar o paginar);

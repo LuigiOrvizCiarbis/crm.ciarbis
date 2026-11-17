@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
+import { EmojiInput, FormattedTextarea } from "@/components/rich-text/FormattedField"
 import { useToast } from "@/components/Toast"
 import type { TemplateParameter, WhatsAppFlow, WhatsAppFlowResponseField } from "@/data/types"
+import { useImagePreviewUrl } from "@/hooks/useImagePreviewUrl"
 import { useTranslation } from "@/hooks/useTranslation"
 import { ApiValidationError, updateFlow } from "@/lib/api/whatsapp-flows"
 import { DEFAULT_CLOSING_BODY } from "@/lib/flow-builder/completion"
@@ -20,7 +21,6 @@ import {
   cleanParameters,
   imageFromParameter,
   imageParameter,
-  imagePreviewUrl,
   NO_PARAMETER_ERRORS,
   parameterErrorsFrom,
   parameterIssue,
@@ -34,9 +34,10 @@ import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 import { ChatBubble } from "./journey/ChatBubble"
 import { HeaderRow, TemplateParametersEditor } from "./journey/TemplateParametersEditor"
 
-/** Límites de Meta: cuerpo de un mensaje interactivo y texto del botón de link. */
+/** Límites de Meta: cuerpo de un mensaje interactivo, texto del botón de link, encabezado y pie. */
 const BODY_MAX = 1024
 const BUTTON_MAX = 20
+const HEADER_FOOTER_MAX = 60
 
 /** Datos del contacto que se insertan con un toque; `bodyParameterRows` los reconoce por el nombre. */
 const CONTACT_TOKENS = [
@@ -72,11 +73,11 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
   const [withButton, setWithButton] = useState(Boolean(stored?.button_text))
   const [buttonText, setButtonText] = useState(stored?.button_text ?? "")
   const [url, setUrl] = useState(stored?.url ?? "")
+  const [header, setHeader] = useState(stored?.header ?? "")
+  const [footer, setFooter] = useState(stored?.footer ?? "")
   const [saving, setSaving] = useState(false)
   const [withImage, setWithImage] = useState(Boolean(stored?.image))
   const [image, setImage] = useState<TemplateParameter>(() => imageParameter(stored?.image))
-  // Sólo un archivo subido en esta sesión tiene URL para la vista previa; uno guardado se ve como ícono.
-  const [uploaded, setUploaded] = useState<{ id: number; url: string } | null>(null)
   const [imageErrors, setImageErrors] = useState<string[]>([])
 
   const contactFieldsStore = useContactFieldsStore()
@@ -94,19 +95,26 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
   const rows = bodyParameterRows(textVariableNames(body), variables, context)
   const storedRows = bodyParameterRows(textVariableNames(stored?.body ?? DEFAULT_CLOSING_BODY), stored?.variables ?? [], context)
   const urlInvalid = withButton && url.trim() !== "" && !isHttpsUrl(url.trim())
+  // Encabezado de texto y pie sólo existen con botón; con imagen, el encabezado es la imagen.
+  const sentHeader = withButton && !withImage ? header.trim() : ""
+  const sentFooter = withButton ? footer.trim() : ""
+  const variablesOutsideBody = [sentHeader, sentFooter].some((text) => text.includes("{{"))
   const valid =
     body.trim() !== "" &&
     (!withButton || (buttonText.trim() !== "" && isHttpsUrl(url.trim()))) &&
     (!withImage || parameterIssue(image) === null) &&
+    !variablesOutsideBody &&
     parametersComplete(rows)
   const dirty =
     body.trim() !== (stored?.body ?? DEFAULT_CLOSING_BODY) ||
     withButton !== Boolean(stored?.button_text) ||
     (withButton && (buttonText.trim() !== (stored?.button_text ?? "") || url.trim() !== (stored?.url ?? ""))) ||
+    sentHeader !== (stored?.header ?? "") ||
+    sentFooter !== (stored?.footer ?? "") ||
     withImage !== Boolean(stored?.image) ||
     (withImage && JSON.stringify(imageFromParameter(image)) !== JSON.stringify(stored?.image ?? null)) ||
     !sameParameters(cleanParameters(rows), cleanParameters(storedRows))
-  const previewUrl = withImage ? imagePreviewUrl(image, uploaded) : null
+  const previewUrl = useImagePreviewUrl(withImage ? imageFromParameter(image) : null)
 
   useEffect(() => {
     if (!onDirtyChange) return
@@ -135,6 +143,8 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
         completion_message: {
           type: "text",
           body: body.trim(),
+          header: sentHeader || null,
+          footer: sentFooter || null,
           button_text: withButton ? buttonText.trim() : null,
           url: withButton ? url.trim() : null,
           image: withImage ? imageFromParameter(image) : null,
@@ -168,13 +178,14 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
 
       <div className="space-y-1.5">
         <Label htmlFor={`completion-${flow.id}-body`}>{t("flows.completion.body")}</Label>
-        <Textarea
+        <FormattedTextarea
           id={`completion-${flow.id}-body`}
           ref={bodyRef}
+          dialect="whatsapp"
           value={body}
           maxLength={BODY_MAX}
           rows={4}
-          onChange={(event) => setBody(event.target.value)}
+          onValueChange={setBody}
           aria-invalid={body.trim() === ""}
         />
         <div className="flex items-start justify-between gap-2 text-xs text-muted-foreground">
@@ -231,7 +242,6 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
               setImage(next)
               setImageErrors([])
             }}
-            onUploaded={(asset) => setUploaded({ id: asset.id, url: asset.url })}
           />
         ) : null}
       </div>
@@ -247,12 +257,12 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
           <>
             <div className="space-y-1.5">
               <Label htmlFor={`completion-${flow.id}-button-text`}>{t("flows.completion.buttonText")}</Label>
-              <Input
+              <EmojiInput
                 id={`completion-${flow.id}-button-text`}
                 value={buttonText}
                 maxLength={BUTTON_MAX}
                 placeholder={t("flows.completion.buttonPlaceholder")}
-                onChange={(event) => setButtonText(event.target.value)}
+                onValueChange={setButtonText}
               />
               <p className="text-right text-xs text-muted-foreground">{buttonText.length}/{BUTTON_MAX}</p>
             </div>
@@ -269,8 +279,23 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
               />
               {urlInvalid ? <p className="text-xs text-destructive">{t("flows.completion.urlInvalid")}</p> : null}
             </div>
+            {withImage ? (
+              <p className="text-xs text-muted-foreground">{t("flows.completion.headerIsImage")}</p>
+            ) : (
+              <div className="space-y-1.5">
+                <Label htmlFor={`completion-${flow.id}-header`}>{t("flows.completion.header")}</Label>
+                <EmojiInput id={`completion-${flow.id}-header`} value={header} maxLength={HEADER_FOOTER_MAX} onValueChange={setHeader} />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor={`completion-${flow.id}-footer`}>{t("flows.completion.footer")}</Label>
+              <EmojiInput id={`completion-${flow.id}-footer`} value={footer} maxLength={HEADER_FOOTER_MAX} onValueChange={setFooter} />
+            </div>
+            {variablesOutsideBody ? <p className="text-xs text-destructive">{t("flows.completion.variablesOutsideBody")}</p> : null}
           </>
-        ) : null}
+        ) : (
+          <p className="text-xs text-muted-foreground">{t("flows.completion.headerFooterNeedButton")}</p>
+        )}
       </div>
 
       <div className="space-y-1.5">
@@ -278,9 +303,9 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
         <div className="rounded-lg bg-[#efeae2] p-3 dark:bg-muted/40">
           <ChatBubble
             content={{
-              header: withImage ? { kind: "image", url: previewUrl } : null,
+              header: withImage ? { kind: "image", url: previewUrl } : sentHeader ? { kind: "text", text: sentHeader } : null,
               body: preview,
-              footer: null,
+              footer: sentFooter || null,
               buttons: withButton && buttonText.trim() ? [{ text: buttonText, kind: "link" }] : [],
             }}
           />

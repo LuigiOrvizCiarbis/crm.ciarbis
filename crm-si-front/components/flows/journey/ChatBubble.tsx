@@ -2,6 +2,7 @@
 
 import { ExternalLink, FileText, Image as ImageIcon, ListChecks, Phone, Reply, Video } from "lucide-react"
 
+import { RichText } from "@/components/rich-text/RichText"
 import type { WhatsAppTemplate } from "@/data/types"
 import { cn } from "@/lib/utils"
 
@@ -90,7 +91,7 @@ export function ChatBubble({
       ) : null}
       <div className="space-y-1 px-2.5 pb-1.5 pt-2">
         {header?.kind === "text" ? <p className="font-semibold">{header.text}</p> : null}
-        <p className="whitespace-pre-wrap break-words">{content.body || "—"}</p>
+        {content.body ? <RichText text={content.body} dialect="whatsapp" /> : <p>—</p>}
         {content.footer ? <p className="text-xs text-neutral-500">{content.footer}</p> : null}
         <p className="text-right text-[10px] text-neutral-400">10:30</p>
       </div>

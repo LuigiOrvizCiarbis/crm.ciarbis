@@ -71,9 +71,9 @@ export const templateNameFrom = (value: string) =>
 export function closingTemplateDraft(flow: WhatsAppFlow, text: WhatsAppFlowTextCompletion | null): TemplateDraft {
   return {
     name: `${templateNameFrom(flow.name) || "formulario"}_cierre`,
-    headerText: null,
+    headerText: text?.header ?? null,
     body: text?.body ?? DEFAULT_CLOSING_BODY,
-    footer: null,
+    footer: text?.footer ?? null,
     link: text?.button_text && text.url ? { text: text.button_text.slice(0, BUTTON_TEXT_MAX), url: text.url } : null,
   }
 }

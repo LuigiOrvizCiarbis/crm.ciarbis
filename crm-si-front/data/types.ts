@@ -331,6 +331,9 @@ export type WhatsAppFlowCompletionMessage =
   | {
       type: "text"
       body: string
+      /** Encabezado de texto y pie: sólo con botón (mensaje interactivo); con imagen no hay encabezado de texto. */
+      header: string | null
+      footer: string | null
       /** El botón abre `url`; los dos van juntos o ninguno. */
       button_text: string | null
       url: string | null
