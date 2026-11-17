@@ -253,10 +253,12 @@ export async function getConversationMessages(conversationId: number, page: numb
   return payload;
 }
 
-export async function updateConversationStage(conversationId: number, stage: number | string) {
-  const body = typeof stage === 'number'
-    ? { pipeline_stage_id: stage }
-    : { pipeline_stage_id: Number(stage) };
+/** `value` es el monto de la oportunidad que se crea al mover el chat (p. ej. a Ganado). */
+export async function updateConversationStage(conversationId: number, stage: number | string, value?: number) {
+  const body = {
+    pipeline_stage_id: Number(stage),
+    ...(value !== undefined ? { value } : {}),
+  };
 
   const res = await fetch(`/api/conversations/${conversationId}/stage`, {
     method: "PATCH",

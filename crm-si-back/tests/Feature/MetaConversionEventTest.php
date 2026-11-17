@@ -81,6 +81,34 @@ class MetaConversionEventTest extends TestCase
         $this->assertSame(1, $this->sentEvents('Purchase')->count());
     }
 
+    public function test_value_sent_with_the_move_to_won_reaches_the_purchase(): void
+    {
+        $this->fakeMeta();
+        $opportunity = $this->opportunityFromAd($this->makeWhatsAppChannel(), 'whatsapp', 'CLID1');
+
+        $this->patchJson("/api/opportunities/{$opportunity->id}/stage", [
+            'pipeline_stage_id' => $this->stage(self::WON_STAGE)->id,
+            'value' => 2500,
+        ])->assertOk()->assertJsonPath('data.status', 'won');
+
+        $this->assertEquals(2500, $this->sentEvents('Purchase')->first()['data'][0]['custom_data']['value']);
+    }
+
+    public function test_winning_a_chat_without_opportunity_takes_the_value_sent(): void
+    {
+        $this->fakeMeta();
+        $channel = $this->makeWhatsAppChannel();
+        $conversation = $this->makeConversation($channel, $this->makeContact());
+        $this->makeReferral($channel, $conversation, 'whatsapp', 'CLID1');
+
+        $this->patchJson("/api/conversations/{$conversation->id}/stage", [
+            'pipeline_stage_id' => $this->stage(self::WON_STAGE)->id,
+            'value' => 900,
+        ])->assertOk();
+
+        $this->assertEquals(900, $this->sentEvents('Purchase')->first()['data'][0]['custom_data']['value']);
+    }
+
     public function test_messenger_chat_from_ad_sends_lead_submitted_when_opportunity_is_created(): void
     {
         $this->fakeMeta();

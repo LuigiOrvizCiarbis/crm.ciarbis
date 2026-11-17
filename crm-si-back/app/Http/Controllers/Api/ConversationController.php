@@ -355,9 +355,15 @@ class ConversationController extends Controller
         $conversation = Conversation::where('id', $id)->firstOrFail();
         $this->authorize('changeStage', $conversation);
 
-        $request->validate([
+        $validated = $request->validate([
             'pipeline_stage_id' => 'required|exists:pipeline_stages,id',
+            // Monto de la oportunidad que se crea (p. ej. al ganar desde el chat).
+            'value' => ['sometimes', 'nullable', 'numeric', 'min:0'],
         ]);
+
+        if (array_key_exists('value', $validated) && ! $request->user()->can('opportunities.update')) {
+            abort(403, 'No tenés permiso para cargar el valor de la oportunidad.');
+        }
 
         // Validar que la etapa destino pertenezca al mismo tenant (seguridad extra)
         $stage = PipelineStage::where('id', $request->pipeline_stage_id)->firstOrFail();
@@ -372,7 +378,7 @@ class ConversationController extends Controller
             return response()->json(['message' => 'La etapa de este chat sigue a su oportunidad. Mové la oportunidad.'], 422);
         }
 
-        DB::transaction(function () use ($conversation, $stage): void {
+        DB::transaction(function () use ($conversation, $stage, $validated): void {
             $conversation->update([
                 'pipeline_stage_id' => $stage->id,
             ]);
@@ -390,6 +396,7 @@ class ConversationController extends Controller
                     'status' => 'open',
                     'source_type' => 'conversation',
                     'last_activity_at' => now(),
+                    'value' => $validated['value'] ?? null,
                 ]);
             }
         });
