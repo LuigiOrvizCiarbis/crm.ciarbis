@@ -3651,6 +3651,13 @@
       "edit": "Edit",
       "pause": "Pause",
       "activate": "Activate",
+      "delete": "Delete rule",
+      "deleteDialog": {
+        "title": "Delete automatic reply?",
+        "description": "The rule “{{name}}” will stop replying to comments. This can't be undone.",
+        "cancel": "Cancel",
+        "confirm": "Delete"
+      },
       "status": {
         "active": "Active",
         "paused": "Paused",
@@ -3664,7 +3671,9 @@
         "saveError": "Couldn't save",
         "rulePaused": "Automation paused",
         "ruleActivated": "Automation activated",
-        "toggleError": "Couldn't change the status"
+        "toggleError": "Couldn't change the status",
+        "deleted": "Automatic reply deleted",
+        "deleteError": "Couldn't delete the rule"
       },
       "dialog": {
         "newTitle": "New automatic reply",
