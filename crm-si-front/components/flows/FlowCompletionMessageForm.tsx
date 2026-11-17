@@ -180,7 +180,7 @@ export function FlowCompletionMessageForm({ flow, fields, onSaved, onDirtyChange
         <Label htmlFor={`completion-${flow.id}-body`}>{t("flows.completion.body")}</Label>
         <FormattedTextarea
           id={`completion-${flow.id}-body`}
-          ref={bodyRef}
+          textareaRef={bodyRef}
           dialect="whatsapp"
           value={body}
           maxLength={BODY_MAX}
