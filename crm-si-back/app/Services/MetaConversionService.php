@@ -238,7 +238,10 @@ class MetaConversionService
     private function post(string $token, string $path, array $body = []): Response
     {
         try {
-            $response = Http::withToken($token)->timeout(15)->acceptJson()->post($this->graph($path), $body);
+            // Un array vacío se codifica como "[]" y Graph exige que la raíz sea un
+            // objeto: sin cuerpo (POST /dataset) se manda "{}".
+            $response = Http::withToken($token)->timeout(15)->acceptJson()
+                ->post($this->graph($path), $body === [] ? new \stdClass : $body);
         } catch (ConnectionException $e) {
             throw new MetaConversionRequestException(MetaOAuth::scrubMessage($e->getMessage()), true);
         }
