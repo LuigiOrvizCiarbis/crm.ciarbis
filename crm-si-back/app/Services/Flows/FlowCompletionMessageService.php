@@ -102,7 +102,7 @@ class FlowCompletionMessageService
     }
 
     /**
-     * @param  array{body: string, button_text: ?string, url: ?string, image: ?array<string, mixed>, variables: list<array<string, mixed>>}  $config
+     * @param  array{body: string, header: ?string, footer: ?string, button_text: ?string, url: ?string, image: ?array<string, mixed>, variables: list<array<string, mixed>>}  $config
      * @param  array<string, string>  $values
      */
     private function deliverText(WhatsAppFlow $flow, Conversation $conversation, array $config, array $values): ?Message
@@ -111,7 +111,7 @@ class FlowCompletionMessageService
 
         return $body === ''
             ? null
-            : $this->deliver($flow, $conversation, $body, $config['button_text'], $config['url'], $this->imageLink($flow, $config['image']));
+            : $this->deliver($flow, $conversation, $body, $config, $this->imageLink($flow, $config['image']));
     }
 
     /**
@@ -176,8 +176,12 @@ class FlowCompletionMessageService
         );
     }
 
-    private function deliver(WhatsAppFlow $flow, Conversation $conversation, string $body, ?string $buttonText, ?string $url, ?string $imageLink): Message
+    /**
+     * @param  array{header: ?string, footer: ?string, button_text: ?string, url: ?string}  $config
+     */
+    private function deliver(WhatsAppFlow $flow, Conversation $conversation, string $body, array $config, ?string $imageLink): Message
     {
+        ['header' => $header, 'footer' => $footer, 'button_text' => $buttonText, 'url' => $url] = $config;
         $context = $this->messages->resolveOutboundWhatsAppContext($conversation);
         $payload = [
             'messaging_product' => 'whatsapp',
@@ -189,8 +193,11 @@ class FlowCompletionMessageService
             $payload['type'] = 'interactive';
             $payload['interactive'] = [
                 'type' => 'cta_url',
-                ...($imageLink !== null ? ['header' => ['type' => 'image', 'image' => ['link' => $imageLink]]] : []),
+                ...($imageLink !== null
+                    ? ['header' => ['type' => 'image', 'image' => ['link' => $imageLink]]]
+                    : ($header !== null ? ['header' => ['type' => 'text', 'text' => $header]] : [])),
                 'body' => ['text' => $body],
+                ...($footer !== null ? ['footer' => ['text' => $footer]] : []),
                 'action' => ['name' => 'cta_url', 'parameters' => ['display_text' => $buttonText, 'url' => $url]],
             ];
         } elseif ($imageLink !== null) {
@@ -212,8 +219,8 @@ class FlowCompletionMessageService
             throw new RuntimeException('Meta rechazó el mensaje: '.$response->body());
         }
 
-        // El chat muestra el link como texto; el detalle del botón queda en `interactive`.
-        $content = $buttonText !== null ? "{$body}\n\n🔗 {$buttonText}: {$url}" : $body;
+        // El chat muestra encabezado, pie y link como texto; el detalle queda en `interactive`.
+        $content = implode("\n\n", array_filter([$header, $body, $footer, $buttonText !== null ? "🔗 {$buttonText}: {$url}" : null]));
         $message = Message::create([
             'tenant_id' => $conversation->tenant_id,
             'conversation_id' => $conversation->id,

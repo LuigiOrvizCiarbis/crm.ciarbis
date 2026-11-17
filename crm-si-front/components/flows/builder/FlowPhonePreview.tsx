@@ -3,6 +3,7 @@
 import { useState, type CSSProperties, type ReactNode } from "react"
 import { CalendarDays, ChevronDown, EllipsisVertical, Image as ImageIcon, X } from "lucide-react"
 
+import { RichText } from "@/components/rich-text/RichText"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactField } from "@/lib/api/contact-fields"
 import { responseFields } from "@/lib/flow-builder/completion"
@@ -281,7 +282,12 @@ function PreviewBlock({
       body: "text-sm",
       caption: "text-xs text-neutral-500",
     }[block.type]
-    return <p className={cn("whitespace-pre-wrap break-words", textClass)}>{block.text}</p>
+    // Párrafo y nota van con `markdown: true` (FlowDefinitionCompiler); título y subtítulo, tal cual.
+    return block.type === "body" || block.type === "caption" ? (
+      <RichText text={block.text} dialect="flow" className={textClass} />
+    ) : (
+      <p className={cn("whitespace-pre-wrap break-words", textClass)}>{block.text}</p>
+    )
   }
 
   if (block.type === "image") {

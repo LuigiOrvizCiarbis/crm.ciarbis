@@ -604,6 +604,16 @@ class WhatsAppFlowManagementTest extends TestCase
         ]])->assertOk()->assertJsonPath('data.completion_message.variables', [
             ['component' => 'body', 'name' => 'quien', 'source' => 'field', 'path' => 'contact.name', 'fallback' => 'cliente'],
         ]);
+        $withLink = ['type' => 'text', 'body' => 'Gracias', 'button_text' => 'Ver', 'url' => 'https://petshop.example'];
+        $save([...$withLink, 'header' => 'Hola {{quien}}'])->assertUnprocessable()->assertJsonValidationErrors(['completion_message.header']);
+        $save([...$withLink, 'footer' => str_repeat('a', 61)])->assertUnprocessable()->assertJsonValidationErrors(['completion_message.footer']);
+        $save([...$withLink, 'header' => '¡Listo!', 'footer' => 'Petshop'])->assertOk()
+            ->assertJsonPath('data.completion_message.header', '¡Listo!')
+            ->assertJsonPath('data.completion_message.footer', 'Petshop');
+        // Sin botón el mensaje no es interactivo: no hay dónde poner encabezado ni pie.
+        $save(['type' => 'text', 'body' => 'Gracias', 'header' => '¡Listo!', 'footer' => 'Petshop'])->assertOk()
+            ->assertJsonPath('data.completion_message.header', null)
+            ->assertJsonPath('data.completion_message.footer', null);
 
         $save(null)->assertOk()->assertJsonPath('data.completion_message', null);
         Http::assertNothingSent();

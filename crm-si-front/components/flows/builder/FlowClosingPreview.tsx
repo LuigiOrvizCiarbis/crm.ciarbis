@@ -41,9 +41,9 @@ export function FlowClosingPreview({ flow, channelId, fields, contactFields }: F
       <ChatScreen>
         <ChatBubble
           content={{
-            header: closing.image ? { kind: "image", url: imageUrl } : null,
+            header: closing.image ? { kind: "image", url: imageUrl } : closing.header ? { kind: "text", text: closing.header } : null,
             body: bodyPreview(closing.body, rows, context, t),
-            footer: null,
+            footer: closing.footer,
             buttons: closing.button_text ? [{ text: closing.button_text, kind: "link" }] : [],
           }}
         />

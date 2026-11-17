@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
+import { EmojiInput, FormattedTextarea } from "@/components/rich-text/FormattedField"
 import { CreateContactFieldDialog } from "@/components/flows/CreateContactFieldDialog"
 import { usePermission } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -38,6 +38,7 @@ import {
 } from "@/lib/flow-builder/limits"
 import { DEFAULT_TARGET, branchTarget, hasBranches, isBranchable } from "@/lib/flow-builder/routing"
 import { keyFromLabel } from "@/lib/flow-builder/slug"
+import { plainText } from "@/lib/rich-text"
 import { charCount } from "@/lib/flow-builder/validate"
 import type {
   ChoiceBlock,
@@ -107,7 +108,7 @@ export function prefillLabel(source: string, fields: ContactField[], t: Translat
 
 /** Texto con que se reconoce el bloque en su encabezado y al arrastrarlo. */
 export function blockSummary(block: FlowBlock, t: Translate): string {
-  if (isTextBlock(block)) return block.text
+  if (isTextBlock(block)) return block.type === "body" || block.type === "caption" ? plainText(block.text, "flow") : block.text
   if (block.type === "image") return block.alt_text ?? ""
   if (block.type === "image_carousel") return t("flows.builder.image.count", { count: block.images.length })
   return block.label
@@ -233,20 +234,16 @@ function TextBlockFields({
   return (
     <BuilderField id={id} label={t("flows.builder.block.text")} value={block.text} max={max} errors={errors.text}>
       {multiline ? (
-        <Textarea
+        <FormattedTextarea
           id={id}
+          dialect="flow"
           value={block.text}
           rows={block.type === "body" ? 4 : 2}
           aria-invalid={!!errors.text}
-          onChange={(event) => onChange({ ...block, text: event.target.value })}
+          onValueChange={(text) => onChange({ ...block, text })}
         />
       ) : (
-        <Input
-          id={id}
-          value={block.text}
-          aria-invalid={!!errors.text}
-          onChange={(event) => onChange({ ...block, text: event.target.value })}
-        />
+        <EmojiInput id={id} value={block.text} aria-invalid={!!errors.text} onValueChange={(text) => onChange({ ...block, text })} />
       )}
     </BuilderField>
   )

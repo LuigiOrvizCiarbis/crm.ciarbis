@@ -518,9 +518,14 @@ class WhatsAppFlowController extends Controller
             throw ValidationException::withMessages($errors);
         }
 
+        // Sin botón el cierre no es interactivo y no lleva encabezado ni pie; con imagen, el encabezado es la imagen.
+        $withButton = filled($message['button_text'] ?? null);
+
         return [
             'type' => 'text',
             'body' => $message['body'],
+            'header' => $withButton && $image === null ? (filled($message['header'] ?? null) ? $message['header'] : null) : null,
+            'footer' => $withButton && filled($message['footer'] ?? null) ? $message['footer'] : null,
             'button_text' => $message['button_text'] ?? null,
             'url' => $message['url'] ?? null,
             'image' => $image,

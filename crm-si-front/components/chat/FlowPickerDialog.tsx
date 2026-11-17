@@ -8,8 +8,7 @@ import { templateBodyPreview, templateParameterRows } from "@/lib/template-param
 import { ChatBubble, templateBubble } from "@/components/flows/journey/ChatBubble"
 import { useManagedTemplates } from "@/components/flows/journey/useManagedTemplates"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { EmojiInput, FormattedTextarea } from "@/components/rich-text/FormattedField"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -200,21 +199,21 @@ export function FlowPickerDialog({ open, onOpenChange, channelId, onSend, window
               ) : (
                 <div className="space-y-1.5">
                   <Label htmlFor="flow-picker-header">{t("chats.flows.header")}</Label>
-                  <Input id="flow-picker-header" value={header} maxLength={HEADER_FOOTER_MAX} onChange={(event) => setHeader(event.target.value)} />
+                  <EmojiInput id="flow-picker-header" value={header} maxLength={HEADER_FOOTER_MAX} onValueChange={setHeader} />
                 </div>
               )}
               <div className="space-y-1.5">
                 <Label htmlFor="flow-picker-body">{t("chats.flows.body")}</Label>
-                <Textarea id="flow-picker-body" value={body} maxLength={BODY_MAX} rows={4} onChange={(event) => setBody(event.target.value)} />
+                <FormattedTextarea id="flow-picker-body" dialect="whatsapp" value={body} maxLength={BODY_MAX} rows={4} onValueChange={setBody} />
                 <p className="text-right text-xs text-muted-foreground">{body.length}/{BODY_MAX}</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="flow-picker-footer">{t("chats.flows.footer")}</Label>
-                <Input id="flow-picker-footer" value={footer} maxLength={HEADER_FOOTER_MAX} onChange={(event) => setFooter(event.target.value)} />
+                <EmojiInput id="flow-picker-footer" value={footer} maxLength={HEADER_FOOTER_MAX} onValueChange={setFooter} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="flow-picker-cta">{t("chats.flows.cta")}</Label>
-                <Input id="flow-picker-cta" value={cta} maxLength={CTA_MAX} onChange={(event) => setCta(event.target.value)} />
+                <EmojiInput id="flow-picker-cta" value={cta} maxLength={CTA_MAX} onValueChange={setCta} />
                 <p className="text-right text-xs text-muted-foreground">{cta.length}/{CTA_MAX}</p>
               </div>
             </>

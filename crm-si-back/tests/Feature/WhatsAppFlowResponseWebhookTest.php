@@ -131,7 +131,9 @@ class WhatsAppFlowResponseWebhookTest extends TestCase
     {
         $this->flow->update(['completion_message' => [
             'type' => 'text',
+            'header' => '¡Gracias!',
             'body' => 'Listo, registramos el DNI {{dni}}.{{sin_respuesta}}',
+            'footer' => 'Petshop Centro',
             'button_text' => 'Ver catálogo',
             'url' => 'https://petshop.example/catalogo',
         ]]);
@@ -142,7 +144,9 @@ class WhatsAppFlowResponseWebhookTest extends TestCase
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/messages')
             && $request['type'] === 'interactive'
             && $request['interactive']['type'] === 'cta_url'
+            && $request['interactive']['header'] === ['type' => 'text', 'text' => '¡Gracias!']
             && $request['interactive']['body']['text'] === 'Listo, registramos el DNI 30111222.'
+            && $request['interactive']['footer'] === ['text' => 'Petshop Centro']
             && $request['interactive']['action']['parameters'] === ['display_text' => 'Ver catálogo', 'url' => 'https://petshop.example/catalogo']);
 
         $sent = Message::where('conversation_id', $this->conversation->id)->where('direction', 'outbound')->sole();

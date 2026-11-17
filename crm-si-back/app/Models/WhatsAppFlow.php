@@ -130,8 +130,11 @@ class WhatsAppFlow extends Model
      * Cierre: lo que el CRM manda en el chat cuando llega la respuesta (local,
      * nunca va a Meta). Un texto (con botón de link opcional, que sólo existe
      * con texto y URL, e imagen opcional) o una plantilla con sus variables.
+     * Encabezado de texto y pie sólo existen con botón: Meta los admite en el
+     * mensaje interactivo, no en un texto ni en una imagen. Con imagen no hay
+     * encabezado de texto, porque el mensaje lleva uno solo.
      *
-     * @return array{type: 'text', body: string, button_text: ?string, url: ?string, image: array{source: 'media_asset', media_asset_id: int}|array{source: 'literal', value: string}|null}|array{type: 'template', template_id: int, parameters: list<array<string, mixed>>}|null
+     * @return array{type: 'text', body: string, header: ?string, footer: ?string, button_text: ?string, url: ?string, image: array{source: 'media_asset', media_asset_id: int}|array{source: 'literal', value: string}|null}|array{type: 'template', template_id: int, parameters: list<array<string, mixed>>}|null
      */
     public function completionMessage(): ?array
     {
@@ -148,13 +151,16 @@ class WhatsAppFlow extends Model
         }
 
         $hasButton = filled($stored['button_text'] ?? null) && filled($stored['url'] ?? null);
+        $image = self::messageImage($stored['image'] ?? null);
 
         return [
             'type' => 'text',
             'body' => (string) $stored['body'],
+            'header' => $hasButton && $image === null && filled($stored['header'] ?? null) ? (string) $stored['header'] : null,
+            'footer' => $hasButton && filled($stored['footer'] ?? null) ? (string) $stored['footer'] : null,
             'button_text' => $hasButton ? (string) $stored['button_text'] : null,
             'url' => $hasButton ? (string) $stored['url'] : null,
-            'image' => self::messageImage($stored['image'] ?? null),
+            'image' => $image,
             'variables' => array_values((array) ($stored['variables'] ?? [])),
         ];
     }
