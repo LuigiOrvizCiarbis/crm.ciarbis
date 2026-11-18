@@ -26,6 +26,8 @@ interface CalendarSyncBadgeProps {
   taskId: string
   sync?: TaskCalendarSyncInfo | null
   onRetried?: () => void
+  /** Falso donde el Meet ya tiene su propio botón (la tarjeta del calendario). */
+  showMeetLink?: boolean
 }
 
 /**
@@ -37,7 +39,7 @@ export function showsCalendarSync(task: Pick<Task, "type" | "calendarSync">): bo
   return task.type === "reunion" || Boolean(task.calendarSync)
 }
 
-export function CalendarSyncBadge({ taskId, sync, onRetried }: CalendarSyncBadgeProps) {
+export function CalendarSyncBadge({ taskId, sync, onRetried, showMeetLink = true }: CalendarSyncBadgeProps) {
   const { addToast } = useToast()
   const [retrying, setRetrying] = useState(false)
   const effectiveSync = sync ?? {
@@ -82,7 +84,7 @@ export function CalendarSyncBadge({ taskId, sync, onRetried }: CalendarSyncBadge
         {STATUS_LABELS[effectiveSync.status]}
       </Badge>
 
-      {effectiveSync.meetLink && (
+      {showMeetLink && effectiveSync.meetLink && (
         <a
           href={effectiveSync.meetLink}
           target="_blank"
