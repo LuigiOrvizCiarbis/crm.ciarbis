@@ -91,6 +91,29 @@
     "unblocked": "Calendar unblocked",
     "notDeletable": "You can only delete events you organize from the CRM. Manage it in Google Calendar.",
     "managedElsewhere": "This event is managed by the CRM in another workspace. Manage it there.",
+    "editTask": "Edit task",
+    "deleteTask": "Delete task",
+    "openGoogle": "Open in Google Calendar",
+    "joinMeet": "Join with Google Meet",
+    "copyMeet": "Copy Meet link",
+    "meetCopied": "Meet link copied",
+    "copyFailed": "Could not copy the link",
+    "reminderBefore": "{{minutes}} minutes before",
+    "unassigned": "Unassigned",
+    "rows": {
+      "meet": "Video call",
+      "guest": "Guest",
+      "reminder": "Reminder",
+      "related": "Related to",
+      "description": "Description",
+      "assignee": "Assignee",
+      "sync": "Google Calendar"
+    },
+    "related": {
+      "contact": "Contact",
+      "pipeline": "Opportunity",
+      "chat": "Chat"
+    },
     "errors": {
       "notConnected": "Connect or reconnect your Google Calendar to delete events.",
       "busy": "Your calendar is being updated. Please try again.",

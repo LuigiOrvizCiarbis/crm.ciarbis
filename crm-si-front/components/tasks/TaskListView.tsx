@@ -42,6 +42,7 @@ import { useTaskStore } from "@/store/useTaskStore"
 import { CalendarSyncBadge, showsCalendarSync } from "./CalendarSyncBadge"
 import { AiBookingApprovalBadge } from "./AiBookingApprovalBadge"
 import { TaskDetailSheet } from "./TaskDetailSheet"
+import { useDeleteTaskWithUndo } from "./useDeleteTaskWithUndo"
 import { priorityLabels, statusLabels, typeLabels } from "./task-labels"
 import { useTranslation } from "@/hooks/useTranslation"
 
@@ -168,11 +169,9 @@ const getInitialColumnWidths = () => {
 
 export function TaskListView({ tasks }: { tasks: Task[] }) {
   const updateTask = useTaskStore((state) => state.updateTask)
-  const deleteTask = useTaskStore((state) => state.deleteTask)
-  const undoDelete = useTaskStore((state) => state.undoDelete)
-  const commitDelete = useTaskStore((state) => state.commitDelete)
   const fetchTasks = useTaskStore((state) => state.fetchTasks)
-  const { addToast, removeToast } = useToast()
+  const { addToast } = useToast()
+  const handleDelete = useDeleteTaskWithUndo()
   const [editingCell, setEditingCell] = useState<{ taskId: string; field: string } | null>(null)
   const [editValue, setEditValue] = useState("")
   const [localTasks, setLocalTasks] = useState(tasks)
@@ -395,26 +394,6 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
 
     addToast({ type: "success", title: `${selectedTasks.size} tarea(s) marcadas como completadas` })
     setSelectedTasks(new Set())
-  }
-
-  const handleDelete = (taskId: string) => {
-    const toastId = `task-delete-${taskId}`
-    // El borrado real ocurre cuando el toast vence sin "Deshacer" (o al salir de la página).
-    deleteTask(taskId).then(
-      () => removeToast(toastId),
-      (error) => {
-        removeToast(toastId)
-        addToast({ type: "error", title: error instanceof Error ? error.message : "No se pudo eliminar la tarea" })
-      },
-    )
-    addToast({
-      id: toastId,
-      type: "success",
-      title: "Tarea eliminada",
-      duration: 6000,
-      action: { label: "Deshacer", onClick: () => undoDelete(taskId) },
-      onExpire: () => void commitDelete(taskId),
-    })
   }
 
   // "selection" sigue en el orden guardado (formato histórico), pero la columna la dibuja DataTable.
