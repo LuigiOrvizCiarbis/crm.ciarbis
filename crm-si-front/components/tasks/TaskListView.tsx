@@ -39,7 +39,7 @@ import { useToast } from "@/components/Toast"
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table"
 import { useRouter } from "next/navigation"
 import { useTaskStore } from "@/store/useTaskStore"
-import { CalendarSyncBadge } from "./CalendarSyncBadge"
+import { CalendarSyncBadge, showsCalendarSync } from "./CalendarSyncBadge"
 import { AiBookingApprovalBadge } from "./AiBookingApprovalBadge"
 import { TaskDetailSheet } from "./TaskDetailSheet"
 import { priorityLabels, statusLabels, typeLabels } from "./task-labels"
@@ -498,7 +498,7 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
                 <Edit2 className="h-3 w-3" aria-hidden="true" />
               </Button>
             </div>
-            {task.type === "reunion" && <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />}
+            {showsCalendarSync(task) && <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />}
             <AiBookingApprovalBadge task={task} />
           </div>
         )
@@ -635,9 +635,9 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
                 </Badge>
               </div>
 
-              {(task.type === "reunion" || task.relatedTo) && (
+              {(showsCalendarSync(task) || task.relatedTo) && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 pl-11">
-                  {task.type === "reunion" && <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />}
+                  {showsCalendarSync(task) && <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />}
                   {task.relatedTo && (
                     <Button
                       variant="ghost"
