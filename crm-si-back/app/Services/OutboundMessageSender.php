@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\ChannelType;
+use App\Exceptions\MetaApiException;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
@@ -26,6 +27,7 @@ class OutboundMessageSender
         private InstagramMessageService $instagramService,
         private MessengerMessageService $messengerService,
         private MailMessageService $mailService,
+        private MessagingWindowService $messagingWindow,
     ) {}
 
     public function supports(Conversation $conversation): bool
@@ -34,7 +36,15 @@ class OutboundMessageSender
     }
 
     /**
+     * $allowHumanAgentTag sólo lo pasa el envío inmediato de una persona: fuera
+     * de las 24 h habilita el tag HUMAN_AGENT (Instagram/Messenger). Los
+     * programados lo mandan el sistema, así que exigen la ventana estándar.
+     *
+     * $replyTo cita un mensaje (sólo WhatsApp/Instagram/Messenger; el
+     * controller rechaza citas en mail, y los programados nunca citan).
+     *
      * @throws InvalidArgumentException si el canal no tiene transporte de envío
+     * @throws MetaApiException si la ventana de mensajería está cerrada
      */
     public function send(
         Conversation $conversation,
@@ -44,22 +54,35 @@ class OutboundMessageSender
         ?string $mediaPath = null,
         ?string $mediaMime = null,
         bool $voice = false,
+        bool $allowHumanAgentTag = false,
+        ?Message $replyTo = null,
     ): Message {
         $service = $this->serviceFor($conversation)
             ?? throw new InvalidArgumentException('Este canal no admite el envío de mensajes desde el CRM.');
 
+        $tag = null;
+        if ($allowHumanAgentTag) {
+            $tag = $this->messagingWindow->tagForHumanSend($conversation);
+        } else {
+            $this->messagingWindow->assertOpen($conversation);
+        }
+        // WhatsApp y Mail nunca reciben tag: tagForHumanSend sólo lo devuelve
+        // para Instagram/Messenger. Spread de claves string = argumento con nombre.
+        $tagArgs = $tag === null ? [] : ['messageTag' => $tag];
+        $replyArgs = $replyTo === null ? [] : ['replyTo' => $replyTo];
+
         return match ($type) {
             'image' => $service->sendImageMessageFromCRM(
-                $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $content, $user
+                $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $content, $user, ...$tagArgs, ...$replyArgs
             ),
             'audio' => $service === $this->whatsAppService
                 ? $this->whatsAppService->sendAudioMessageFromCRM(
-                    $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $user, $voice
+                    $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $user, $voice, ...$tagArgs, ...$replyArgs
                 )
                 : $service->sendAudioMessageFromCRM(
-                    $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $user
+                    $conversation, $mediaPath, '/storage/'.$mediaPath, $mediaMime, $user, ...$tagArgs, ...$replyArgs
                 ),
-            default => $service->sendTextMessageFromCRM($conversation, (string) $content, $user),
+            default => $service->sendTextMessageFromCRM($conversation, (string) $content, $user, ...$tagArgs, ...$replyArgs),
         };
     }
 

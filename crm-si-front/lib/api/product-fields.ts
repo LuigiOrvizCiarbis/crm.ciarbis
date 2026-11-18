@@ -1,4 +1,3 @@
-import { getAuthToken } from "./auth-token";
 import { throwApiError } from "./api-error";
 import type { ContactFieldOptions, ContactFieldType } from "./contact-fields";
 
@@ -44,18 +43,13 @@ export interface ProductFieldsResponse {
 }
 
 function headers(): HeadersInit {
-  const token = getAuthToken();
   return {
-    Authorization: token ? `Bearer ${token}` : "",
     Accept: "application/json",
     "Content-Type": "application/json",
   };
 }
 
 export async function getProductFields(): Promise<ProductFieldsResponse> {
-  const token = getAuthToken();
-  if (!token) return { data: [], standard: [] };
-
   const response = await fetch("/api/product-fields", {
     headers: headers(),
     cache: "no-store",

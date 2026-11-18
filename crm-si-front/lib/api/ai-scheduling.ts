@@ -1,4 +1,3 @@
-import { getAuthToken } from "./auth-token"
 import { extractError } from "./ai-config"
 
 export type AiSchedulingMode = "auto" | "approval" | "criteria"
@@ -33,11 +32,8 @@ export interface AiSchedulingConfig {
 export type AiSchedulingConfigInput = Omit<AiSchedulingConfig, "calendar_users">
 
 export async function getAiSchedulingConfig(): Promise<AiSchedulingConfig | null> {
-  const token = getAuthToken()
-  if (!token) return null
-
   const res = await fetch("/api/ai-config/scheduling", {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
 
@@ -49,13 +45,9 @@ export async function getAiSchedulingConfig(): Promise<AiSchedulingConfig | null
 export async function updateAiSchedulingConfig(
   input: AiSchedulingConfigInput,
 ): Promise<{ data?: AiSchedulingConfig; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch("/api/ai-config/scheduling", {
     method: "PUT",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },

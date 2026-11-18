@@ -18,12 +18,13 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Concerns\ReceivesInboundMessages;
 use Tests\Feature\Concerns\AiSchedulingFixtures;
 use Tests\TestCase;
 
 class TaskAiBookingTest extends TestCase
 {
-    use AiSchedulingFixtures, RefreshDatabase;
+    use AiSchedulingFixtures, ReceivesInboundMessages, RefreshDatabase;
 
     private Tenant $tenant;
 
@@ -40,6 +41,7 @@ class TaskAiBookingTest extends TestCase
         [$this->tenant, $this->owner] = $this->makeTenantWithOwner();
         $this->connectGoogle($this->owner);
         $this->conversation = $this->makeConversation($this->tenant, $this->owner, $this->owner->id);
+        $this->receiveInbound($this->conversation);
         Sanctum::actingAs($this->owner);
     }
 

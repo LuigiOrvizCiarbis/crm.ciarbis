@@ -48,6 +48,7 @@ class VoiceTranscoder
             if (! str_contains($format, 'ogg') || ($stream['codec_name'] ?? '') !== 'opus' || (int) ($stream['channels'] ?? 0) !== 1) {
                 throw new \RuntimeException('La conversión produjo un contenedor/codec de voz inválido (se esperaba OGG/Opus mono).');
             }
+
             return $output;
         } catch (\Throwable $e) {
             if (is_file($output)) {

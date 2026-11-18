@@ -5,6 +5,7 @@ import {
   BadgeDollarSign,
   Blocks,
   Building2,
+  ClipboardList,
   Filter,
   ListPlus,
   MapPin,
@@ -32,6 +33,7 @@ import { MembersCard, RolesCard } from "@/components/config/RolesCard"
 import { SucursalesCard } from "@/components/config/SucursalesCard"
 import { TagsCard } from "@/components/config/TagsCard"
 import { TeamInvitationsCard } from "@/components/config/TeamInvitationsCard"
+import { WhatsAppFlowsCard } from "@/components/config/WhatsAppFlowsCard"
 import { WorkspaceCard } from "@/components/config/WorkspaceCard"
 import { useIsOwner, usePermission } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -98,6 +100,7 @@ export function useSettingsPages(): SettingsGroupDefinition[] {
     "pipeline_stages.manage",
   ])
   const canViewAutomations = usePermission("automations.view")
+  const canViewFlows = usePermission(["flows.view", "flows.manage"])
   const canManageBilling = usePermission("billing.manage")
   const canManageNavigationLabels = usePermission("navigation_labels.manage")
   const canManageTags = usePermission("tags.manage")
@@ -144,6 +147,7 @@ export function useSettingsPages(): SettingsGroupDefinition[] {
         pages: [
           { slug: "atajos", key: "shortcuts", icon: Zap, visible: true, render: () => <MessageHotkeysCard /> },
           { slug: "automatizaciones", key: "automations", icon: Workflow, visible: canViewAutomations, render: () => <AutomationsSettings /> },
+          { slug: "formularios", key: "flows", icon: ClipboardList, visible: canViewFlows, render: () => <WhatsAppFlowsCard /> },
           { slug: "cobranza", key: "billing", icon: BadgeDollarSign, visible: canManageBilling, render: () => <BillingTemplatesCard /> },
         ],
       },
@@ -197,6 +201,7 @@ export function useSettingsPages(): SettingsGroupDefinition[] {
     canViewFields,
     canManageTags,
     canViewAutomations,
+    canViewFlows,
     canManageBilling,
   ])
 }

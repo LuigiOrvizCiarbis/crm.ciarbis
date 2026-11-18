@@ -73,6 +73,19 @@ return [
             'openai' => env('AI_OPENAI_TRANSLATION_MODEL', 'gpt-5-mini'),
             'claude' => env('AI_CLAUDE_TRANSLATION_MODEL', 'claude-haiku-4-5-20251001'),
         ],
+        // Generación de "información del sitio": misma key BYOK, modelo económico.
+        'website_context_models' => [
+            'openai' => env('AI_OPENAI_WEBSITE_CONTEXT_MODEL', 'gpt-5-mini'),
+            'claude' => env('AI_CLAUDE_WEBSITE_CONTEXT_MODEL', 'claude-haiku-4-5-20251001'),
+        ],
+        'website_context' => [
+            // Timeout del request al proveedor para redactar la información.
+            'timeout' => env('AI_WEBSITE_CONTEXT_TIMEOUT', 90),
+            // Páginas internas a leer además de la URL ingresada.
+            'max_pages' => env('AI_WEBSITE_CONTEXT_MAX_PAGES', 10),
+            // Tiempo máximo (segundos) de lectura del sitio antes de cortar.
+            'crawl_budget_seconds' => env('AI_WEBSITE_CONTEXT_CRAWL_BUDGET', 25),
+        ],
         // Extracción de datos desde documentos. Al documento se le saca el texto
         // localmente con pdftotext y se manda TEXTO al modelo (no el PDF), así
         // cualquier modelo de texto sirve y el costo baja ~10x contra visión.
@@ -162,13 +175,18 @@ return [
         'comments_permission' => env('INSTAGRAM_COMMENTS_PERMISSION', 'instagram_manage_comments'),
     ],
 
-    'messenger' => [
-        // Tag HUMAN_AGENT: extiende la ventana de respuesta de 24h a 7 días, pero
-        // sólo para mensajes tipeados por una persona. Requiere el feature
-        // "Human Agent" aprobado en App Review (separado de las permissions
-        // pages_*), y usarlo en la auto-respuesta de IA sería una violación de
-        // política. Mientras esté en false todo sale con messaging_type=RESPONSE.
-        'human_agent_enabled' => env('MESSENGER_HUMAN_AGENT_ENABLED', false),
+    'meta' => [
+        // Tag HUMAN_AGENT (Messenger + Instagram): permite que una PERSONA responda
+        // hasta 7 días después del último mensaje del contacto. Requiere el feature
+        // "Human Agent" aprobado en App Review de la app de Meta. Prohibido para IA.
+        'human_agent_enabled' => env('META_HUMAN_AGENT_ENABLED', false),
+
+        // Conversions API for Business Messaging: avisa a Meta ventas/leads de chats
+        // que vinieron de anuncios. Lista de plataformas habilitadas (whatsapp,
+        // facebook, instagram), mismos valores que ad_referrals.platform. Cada una
+        // requiere su permiso aprobado: whatsapp_business_manage_events, page_events,
+        // instagram_manage_events. Vacío = apagado.
+        'conversions_api_platforms' => array_values(array_filter(array_map('trim', explode(',', (string) env('META_CONVERSIONS_API_PLATFORMS', ''))))),
     ],
 
     'google_calendar' => [

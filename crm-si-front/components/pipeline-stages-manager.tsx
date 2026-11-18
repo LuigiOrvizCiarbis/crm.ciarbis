@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/Toast"
 import { usePermission } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -66,6 +67,7 @@ function SortableStageRow({
   onNameChange,
   onColorChange,
   onProbabilityChange,
+  onOutcomeChange,
   onCommit,
   onDelete,
   saving,
@@ -75,6 +77,7 @@ function SortableStageRow({
   onNameChange: (id: number, name: string) => void
   onColorChange: (id: number, color: string) => void
   onProbabilityChange: (id: number, probability: number | null) => void
+  onOutcomeChange: (stage: PipelineStage, outcome: PipelineStage["outcome"]) => void
   onCommit: (stage: PipelineStage) => void
   onDelete: (stage: PipelineStage) => void
   saving: boolean
@@ -95,7 +98,9 @@ function SortableStageRow({
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-3 bg-background py-3"
+      // En mobile el resultado y el borrar bajan a una segunda línea para que el
+      // nombre conserve un ancho editable.
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-background py-3 sm:flex-nowrap"
     >
       {canManage && (
         <button
@@ -124,7 +129,7 @@ function SortableStageRow({
         disabled={!canManage || saving}
         onChange={(e) => onNameChange(stage.id, e.target.value)}
         onBlur={() => onCommit(stage)}
-        className={`${INLINE_INPUT} flex-1`}
+        className={`${INLINE_INPUT} min-w-[6rem] flex-1`}
         aria-label={t("pipeline.stages.nameAria")}
       />
 
@@ -146,6 +151,21 @@ function SortableStageRow({
           %
         </span>
       </div>
+
+      <Select
+        value={stage.outcome ?? "none"}
+        disabled={!canManage || saving}
+        onValueChange={(value) => onOutcomeChange(stage, value === "none" ? null : (value as "won" | "lost"))}
+      >
+        <SelectTrigger className="h-8 w-[7.5rem] shrink-0 max-sm:ml-auto" aria-label={t("pipeline.stages.outcomeAria", { name: stage.name })}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">{t("pipeline.stages.outcomeNone")}</SelectItem>
+          <SelectItem value="won">{t("pipeline.stages.outcomeWon")}</SelectItem>
+          <SelectItem value="lost">{t("pipeline.stages.outcomeLost")}</SelectItem>
+        </SelectContent>
+      </Select>
 
       {canManage && (
         <Button
@@ -177,7 +197,7 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
   const [stageToDelete, setStageToDelete] = useState<PipelineStage | null>(null)
 
   // Snapshot del valor guardado en backend, para evitar persistir si no hubo cambios.
-  const savedValues = useRef<Map<number, Pick<PipelineStage, "name" | "color" | "win_probability">>>(new Map())
+  const savedValues = useRef<Map<number, Pick<PipelineStage, "name" | "color" | "win_probability" | "outcome">>>(new Map())
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -194,7 +214,9 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
     try {
       const data = await fetchPipelineStages(pipelineId)
       const sorted = [...data].sort((a, b) => a.sort_order - b.sort_order)
-      savedValues.current = new Map(sorted.map((s) => [s.id, { name: s.name, color: s.color, win_probability: s.win_probability }]))
+      savedValues.current = new Map(
+        sorted.map((s) => [s.id, { name: s.name, color: s.color, win_probability: s.win_probability, outcome: s.outcome }])
+      )
       setStages(sorted)
     } catch {
       setLoadError(true)
@@ -226,23 +248,39 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
       fetchStages()
       return
     }
-    if (saved && saved.name === name && saved.color === stage.color && saved.win_probability === stage.win_probability) {
+    if (
+      saved &&
+      saved.name === name &&
+      saved.color === stage.color &&
+      saved.win_probability === stage.win_probability &&
+      saved.outcome === stage.outcome
+    ) {
       return
     }
 
     // Solo los campos que cambiaron: el snapshot puede tener un nombre viejo (p.ej.
     // el backend renombró "Contactar <mes>") y mandarlo cortaría la plantilla.
-    const changes: { name?: string; color?: string; win_probability?: number | null } = {}
+    const changes: { name?: string; color?: string; win_probability?: number | null; outcome?: PipelineStage["outcome"] } = {}
     if (!saved || saved.name !== name) changes.name = name
     if (!saved || saved.color !== stage.color) changes.color = stage.color
     if (!saved || saved.win_probability !== stage.win_probability) changes.win_probability = stage.win_probability
+    if (!saved || saved.outcome !== stage.outcome) changes.outcome = stage.outcome
 
     setSaving(true)
     try {
       const updated = await updatePipelineStage(stage.id, changes)
-      savedValues.current.set(stage.id, { name: updated.name, color: updated.color, win_probability: updated.win_probability })
+      savedValues.current.set(stage.id, {
+        name: updated.name,
+        color: updated.color,
+        win_probability: updated.win_probability,
+        outcome: updated.outcome,
+      })
       setStages((prev) =>
-        prev.map((s) => (s.id === updated.id ? { ...s, name: updated.name, color: updated.color, win_probability: updated.win_probability } : s))
+        prev.map((s) =>
+          s.id === updated.id
+            ? { ...s, name: updated.name, color: updated.color, win_probability: updated.win_probability, outcome: updated.outcome }
+            : s
+        )
       )
       onStagesChanged?.()
     } catch {
@@ -255,6 +293,13 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
     } finally {
       setSaving(false)
     }
+  }
+
+  // Un select no tiene un blur útil: el cambio de resultado se guarda al instante.
+  const handleOutcomeChange = (stage: PipelineStage, outcome: PipelineStage["outcome"]) => {
+    const next = { ...stage, outcome }
+    setStages((prev) => prev.map((s) => (s.id === stage.id ? next : s)))
+    void persistStage(next)
   }
 
   const handleAdd = async () => {
@@ -358,6 +403,17 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
 
   return (
     <div className="space-y-4">
+      {stages.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-pretty text-xs text-muted-foreground">{t("pipeline.stages.outcomeHint")}</p>
+          {/* Títulos de columna: los campos ya tienen aria-label propio. */}
+          <div aria-hidden="true" className="hidden items-center justify-end gap-3 text-xs font-medium text-muted-foreground sm:flex">
+            <span className="w-[4.5rem] pr-2 text-right">{t("pipeline.stages.probabilityColumn")}</span>
+            <span className="w-[7.5rem] pl-3">{t("pipeline.stages.outcomeColumn")}</span>
+            {canManage && <span className="w-8" />}
+          </div>
+        </div>
+      )}
       <DndContext sensors={sensors} accessibility={dndAccessibility} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext
           items={stages.map((s) => s.id.toString())}
@@ -373,6 +429,7 @@ export function PipelineStagesManager({ pipelineId, onStagesChanged }: PipelineS
                 onNameChange={handleNameChangeLocal}
                 onColorChange={handleColorChangeLocal}
                 onProbabilityChange={handleProbabilityChangeLocal}
+                onOutcomeChange={handleOutcomeChange}
                 onCommit={persistStage}
                 onDelete={setStageToDelete}
               />

@@ -14,7 +14,7 @@ use App\Services\Ai\AiExtractionResult;
 use App\Services\Ai\AiProvider;
 use App\Services\Ai\AiToolset;
 use App\Services\Ai\AiVerificationResult;
-use App\Services\Ai\TranslationProviderFactory;
+use App\Services\Ai\TenantAiProviderFactory;
 use App\Services\MessageTranslationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -66,7 +66,7 @@ class MessageTranslationServiceTest extends TestCase
     public function test_it_rejects_translation_without_ai_configuration(): void
     {
         $tenant = Tenant::create(['name' => 'Sin IA']);
-        $service = new MessageTranslationService(new TranslationProviderFactory);
+        $service = new MessageTranslationService(new TenantAiProviderFactory);
 
         try {
             $service->translateDraft($tenant->id, 'Hola', 'en');
@@ -125,6 +125,11 @@ class MessageTranslationServiceTest extends TestCase
                 return 'Translated: '.$content;
             }
 
+            public function summarize(string $content, string $systemPrompt, string $model, int $maxTokens): ?string
+            {
+                return null;
+            }
+
             public function listModels(): array
             {
                 return [];
@@ -141,7 +146,7 @@ class MessageTranslationServiceTest extends TestCase
             }
         };
 
-        $factory = new class($provider) extends TranslationProviderFactory
+        $factory = new class($provider) extends TenantAiProviderFactory
         {
             public function __construct(private AiProvider $provider) {}
 

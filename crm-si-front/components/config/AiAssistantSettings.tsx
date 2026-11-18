@@ -34,6 +34,7 @@ import {
   type AiProviderId,
 } from "@/lib/api/ai-config"
 import { AiSchedulingSettings } from "./AiSchedulingSettings"
+import { AiWebsiteContextCard } from "./AiWebsiteContextCard"
 
 const PROVIDERS: { id: AiProviderId; label: string; defaultModel: string }[] = [
   { id: "claude", label: "Claude (Anthropic)", defaultModel: "claude-opus-4-8" },
@@ -59,6 +60,8 @@ export function AiAssistantSettings() {
   const [enabled, setEnabled] = useState(false)
   const [humanHandoffEnabled, setHumanHandoffEnabled] = useState(true)
   const [systemPrompt, setSystemPrompt] = useState("")
+  const [websiteUrl, setWebsiteUrl] = useState("")
+  const [websiteContext, setWebsiteContext] = useState("")
   const [apiKey, setApiKey] = useState("")
   const [hasApiKey, setHasApiKey] = useState(false)
   const [models, setModels] = useState<string[]>([])
@@ -80,6 +83,8 @@ export function AiAssistantSettings() {
       setEnabled(config.enabled)
       setHumanHandoffEnabled(config.human_handoff_enabled ?? true)
       setSystemPrompt(config.system_prompt ?? "")
+      setWebsiteUrl(config.website_url ?? "")
+      setWebsiteContext(config.website_context ?? "")
       setHasApiKey(config.has_api_key)
       // Si ya hay una key guardada, precargamos la lista de modelos.
       if (config.has_api_key) {
@@ -143,6 +148,8 @@ export function AiAssistantSettings() {
       enabled,
       human_handoff_enabled: humanHandoffEnabled,
       system_prompt: systemPrompt.trim() || null,
+      website_url: websiteUrl.trim() || null,
+      website_context: websiteContext.trim() || null,
       // Solo se manda la key si el usuario escribió una nueva (write-only).
       ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
     })
@@ -496,6 +503,14 @@ export function AiAssistantSettings() {
                 </div>
               </div>
             </div>
+
+            <AiWebsiteContextCard
+              url={websiteUrl}
+              onUrlChange={setWebsiteUrl}
+              context={websiteContext}
+              onContextChange={setWebsiteContext}
+              hasApiKey={hasApiKey}
+            />
 
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button

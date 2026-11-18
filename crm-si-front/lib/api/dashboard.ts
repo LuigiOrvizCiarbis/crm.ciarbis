@@ -1,5 +1,3 @@
-import { getAuthToken } from "./auth-token";
-
 export type DashboardPeriodo =
   | "hoy"
   | "esta-semana"
@@ -190,17 +188,10 @@ function dashboardQuery(filters: DashboardFilters): string {
 export async function getDashboardMetrics(
   filters: DashboardFilters = {}
 ): Promise<DashboardMetrics> {
-  const token = getAuthToken();
-
-  if (!token) {
-    throw new DashboardApiError("No auth token", 401);
-  }
-
   const url = `/api/dashboard/metrics${dashboardQuery(filters)}`;
 
   const res = await fetch(url, {
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
     cache: "no-store",
@@ -230,11 +221,8 @@ export interface BranchComparisonRow {
 }
 
 export async function getBranchComparison(filters: DashboardFilters): Promise<BranchComparisonRow[]> {
-  const token = getAuthToken();
-  if (!token) throw new DashboardApiError("No auth token", 401);
-
   const res = await fetch(`/api/dashboard/branches${dashboardQuery(filters)}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   });
 
@@ -247,12 +235,9 @@ export async function getBranchComparison(filters: DashboardFilters): Promise<Br
 }
 
 async function goalsRequest(init?: RequestInit): Promise<DashboardGoals> {
-  const token = getAuthToken();
-  if (!token) throw new DashboardApiError("No auth token", 401);
-
   const res = await fetch("/api/dashboard/goals", {
     ...init,
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
     cache: "no-store",
   });
   const body = await res.json().catch(() => ({}));

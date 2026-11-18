@@ -11,8 +11,8 @@ use App\Support\ProductFieldProvisioner;
 use App\Support\RoleProvisioner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\PermissionRegistrar;
 
 class WorkspaceController extends Controller
@@ -56,11 +56,13 @@ class WorkspaceController extends Controller
             TenantMembership::create(['tenant_id' => $tenant->id, 'user_id' => $user->id, 'joined_at' => now()]);
             $registrar->setPermissionsTeamId($tenant->id);
             $user->syncRoles(['Owner']);
+
             return $tenant;
         });
 
         cache()->put($key, true, now()->addHour());
         $this->recordAudit($tenant->id, $user->id, 'workspace.created');
+
         return response()->json(['data' => ['id' => $tenant->id, 'name' => $tenant->name]], 201);
     }
 
@@ -71,6 +73,7 @@ class WorkspaceController extends Controller
         $oldName = $workspace->name;
         $workspace->update(['name' => trim($validated['name'])]);
         $this->recordAudit($workspace->id, $request->user()->id, 'workspace.renamed', ['from' => $oldName, 'to' => $workspace->name]);
+
         return response()->json(['data' => ['id' => $workspace->id, 'name' => $workspace->name]]);
     }
 
@@ -83,6 +86,7 @@ class WorkspaceController extends Controller
 
         $workspace->update(['status' => 'pending_deletion', 'deactivated_at' => now(), 'deletion_scheduled_at' => now()->addDays(30)]);
         $this->recordAudit($workspace->id, $request->user()->id, 'workspace.deletion_scheduled', ['purge_at' => $workspace->deletion_scheduled_at]);
+
         return response()->json(['message' => 'Workspace desactivado. Podés restaurarlo durante 30 días.']);
     }
 
@@ -93,6 +97,7 @@ class WorkspaceController extends Controller
         abort_unless($workspace->status === 'pending_deletion' && $workspace->deletion_scheduled_at?->isFuture(), 422, 'Este workspace ya no se puede restaurar.');
         $workspace->update(['status' => 'active', 'deactivated_at' => null, 'deletion_scheduled_at' => null]);
         $this->recordAudit($workspace->id, $request->user()->id, 'workspace.restored');
+
         return response()->json(['message' => 'Workspace restaurado.']);
     }
 
@@ -103,6 +108,7 @@ class WorkspaceController extends Controller
         $membership->update(['removed_at' => now(), 'branch_id' => null]);
         $this->removeTenantAccess($workspace->id, $request->user()->id);
         $this->recordAudit($workspace->id, $request->user()->id, 'membership.left', ['subject_user_id' => $request->user()->id]);
+
         return response()->json(['message' => 'Saliste del workspace.']);
     }
 
@@ -112,12 +118,15 @@ class WorkspaceController extends Controller
         $targetOwnerRole = $workspace->owner_role_id;
         $targetIsOwner = $targetOwnerRole && DB::table('model_has_roles')->where('tenant_id', $workspace->id)->where('role_id', $targetOwnerRole)->where('model_id', $target->id)->where('model_type', User::class)->exists();
         abort_unless($this->canManageMembersInWorkspace($request->user(), $workspace->id), 403, 'No tenés permiso para remover miembros.');
-        if ($targetIsOwner) $this->assertOwner($request->user(), $workspace->id);
+        if ($targetIsOwner) {
+            $this->assertOwner($request->user(), $workspace->id);
+        }
         $membership = TenantMembership::active()->where('tenant_id', $workspace->id)->where('user_id', $target->id)->firstOrFail();
         $this->assertNotLastOwner($workspace->id, $target->id);
         $membership->update(['removed_at' => now(), 'branch_id' => null]);
         $this->removeTenantAccess($workspace->id, $target->id);
         $this->recordAudit($workspace->id, $request->user()->id, 'membership.removed', ['subject_user_id' => $target->id]);
+
         return response()->json(['message' => 'Miembro removido.']);
     }
 
@@ -125,6 +134,7 @@ class WorkspaceController extends Controller
     {
         $this->assertOwner($request->user(), $workspace->id);
         $events = WorkspaceAuditEvent::query()->where('tenant_id', $workspace->id)->latest()->paginate(50);
+
         return response()->json($events);
     }
 
@@ -136,6 +146,7 @@ class WorkspaceController extends Controller
     private function isOwner(User $user, int $tenantId): bool
     {
         $ownerRoleId = Tenant::whereKey($tenantId)->value('owner_role_id');
+
         return (bool) ($ownerRoleId && DB::table('model_has_roles')->where('tenant_id', $tenantId)->where('role_id', $ownerRoleId)->where('model_id', $user->id)->where('model_type', User::class)->exists());
     }
 
@@ -161,7 +172,9 @@ class WorkspaceController extends Controller
     private function assertNotLastOwner(int $tenantId, int $userId): void
     {
         $ownerRoleId = Tenant::whereKey($tenantId)->value('owner_role_id');
-        if (! $ownerRoleId) return;
+        if (! $ownerRoleId) {
+            return;
+        }
         $isOwner = DB::table('model_has_roles')->where('tenant_id', $tenantId)->where('role_id', $ownerRoleId)->where('model_id', $userId)->where('model_type', User::class)->exists();
         if ($isOwner) {
             $remaining = DB::table('model_has_roles')->where('tenant_id', $tenantId)->where('role_id', $ownerRoleId)->where('model_type', User::class)->where('model_id', '!=', $userId)->count();

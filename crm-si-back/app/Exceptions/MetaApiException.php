@@ -43,6 +43,15 @@ class MetaApiException extends RuntimeException
     }
 
     /**
+     * Ventana cerrada detectada por MessagingWindowService antes de llamar a
+     * Meta: el usuario recibe el mismo texto que si Meta la hubiera rechazado.
+     */
+    public static function windowClosed(ChannelType $channelType): self
+    {
+        return new self($channelType, self::REASON_WINDOW_CLOSED, message: 'Messaging window closed (pre-send check)');
+    }
+
+    /**
      * Construye la excepción a partir del body de error de Graph API,
      * mapeando code/subcode al motivo correspondiente.
      *
@@ -64,7 +73,8 @@ class MetaApiException extends RuntimeException
             // puede reportar este caso con code 10/subcode 2534022 y además
             // type=OAuthException. Si el brazo de OAuth ganara, le diríamos al
             // usuario que reconecte en vez de que el contacto vuelva a escribir.
-            $code === 10 && $subcode === 2534022 => self::REASON_WINDOW_CLOSED,
+            // 131047 es el equivalente de WhatsApp (re-engagement message).
+            ($code === 10 && $subcode === 2534022) || $code === 131047 => self::REASON_WINDOW_CLOSED,
             str_contains($lowerMessage, 'outside of allowed window')
                 || str_contains($lowerMessage, 'outside the allowed window')
                 || str_contains($lowerMessage, '24 hour') => self::REASON_WINDOW_CLOSED,
@@ -91,8 +101,10 @@ class MetaApiException extends RuntimeException
         };
 
         return match ($this->reason) {
-            self::REASON_WINDOW_CLOSED => 'La ventana de 24 horas de '.$channelName.
-                ' expiró: el contacto debe escribir primero para poder responderle.',
+            self::REASON_WINDOW_CLOSED => $this->channelType === ChannelType::WHATSAPP
+                ? 'Pasaron más de 24 horas desde el último mensaje del contacto. En WhatsApp sólo podés escribirle con una plantilla aprobada.'
+                : 'La ventana de 24 horas de '.$channelName.
+                    ' expiró: el contacto debe escribir primero para poder responderle.',
             self::REASON_TOKEN_INVALID => 'La conexión de '.$channelName.
                 ' expiró. Reconectá el canal desde Configuración para volver a enviar mensajes.',
             self::REASON_UNSUPPORTED_MEDIA => 'El archivo adjunto no es compatible con '.

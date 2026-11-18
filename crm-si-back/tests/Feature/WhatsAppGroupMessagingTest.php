@@ -100,6 +100,21 @@ class WhatsAppGroupMessagingTest extends TestCase
         $response->assertStatus(422)->assertJsonPath('message', 'Los mensajes de voz no están disponibles en grupos.');
     }
 
+    public function test_group_conversation_is_exempt_from_the_messaging_window(): void
+    {
+        // El grupo no tiene ningún mensaje entrante: en una conversación directa
+        // la ventana estaría cerrada.
+        [$user, , $group] = $this->context();
+        Http::fake(['https://graph.facebook.com/*/*/messages' => Http::response(['messages' => [['id' => 'wamid.group2']]], 200)]);
+        \Laravel\Sanctum\Sanctum::actingAs($user);
+
+        $this->postJson('/api/messages', [
+            'conversation_id' => $group->conversation_id,
+            'type' => 'text',
+            'content' => 'Hola grupo',
+        ])->assertStatus(201);
+    }
+
     /** @return array{0: User, 1: Channel, 2: WhatsAppGroup} */
     private function context(): array
     {

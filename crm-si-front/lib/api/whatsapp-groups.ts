@@ -1,4 +1,3 @@
-import { getAuthToken } from "./auth-token"
 import { throwApiError } from "./api-error"
 
 export type WhatsAppGroupStatus = "pending" | "active" | "suspended" | "deleted" | "failed"
@@ -64,17 +63,10 @@ export interface InviteToGroupPayload {
   invitees: Array<{ contact_id?: number; phone?: string; name?: string }>
 }
 
-function token(): string {
-  const value = getAuthToken()
-  if (!value) throw new Error("No authentication token found")
-  return value
-}
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...options,
     headers: {
-      Authorization: `Bearer ${token()}`,
       Accept: "application/json",
       "Content-Type": "application/json",
       ...options.headers,

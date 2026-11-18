@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { HorizontalScrollbar } from "@/components/ui/horizontal-scrollbar"
 import {
   DndContext,
   KeyboardSensor,
@@ -361,6 +362,7 @@ export function DataTable<T>({
 }: DataTableProps<T>) {
   const { t } = useTranslation()
   const tableRef = React.useRef<HTMLTableElement>(null)
+  const scrollRef = React.useRef<HTMLDivElement>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -573,15 +575,28 @@ export function DataTable<T>({
     </Table>
   )
 
+  // Sin alto máximo la tabla crece con la página y la barra nativa queda al final de todas las
+  // filas: en tablet/escritorio se reemplaza por una propia, pegada al borde inferior de la pantalla.
+  const stickyScrollbar = !maxHeight
+
   return (
-    <div className={cn(variant === "bordered" && "overflow-hidden rounded-lg border", className)}>
+    // `overflow-clip` y no `overflow-hidden`: este último corta el `sticky` de la barra de scroll.
+    <div className={cn(variant === "bordered" && "overflow-clip rounded-lg border", className)}>
       {loading && (
         <span role="status" className="sr-only">
           {loadingLabel ?? t("dataTable.loading")}
         </span>
       )}
       {toolbar && <div className="border-b px-4 py-3">{toolbar}</div>}
-      <div className={cn("overflow-x-auto", maxHeight && "overflow-y-auto")} style={maxHeight ? { maxHeight } : undefined}>
+      <div
+        ref={scrollRef}
+        className={cn(
+          "overflow-x-auto",
+          maxHeight && "overflow-y-auto",
+          stickyScrollbar && "md:[scrollbar-width:none] md:[&::-webkit-scrollbar]:hidden",
+        )}
+        style={maxHeight ? { maxHeight } : undefined}
+      >
         {reorderable ? (
           <DndContext sensors={sensors} accessibility={dndAccessibility} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd}>
             {table}
@@ -590,6 +605,7 @@ export function DataTable<T>({
           table
         )}
       </div>
+      {stickyScrollbar && <HorizontalScrollbar targetRef={scrollRef} className="hidden md:block" />}
       {footer && <div className="border-t px-4 py-3">{footer}</div>}
     </div>
   )

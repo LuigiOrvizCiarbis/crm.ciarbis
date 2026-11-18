@@ -24,7 +24,8 @@ const statusClass: Record<string, string> = {
 const recipientColumns: DataTableColumn<BroadcastRecipientResult>[] = [
   { id: "contact", header: "Contacto", rowHeader: true, cell: (row) => <><p className="font-medium">{row.contact.name}</p><p className="text-xs text-muted-foreground">{row.contact.phone}</p></> },
   { id: "status", header: "Estado", cell: (row) => <Badge className={statusClass[row.status]}>{row.status_label}</Badge> },
-  { id: "interaction", header: "Interacción", cell: (row) => row.interaction ? <span className="text-sm">{row.interaction.value || row.interaction.content || "Respondió"}</span> : <span className="text-sm text-muted-foreground">—</span> },
+  // En respuestas rápidas `value` es el payload del botón (p. ej. reply_tag:1); el texto visible está en `content`.
+  { id: "interaction", header: "Interacción", cell: (row) => row.interaction ? <span className="text-sm">{(row.interaction.type === "quick_reply" ? row.interaction.content || row.interaction.value : row.interaction.value || row.interaction.content) || "Respondió"}</span> : <span className="text-sm text-muted-foreground">—</span> },
   { id: "milestone", header: "Último hito", className: "text-sm text-muted-foreground", cell: (row) => row.read_at ? "Leído" : row.delivered_at ? "Entregado" : row.sent_at ? "Aceptado" : "Pendiente" },
   { id: "failure", header: "Motivo", className: "max-w-xs truncate text-sm text-muted-foreground", cell: (row) => row.failure?.message || "—" },
 ]

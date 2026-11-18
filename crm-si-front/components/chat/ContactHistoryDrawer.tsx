@@ -16,7 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
 import { Loader2, Search, MessageCircle, Calendar, User } from "lucide-react"
 import { PlatformIcon } from "@/components/chat/PlatformIcon"
-import { getAuthToken, workspaceHeaders } from "@/lib/api/auth-token"
+import { workspaceHeaders } from "@/lib/api/auth-token"
 import { format } from "date-fns"
 import { es as esLocale, enUS } from "date-fns/locale"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -82,9 +82,8 @@ export function ContactHistoryDrawer({
     setError(null)
     
     try {
-      const token = getAuthToken();
       const response = await fetch(`/api/contacts/${contactId}/history`, {
-        headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+        headers: workspaceHeaders(),
       })
       
       if (!response.ok) {

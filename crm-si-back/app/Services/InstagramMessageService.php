@@ -96,7 +96,7 @@ class InstagramMessageService
 
             $extracted = $this->extractContent($message, $channel, $tenantId);
 
-            return $this->createMessage([
+            $created = $this->createMessage([
                 'tenant_id' => $tenantId,
                 'conversation_id' => $conversation->getKey(),
                 'sender_type' => SenderType::CONTACT,
@@ -109,7 +109,14 @@ class InstagramMessageService
                 'direction' => $isEcho ? MessageDirection::OUTBOUND : MessageDirection::INBOUND,
                 'external_id' => $mid,
                 'delivered_at' => now(),
+                'reply_to_message_id' => Message::replyTargetIdByExternalId($conversation->getKey(), $message['reply_to']['mid'] ?? null),
             ], $isEcho);
+
+            if ($created && ! $isEcho) {
+                $this->recordMessageAdReferral($message, $event, $created, $contact, $conversation);
+            }
+
+            return $created;
         } catch (\Throwable $e) {
             Log::error('Error procesando mensaje de Instagram: '.$e->getMessage(), [
                 'entry_id' => $entryId,
@@ -117,6 +124,33 @@ class InstagramMessageService
 
             return null;
         }
+    }
+
+    /**
+     * Primer mensaje de un Click-to-Instagram-Direct: el anuncio viene en
+     * `message.referral`. El evento `messaging_referral` de IG solo cubre
+     * links ig.me, que no son anuncios, así que no hay handler aparte.
+     *
+     * @param  array<string, mixed>  $message
+     * @param  array<string, mixed>  $event
+     */
+    private function recordMessageAdReferral(array $message, array $event, Message $created, Contact $contact, Conversation $conversation): void
+    {
+        $recorder = app(AdReferralRecorder::class);
+        $attributes = $recorder->fromMetaMessaging((array) ($message['referral'] ?? []));
+        if ($attributes === null) {
+            return;
+        }
+
+        $recorder->record(
+            $attributes,
+            'instagram',
+            'instagram:'.($created->external_id ?? $created->id),
+            $contact,
+            $conversation,
+            $created,
+            $recorder->referredAtFromMillis($event['timestamp'] ?? null),
+        );
     }
 
     /**
@@ -415,6 +449,7 @@ class InstagramMessageService
         }
 
         try {
+            $message->loadReplyPreview();
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $messageData['tenant_id']));
         } catch (\Exception $e) {
@@ -513,7 +548,7 @@ class InstagramMessageService
         ];
     }
 
-    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
+    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user, ?string $messageTag = null, ?Message $replyTo = null): Message
     {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -521,13 +556,15 @@ class InstagramMessageService
         $externalId = $this->postMessage($pageId, $token, [
             'recipient' => ['id' => $recipientId],
             'message' => ['text' => $content],
-        ]);
+            ...$this->replyToPayload($replyTo),
+        ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
             'content' => $content,
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
             'last_content' => $content,
+            'reply_to_message_id' => $replyTo?->id,
         ]);
     }
 
@@ -537,7 +574,9 @@ class InstagramMessageService
         string $mediaUrl,
         string $mimeType,
         ?string $caption,
-        User $user
+        User $user,
+        ?string $messageTag = null,
+        ?Message $replyTo = null,
     ): Message {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -553,7 +592,8 @@ class InstagramMessageService
                     ],
                 ],
             ],
-        ]);
+            ...$this->replyToPayload($replyTo),
+        ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
             'content' => $caption ?? '',
@@ -563,6 +603,7 @@ class InstagramMessageService
             'media_mime_type' => $mimeType,
             'media_filename' => basename($localMediaPath),
             'last_content' => '📷 '.($caption ?: 'Imagen'),
+            'reply_to_message_id' => $replyTo?->id,
         ]);
     }
 
@@ -571,7 +612,9 @@ class InstagramMessageService
         string $localMediaPath,
         string $mediaUrl,
         string $mimeType,
-        User $user
+        User $user,
+        ?string $messageTag = null,
+        ?Message $replyTo = null,
     ): Message {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -587,7 +630,8 @@ class InstagramMessageService
                     ],
                 ],
             ],
-        ]);
+            ...$this->replyToPayload($replyTo),
+        ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
             'content' => '',
@@ -597,6 +641,7 @@ class InstagramMessageService
             'media_mime_type' => $mimeType,
             'media_filename' => basename($localMediaPath),
             'last_content' => '🎵 Audio',
+            'reply_to_message_id' => $replyTo?->id,
         ]);
     }
 
@@ -604,11 +649,18 @@ class InstagramMessageService
      * POST al endpoint de mensajes de la página. Devuelve el message_id de Meta.
      * Mapea los errores de Graph a MetaApiException tipada.
      *
+     * $tag sólo llega en envíos inmediatos de una persona (HUMAN_AGENT); sin tag
+     * el payload sale igual que siempre, sin messaging_type.
+     *
      * @param  array<string, mixed>  $payload
      */
-    private function postMessage(string $pageId, string $token, array $payload): ?string
+    private function postMessage(string $pageId, string $token, array $payload, ?string $tag = null): ?string
     {
         $version = config('services.facebook.graph_version', 'v26.0');
+
+        if ($tag !== null) {
+            $payload = [...$payload, 'messaging_type' => 'MESSAGE_TAG', 'tag' => $tag];
+        }
 
         $response = Http::withToken($token)
             ->timeout(15)
@@ -636,6 +688,19 @@ class InstagramMessageService
     }
 
     /**
+     * `reply_to.mid` de la Send API (hermano de recipient/message) para
+     * responder citando un mensaje.
+     *
+     * @return array<string, mixed>
+     */
+    private function replyToPayload(?Message $replyTo): array
+    {
+        return $replyTo?->external_id
+            ? ['reply_to' => ['mid' => $replyTo->external_id]]
+            : [];
+    }
+
+    /**
      * @param  array<string, mixed>  $data
      */
     private function persistOutbound(Conversation $conversation, User $user, array $data): Message
@@ -653,6 +718,7 @@ class InstagramMessageService
             'direction' => MessageDirection::OUTBOUND,
             'delivered_at' => now(),
             'external_id' => $data['external_id'],
+            'reply_to_message_id' => $data['reply_to_message_id'] ?? null,
         ]);
 
         $conversation->update([
@@ -664,6 +730,7 @@ class InstagramMessageService
         app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
+            $message->loadReplyPreview();
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
         } catch (\Exception $e) {

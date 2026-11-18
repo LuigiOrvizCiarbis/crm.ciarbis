@@ -1,5 +1,4 @@
 import type { UserRole } from "@/store/useAuthStore"
-import { getAuthToken } from "./auth-token"
 
 export interface Invitation {
   id: number
@@ -21,11 +20,8 @@ export interface InvitationDetails {
 }
 
 export async function getInvitations(): Promise<Invitation[]> {
-  const token = getAuthToken()
-  if (!token) return []
-
   const res = await fetch("/api/invitations", {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
 
@@ -35,13 +31,9 @@ export async function getInvitations(): Promise<Invitation[]> {
 }
 
 export async function createInvitation(email: string, roleName: string): Promise<{ data?: Invitation; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch("/api/invitations", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -54,12 +46,9 @@ export async function createInvitation(email: string, roleName: string): Promise
 }
 
 export async function deleteInvitation(id: number): Promise<{ error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch(`/api/invitations/${id}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
   })
 
   if (!res.ok) {
@@ -82,14 +71,10 @@ export async function getInvitationByToken(token: string): Promise<{ data?: Invi
 
 export async function acceptInvitation(
   invitationToken: string,
-): Promise<{ token?: string; user?: any; workspace?: { id: number; name: string }; role?: UserRole | null; permissions?: string[]; error?: string }> {
-  const authToken = getAuthToken()
-  if (!authToken) return { error: "No auth" }
-
+): Promise<{ user?: any; workspace?: { id: number; name: string }; role?: UserRole | null; permissions?: string[]; error?: string }> {
   const res = await fetch("/api/invitations/accept", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${authToken}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -98,5 +83,5 @@ export async function acceptInvitation(
 
   const json = await res.json()
   if (!res.ok) return { error: json.message || "Error" }
-  return { token: json.token, user: json.user, workspace: json.workspace, role: json.role ?? null, permissions: json.permissions ?? [] }
+  return { user: json.user, workspace: json.workspace, role: json.role ?? null, permissions: json.permissions ?? [] }
 }

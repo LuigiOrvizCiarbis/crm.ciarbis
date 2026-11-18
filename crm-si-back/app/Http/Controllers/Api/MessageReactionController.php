@@ -33,13 +33,10 @@ class MessageReactionController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (MetaApiException $e) {
             $errorMessage = match ($e->reason) {
-                MetaApiException::REASON_REACTION_TARGET_INVALID =>
-                    'No se puede reaccionar a este mensaje. WhatsApp sólo permite reaccionar a mensajes '.
+                MetaApiException::REASON_REACTION_TARGET_INVALID => 'No se puede reaccionar a este mensaje. WhatsApp sólo permite reaccionar a mensajes '.
                     'de los últimos 30 días que no hayan sido eliminados.',
-                MetaApiException::REASON_TOKEN_INVALID =>
-                    'La conexión de WhatsApp expiró. Reconectá el canal desde Configuración para volver a reaccionar.',
-                MetaApiException::REASON_WINDOW_CLOSED =>
-                    'La ventana de 24 horas de WhatsApp expiró: el contacto debe escribir primero para poder reaccionarle.',
+                MetaApiException::REASON_TOKEN_INVALID => 'La conexión de WhatsApp expiró. Reconectá el canal desde Configuración para volver a reaccionar.',
+                MetaApiException::REASON_WINDOW_CLOSED => 'La ventana de 24 horas de WhatsApp expiró: el contacto debe escribir primero para poder reaccionarle.',
                 default => 'No se pudo enviar la reacción a WhatsApp.',
             };
 

@@ -1,5 +1,5 @@
 import { throwApiError } from "./api-error"
-import { getAuthToken, workspaceHeaders } from "./auth-token"
+import { workspaceHeaders } from "./auth-token"
 
 export type TimelineEventType = "note" | "task" | "message" | "stage"
 
@@ -43,12 +43,6 @@ export type TimelineEvent =
   | TimelineMessageEvent
   | TimelineStageEvent
 
-function requireToken() {
-  const token = getAuthToken()
-  if (!token) throw new Error("No authentication token found")
-  return token
-}
-
 function normalizeEvent(raw: any): TimelineEvent {
   const base = { id: String(raw.id), occurredAt: raw.occurred_at }
 
@@ -89,8 +83,6 @@ export async function getContactTimeline(
   contactId: number,
   types?: TimelineEventType[],
 ): Promise<TimelineEvent[]> {
-  const token = requireToken()
-
   const query = new URLSearchParams()
   if (types && types.length > 0) query.set("types", types.join(","))
 
@@ -98,7 +90,6 @@ export async function getContactTimeline(
 
   const response = await fetch(`/api/contacts/${contactId}/timeline${suffix}`, {
     headers: {
-      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       ...workspaceHeaders(),
     },

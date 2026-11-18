@@ -1,4 +1,4 @@
-import { getAuthToken, workspaceHeaders } from "./auth-token"
+import { workspaceHeaders } from "./auth-token"
 
 export type GoogleCalendarConnectionStatus = "connected" | "needs_reauth"
 
@@ -19,11 +19,8 @@ export interface TaskCalendarSync {
 }
 
 export async function getGoogleCalendarConnection(): Promise<GoogleCalendarConnection | null> {
-  const token = getAuthToken()
-  if (!token) return null
-
   const res = await fetch("/api/google-calendar/connection", {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
 
@@ -33,12 +30,9 @@ export async function getGoogleCalendarConnection(): Promise<GoogleCalendarConne
 }
 
 export async function getGoogleCalendarAuthorizationUrl(): Promise<{ data?: string; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch("/api/google-calendar/authorization-url", {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...workspaceHeaders() },
+    headers: { Accept: "application/json", ...workspaceHeaders() },
   })
 
   const json = await res.json().catch(() => ({}))
@@ -47,12 +41,9 @@ export async function getGoogleCalendarAuthorizationUrl(): Promise<{ data?: stri
 }
 
 export async function disconnectGoogleCalendar(): Promise<{ error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch("/api/google-calendar/connection", {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
   })
 
   const json = await res.json().catch(() => ({}))
@@ -61,12 +52,9 @@ export async function disconnectGoogleCalendar(): Promise<{ error?: string }> {
 }
 
 export async function retryTaskCalendarSync(taskId: string): Promise<{ error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch(`/api/tasks/${taskId}/google-calendar/retry`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
   })
 
   const json = await res.json().catch(() => ({}))

@@ -24,12 +24,16 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageInteraction;
 use App\Models\MessageReaction;
+use App\Models\Tag;
 use App\Models\User;
-use App\Models\WhatsAppConfig;
+use App\Models\WhatsAppGroup;
+use App\Models\WhatsAppGroupParticipant;
 use App\Services\Concerns\ResolvesWhatsAppChannel;
 use App\Services\Concerns\ResolvesWhatsAppCredentials;
+use App\Services\Flows\FlowResponseService;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -73,6 +77,7 @@ class WhatsAppMessageService
             $messageData = $messages[0];
             if ($this->isSiCrmAlertsPhone($messageData['from'] ?? null)) {
                 Log::info('WhatsApp alert interno ignorado por el pipeline de clientes', ['phone' => $messageData['from']]);
+
                 return null;
             }
             $contactData = $value['contacts'][0] ?? null;
@@ -107,7 +112,7 @@ class WhatsAppMessageService
             // Meta puede enviarlo de varias formas: con context.edited: true, con un
             // top-level edit, o como un mensaje text cuyo context.id apunta a un
             // mensaje existente y además marca explícitamente la edición.
-            $originalEditedId = $this->detectEditedMessageOriginalId($messageData, $tenantId);
+            $originalEditedId = $this->detectEditedMessageOriginalId($messageData);
             if ($originalEditedId) {
                 return $this->handleIncomingMessageEdited($messageData, $originalEditedId, $tenantId);
             }
@@ -116,6 +121,19 @@ class WhatsAppMessageService
                 $this->handleIncomingReaction($messageData, $contactData, $channel);
 
                 return null;
+            }
+
+            // Respuesta de un formulario de WhatsApp (Flow): se guarda con su
+            // resumen legible y los datos estructurados en `interactive`.
+            $flowReply = ($messageType === 'interactive' && ($messageData['interactive']['type'] ?? null) === 'nfm_reply')
+                ? app(FlowResponseService::class)->parse(
+                    $messageData['interactive']['nfm_reply'] ?? [],
+                    (int) $channel->whatsapp_config_id,
+                    $messageData['context']['id'] ?? null,
+                )
+                : null;
+            if ($flowReply !== null) {
+                $messageType = 'flow_response';
             }
 
             // WhatsApp entrega respuestas rápidas como `button` o como
@@ -186,7 +204,7 @@ class WhatsAppMessageService
                 }
             }
 
-            $message = $this->createMessage([
+            $messageAttributes = [
                 'tenant_id' => $tenantId,
                 'conversation_id' => $conversationId,
                 'sender_type' => SenderType::CONTACT,
@@ -200,9 +218,26 @@ class WhatsAppMessageService
                 'direction' => MessageDirection::INBOUND,
                 'external_id' => $messageData['id'] ?? null,
                 'delivered_at' => $this->parseWebhookTimestamp($messageData['timestamp'] ?? null),
-            ]);
+                'reply_to_message_id' => Message::replyTargetIdByExternalId($conversationId, $messageData['context']['id'] ?? null),
+            ];
 
-            if ($interaction !== null) {
+            if ($flowReply !== null) {
+                $messageAttributes = array_merge($messageAttributes, [
+                    'content' => $flowReply->content,
+                    'message_type' => MessageType::FlowResponse->value,
+                    'interactive' => $flowReply->interactive,
+                ]);
+            }
+
+            $message = $this->createMessage($messageAttributes);
+
+            if ($groupWaId === null && is_array($messageData['referral'] ?? null)) {
+                $this->recordAdReferral($messageData, $messageId, $contact, $conversation, $message);
+            }
+
+            if ($flowReply !== null) {
+                app(FlowResponseService::class)->complete($flowReply, $message, $contact, $conversation);
+            } elseif ($interaction !== null) {
                 $this->recordReplyInteraction($message, $interaction);
             } else {
                 $this->recordGenericReplyInteraction($message, $messageData);
@@ -263,7 +298,7 @@ class WhatsAppMessageService
 
     private function resolveGroupConversation(string $groupWaId, Channel $channel): ?Conversation
     {
-        $group = \App\Models\WhatsAppGroup::query()
+        $group = WhatsAppGroup::query()
             ->where('group_id', $groupWaId)
             ->where('channel_id', $channel->id)
             ->first();
@@ -283,7 +318,7 @@ class WhatsAppMessageService
             return;
         }
 
-        \App\Models\WhatsAppGroupParticipant::updateOrCreate(
+        WhatsAppGroupParticipant::updateOrCreate(
             [
                 'whatsapp_group_id' => $group->id,
                 'wa_id' => $messageData['from'] ?? '',
@@ -293,6 +328,25 @@ class WhatsAppMessageService
                 'status' => 'active',
                 'display_name' => $contact->name,
             ]
+        );
+    }
+
+    private function recordAdReferral(array $messageData, ?string $messageId, Contact $contact, Conversation $conversation, Message $message): void
+    {
+        $recorder = app(AdReferralRecorder::class);
+        $attributes = $recorder->fromWhatsApp($messageData['referral']);
+        if ($attributes === null) {
+            return;
+        }
+
+        $recorder->record(
+            $attributes,
+            'whatsapp',
+            'whatsapp:'.($messageId ?? $message->id),
+            $contact,
+            $conversation,
+            $message,
+            $this->parseWebhookTimestamp($messageData['timestamp'] ?? null),
         );
     }
 
@@ -311,7 +365,8 @@ class WhatsAppMessageService
         string $mediaUrl,
         string $mimeType,
         ?string $caption,
-        User $user
+        User $user,
+        ?Message $replyTo = null,
     ): Message {
         ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
@@ -338,6 +393,7 @@ class WhatsAppMessageService
             'image' => [
                 'id' => $whatsappMediaId,
             ],
+            ...$this->replyContext($replyTo),
         ];
 
         if ($caption) {
@@ -349,6 +405,7 @@ class WhatsAppMessageService
             ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", $messagePayload);
 
         if (! $sendResponse->successful()) {
+            $this->throwIfWindowClosed($sendResponse);
             throw new \RuntimeException('Error enviando imagen por WhatsApp: '.$sendResponse->body());
         }
 
@@ -368,6 +425,7 @@ class WhatsAppMessageService
             'media_filename' => basename($localMediaPath),
             'direction' => MessageDirection::OUTBOUND,
             'external_id' => $externalId,
+            'reply_to_message_id' => $replyTo?->id,
         ]);
 
         $conversation->update([
@@ -379,6 +437,7 @@ class WhatsAppMessageService
         app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
+            $this->prepareForBroadcast($message);
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
         } catch (\Exception $e) {
@@ -472,7 +531,8 @@ class WhatsAppMessageService
         string $mediaUrl,
         string $mimeType,
         User $user,
-        bool $voice = false
+        bool $voice = false,
+        ?Message $replyTo = null,
     ): Message {
         ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
@@ -512,9 +572,11 @@ class WhatsAppMessageService
                     'id' => $whatsappMediaId,
                     ...($voice ? ['voice' => true] : []),
                 ],
+                ...$this->replyContext($replyTo),
             ]);
 
         if (! $sendResponse->successful()) {
+            $this->throwIfWindowClosed($sendResponse);
             throw new \RuntimeException('Error enviando audio por WhatsApp: '.$sendResponse->body());
         }
 
@@ -532,6 +594,7 @@ class WhatsAppMessageService
             'media_filename' => basename($localMediaPath),
             'direction' => MessageDirection::OUTBOUND,
             'external_id' => $externalId,
+            'reply_to_message_id' => $replyTo?->id,
         ]);
 
         $conversation->update([
@@ -543,6 +606,7 @@ class WhatsAppMessageService
         app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
+            $this->prepareForBroadcast($message);
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
         } catch (\Exception $e) {
@@ -568,6 +632,7 @@ class WhatsAppMessageService
             'video',
             'location',
             'contacts',
+            'flow_response',
         ], true);
     }
 
@@ -606,7 +671,7 @@ class WhatsAppMessageService
         if (! $recipient || ! $recipient->campaign->resultsEnabled()) {
             return;
         }
-        MessageInteraction::firstOrCreate(
+        $recorded = MessageInteraction::firstOrCreate(
             ['deduplication_key' => 'reply:'.$source->external_id],
             [
                 'broadcast_recipient_id' => $recipient->id,
@@ -620,7 +685,34 @@ class WhatsAppMessageService
                 'occurred_at' => $source->created_at ?? now(),
             ],
         );
+        // Meta reintenta webhooks: solo la primera entrega etiqueta.
+        if ($recorded->wasRecentlyCreated) {
+            $this->tagContactFromReply($recipient, $interaction['value']);
+        }
         broadcast(new BroadcastResultsUpdated($recipient->campaign->id, $recipient->id));
+    }
+
+    /**
+     * Aplica la etiqueta que la difusión asoció al botón tocado. Corre en el
+     * webhook sin usuario autenticado, por eso el tenant se filtra a mano.
+     */
+    private function tagContactFromReply(BroadcastRecipient $recipient, ?string $payload): void
+    {
+        $campaign = $recipient->campaign;
+        $tagId = $campaign->replyTagIdFor($payload);
+        if ($tagId === null) {
+            return;
+        }
+
+        $tag = Tag::withoutGlobalScopes()->where('tenant_id', $campaign->tenant_id)->find($tagId);
+        $contact = Contact::withoutGlobalScopes()->where('tenant_id', $campaign->tenant_id)->find($recipient->contact_id);
+        if (! $tag || ! $contact) {
+            return;
+        }
+
+        $contact->tags()->syncWithoutDetaching([
+            $tag->id => ['tenant_id' => $campaign->tenant_id, 'assigned_by' => null],
+        ]);
     }
 
     private function recordGenericReplyInteraction(Message $source, array $messageData): void
@@ -960,10 +1052,8 @@ class WhatsAppMessageService
      *   1) context.edited === true (formato histórico)
      *   2) messages[].edited === true con original id en context.id
      *   3) type: "edit" con edit.original_message_id
-     *   4) Mensaje text con context.id que apunta a un mensaje INBOUND ya
-     *      existente en el CRM y con campo context.from == from (no es reply)
      */
-    private function detectEditedMessageOriginalId(array $messageData, int $tenantId): ?string
+    private function detectEditedMessageOriginalId(array $messageData): ?string
     {
         $context = $messageData['context'] ?? [];
         $originalId = $context['id'] ?? null;
@@ -979,26 +1069,6 @@ class WhatsAppMessageService
         $editOriginalId = $messageData['edit']['original_message_id'] ?? null;
         if (($messageData['type'] ?? null) === 'edit' && $editOriginalId) {
             return $editOriginalId;
-        }
-
-        // Último recurso: si llega un mensaje de texto con context.id apuntando
-        // a un mensaje INBOUND existente del mismo remitente, es casi seguro una
-        // edición (replies suelen venir con context.from distinto del id real del
-        // mensaje referenciado, y Meta no genera "replies a sí mismo").
-        if (($messageData['type'] ?? null) === 'text' && $originalId) {
-            $from = $messageData['from'] ?? null;
-            $contextFrom = $context['from'] ?? null;
-
-            if ($from && $contextFrom && $from === $contextFrom) {
-                $existing = Message::where('tenant_id', $tenantId)
-                    ->where('external_id', $originalId)
-                    ->where('direction', MessageDirection::INBOUND)
-                    ->exists();
-
-                if ($existing) {
-                    return $originalId;
-                }
-            }
         }
 
         return null;
@@ -1110,15 +1180,20 @@ class WhatsAppMessageService
     {
         $alerts = preg_replace('/\D+/', '', (string) config('services.si_crm_alerts.display_number'));
         $candidate = preg_replace('/\D+/', '', (string) $phone);
-        if (str_starts_with($alerts, '549')) $alerts = '54'.substr($alerts, 3);
-        if (str_starts_with($candidate, '549')) $candidate = '54'.substr($candidate, 3);
+        if (str_starts_with($alerts, '549')) {
+            $alerts = '54'.substr($alerts, 3);
+        }
+        if (str_starts_with($candidate, '549')) {
+            $candidate = '54'.substr($candidate, 3);
+        }
+
         return $alerts !== '' && $candidate !== '' && hash_equals($alerts, $candidate);
     }
 
     /**
      * @return array{to: string, recipient_type: string, business_phone_id: string, business_token: string}
      */
-    private function resolveOutboundWhatsAppContext(Conversation $conversation): array
+    public function resolveOutboundWhatsAppContext(Conversation $conversation): array
     {
         $channel = $conversation->channel;
         if (! $channel) {
@@ -1263,7 +1338,7 @@ class WhatsAppMessageService
         }
 
         try {
-            $this->attachSenderNameForGroupBroadcast($message);
+            $this->prepareForBroadcast($message);
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $messageData['tenant_id']));
         } catch (\Exception $e) {
@@ -1323,6 +1398,29 @@ class WhatsAppMessageService
         if ($name) {
             $message->setAttribute('sender', ['id' => $message->sender_id, 'name' => $name]);
         }
+    }
+
+    /**
+     * Deja el mensaje listo para emitir: carga la cita y adjunta el nombre del
+     * autor (del mensaje y del citado) en grupos.
+     */
+    private function prepareForBroadcast(Message $message): void
+    {
+        $message->loadReplyPreview();
+        $this->attachSenderNameForGroupBroadcast($message);
+        if ($message->relationLoaded('replyTo') && $message->replyTo !== null) {
+            $this->attachSenderNameForGroupBroadcast($message->replyTo);
+        }
+    }
+
+    /**
+     * `context.message_id` de la Cloud API para responder citando un mensaje.
+     */
+    private function replyContext(?Message $replyTo): array
+    {
+        return $replyTo?->external_id
+            ? ['context' => ['message_id' => $replyTo->external_id]]
+            : [];
     }
 
     private function inferReadFromInboundReply(Message $inboundMessage): void
@@ -1639,6 +1737,7 @@ class WhatsAppMessageService
                 'direction' => MessageDirection::OUTBOUND,
                 'external_id' => $externalId,
                 'delivered_at' => $this->parseWebhookTimestamp($echo['timestamp'] ?? null),
+                'reply_to_message_id' => Message::replyTargetIdByExternalId($conversation->id, $echo['context']['id'] ?? null),
             ]);
         }
     }
@@ -1915,7 +2014,7 @@ class WhatsAppMessageService
         return $reaction;
     }
 
-    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
+    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user, ?Message $replyTo = null): Message
     {
         ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
@@ -1930,9 +2029,11 @@ class WhatsAppMessageService
                 'text' => [
                     'body' => $content,
                 ],
+                ...$this->replyContext($replyTo),
             ]);
 
         if (! $response->successful()) {
+            $this->throwIfWindowClosed($response);
             throw new \RuntimeException('Error enviando mensaje a WhatsApp: '.$response->body());
         }
 
@@ -1947,6 +2048,7 @@ class WhatsAppMessageService
             'direction' => MessageDirection::OUTBOUND,
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
+            'reply_to_message_id' => $replyTo?->id,
         ]);
 
         $conversation->update([
@@ -1958,6 +2060,7 @@ class WhatsAppMessageService
         app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
+            $this->prepareForBroadcast($message);
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
         } catch (\Exception $e) {
@@ -1994,6 +2097,7 @@ class WhatsAppMessageService
             ]);
 
         if (! $response->successful()) {
+            $this->throwIfWindowClosed($response);
             throw new \RuntimeException('Error enviando mensaje de IA a WhatsApp: '.$response->body());
         }
 
@@ -2106,5 +2210,17 @@ class WhatsAppMessageService
         }
 
         return $freshMessage;
+    }
+
+    /**
+     * 131047 (re-engagement): Meta rechazó el texto libre porque pasaron más de
+     * 24 h desde el último mensaje del contacto. Se tipa para que el usuario
+     * reciba la instrucción de usar una plantilla en vez del body crudo.
+     */
+    public function throwIfWindowClosed(Response $response): void
+    {
+        if ((int) $response->json('error.code') === 131047) {
+            throw MetaApiException::fromGraphResponse(ChannelType::WHATSAPP, $response->json());
+        }
     }
 }

@@ -93,6 +93,11 @@ class Contact extends Model
         return $this->hasMany(Conversation::class);
     }
 
+    public function adReferrals(): HasMany
+    {
+        return $this->hasMany(AdReferral::class);
+    }
+
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);
@@ -140,12 +145,51 @@ class Contact extends Model
     }
 
     /**
-     * Filtra por un campo custom de tipo Date o Number dentro de un rango
-     * inclusivo. `$type` decide el cast: los campos Date se comparan como
+     * Select: el valor es alguno de `$choices`. Multi-select: la lista guardada
+     * contiene al menos uno de `$choices`.
+     *
+     * @param  list<string>  $choices
+     */
+    public function scopeWhereCustomFieldAny(Builder $query, string $key, ContactFieldType $type, array $choices): Builder
+    {
+        if ($type === ContactFieldType::MultiSelect) {
+            return $query->where(function (Builder $any) use ($key, $choices) {
+                foreach ($choices as $choice) {
+                    $any->orWhereJsonContains("custom_data->{$key}", [$choice]);
+                }
+            });
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($choices), '?'));
+
+        return $query->whereRaw("custom_data ->> ? IN ({$placeholders})", [$key, ...$choices]);
+    }
+
+    /**
+     * `false` incluye a los contactos que nunca cargaron el campo: en la ficha
+     * se ven igual que un "No", y filtrar por "No" sin ellos los escondería.
+     * Como en scopeOrderByCustomField, ->> devuelve 'true' en Postgres y 1 en
+     * SQLite; comparar contra el texto cubre los dos motores.
+     */
+    public function scopeWhereCustomBoolean(Builder $query, string $key, bool $value): Builder
+    {
+        if ($value) {
+            return $query->whereRaw("CAST(custom_data ->> ? AS TEXT) IN ('true', '1')", [$key]);
+        }
+
+        return $query->whereRaw(
+            "(custom_data ->> ? IS NULL OR CAST(custom_data ->> ? AS TEXT) NOT IN ('true', '1'))",
+            [$key, $key]
+        );
+    }
+
+    /**
+     * Filtra por un campo custom de tipo Date, Number o Currency dentro de un
+     * rango inclusivo. `$type` decide el cast: los campos Date se comparan como
      * texto ISO (ya normalizados en escritura por ContactCustomDataNormalizer,
      * así el mismo SQL corre igual en el SQLite de los tests y el Postgres de
-     * producción); los Number se castean a numeric porque se guardan como
-     * número real en el JSON y comparar como texto ordenaría "9" > "10".
+     * producción); los Number y Currency se castean a numeric porque se guardan
+     * como número real en el JSON y comparar como texto ordenaría "9" > "10".
      * `$from`/`$to` llegan ya validados por el controller contra el tipo del
      * campo — acá no se revalida el formato.
      */
@@ -155,7 +199,7 @@ class Contact extends Model
             return $query;
         }
 
-        if ($type === ContactFieldType::Number) {
+        if (in_array($type, [ContactFieldType::Number, ContactFieldType::Currency], true)) {
             // CAST(x AS REAL) es portable entre el SQLite de los tests y el
             // Postgres de producción (a diferencia de ::numeric, solo Postgres).
             // Solo Postgres explota con un valor no numérico ("N/A" cargado a

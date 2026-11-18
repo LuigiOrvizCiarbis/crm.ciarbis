@@ -7,7 +7,7 @@ use App\Exceptions\TranslationException;
 use App\Models\AiConfig;
 use App\Models\Message;
 use App\Models\MessageTranslation;
-use App\Services\Ai\TranslationProviderFactory;
+use App\Services\Ai\TenantAiProviderFactory;
 
 class MessageTranslationService
 {
@@ -23,7 +23,7 @@ class MessageTranslationService
         'zh' => 'Simplified Chinese',
     ];
 
-    public function __construct(private TranslationProviderFactory $providers) {}
+    public function __construct(private TenantAiProviderFactory $providers) {}
 
     /**
      * @return array{translation: MessageTranslation, cached: bool}

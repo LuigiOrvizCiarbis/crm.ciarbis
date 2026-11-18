@@ -26,6 +26,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useAuthStore } from "@/store/useAuthStore"
+import { signOut } from "@/lib/account-session"
 
 function maskEmail(email: string): string {
   const [local, domain] = email.split("@")
@@ -38,7 +39,7 @@ function maskEmail(email: string): string {
 function VerifyEmailContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { user, token, logout } = useAuthStore()
+  const user = useAuthStore((state) => state.user)
   
   const [isResending, setIsResending] = useState(false)
   const [resendSuccess, setResendSuccess] = useState(false)
@@ -75,7 +76,6 @@ function VerifyEmailContent() {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
         },
         body: JSON.stringify({ email: user.email }),
       })
@@ -105,7 +105,6 @@ function VerifyEmailContent() {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
         },
         body: JSON.stringify({ email: newEmail, password }),
       })
@@ -117,7 +116,7 @@ function VerifyEmailContent() {
       }
 
       // Update user in store
-      useAuthStore.getState().setAuth({ ...user!, email: newEmail }, token!, false)
+      useAuthStore.getState().setAuth({ ...user!, email: newEmail }, false)
       setIsDialogOpen(false)
       setNewEmail("")
       setPassword("")
@@ -127,11 +126,6 @@ function VerifyEmailContent() {
     } finally {
       setIsChangingEmail(false)
     }
-  }
-
-  const handleLogout = () => {
-    logout()
-    router.replace("/login")
   }
 
   if (!user) {
@@ -300,7 +294,7 @@ function VerifyEmailContent() {
           <Button 
             variant="ghost" 
             className="w-full text-muted-foreground hover:text-destructive"
-            onClick={handleLogout}
+            onClick={() => void signOut()}
           >
             Cerrar sesión
           </Button>

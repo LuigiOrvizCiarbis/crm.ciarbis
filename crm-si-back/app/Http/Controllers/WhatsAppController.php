@@ -21,6 +21,7 @@ use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
 use App\Models\WhatsAppWebhookReceipt;
+use App\Services\Flows\WhatsAppFlowService;
 use App\Services\HumanHandoffService;
 use App\Services\WhatsAppBusinessVerificationService;
 use App\Services\WhatsAppContactSyncService;
@@ -280,8 +281,28 @@ class WhatsAppController extends Controller
             ], 422);
         }
 
+        // El admin acaba de pedir una lectura fresca: el sidebar debe reflejarla
+        // en la próxima carga en vez de esperar al vencimiento del caché.
+        $service->forgetWorkspace($channel->tenant_id);
+
         return response()->json([
             'data' => $service->statusFor($config),
+        ]);
+    }
+
+    /**
+     * Estado de verificación en Meta del negocio del workspace activo, para el
+     * badge del sidebar. Lo lee cualquier miembro: sólo expone el estado, sin
+     * ids, nombres ni enlaces del negocio. `data` es null sin nada que mostrar.
+     *
+     * GET /api/business-verification
+     */
+    public function workspaceBusinessVerification(
+        Request $request,
+        WhatsAppBusinessVerificationService $service
+    ): JsonResponse {
+        return response()->json([
+            'data' => $service->workspaceVerification($request->user()->tenant_id),
         ]);
     }
 
@@ -1355,6 +1376,8 @@ class WhatsAppController extends Controller
             $this->groupWebhookService->handleStatusUpdate($value);
         } elseif ($field === 'message_template_status_update') {
             $this->handleTemplateStatusUpdate($value);
+        } elseif ($field === 'flows') {
+            app(WhatsAppFlowService::class)->handleWebhook($value);
         }
     }
 
@@ -1557,7 +1580,11 @@ class WhatsAppController extends Controller
 
         foreach ($errors as $error) {
             $code = $error['code'] ?? null;
-            $detail = $error['error_data']['details'] ?? $error['message'] ?? $error['title'] ?? null;
+            // 131047: ventana de 24 h vencida. El detalle de Meta no le dice al
+            // usuario qué hacer; el nuestro sí.
+            $detail = (int) ($error['code'] ?? 0) === 131047
+                ? 'Pasaron más de 24 horas desde el último mensaje del contacto: enviá una plantilla para retomar la conversación.'
+                : ($error['error_data']['details'] ?? $error['message'] ?? $error['title'] ?? null);
 
             $label = trim(($code !== null ? "[{$code}] " : '').(string) $detail);
 

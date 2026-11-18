@@ -6,6 +6,7 @@ use App\Enums\MessageDirection;
 use App\Enums\SenderType;
 use App\Events\ManualAiDraftUpdated;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\AdReferralResource;
 use App\Jobs\SendBroadcastMessageJob;
 use App\Models\Channel;
 use App\Models\Contact;
@@ -55,6 +56,9 @@ class ConversationController extends Controller
                 'opportunities:id,conversation_id,pipeline_stage_id',
                 'whatsappGroup:id,conversation_id,subject,status,group_id,total_participant_count,invite_link',
                 'activeHumanHandoff',
+                'latestAdReferral',
+                // Sólo los ids: la bandeja filtra por cualquier anuncio del historial del chat.
+                'adReferrals:id,conversation_id,ad_id',
             ])
             ->withCount(['messages as unread_count' => function ($query) {
                 $query->where('direction', MessageDirection::INBOUND)
@@ -207,6 +211,8 @@ class ConversationController extends Controller
                 'archived' => $conversation->archived,
                 'ai_autoreply_enabled' => (bool) $conversation->ai_autoreply_enabled,
                 'human_handoff' => $conversation->activeHumanHandoff,
+                'ad_referral' => $this->adReferralPayload($conversation),
+                'ad_ids' => $conversation->adReferrals->pluck('ad_id')->filter()->unique()->values(),
                 'contact_language' => $conversation->contact_language,
                 'created_at' => $conversation->created_at,
                 'updated_at' => $conversation->updated_at,
@@ -253,7 +259,7 @@ class ConversationController extends Controller
         // Query directa y no eager load con limit: el eager load numera con row_number()
         // todos los mensajes de la conversación; así corta en 20 con el índice (conversation_id, created_at).
         $messages = $conversation->messages()
-            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview'])
+            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview', 'replyTo'])
             ->whereNull('mail_parent_message_id')
             ->orderBy('created_at', 'desc')
             ->limit(20)
@@ -268,6 +274,8 @@ class ConversationController extends Controller
         $data = $conversation->toArray();
         $data['assigned_to'] = $conversation->assigned_to;
         $data['human_handoff'] = $conversation->activeHumanHandoff;
+        $data['ad_referral'] = $this->adReferralPayload($conversation);
+        $data['ad_ids'] = $conversation->adReferrals()->whereNotNull('ad_id')->distinct()->pluck('ad_id');
         if ($conversation->relationLoaded('whatsappGroup') && $conversation->whatsappGroup) {
             $data['group'] = $conversation->whatsappGroup;
         }
@@ -276,17 +284,31 @@ class ConversationController extends Controller
     }
 
     /**
+     * Último anuncio de Meta por el que entró la conversación; misma forma en la bandeja y en el detalle.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function adReferralPayload(Conversation $conversation): ?array
+    {
+        return $conversation->latestAdReferral
+            ? AdReferralResource::make($conversation->latestAdReferral)->resolve()
+            : null;
+    }
+
+    /**
      * Adjunta `sender: {id, name}` a cada mensaje inbound de una conversación
-     * de grupo. Message::sender() es un morphTo sin morph map registrado (el
-     * valor guardado es el string plano 'contact', no una clase), así que no
-     * se puede hacer ->load('sender'): se resuelve a mano en batch por
-     * sender_id contra Contact.
+     * de grupo, y a los mensajes que citan. Message::sender() es un morphTo sin
+     * morph map registrado (el valor guardado es el string plano 'contact', no
+     * una clase), así que no se puede hacer ->load('sender'): se resuelve a
+     * mano en batch por sender_id contra Contact.
      *
      * @param  Collection<int, Message>  $messages
      */
     private function attachSenderNames(Collection $messages): void
     {
-        $contactIds = $messages
+        $targets = $messages->concat($messages->pluck('replyTo')->filter());
+
+        $contactIds = $targets
             ->where('sender_type', SenderType::CONTACT)
             ->pluck('sender_id')
             ->filter()
@@ -298,7 +320,7 @@ class ConversationController extends Controller
 
         $names = Contact::whereIn('id', $contactIds)->pluck('name', 'id');
 
-        $messages->each(function ($message) use ($names) {
+        $targets->each(function ($message) use ($names) {
             if ($message->sender_type === SenderType::CONTACT && $names->has($message->sender_id)) {
                 $message->setAttribute('sender', ['id' => $message->sender_id, 'name' => $names->get($message->sender_id)]);
             }
@@ -316,7 +338,7 @@ class ConversationController extends Controller
         // Obtenemos mensajes ordenados por fecha descendente (del más nuevo al más viejo)
         // Laravel Paginator se encarga de 'page=1', 'page=2', etc.
         $messages = $conversation->messages()
-            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview'])
+            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview', 'replyTo'])
             ->whereNull('mail_parent_message_id')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
@@ -333,9 +355,15 @@ class ConversationController extends Controller
         $conversation = Conversation::where('id', $id)->firstOrFail();
         $this->authorize('changeStage', $conversation);
 
-        $request->validate([
+        $validated = $request->validate([
             'pipeline_stage_id' => 'required|exists:pipeline_stages,id',
+            // Monto de la oportunidad que se crea (p. ej. al ganar desde el chat).
+            'value' => ['sometimes', 'nullable', 'numeric', 'min:0'],
         ]);
+
+        if (array_key_exists('value', $validated) && ! $request->user()->can('opportunities.update')) {
+            abort(403, 'No tenés permiso para cargar el valor de la oportunidad.');
+        }
 
         // Validar que la etapa destino pertenezca al mismo tenant (seguridad extra)
         $stage = PipelineStage::where('id', $request->pipeline_stage_id)->firstOrFail();
@@ -350,7 +378,7 @@ class ConversationController extends Controller
             return response()->json(['message' => 'La etapa de este chat sigue a su oportunidad. Mové la oportunidad.'], 422);
         }
 
-        DB::transaction(function () use ($conversation, $stage): void {
+        DB::transaction(function () use ($conversation, $stage, $validated): void {
             $conversation->update([
                 'pipeline_stage_id' => $stage->id,
             ]);
@@ -368,6 +396,7 @@ class ConversationController extends Controller
                     'status' => 'open',
                     'source_type' => 'conversation',
                     'last_activity_at' => now(),
+                    'value' => $validated['value'] ?? null,
                 ]);
             }
         });

@@ -62,6 +62,7 @@ class AppointmentToolsetFactory
 
             if ($user) {
                 $user->setAttribute('tenant_id', $conversation->tenant_id);
+
                 return $user;
             }
         }

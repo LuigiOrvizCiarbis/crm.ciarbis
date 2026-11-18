@@ -14,6 +14,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
@@ -72,6 +73,36 @@ class WhatsAppBusinessVerificationTest extends TestCase
             ->assertJsonPath('data.status', 'pending')
             ->assertJsonPath('data.raw_verification_status', 'pending_submission');
         $this->assertNotNull($response->json('data.verify_url'));
+    }
+
+    /**
+     * Estos estados piden acciones distintas a "sin verificar": no deben
+     * mezclarse con él.
+     */
+    #[DataProvider('distinctMetaStatusProvider')]
+    public function test_keeps_distinct_meta_statuses_apart_from_not_verified(string $raw): void
+    {
+        [, $user, $channel] = $this->makeChannel(businessId: 'BIZ_STATE');
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'graph.facebook.com/*/BIZ_STATE*' => Http::response(['id' => 'BIZ_STATE', 'verification_status' => $raw]),
+        ]);
+
+        $this->getJson($this->endpoint($channel))
+            ->assertOk()
+            ->assertJsonPath('data.status', $raw)
+            ->assertJsonPath('data.raw_verification_status', $raw);
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function distinctMetaStatusProvider(): array
+    {
+        return [
+            'vencido' => ['expired'],
+            'revocado' => ['revoked'],
+            'no elegible' => ['ineligible'],
+        ];
     }
 
     public function test_derives_and_persists_business_id_for_legacy_channel(): void
@@ -133,6 +164,87 @@ class WhatsAppBusinessVerificationTest extends TestCase
             ->assertJsonPath('data.status', 'permission_missing');
     }
 
+    public function test_workspace_summary_is_verified_and_cached_when_business_is_verified(): void
+    {
+        [, $user] = $this->makeChannel(businessId: 'BIZ_OK');
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'graph.facebook.com/*/BIZ_OK*' => Http::response([
+                'id' => 'BIZ_OK',
+                'name' => 'Acme',
+                'verification_status' => 'verified',
+            ]),
+        ]);
+
+        $this->getJson('/api/business-verification')->assertOk()->assertJsonPath('data.status', 'verified');
+        $this->getJson('/api/business-verification')->assertOk()->assertJsonPath('data.status', 'verified');
+
+        // La segunda carga sale del caché: el sidebar no consulta Graph en cada pedido.
+        Http::assertSentCount(1);
+    }
+
+    public function test_workspace_summary_reports_the_business_that_needs_most_attention(): void
+    {
+        [$tenant, $user] = $this->makeChannel(businessId: 'BIZ_OK');
+        $this->addChannel($tenant, $user, businessId: 'BIZ_REVIEW');
+        $this->addChannel($tenant, $user, businessId: 'BIZ_DRAFT');
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'graph.facebook.com/*/BIZ_OK*' => Http::response(['id' => 'BIZ_OK', 'verification_status' => 'verified']),
+            'graph.facebook.com/*/BIZ_REVIEW*' => Http::response(['id' => 'BIZ_REVIEW', 'verification_status' => 'pending']),
+            'graph.facebook.com/*/BIZ_DRAFT*' => Http::response(['id' => 'BIZ_DRAFT', 'verification_status' => 'pending_submission']),
+        ]);
+
+        // "Sin enviar" espera algo del negocio: gana sobre "en revisión" y "verificado".
+        $this->getJson('/api/business-verification')
+            ->assertOk()
+            ->assertJsonPath('data.status', 'pending')
+            ->assertJsonPath('data.raw_verification_status', 'pending_submission');
+    }
+
+    public function test_workspace_summary_puts_a_revoked_business_ahead_of_an_unverified_one(): void
+    {
+        [$tenant, $user] = $this->makeChannel(businessId: 'BIZ_NEW');
+        $this->addChannel($tenant, $user, businessId: 'BIZ_LOST');
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'graph.facebook.com/*/BIZ_NEW*' => Http::response(['id' => 'BIZ_NEW', 'verification_status' => 'not_verified']),
+            'graph.facebook.com/*/BIZ_LOST*' => Http::response(['id' => 'BIZ_LOST', 'verification_status' => 'revoked']),
+        ]);
+
+        $this->getJson('/api/business-verification')->assertOk()->assertJsonPath('data.status', 'revoked');
+    }
+
+    public function test_workspace_summary_is_null_when_no_business_can_be_read(): void
+    {
+        [, $user] = $this->makeChannel(businessId: 'BIZ_DENIED');
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'graph.facebook.com/*' => Http::response(['error' => ['code' => 10, 'message' => 'Permission denied']], 403),
+        ]);
+
+        $this->getJson('/api/business-verification')->assertOk()->assertJsonPath('data', null);
+    }
+
+    public function test_refreshing_a_channel_status_invalidates_the_workspace_summary(): void
+    {
+        [, $user, $channel] = $this->makeChannel(businessId: 'BIZ_FLIP');
+        Sanctum::actingAs($user);
+
+        Http::fakeSequence('graph.facebook.com/*')
+            ->push(['id' => 'BIZ_FLIP', 'verification_status' => 'not_verified'])
+            ->push(['id' => 'BIZ_FLIP', 'verification_status' => 'verified'])
+            ->push(['id' => 'BIZ_FLIP', 'verification_status' => 'verified']);
+
+        $this->getJson('/api/business-verification')->assertJsonPath('data.status', 'not_verified');
+        $this->getJson($this->endpoint($channel))->assertJsonPath('data.status', 'verified');
+        $this->getJson('/api/business-verification')->assertJsonPath('data.status', 'verified');
+    }
+
     private function endpoint(Channel $channel): string
     {
         return "/api/admin/channels/{$channel->id}/business-verification";
@@ -178,5 +290,24 @@ class WhatsAppBusinessVerificationTest extends TestCase
         ]);
 
         return [$tenant, $user, $channel];
+    }
+
+    private function addChannel(Tenant $tenant, User $user, string $businessId): Channel
+    {
+        $config = WhatsAppConfig::create([
+            'waba_id' => 'WABA_'.$businessId,
+            'phone_number_id' => 'PHONE_'.$businessId,
+            'business_id' => $businessId,
+            'bussines_token' => Crypt::encryptString('TOKEN_X'),
+        ]);
+
+        return Channel::create([
+            'tenant_id' => $tenant->id,
+            'user_id' => $user->id,
+            'whatsapp_config_id' => $config->id,
+            'type' => ChannelType::WHATSAPP,
+            'name' => 'WhatsApp '.$businessId,
+            'status' => 'active',
+        ]);
     }
 }

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Opportunity extends Model
 {
@@ -35,23 +36,45 @@ class Opportunity extends Model
 
     protected static function booted(): void
     {
-        // La etapa manda: una oportunidad siempre vive en el pipeline de su etapa.
-        $syncPipeline = function (Opportunity $opportunity): void {
-            if ($opportunity->pipeline_stage_id && ($opportunity->isDirty('pipeline_stage_id') || ! $opportunity->pipeline_id)) {
-                $stagePipelineId = PipelineStage::withoutGlobalScopes()->whereKey($opportunity->pipeline_stage_id)->value('pipeline_id');
-                if ($stagePipelineId) {
-                    $opportunity->pipeline_id = $stagePipelineId;
+        // La etapa manda, con una sola consulta a la etapa: la oportunidad vive en
+        // el pipeline de su etapa, y una etapa con resultado (Ganado/Perdido) la
+        // cierra. Salir de esa etapa la reabre solo si fue ella la que la cerró
+        // (una archivada o cerrada a mano conserva su estado). Va antes del sello
+        // de cierre para que este vea el estado ya derivado.
+        static::saving(function (Opportunity $opportunity): void {
+            $stageChanged = $opportunity->isDirty('pipeline_stage_id');
+            $stage = null;
+            if ($opportunity->pipeline_stage_id && ($stageChanged || ! $opportunity->pipeline_id)) {
+                $stage = PipelineStage::withoutGlobalScopes()
+                    ->whereKey($opportunity->pipeline_stage_id)
+                    ->first(['pipeline_id', 'outcome']);
+                if ($stage?->pipeline_id) {
+                    $opportunity->pipeline_id = $stage->pipeline_id;
                 }
             }
 
+            if (! $stageChanged) {
+                return;
+            }
+
+            if ($stage?->outcome !== null) {
+                $opportunity->status = $stage->outcome;
+            } elseif (! $opportunity->isDirty('status')
+                && in_array($opportunity->status, [PipelineStage::OUTCOME_WON, PipelineStage::OUTCOME_LOST], true)
+                && $opportunity->status === PipelineStage::outcomeOf($opportunity->getOriginal('pipeline_stage_id'))) {
+                $opportunity->status = 'open';
+            }
+        });
+
+        // Sin etapa que lo defina, el pipeline predeterminado. creating (no
+        // saving): corre después de que BelongsToTenant asigna tenant_id.
+        $defaultPipeline = function (Opportunity $opportunity): void {
             if (! $opportunity->pipeline_id && $opportunity->tenant_id) {
                 $opportunity->pipeline_id = Pipeline::defaultFor($opportunity->tenant_id)->id;
             }
         };
-
-        // creating (no saving): corre después de que BelongsToTenant asigna tenant_id.
-        static::creating($syncPipeline);
-        static::updating($syncPipeline);
+        static::creating($defaultPipeline);
+        static::updating($defaultPipeline);
 
         // Sella el cierre al pasar a ganada/perdida; reabrir lo limpia y
         // archivar conserva el cierre previo (si lo hubo).
@@ -133,6 +156,12 @@ class Opportunity extends Model
     public function tasks(): HasMany
     {
         return $this->hasMany(Task::class);
+    }
+
+    /** Venta informada a Meta (Conversions API); existe solo si el chat vino de un anuncio. */
+    public function metaPurchaseEvent(): HasOne
+    {
+        return $this->hasOne(MetaConversionEvent::class)->where('event_name', MetaConversionEvent::PURCHASE);
     }
 
     public function scopeVisibleTo(Builder $query, User $user): Builder

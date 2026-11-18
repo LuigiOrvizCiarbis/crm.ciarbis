@@ -1,5 +1,17 @@
 import { throwApiError } from "./api-error";
-import { getAuthToken } from "./auth-token";
+
+export interface ProductVariant {
+  id: number;
+  external_id: string;
+  sku: string | null;
+  // p. ej. { Talle: "M" }; un valor vacío = cualquier opción.
+  attributes: Record<string, string>;
+  price: string | null;
+  stock_quantity: number | null;
+  // Estado de stock de Woo: instock/outofstock/onbackorder o uno de una extensión.
+  stock_status: string | null;
+  image_url: string | null;
+}
 
 export interface Product {
   id: number;
@@ -9,7 +21,14 @@ export interface Product {
   is_active: boolean;
   source: string;
   external_id: string | null;
+  external_type: string | null;
+  requires_shipping: boolean;
   custom_data?: Record<string, unknown>;
+  // Columnas/campos que gestiona una integración (WooCommerce): no se editan acá.
+  managed_fields: string[];
+  // El listado trae solo la cantidad; las variantes vienen en el detalle.
+  variants_count?: number;
+  variants?: ProductVariant[];
   created_at?: string;
   updated_at?: string;
 }
@@ -22,17 +41,10 @@ export interface ProductInput {
   custom_data?: Record<string, unknown>;
 }
 
-function requireToken(): string {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-  return token;
-}
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...options,
     headers: {
-      Authorization: `Bearer ${requireToken()}`,
       Accept: "application/json",
       "Content-Type": "application/json",
       ...options.headers,
@@ -54,6 +66,12 @@ export async function getProducts(params: { search?: string; is_active?: boolean
   if (params.is_active !== undefined) query.set("is_active", params.is_active ? "1" : "0");
 
   const payload = await request<{ data: Product[] }>(`/api/products${query.toString() ? `?${query}` : ""}`);
+
+  return payload.data;
+}
+
+export async function getProduct(productId: number): Promise<Product> {
+  const payload = await request<{ data: Product }>(`/api/products/${productId}`);
 
   return payload.data;
 }

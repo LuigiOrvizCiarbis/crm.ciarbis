@@ -51,6 +51,7 @@ class ContactResource extends JsonResource
                 'last_message_at' => $conversation->last_message_at?->toIso8601String(),
                 'last_message_content' => $conversation->last_message_content,
             ])),
+            'ad_referrals' => AdReferralResource::collection($this->whenLoaded('adReferrals')),
         ];
     }
 }

@@ -32,14 +32,8 @@ export const useFacebookSDK = () => {
     signupPayload?: any
   ) => {
     try {
-      const authStorage = localStorage.getItem("auth-storage");
-      const token = authStorage ? JSON.parse(authStorage)?.state?.token : null;
       const embeddedEvent = signupPayload ?? signupEventRef.current ?? null;
       const embeddedData = embeddedEvent?.data ?? null;
-
-      if (!token) {
-        throw new ChannelError({ code: "channelErrorSessionExpired" });
-      }
 
       let data: any;
       try {
@@ -47,7 +41,6 @@ export const useFacebookSDK = () => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             code: code,

@@ -8,6 +8,7 @@ import { X, Phone, MessageSquare, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getContact, type Contact, type ContactAvatar as ContactAvatarPayload } from "@/lib/api/contacts"
 import { ContactAvatarActions } from "@/components/contact-avatar-actions"
+import { PlatformIcon } from "@/components/chat/PlatformIcon"
 import { useTranslation } from "@/hooks/useTranslation"
 
 interface ContactInfoPanelProps {
@@ -162,6 +163,37 @@ export function ContactInfoPanel({ contactId, isOpen, onClose, onAvatarChange, c
                 </div>
               )}
             </div>
+
+            {contact.ad_referrals && contact.ad_referrals.length > 0 && (
+              <div className="space-y-3 pt-4 border-t border-border">
+                <h3 className="font-medium text-sm">{t("contactPanel.adReferrals")}</h3>
+                <ul className="space-y-3">
+                  {contact.ad_referrals.map((referral) => (
+                    <li key={referral.id} className="flex items-start gap-2">
+                      <PlatformIcon type={referral.platform} className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium break-words">
+                          {referral.headline ?? t("contactPanel.adFallbackTitle", { id: referral.ad_id ?? "—" })}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(referral.referred_at).toLocaleDateString()}
+                        </p>
+                        {referral.source_url && (
+                          <a
+                            href={referral.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary underline-offset-4 hover:underline"
+                          >
+                            {t("contactPanel.viewAd")}
+                          </a>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {customEntries.length > 0 && (
               <div className="space-y-3 pt-4 border-t border-border">

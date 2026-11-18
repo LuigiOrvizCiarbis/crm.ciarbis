@@ -1,10 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { BadgeCheck, ChevronRight, ExternalLink, RefreshCw, ShieldCheck } from "lucide-react"
+import { AlertCircle, ChevronRight, ExternalLink, RefreshCw, ShieldCheck } from "lucide-react"
 
 import { SettingsBlock } from "@/components/config/SettingsBlock"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ChannelType } from "@/data/enums"
@@ -13,79 +12,100 @@ import {
   getBusinessVerification,
   getChannels,
   type BusinessVerification,
-  type BusinessVerificationStatus,
 } from "@/lib/api/channels"
 import { useIsAdmin } from "@/hooks/usePermission"
 import { useTranslation } from "@/hooks/useTranslation"
+import { cn } from "@/lib/utils"
+import { presentVerification, VERIFICATION_TONE_CLASSES } from "@/lib/business-verification"
 
-type BadgeVariant = "default" | "secondary" | "destructive" | "outline"
-
-// Estados que se muestran como badge verde/amarillo/rojo/gris.
-const STATUS_VARIANT: Record<BusinessVerificationStatus, BadgeVariant> = {
-  verified: "default",
-  pending: "secondary",
-  not_verified: "outline",
-  failed: "destructive",
-  business_id_missing: "outline",
-  permission_missing: "destructive",
-  token_invalid: "destructive",
-  unknown: "outline",
+/** La verificación es del Business Portfolio: los números que lo comparten van juntos. */
+interface BusinessGroup {
+  key: string
+  name: string
+  phones: string[]
+  /** `null` cuando la consulta a nuestro backend falló. */
+  verification: BusinessVerification | null
 }
 
-interface Row {
-  channel: Channel
-  loading: boolean
-  data?: BusinessVerification
-  error?: boolean
+function channelPhone(channel: Channel): string {
+  return (
+    channel.whatsapp_config?.display_phone_number ??
+    channel.whatsapp_config?.phone_number_id ??
+    channel.phone ??
+    ""
+  )
+}
+
+function groupByBusiness(
+  results: { channel: Channel; verification: BusinessVerification | null }[],
+): BusinessGroup[] {
+  const groups = new Map<string, BusinessGroup>()
+
+  for (const { channel, verification } of results) {
+    const key = verification?.business_id ?? `channel-${channel.id}`
+    const phone = channelPhone(channel)
+    const group = groups.get(key)
+
+    if (group) {
+      if (phone) group.phones.push(phone)
+      continue
+    }
+
+    groups.set(key, {
+      key,
+      name: verification?.business_name || channel.name,
+      phones: phone ? [phone] : [],
+      verification,
+    })
+  }
+
+  return [...groups.values()]
+}
+
+async function loadVerifications(): Promise<BusinessGroup[]> {
+  const channels = (await getChannels()).filter((c) => c.type === ChannelType.WHATSAPP)
+
+  const results = await Promise.all(
+    channels.map(async (channel) => ({
+      channel,
+      verification: await getBusinessVerification(channel.id).catch(() => null),
+    })),
+  )
+
+  return groupByBusiness(results)
 }
 
 export function BusinessVerificationCard() {
   const { t } = useTranslation()
   const isAdmin = useIsAdmin()
-  const [rows, setRows] = useState<Row[]>([])
-  const [loadingChannels, setLoadingChannels] = useState(true)
+  const [groups, setGroups] = useState<BusinessGroup[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoadingChannels(true)
+  // El estado inicial ya es "cargando": el efecto sólo escribe estado después
+  // de la respuesta, y `refresh` marca la recarga antes de pedir de nuevo.
+  const fetchGroups = useCallback(async () => {
     try {
-      const channels = await getChannels()
-      const whatsappChannels = channels.filter(
-        (c) => c.type === ChannelType.WHATSAPP,
-      )
-
-      setRows(whatsappChannels.map((channel) => ({ channel, loading: true })))
-      setLoadingChannels(false)
-
-      // Consultar el estado de cada canal en paralelo.
-      await Promise.all(
-        whatsappChannels.map(async (channel) => {
-          try {
-            const data = await getBusinessVerification(channel.id)
-            setRows((prev) =>
-              prev.map((r) =>
-                r.channel.id === channel.id ? { ...r, loading: false, data } : r,
-              ),
-            )
-          } catch {
-            setRows((prev) =>
-              prev.map((r) =>
-                r.channel.id === channel.id
-                  ? { ...r, loading: false, error: true }
-                  : r,
-              ),
-            )
-          }
-        }),
-      )
+      setGroups(await loadVerifications())
+      setLoadError(false)
     } catch {
-      setRows([])
-      setLoadingChannels(false)
+      setLoadError(true)
+    } finally {
+      setLoading(false)
     }
   }, [])
 
+  // Al actualizar se mantiene la lista anterior en pantalla: el skeleton sólo
+  // aparece en la primera carga para no hacer saltar el bloque.
+  const refresh = () => {
+    setLoading(true)
+    setLoadError(false)
+    void fetchGroups()
+  }
+
   useEffect(() => {
-    if (isAdmin) void load()
-  }, [isAdmin, load])
+    if (isAdmin) void fetchGroups()
+  }, [isAdmin, fetchGroups])
 
   // Sólo admins gestionan la verificación (mismo criterio que conectar canales).
   if (!isAdmin) return null
@@ -99,95 +119,105 @@ export function BusinessVerificationCard() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => void load()}
-          disabled={loadingChannels}
+          onClick={refresh}
+          disabled={loading}
           className="-mr-2"
         >
-          <RefreshCw className="mr-1 size-4" />
+          <RefreshCw className={cn("mr-1 size-4", loading && "motion-safe:animate-spin")} />
           {t("businessVerification.refresh")}
         </Button>
       }
     >
-      {loadingChannels ? (
-        <div className="space-y-3">
-          <Skeleton className="h-16 w-full rounded-lg" />
-          <Skeleton className="h-16 w-full rounded-lg" />
+      {loadError ? (
+        <div className="flex flex-col items-start gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <span className="flex items-center gap-2 text-destructive">
+            <AlertCircle className="size-4 shrink-0" />
+            {t("businessVerification.loadError")}
+          </span>
+          <Button size="sm" variant="outline" onClick={refresh}>
+            {t("businessVerification.retry")}
+          </Button>
         </div>
-      ) : rows.length === 0 ? (
+      ) : groups === null ? (
+        <div className="space-y-3">
+          <Skeleton className="h-20 w-full rounded-md" />
+          <Skeleton className="h-20 w-full rounded-md" />
+        </div>
+      ) : groups.length === 0 ? (
         <p className="py-6 text-sm text-muted-foreground">
           {t("businessVerification.empty")}
         </p>
       ) : (
-        <div className="divide-y divide-border border-y border-border">
-          {rows.map((row) => (
-            <VerificationRow key={row.channel.id} row={row} />
+        <ul
+          className={cn(
+            "divide-y divide-border border-y border-border transition-opacity duration-200",
+            loading && "opacity-60",
+          )}
+          aria-live="polite"
+          aria-busy={loading}
+        >
+          {groups.map((group) => (
+            <BusinessRow key={group.key} group={group} />
           ))}
-        </div>
+        </ul>
       )}
     </SettingsBlock>
   )
 }
 
-function VerificationRow({ row }: { row: Row }) {
+function BusinessRow({ group }: { group: BusinessGroup }) {
   const { t } = useTranslation()
-  const { channel, loading, data, error } = row
-
-  const phone =
-    channel.whatsapp_config?.display_phone_number ??
-    channel.whatsapp_config?.phone_number_id ??
-    ""
-
-  // Guía de pasos: sólo tiene sentido cuando el negocio aún no está verificado
-  // y la consulta trajo datos (no en loading ni error).
-  const showHowTo = !loading && !error && !!data && data.status !== "verified"
+  const { state, tone, icon: Icon, cta, showHowTo } = presentVerification(group.verification)
+  const verifyUrl = group.verification?.verify_url
+  const toneClasses = VERIFICATION_TONE_CLASSES[tone]
 
   return (
-    <div className="space-y-3 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0 space-y-0.5">
-          <p className="truncate text-sm font-medium text-foreground">
-            {data?.business_name || channel.name}
-          </p>
-          {phone && (
-            <p className="truncate text-xs text-muted-foreground">{phone}</p>
-          )}
-        </div>
-
-        <div className="flex shrink-0 items-center gap-3">
-          {loading ? (
-            <Skeleton className="h-6 w-24 rounded-full" />
-          ) : error ? (
-            <Badge variant="destructive">
-              {t("businessVerification.status.unknown")}
-            </Badge>
-          ) : data ? (
-            <>
-              <Badge
-                variant={STATUS_VARIANT[data.status]}
-                className="gap-1"
-              >
-                {data.status === "verified" && <BadgeCheck className="size-3" />}
-                {t(`businessVerification.status.${data.status}`)}
-              </Badge>
-              {data.verify_url && (
-                <Button asChild size="sm" variant="outline">
-                  <a
-                    href={data.verify_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {t("businessVerification.verifyOnMeta")}
-                    <ExternalLink className="ml-1 size-3.5" />
-                  </a>
-                </Button>
-              )}
-            </>
-          ) : null}
-        </div>
+    <li className="flex flex-wrap items-start gap-x-3 gap-y-3 py-4">
+      <div
+        className={cn("flex size-9 shrink-0 items-center justify-center rounded-md", toneClasses.tile)}
+        aria-hidden
+      >
+        <Icon className="size-4" />
       </div>
 
-      {showHowTo && <HowToVerify />}
-    </div>
+      <div className="min-w-0 flex-1 basis-64 space-y-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="truncate font-medium text-foreground">{group.name}</p>
+          <span
+            className={cn(
+              "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
+              toneClasses.pill,
+            )}
+          >
+            {t(`businessVerification.states.${state}.label`)}
+          </span>
+        </div>
+        {group.phones.length > 0 && (
+          <p className="font-mono text-xs text-muted-foreground">
+            {group.phones.join(" · ")}
+          </p>
+        )}
+        <p className="max-w-[68ch] pt-1 text-pretty text-sm text-muted-foreground">
+          {t(`businessVerification.states.${state}.detail`)}
+        </p>
+      </div>
+
+      {cta && verifyUrl && (
+        <Button asChild size="sm" variant={cta === "open" ? "outline" : "default"} className="ml-12 sm:ml-0">
+          <a href={verifyUrl} target="_blank" rel="noopener noreferrer">
+            {t(`businessVerification.cta.${cta}`)}
+            <ExternalLink className="ml-1 size-3.5" aria-hidden />
+          </a>
+        </Button>
+      )}
+
+      {/* Fila propia: en pantallas angostas el botón queda arriba de la guía, no debajo. */}
+      {showHowTo && (
+        <div className="basis-full pl-12">
+          <HowToVerify />
+        </div>
+      )}
+    </li>
   )
 }
 
@@ -196,9 +226,9 @@ function HowToVerify() {
   const { t } = useTranslation()
 
   return (
-    <details className="group rounded-md border border-border/60 bg-muted/40">
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
-        <ChevronRight className="size-4 text-muted-foreground transition-transform group-open:rotate-90" />
+    <details className="group max-w-xl rounded-md border border-border/60 bg-muted/40">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="size-4 text-muted-foreground transition-transform duration-200 group-open:rotate-90 motion-reduce:transition-none" />
         {t("businessVerification.howTo.trigger")}
       </summary>
       <div className="space-y-3 px-3 pb-3 pt-1 text-sm text-muted-foreground">

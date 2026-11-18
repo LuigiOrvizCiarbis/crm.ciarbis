@@ -8,9 +8,9 @@ use Anthropic\Messages\ToolChoiceTool;
 use App\Services\Ai\AiErrorMapper;
 use App\Services\Ai\AiExtractionResult;
 use App\Services\Ai\AiProvider;
+use App\Services\Ai\AiReplyDecision;
 use App\Services\Ai\AiTool;
 use App\Services\Ai\AiToolset;
-use App\Services\Ai\AiReplyDecision;
 use App\Services\Ai\AiVerificationResult;
 use App\Services\Ai\ToolLoopDeadline;
 use GuzzleHttp\Client as GuzzleClient;
@@ -307,6 +307,43 @@ class AnthropicProvider implements AiProvider
             return null;
         } catch (\Throwable $e) {
             Log::error('AnthropicProvider: error traduciendo texto', [
+                'model' => $model,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    public function summarize(string $content, string $systemPrompt, string $model, int $maxTokens): ?string
+    {
+        try {
+            $client = new Client(
+                apiKey: $this->apiKey,
+                requestOptions: [
+                    'transporter' => new GuzzleClient([
+                        'timeout' => (int) config('services.ai.website_context.timeout', 90),
+                    ]),
+                ],
+            );
+
+            $response = $client->messages->create(
+                model: $model,
+                maxTokens: $maxTokens,
+                system: $systemPrompt,
+                messages: [['role' => 'user', 'content' => $content]],
+                temperature: 0,
+            );
+
+            foreach ($response->content as $block) {
+                if ($block->type === 'text' && trim($block->text) !== '') {
+                    return trim($block->text);
+                }
+            }
+
+            return null;
+        } catch (\Throwable $e) {
+            Log::error('AnthropicProvider: error resumiendo texto', [
                 'model' => $model,
                 'error' => $e->getMessage(),
             ]);

@@ -4,6 +4,7 @@ namespace App\Automation\Handlers;
 
 use App\Automation\Contracts\TriggerHandler;
 use App\Models\AutomationRule;
+use Carbon\CarbonImmutable;
 
 class DateTriggerHandler implements TriggerHandler
 {
@@ -62,7 +63,7 @@ class DateTriggerHandler implements TriggerHandler
             }
             if (! empty($recurrence['ends_at'])) {
                 try {
-                    \Carbon\CarbonImmutable::parse((string) $recurrence['ends_at']);
+                    CarbonImmutable::parse((string) $recurrence['ends_at']);
                 } catch (\Throwable) {
                     $errors['recurrence'][] = 'La fecha final de la recurrencia no es válida.';
                 }

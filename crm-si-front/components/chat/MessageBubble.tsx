@@ -5,9 +5,11 @@ import { MessageStatus } from "./MessageStatus"
 import { MessageReactions } from "./MessageReactions"
 import { ReactionPicker } from "./ReactionPicker"
 import { EmojiPicker } from "./EmojiPicker"
-import { MoreHorizontal, Pencil, Trash2, Bot, Languages, EyeOff, Phone, Mail, Ban, AlertCircle } from "lucide-react"
+import { MoreHorizontal, Pencil, Trash2, Bot, Languages, EyeOff, Phone, Mail, Ban, AlertCircle, Reply } from "lucide-react"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useLongPress } from "@/hooks/useLongPress"
+import { useSwipeToReply, SWIPE_REPLY_THRESHOLD } from "@/hooks/useSwipeToReply"
+import { QuotedMessage } from "./QuotedMessage"
 import { memo, useState } from "react"
 import {
   Sheet,
@@ -34,6 +36,7 @@ import {
 import { MessageText } from "./MessageText"
 import { LinkPreviewCard } from "./LinkPreviewCard"
 import { AudioPlayer } from "./AudioPlayer"
+import { FlowMessageCard } from "./FlowMessageCard"
 
 export interface TranslationState {
   content?: string
@@ -63,6 +66,11 @@ interface MessageBubbleProps {
   canDelete: boolean
   canTranslate: boolean
   canReact: boolean
+  canReply: boolean
+  onReply?: (message: Message) => void
+  onJumpToMessage?: (messageId: number) => void
+  isHighlighted?: boolean
+  contactName?: string | null
   currentUserId?: number
   /** Muestra el nombre de quien escribió sobre las burbujas inbound de un grupo. */
   isGroupConversation?: boolean
@@ -89,6 +97,11 @@ export const MessageBubble = memo(function MessageBubble({
   canDelete,
   canTranslate,
   canReact,
+  canReply,
+  onReply,
+  onJumpToMessage,
+  isHighlighted = false,
+  contactName,
   currentUserId,
   isGroupConversation = false,
   onSaveContact,
@@ -113,8 +126,9 @@ export const MessageBubble = memo(function MessageBubble({
   // endpoint autenticado /api/messages/{id}/media, así que basta con el tipo.
   const isDocument = msg.message_type === "document"
   const isContacts = msg.message_type === "contacts" && Array.isArray(msg.contacts)
+  const isFlow = msg.message_type === "flow" || msg.message_type === "flow_response"
 
-  const parsed = !isImage && !isSticker && !isAudio && !isVideo && !isDocument && !isContacts && !isDeleted
+  const parsed = !isImage && !isSticker && !isAudio && !isVideo && !isDocument && !isContacts && !isFlow && !isDeleted
     ? parseTemplateContent(msg.content || "")
     : { isTemplate: false, title: "", body: "" }
 
@@ -129,7 +143,7 @@ export const MessageBubble = memo(function MessageBubble({
   // Un mensaje sin ninguna otra acción (p.ej. imagen inbound sin texto) igual
   // necesita menú/long-press si se puede reaccionar: sin esto en hasActions,
   // esos mensajes se quedan sin forma de abrir el picker.
-  const hasActions = canEdit || canDelete || canTranslate || canReact
+  const hasActions = canEdit || canDelete || canTranslate || canReact || canReply
 
   // El menú por hover es inalcanzable en touch: ahí las acciones se abren con
   // toque sostenido sobre la burbuja, igual que en WhatsApp.
@@ -137,6 +151,29 @@ export const MessageBubble = memo(function MessageBubble({
   const longPress = useLongPress(() => {
     if (hasActions) setIsActionSheetOpen(true)
   })
+
+  // Deslizar a la derecha responde (mobile). Convive con el long-press: este
+  // se cancela apenas el dedo se mueve, así que un swipe nunca abre la hoja.
+  const swipe = useSwipeToReply(() => onReply?.(msg), { enabled: canReply && !!onReply })
+  const bubbleTouchHandlers = {
+    onTouchStart: (e: React.TouchEvent) => {
+      if (hasActions) longPress.onTouchStart(e)
+      swipe.onTouchStart(e)
+    },
+    onTouchMove: (e: React.TouchEvent) => {
+      if (hasActions) longPress.onTouchMove(e)
+      swipe.onTouchMove(e)
+    },
+    onTouchEnd: () => {
+      if (hasActions) longPress.onTouchEnd()
+      swipe.onTouchEnd()
+    },
+    onTouchCancel: () => {
+      if (hasActions) longPress.onTouchCancel()
+      swipe.onTouchCancel()
+    },
+    ...(hasActions ? { onContextMenu: longPress.onContextMenu } : {}),
+  }
 
   // Picker completo de emoji, separado del DropdownMenu/Sheet de acciones:
   // anidar un Popover/Sheet dentro de otro portal de Radix rompe el focus
@@ -152,6 +189,15 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   const sheetActions = [
+    ...(canReply && onReply
+      ? [{
+          key: "reply",
+          label: t("chats.replyMessage"),
+          Icon: Reply,
+          destructive: false,
+          onSelect: () => onReply(msg),
+        }]
+      : []),
     ...(canTranslate
       ? [{
           key: "translate",
@@ -191,9 +237,20 @@ export const MessageBubble = memo(function MessageBubble({
       <PopoverAnchor asChild>
         <div
           className={`flex items-center opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100 ${
-            isOwn ? "mr-1" : "ml-1"
+            isOwn ? "mr-1 flex-row-reverse" : "ml-1"
           }`}
         >
+          {canReply && onReply && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              aria-label={t("chats.replyMessage")}
+              onClick={() => onReply(msg)}
+            >
+              <Reply className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            </Button>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={t("chats.messageActions")}>
@@ -210,6 +267,12 @@ export const MessageBubble = memo(function MessageBubble({
                   />
                   <DropdownMenuSeparator />
                 </>
+              )}
+              {canReply && onReply && (
+                <DropdownMenuItem onClick={() => onReply(msg)}>
+                  <Reply className="h-4 w-4 mr-2" />
+                  {t("chats.replyMessage")}
+                </DropdownMenuItem>
               )}
               {canTranslate && (
                 <DropdownMenuItem
@@ -325,6 +388,7 @@ export const MessageBubble = memo(function MessageBubble({
           query={normalizedQuery}
           activeMatchKey={activeMatchKey}
           matchKeyPrefix={matchKeyPrefix}
+          onAccent={onAccent}
         />
       </p>
     </div>
@@ -338,6 +402,7 @@ export const MessageBubble = memo(function MessageBubble({
             query={normalizedQuery}
             activeMatchKey={activeMatchKey}
             matchKeyPrefix={matchKeyPrefix}
+            onAccent={onAccent}
           />
         </p>
       )}
@@ -352,6 +417,7 @@ export const MessageBubble = memo(function MessageBubble({
             query={normalizedQuery}
             activeMatchKey={activeMatchKey}
             matchKeyPrefix={matchKeyPrefix}
+            onAccent={onAccent}
           />
         </p>
       )}
@@ -368,6 +434,7 @@ export const MessageBubble = memo(function MessageBubble({
             query={normalizedQuery}
             activeMatchKey={activeMatchKey}
             matchKeyPrefix={matchKeyPrefix}
+            onAccent={onAccent}
           />
         </p>
       )}
@@ -387,6 +454,7 @@ export const MessageBubble = memo(function MessageBubble({
             query={normalizedQuery}
             activeMatchKey={activeMatchKey}
             matchKeyPrefix={matchKeyPrefix}
+            onAccent={onAccent}
           />
         </p>
       )}
@@ -403,6 +471,8 @@ export const MessageBubble = memo(function MessageBubble({
         </div>
       ))}
     </div>
+  ) : isFlow ? (
+    <FlowMessageCard message={msg} isUser={isUser} />
   ) : parsed.isTemplate ? (
     <div className="space-y-1">
       <span className="text-xs font-medium opacity-75">{parsed.title}</span>
@@ -413,6 +483,7 @@ export const MessageBubble = memo(function MessageBubble({
             query={normalizedQuery}
             activeMatchKey={activeMatchKey}
             matchKeyPrefix={matchKeyPrefix}
+            onAccent={onAccent}
           />
         </p>
       )}
@@ -425,6 +496,7 @@ export const MessageBubble = memo(function MessageBubble({
           query={normalizedQuery}
           activeMatchKey={activeMatchKey}
           matchKeyPrefix={matchKeyPrefix}
+          onAccent={onAccent}
         />
       </p>
       {msg.link_preview && <LinkPreviewCard preview={msg.link_preview} isUser={isUser} />}
@@ -433,21 +505,41 @@ export const MessageBubble = memo(function MessageBubble({
 
   return (
     <div
-      className={`group/msg flex ${isOwn ? "justify-end" : "justify-start"} ${
+      data-message-id={msg.id}
+      className={`group/msg relative flex ${isOwn ? "justify-end" : "justify-start"} ${
         isFirstOfGroup ? "mt-3" : "mt-0.5"
       }`}
     >
+      {swipe.offset > 0 && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute left-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-muted text-muted-foreground"
+          style={{ opacity: Math.min(swipe.offset / SWIPE_REPLY_THRESHOLD, 1) }}
+        >
+          <Reply className="h-4 w-4" />
+        </span>
+      )}
+
       {isOwn && actionsMenu}
 
       {/* Wrapper en columna: la burbuja y los chips de reacción son hermanos
           en flujo normal (no absolute), así una tanda de mensajes agrupados
           con mt-0.5 nunca queda tapada por los chips del anterior. */}
-      <div className={`flex max-w-[80%] flex-col sm:max-w-[75%] ${isOwn ? "items-end" : "items-start"}`}>
+      <div
+        className={`flex max-w-[80%] flex-col sm:max-w-[75%] ${isOwn ? "items-end" : "items-start"} ${
+          swipe.dragging ? "" : "transition-transform duration-200 motion-reduce:transition-none"
+        }`}
+        style={{ transform: swipe.offset ? `translateX(${swipe.offset}px)` : undefined }}
+      >
         <div
           className={`relative w-fit max-w-full overflow-visible break-words px-3 py-2 ${corner} ${surface} ${
             hasActions ? "[-webkit-touch-callout:none]" : ""
+          } ${canReply && onReply ? "touch-pan-y" : ""} ${
+            isHighlighted
+              ? "ring-2 ring-primary/60 ring-offset-2 ring-offset-background transition-shadow motion-reduce:transition-none"
+              : ""
           }`}
-          {...(hasActions ? longPress : {})}
+          {...bubbleTouchHandlers}
         >
           {isBot && (
             <div className="mb-1 flex items-center gap-1 text-[11px] font-medium text-ai">
@@ -460,6 +552,16 @@ export const MessageBubble = memo(function MessageBubble({
             <div className="mb-0.5 text-[11px] font-semibold text-primary">
               {msg.sender.name}
             </div>
+          )}
+
+          {msg.reply_to && !isDeleted && (
+            <QuotedMessage
+              quoted={msg.reply_to}
+              contactName={contactName}
+              onAccent={onAccent}
+              className="mb-1"
+              onClick={onJumpToMessage ? () => onJumpToMessage(msg.reply_to!.id) : undefined}
+            />
           )}
 
           {body}
@@ -497,6 +599,7 @@ export const MessageBubble = memo(function MessageBubble({
                   query=""
                   activeMatchKey={null}
                   matchKeyPrefix={`${matchKeyPrefix}-translation`}
+                  onAccent={onAccent}
                 />
               </p>
             )}

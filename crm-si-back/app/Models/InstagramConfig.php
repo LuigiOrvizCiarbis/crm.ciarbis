@@ -20,6 +20,7 @@ class InstagramConfig extends Model
         'page_access_token',
         'ai_autoreply_default',
         'ai_system_prompt',
+        'meta_dataset_id',
     ];
 
     protected $casts = [

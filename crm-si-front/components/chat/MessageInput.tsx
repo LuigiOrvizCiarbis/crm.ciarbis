@@ -8,7 +8,7 @@ import { EmojiPicker } from "./EmojiPicker"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useToast } from "@/components/Toast"
-import { Paperclip, Smile, Send, X, Pencil, Check, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound, CalendarClock } from "lucide-react"
+import { Paperclip, Smile, Send, X, Pencil, Check, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound, CalendarClock, ClipboardList, Reply } from "lucide-react"
 import { KeyboardEvent, SyntheticEvent, useMemo, useRef, useState, useEffect } from "react"
 import dynamic from "next/dynamic"
 import Image from "next/image"
@@ -18,10 +18,17 @@ import { expandHotkey, parseSlashCommand, type HotkeyExpansionContext } from "@/
 import { HotkeyAutocomplete } from "./HotkeyAutocomplete"
 import type { ManualAiDraft } from "@/lib/api/manual-ai-drafts"
 import { VoiceRecorder } from "./VoiceRecorder"
+import { QuotedMessage, toReplyPreview } from "./QuotedMessage"
 import { AudioPlayer } from "./AudioPlayer"
 import { ContactShareDialog } from "./ContactShareDialog"
+import { FlowPickerDialog } from "./FlowPickerDialog"
+import { usePermission } from "@/hooks/usePermission"
+import type { SendFlowInput } from "@/lib/api/whatsapp-flows"
 import { ScheduleMessagePicker } from "./ScheduleMessagePicker"
+import { MessagingWindowBanner } from "./MessagingWindowBanner"
 import { useComposerStore } from "@/store/useComposerStore"
+import type { MessagingWindowStatus } from "@/hooks/useMessagingWindowStatus"
+import type { ChannelType } from "@/data/enums"
 
 const TemplatePicker = dynamic(
   () => import("./TemplatePicker").then(m => m.TemplatePicker),
@@ -39,6 +46,10 @@ interface MessageInputProps {
   supportsTemplates?: boolean
   editingMessage?: Message | null
   onCancelEdit?: () => void
+  /** Mensaje que se está citando: el destino lo maneja la página, acá sólo el banner. */
+  replyingTo?: Message | null
+  onCancelReply?: () => void
+  contactName?: string | null
   expansionContext?: HotkeyExpansionContext
   contactLanguage: TranslationLanguage
   onContactLanguageChange: (language: TranslationLanguage) => void | Promise<void>
@@ -50,9 +61,15 @@ interface MessageInputProps {
   supportsVoice?: boolean
   supportsContactSharing?: boolean
   onShareContacts?: (ids: number[]) => void | Promise<void>
+  supportsFlows?: boolean
+  onSendFlow?: (input: SendFlowInput) => Promise<void>
   /** Devuelve true si se programó, para limpiar el composer sólo en ese caso. */
   onSchedule?: (content: string, scheduledFor: Date, media?: File) => Promise<boolean>
   windowExpiresAt?: string | null
+  /** "closed" bloquea el texto libre; las plantillas siguen disponibles. */
+  windowStatus?: MessagingWindowStatus
+  humanAgentExpiresAt?: string | null
+  channelType?: ChannelType
 }
 
 interface SlashState {
@@ -71,6 +88,9 @@ export function MessageInput({
   supportsTemplates = true,
   editingMessage,
   onCancelEdit,
+  replyingTo,
+  onCancelReply,
+  contactName,
   expansionContext,
   contactLanguage,
   onContactLanguageChange,
@@ -82,11 +102,17 @@ export function MessageInput({
   supportsVoice = false,
   supportsContactSharing = false,
   onShareContacts,
+  supportsFlows = false,
+  onSendFlow,
   onSchedule,
   windowExpiresAt,
+  windowStatus,
+  humanAgentExpiresAt,
+  channelType,
 }: MessageInputProps) {
   const { t } = useTranslation()
   const { addToast } = useToast()
+  const hasFlowSendPermission = usePermission("flows.send")
   // El borrador vive en el store del composer: escribir no re-renderiza la página.
   const value = useComposerStore((state) => state.draft)
   const onChange = useComposerStore((state) => state.setDraft)
@@ -112,8 +138,12 @@ export function MessageInput({
   const [isContactShareOpen, setIsContactShareOpen] = useState(false)
   const [isScheduleOpen, setIsScheduleOpen] = useState(false)
   const [isScheduleSheetOpen, setIsScheduleSheetOpen] = useState(false)
+  const [isFlowDialogOpen, setIsFlowDialogOpen] = useState(false)
 
   const isEditing = !!editingMessage
+  const composerDisabled = disabled || windowStatus === "closed"
+  const canOpenTemplates = !!(supportsTemplates && channelId && conversationId && onSendTemplate)
+  const canSendFlows = !!(supportsFlows && channelId && onSendFlow) && hasFlowSendPermission
   const isAudio = !!selectedMedia?.type.startsWith("audio/")
 
   useEffect(() => {
@@ -171,10 +201,10 @@ export function MessageInput({
   }, [selectedMedia])
 
   useEffect(() => {
-    if (editingMessage) {
+    if (editingMessage || replyingTo) {
       inputRef.current?.focus()
     }
-  }, [editingMessage])
+  }, [editingMessage, replyingTo])
 
   useEffect(() => {
     setOriginalDraft(null)
@@ -234,6 +264,10 @@ export function MessageInput({
     if (e.key === "Escape" && isEditing && onCancelEdit) {
       e.preventDefault()
       onCancelEdit()
+    }
+    if (e.key === "Escape" && !isEditing && replyingTo && onCancelReply) {
+      e.preventDefault()
+      onCancelReply()
     }
   }
 
@@ -341,8 +375,9 @@ export function MessageInput({
   }
 
   const canSend = isAudio ? selectedMedia : value.trim() || selectedMedia
-  const emojiPickerDisabled = disabled || isAudio
-  const canSchedule = !!onSchedule && !isEditing && !disabled && !!canSend
+  const emojiPickerDisabled = composerDisabled || isAudio
+  // Programar no cita: con una respuesta abierta se ofrece sólo el envío en vivo.
+  const canSchedule = !!onSchedule && !isEditing && !replyingTo && !composerDisabled && !!canSend
 
   const handleEmojiSelect = (emoji: string) => {
     const input = inputRef.current
@@ -439,13 +474,13 @@ export function MessageInput({
       label: t("chats.attachImage"),
       Icon: ImageIcon,
       tone: "bg-primary/10 text-primary",
-      disabled: disabled,
+      disabled: composerDisabled,
       onClick: () => {
         setIsActionsOpen(false)
         fileInputRef.current?.click()
       },
     },
-    ...(supportsTemplates && channelId && conversationId && onSendTemplate
+    ...(canOpenTemplates
       ? [{
           key: "template",
           label: t("chats.templates"),
@@ -463,8 +498,16 @@ export function MessageInput({
       label: "Compartir contactos",
       Icon: UserRound,
       tone: "bg-primary/10 text-primary",
-      disabled,
+      disabled: composerDisabled,
       onClick: () => { setIsActionsOpen(false); setIsContactShareOpen(true) },
+    }] : []),
+    ...(canSendFlows ? [{
+      key: "flow",
+      label: t("chats.flows.send"),
+      Icon: ClipboardList,
+      tone: "bg-primary/10 text-primary",
+      disabled,
+      onClick: () => { setIsActionsOpen(false); setIsFlowDialogOpen(true) },
     }] : []),
     {
       key: "emoji",
@@ -482,7 +525,7 @@ export function MessageInput({
       label: t("chats.translateAction"),
       Icon: Languages,
       tone: translatedLanguage ? "bg-primary/10 text-primary" : "bg-muted text-foreground",
-      disabled: disabled,
+      disabled: composerDisabled,
       onClick: () => {
         setIsActionsOpen(false)
         setIsTranslationSheetOpen(true)
@@ -504,7 +547,7 @@ export function MessageInput({
       label: t("chats.aiDraftGenerate"),
       Icon: Sparkles,
       tone: "bg-ai/10 text-ai",
-      disabled,
+      disabled: composerDisabled,
       onClick: () => {
         setIsActionsOpen(false)
         if (aiDraft?.status === "pending") onCancelAiDraft?.()
@@ -516,6 +559,14 @@ export function MessageInput({
 
   return (
     <div className="border-t border-border bg-card sticky bottom-0 md:relative">
+      {channelType != null && (windowStatus === "closed" || windowStatus === "human_agent") && (
+        <MessagingWindowBanner
+          status={windowStatus}
+          channelType={channelType}
+          humanAgentExpiresAt={humanAgentExpiresAt ?? null}
+          onOpenTemplates={canOpenTemplates ? () => setIsTemplateDialogOpen(true) : undefined}
+        />
+      )}
       {/* Edit mode banner */}
       {isEditing && (
         <div className="px-4 pt-3 flex items-center gap-2 text-sm text-muted-foreground">
@@ -527,6 +578,20 @@ export function MessageInput({
             onClick={onCancelEdit}
             className="shrink-0 hover:text-foreground transition-colors"
             aria-label={t("chats.cancelEditing")}
+          >
+            <X className="w-4 h-4" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
+      {replyingTo && !isEditing && (
+        <div className="px-4 pt-3 flex items-start gap-2">
+          <Reply className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <QuotedMessage quoted={toReplyPreview(replyingTo)} contactName={contactName} className="flex-1 min-w-0" />
+          <button
+            onClick={onCancelReply}
+            className="mt-1 shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+            aria-label={t("chats.cancelReply")}
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
@@ -682,7 +747,7 @@ export function MessageInput({
                 variant="ghost"
                 size="sm"
                 className="hidden shrink-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5"
-                disabled={disabled}
+                disabled={composerDisabled}
                 onClick={() => fileInputRef.current?.click()}
                 aria-label={t("chats.attachFile")}
               >
@@ -714,13 +779,27 @@ export function MessageInput({
                   </span>
                 </>
               )}
-              {supportsContactSharing && onShareContacts && (
+              {canSendFlows && (
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   className="hidden shrink-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5"
                   disabled={disabled}
+                  onClick={() => setIsFlowDialogOpen(true)}
+                  aria-label={t("chats.flows.send")}
+                  title={windowStatus === "closed" ? t("chats.flows.windowClosed") : t("chats.flows.send")}
+                >
+                  <ClipboardList className="w-4 h-4" />
+                </Button>
+              )}
+              {supportsContactSharing && onShareContacts && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="hidden shrink-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5"
+                  disabled={composerDisabled}
                   onClick={() => setIsContactShareOpen(true)}
                   aria-label="Compartir contactos"
                   title="Compartir contactos"
@@ -733,7 +812,7 @@ export function MessageInput({
                   <Button
                     variant="ghost"
                     size="sm"
-                    disabled={disabled}
+                    disabled={composerDisabled}
                     aria-label={t("chats.translateDraft")}
                     title={t("chats.translateDraft")}
                     className={`h-10 w-10 shrink-0 p-0 sm:inline-flex sm:h-8 sm:w-auto sm:px-2.5 ${
@@ -757,7 +836,7 @@ export function MessageInput({
                   variant="ghost"
                   size="sm"
                   className={`h-10 w-10 shrink-0 p-0 sm:h-8 sm:w-8 ${aiDraft?.content ? "bg-ai/10 text-ai hover:bg-ai/15 hover:text-ai" : ""}`}
-                  disabled={disabled}
+                  disabled={composerDisabled}
                   onClick={() => {
                     if (aiDraft?.status === "pending") onCancelAiDraft?.()
                     else if (aiDraft?.content) onUseAiDraft?.()
@@ -791,7 +870,7 @@ export function MessageInput({
               onBlur={() => requestAnimationFrame(closeHotkeyDropdown)}
               onKeyDown={handleKeyDown}
               onKeyUp={stopPropagation}
-              disabled={disabled || isAudio}
+              disabled={composerDisabled || isAudio}
             />
             {isHotkeyDropdownOpen && (
               <HotkeyAutocomplete
@@ -824,13 +903,13 @@ export function MessageInput({
           {supportsVoice && !isEditing && !selectedMedia && (
             <VoiceRecorder
               conversationId={conversationId}
-              disabled={disabled}
+              disabled={composerDisabled}
               canRecord={!value.trim()}
               onActiveChange={setIsVoiceComposerActive}
               onSend={(file) => onSend("", file, true)}
             />
           )}
-          {onSchedule && !isEditing && !isVoiceComposerActive && (
+          {onSchedule && !isEditing && !replyingTo && !isVoiceComposerActive && (
             <Popover open={isScheduleOpen} onOpenChange={setIsScheduleOpen}>
               <PopoverTrigger asChild>
                 <Button
@@ -854,14 +933,15 @@ export function MessageInput({
             size="sm"
             className="h-10 w-10 shrink-0 p-0 sm:h-8 sm:w-auto sm:px-3"
             onClick={handleSend}
-            disabled={disabled || !canSend}
+            disabled={composerDisabled || !canSend}
             aria-label={isEditing ? t("chats.save") : t("chats.send")}
           >
             {isEditing ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
           </Button>}
         </div>
       </div>
-      {supportsContactSharing && onShareContacts && <ContactShareDialog open={isContactShareOpen} onOpenChange={setIsContactShareOpen} onSend={onShareContacts} disabled={disabled} />}
+      {supportsContactSharing && onShareContacts && <ContactShareDialog open={isContactShareOpen} onOpenChange={setIsContactShareOpen} onSend={onShareContacts} disabled={composerDisabled} />}
+      {canSendFlows && channelId && onSendFlow && <FlowPickerDialog open={isFlowDialogOpen} onOpenChange={setIsFlowDialogOpen} channelId={channelId} onSend={onSendFlow} windowClosed={windowStatus === "closed"} disabled={disabled} />}
     </div>
   )
 }

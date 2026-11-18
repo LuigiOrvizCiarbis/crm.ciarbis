@@ -44,8 +44,9 @@ class AppointmentBookingService
         ?string $email,
         ?string $reason,
         bool $direct,
+        bool $viaFlow = false,
     ): Task {
-        $task = $this->ownerLock->run($owner->id, function (CalendarRequestBudget $budget) use ($conversation, $config, $owner, $start, $email, $reason, $direct) {
+        $task = $this->ownerLock->run($owner->id, function (CalendarRequestBudget $budget) use ($conversation, $config, $owner, $start, $email, $reason, $direct, $viaFlow) {
             $existing = $this->activeBooking($conversation);
 
             if ($existing) {
@@ -58,12 +59,15 @@ class AppointmentBookingService
 
             // Último chequeo antes de persistir: un humano pudo tomar la
             // conversación mientras el modelo generaba o se consultaba Google.
-            $autoreplyEnabled = Conversation::withoutGlobalScopes()
-                ->whereKey($conversation->id)
-                ->value('ai_autoreply_enabled');
+            // Un formulario de WhatsApp lo completa el cliente, no la IA.
+            if (! $viaFlow) {
+                $autoreplyEnabled = Conversation::withoutGlobalScopes()
+                    ->whereKey($conversation->id)
+                    ->value('ai_autoreply_enabled');
 
-            if (! $autoreplyEnabled) {
-                throw new AppointmentBookingException(AppointmentBookingException::HANDOFF);
+                if (! $autoreplyEnabled) {
+                    throw new AppointmentBookingException(AppointmentBookingException::HANDOFF);
+                }
             }
 
             $contact = $conversation->contact_id
@@ -71,7 +75,9 @@ class AppointmentBookingService
                 : null;
             $startsAt = $start->setTimezone(config('app.timezone'));
 
-            $description = 'Turno agendado por el asistente de IA desde la conversación.';
+            $description = $viaFlow
+                ? 'Turno agendado desde un formulario de WhatsApp.'
+                : 'Turno agendado por el asistente de IA desde la conversación.';
             if ($reason !== null && trim($reason) !== '') {
                 $description .= "\nMotivo: ".trim($reason);
             }

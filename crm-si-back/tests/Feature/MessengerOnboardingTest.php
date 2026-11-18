@@ -118,7 +118,8 @@ class MessengerOnboardingTest extends TestCase
 
             return in_array('messages', $fields, true)
                 && in_array('message_echoes', $fields, true)
-                && in_array('messaging_postbacks', $fields, true);
+                && in_array('messaging_postbacks', $fields, true)
+                && in_array('messaging_referrals', $fields, true);
         });
     }
 

@@ -1,4 +1,4 @@
-import { getAuthToken, workspaceHeaders } from "./auth-token";
+import { workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 
 export type ContactFieldType =
@@ -73,9 +73,7 @@ export interface ContactFieldsResponse {
 }
 
 function headers(): HeadersInit {
-  const token = getAuthToken();
   return {
-    Authorization: token ? `Bearer ${token}` : "",
     Accept: "application/json",
     "Content-Type": "application/json",
     ...workspaceHeaders(),
@@ -83,9 +81,6 @@ function headers(): HeadersInit {
 }
 
 export async function getContactFields(): Promise<ContactFieldsResponse> {
-  const token = getAuthToken();
-  if (!token) return { data: [], standard: [] };
-
   const response = await fetch("/api/contact-fields", {
     headers: headers(),
     cache: "no-store",

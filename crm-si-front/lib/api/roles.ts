@@ -1,5 +1,3 @@
-import { getAuthToken } from "./auth-token"
-
 export interface Role {
   id: number
   name: string
@@ -16,11 +14,8 @@ export interface PermissionGroup {
 }
 
 export async function getRoles(): Promise<Role[]> {
-  const token = getAuthToken()
-  if (!token) return []
-
   const res = await fetch("/api/roles", {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
 
@@ -30,13 +25,9 @@ export async function getRoles(): Promise<Role[]> {
 }
 
 export async function createRole(name: string, permissions: string[] = []): Promise<{ data?: Role; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch("/api/roles", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -52,13 +43,9 @@ export async function updateRole(
   id: number,
   payload: { name?: string; permissions?: string[] },
 ): Promise<{ data?: Role; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch(`/api/roles/${id}`, {
     method: "PATCH",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -71,12 +58,9 @@ export async function updateRole(
 }
 
 export async function deleteRole(id: number): Promise<{ error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch(`/api/roles/${id}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
   })
 
   if (!res.ok) {
@@ -87,11 +71,8 @@ export async function deleteRole(id: number): Promise<{ error?: string }> {
 }
 
 export async function getPermissions(): Promise<PermissionGroup[]> {
-  const token = getAuthToken()
-  if (!token) return []
-
   const res = await fetch("/api/permissions", {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
 
@@ -101,13 +82,9 @@ export async function getPermissions(): Promise<PermissionGroup[]> {
 }
 
 export async function assignUserRole(userId: number, roleName: string): Promise<{ data?: any; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch(`/api/users/${userId}/role`, {
     method: "PATCH",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },

@@ -1,4 +1,3 @@
-import { getAuthToken } from "./auth-token"
 import { throwApiError } from "./api-error"
 
 export interface MailIntake {
@@ -22,9 +21,7 @@ export interface MailIntake {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = getAuthToken()
-  if (!token) throw new Error("No authentication token found")
-  const response = await fetch(`/api/mail-intakes${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers }, cache: "no-store" })
+  const response = await fetch(`/api/mail-intakes${path}`, { ...init, headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers }, cache: "no-store" })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) throwApiError(response.status, payload, "Error al gestionar el email")
   return payload as T

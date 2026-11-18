@@ -143,6 +143,11 @@ class PermissionCatalog
                 'templates.delete',
                 'templates.send',
             ],
+            'flows' => [
+                'flows.view',
+                'flows.manage',
+                'flows.send',
+            ],
             'whatsapp_groups' => [
                 'whatsapp_groups.view',
                 'whatsapp_groups.create',
@@ -265,6 +270,7 @@ class PermissionCatalog
             'tags.view',
             'tags.attach',
             'templates.view',
+            'flows.view',
             'analytics.view',
             'branches.view_any',
             'branches.view',

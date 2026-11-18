@@ -23,6 +23,7 @@ class OpportunityController extends Controller
         'conversation.channel:id,name,type',
         'pipelineStage:id,name,sort_order,is_default',
         'pipeline:id,name,is_default',
+        'metaPurchaseEvent:id,opportunity_id,status,error,sent_at',
     ];
 
     public function index(Request $request): JsonResponse
@@ -187,7 +188,14 @@ class OpportunityController extends Controller
                 'integer',
                 Rule::exists('pipeline_stages', 'id')->where(fn ($query) => $query->where('tenant_id', $request->user()->tenant_id)),
             ],
+            // Monto cargado al mover a una etapa Ganado: entra en el mismo guardado
+            // para que la venta que se informa a Meta ya lo lleve.
+            'value' => ['sometimes', 'nullable', 'numeric', 'min:0'],
         ]);
+
+        if (array_key_exists('value', $validated)) {
+            $this->authorize('update', $opportunity);
+        }
 
         $stage = $this->resolveStage($validated);
         $pipeline = $this->resolvePipeline($validated, $stage);
@@ -198,6 +206,7 @@ class OpportunityController extends Controller
         $opportunity->update([
             'pipeline_id' => $pipeline->id,
             'pipeline_stage_id' => $stage->id,
+            ...array_intersect_key($validated, ['value' => true]),
         ]);
 
         $opportunity->load(self::EAGER_LOAD);

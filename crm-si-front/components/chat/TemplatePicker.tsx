@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import Link from "next/link"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -252,9 +253,14 @@ export function TemplatePicker({
               ) : filtered.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-muted-foreground text-sm gap-2">
                   <FileText className="w-8 h-8 opacity-50" aria-hidden="true" />
-                  {templates.length === 0
-                    ? "No hay plantillas. Hacé clic en Sincronizar."
-                    : "No se encontraron resultados"}
+                  {templates.length === 0 ? (
+                    <>
+                      <p>No hay plantillas aprobadas. Sincronizá o creá una en Difusiones.</p>
+                      <Link href="/difusiones" className="underline underline-offset-2 hover:text-foreground">
+                        Ir a Difusiones
+                      </Link>
+                    </>
+                  ) : "No se encontraron resultados"}
                 </div>
               ) : (
                 <div className="flex flex-col gap-2 pr-3">

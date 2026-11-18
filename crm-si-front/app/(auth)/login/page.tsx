@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Eye, EyeOff, Loader2, MessageSquare } from "lucide-react"
@@ -20,15 +20,30 @@ import {
 } from "@/components/ui/card"
 import { useAuthStore } from "@/store/useAuthStore"
 import { LanguageSwitcher } from "@/components/LanguageSwitcher"
-import { firstAccessibleSection } from "@/lib/section-access"
 import { clearWorkspaceId, setWorkspaceId } from "@/lib/api/auth-token"
+import { accountHomePath, switchToAccount } from "@/lib/account-session"
+import { SavedAccountSummary, useSavedAccounts } from "@/components/AccountSwitcherItems"
+
+const noopSubscribe = () => () => {}
 
 export default function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirectTo = searchParams.get("redirect")
   const { setAuth, setLoading, isLoading } = useAuthStore()
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+  const activeUser = useAuthStore((state) => state.user)
+  const activeEmailVerified = useAuthStore((state) => state.emailVerified)
+  const activePermissions = useAuthStore((state) => state.permissions)
+  const activeRole = useAuthStore((state) => state.role)
+  // Sin sesión activa, ?add=1 se ignora y es un login normal.
+  const isAddingAccount = searchParams.get("add") === "1" && isAuthenticated
   const { t } = useTranslation()
+  const savedAccounts = useSavedAccounts()
+  const [switchingUserId, setSwitchingUserId] = useState<number | null>(null)
+  // Las cuentas guardadas viven en localStorage: mostrarlas recién en el
+  // cliente evita que el HTML del servidor (sin cuentas) no coincida.
+  const isClient = useSyncExternalStore(noopSubscribe, () => true, () => false)
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -59,19 +74,32 @@ export default function LoginPage() {
       // anterior que haya quedado en este navegador.
       clearWorkspaceId()
       if (data.user?.tenant_id) setWorkspaceId(data.user.tenant_id)
-      setAuth(data.user, data.token, rememberMe, emailVerified, data.role ?? null, data.permissions ?? [])
+      setAuth(data.user, rememberMe, emailVerified, data.role ?? null, data.permissions ?? [])
 
-      if (redirectTo && redirectTo.startsWith("/")) {
-        router.push(redirectTo)
-      } else if (emailVerified) {
-        router.push(firstAccessibleSection(data.permissions ?? [], data.role ?? null)?.href ?? "/sin-acceso")
+      const destination = redirectTo && redirectTo.startsWith("/")
+        ? redirectTo
+        : accountHomePath({ emailVerified, permissions: data.permissions ?? [], role: data.role ?? null })
+      // Al agregar una cuenta, la anterior sigue viva en memoria (Pusher, stores):
+      // la recarga completa arranca todo con la sesión nueva.
+      if (isAddingAccount) {
+        window.location.assign(destination)
       } else {
-        router.push("/verify-email")
+        router.push(destination)
       }
     } catch (err: any) {
       setError(err.message || t("auth.error"))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleContinueAs = async (userId: number) => {
+    setError("")
+    setSwitchingUserId(userId)
+    // Si funciona, switchToAccount recarga la página en la cuenta elegida.
+    if (!(await switchToAccount(userId))) {
+      setError(t("auth.savedAccountUnavailable"))
+      setSwitchingUserId(null)
     }
   }
 
@@ -82,15 +110,44 @@ export default function LoginPage() {
           <MessageSquare className="w-6 h-6 text-primary" aria-hidden="true" />
         </div>
         <div>
-          <CardTitle className="text-2xl font-bold">{t("auth.title")}</CardTitle>
+          <CardTitle className="text-2xl font-bold">
+            {isAddingAccount ? t("auth.addAccountTitle") : t("auth.title")}
+          </CardTitle>
           <CardDescription className="mt-2">
-            {t("auth.subtitle")}
+            {isAddingAccount
+              ? t("auth.addAccountSubtitle", { email: activeUser?.email ?? "" })
+              : t("auth.subtitle")}
           </CardDescription>
         </div>
         <div className="flex justify-center">
           <LanguageSwitcher />
         </div>
       </CardHeader>
+
+      {isClient && !isAddingAccount && savedAccounts.length > 0 ? (
+        <CardContent className="space-y-3">
+          <p className="text-sm font-medium">{t("auth.savedAccountsTitle")}</p>
+          <ul className="space-y-2">
+            {savedAccounts.map((account) => (
+              <li key={account.user.id}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-auto w-full justify-start gap-3 py-2"
+                  disabled={switchingUserId !== null || isLoading}
+                  onClick={() => void handleContinueAs(account.user.id)}
+                >
+                  <SavedAccountSummary user={account.user} />
+                  {switchingUserId === account.user.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                  ) : null}
+                </Button>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-center text-muted-foreground">{t("auth.savedAccountsDivider")}</p>
+        </CardContent>
+      ) : null}
 
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
@@ -186,15 +243,24 @@ export default function LoginPage() {
             )}
           </Button>
 
-          <p className="text-sm text-center text-muted-foreground">
-            {t("auth.noAccount")}{" "}
+          {isAddingAccount ? (
             <Link
-              href="/register"
-              className="text-primary hover:text-primary/80 font-medium transition-colors"
+              href={accountHomePath({ emailVerified: activeEmailVerified, permissions: activePermissions, role: activeRole })}
+              className="text-sm text-center text-primary hover:text-primary/80 font-medium transition-colors"
             >
-              {t("auth.register")}
+              {t("auth.cancelAddAccount")}
             </Link>
-          </p>
+          ) : (
+            <p className="text-sm text-center text-muted-foreground">
+              {t("auth.noAccount")}{" "}
+              <Link
+                href="/register"
+                className="text-primary hover:text-primary/80 font-medium transition-colors"
+              >
+                {t("auth.register")}
+              </Link>
+            </p>
+          )}
         </CardFooter>
       </form>
 

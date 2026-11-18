@@ -153,8 +153,14 @@ final class RepeaterFieldSchema
         return $errors;
     }
 
-    /** @param array<string, mixed> $field @return list<string> */
-    private static function scalarErrors(mixed $value, array $field): array
+    /**
+     * Errores del valor de una celda según su subcampo (vacío es válido: lo
+     * obligatorio se revisa aparte). Lo usan también los formularios de WhatsApp.
+     *
+     * @param  array<string, mixed>  $field
+     * @return list<string>
+     */
+    public static function scalarErrors(mixed $value, array $field): array
     {
         if ($value === null || $value === '') {
             return [];

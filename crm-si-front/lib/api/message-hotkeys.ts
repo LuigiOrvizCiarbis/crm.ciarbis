@@ -1,5 +1,3 @@
-import { getAuthToken } from "./auth-token"
-
 export type MessageHotkeyScope = "tenant" | "personal"
 
 export interface MessageHotkey {
@@ -21,11 +19,8 @@ export interface MessageHotkeyInput {
 }
 
 export async function getMessageHotkeys(): Promise<MessageHotkey[]> {
-  const token = getAuthToken()
-  if (!token) return []
-
   const res = await fetch("/api/message-hotkeys", {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
 
@@ -37,13 +32,9 @@ export async function getMessageHotkeys(): Promise<MessageHotkey[]> {
 export async function createMessageHotkey(
   input: MessageHotkeyInput,
 ): Promise<{ data?: MessageHotkey; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch("/api/message-hotkeys", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -59,13 +50,9 @@ export async function updateMessageHotkey(
   id: number,
   input: Omit<MessageHotkeyInput, "scope">,
 ): Promise<{ data?: MessageHotkey; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch(`/api/message-hotkeys/${id}`, {
     method: "PUT",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -78,12 +65,9 @@ export async function updateMessageHotkey(
 }
 
 export async function deleteMessageHotkey(id: number): Promise<{ error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch(`/api/message-hotkeys/${id}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
   })
 
   if (!res.ok) {

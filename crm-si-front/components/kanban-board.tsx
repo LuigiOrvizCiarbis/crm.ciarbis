@@ -26,8 +26,10 @@ import { NewTaskModal } from "@/components/tasks/NewTaskModal"
 import { useAuthStore } from "@/store/useAuthStore"
 import { fetchPipelineStages } from "@/lib/api/pipeline"
 import { getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
+import { needsSaleValue, useSaleValueGuard } from "@/components/sale-value-guard"
 import { EMPTY_PIPELINE_FILTERS, hasActiveFilters, type PipelineFilters } from "@/components/pipeline-compact-header"
-import { Phone, Mail, Calendar, GripVertical, Clock, Loader2, TrendingUp, MessageSquare, ArrowRightLeft, Check, Columns3 } from "lucide-react"
+import { Phone, Mail, Calendar, GripVertical, Clock, Loader2, TrendingUp, MessageSquare, ArrowRightLeft, Check, Columns3, CheckCircle2, AlertCircle } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   DndContext,
   DragOverlay,
@@ -80,6 +82,54 @@ interface Opportunity {
       type: number
     } | null
   } | null
+  /** Venta informada a Meta; solo existe si el chat vino de un anuncio y la oportunidad se ganó. */
+  meta_purchase_event?: {
+    status: "pending" | "sending" | "sent" | "failed"
+    error: string | null
+    sent_at: string | null
+  } | null
+}
+
+// Motivos que guarda el backend como código; los demás son el mensaje de Meta.
+const META_ERROR_MESSAGES: Record<string, string> = {
+  missing_channel_credentials: "El canal de WhatsApp no tiene credenciales guardadas: reconectalo.",
+}
+
+/** Si la venta llegó a Meta. El motivo de un error se ve al pasar el puntero o enfocar la línea. */
+function MetaSaleStatus({ event }: { event: NonNullable<Opportunity["meta_purchase_event"]> }) {
+  if (event.status === "sent") {
+    return (
+      <p className="flex items-center gap-1 text-xs text-success">
+        <CheckCircle2 className="size-3 shrink-0" aria-hidden="true" />
+        <span className="truncate">
+          Venta informada a Meta{event.sent_at ? ` · ${formatShortDate(event.sent_at)}` : ""}
+        </span>
+      </p>
+    )
+  }
+
+  if (event.status === "failed") {
+    const reason = (event.error && META_ERROR_MESSAGES[event.error]) || event.error || "Meta no aceptó la venta."
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <p tabIndex={0} className="flex items-center gap-1 text-xs text-destructive outline-none focus-visible:underline">
+            <AlertCircle className="size-3 shrink-0" aria-hidden="true" />
+            <span className="truncate">No se pudo informar la venta a Meta</span>
+            <span className="sr-only">: {reason}</span>
+          </p>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs text-pretty">{reason}</TooltipContent>
+      </Tooltip>
+    )
+  }
+
+  return (
+    <p className="flex items-center gap-1 text-xs text-muted-foreground">
+      <Loader2 className="size-3 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+      <span className="truncate">Informando la venta a Meta…</span>
+    </p>
+  )
 }
 
 interface PipelineStage {
@@ -87,6 +137,7 @@ interface PipelineStage {
   name: string
   sort_order: number
   color?: string | null
+  outcome?: "won" | "lost" | null
 }
 
 interface Column {
@@ -94,6 +145,12 @@ interface Column {
   title: string
   opportunities: Opportunity[]
   color: string
+  outcome?: PipelineStage["outcome"]
+}
+
+const OUTCOME_BADGES: Partial<Record<Opportunity["status"], { variant: "success" | "error"; label: string }>> = {
+  won: { variant: "success", label: "Ganada" },
+  lost: { variant: "error", label: "Perdida" },
 }
 
 interface StageMoveContextValue {
@@ -214,6 +271,7 @@ function OpportunityCard({
   const valueFormatted = opportunity.value
     ? formatCompactCurrency(Number(opportunity.value))
     : "—"
+  const outcomeBadge = OUTCOME_BADGES[opportunity.status]
   const probability = getOpportunityProbability(opportunity)
   const score = getOpportunityScore(opportunity)
   const referenceDate = opportunity.conversation?.last_message_at || opportunity.last_activity_at
@@ -269,10 +327,17 @@ function OpportunityCard({
 
         <div className="space-y-2 mt-3">
           <div className="flex items-center justify-between gap-2">
-            <Badge variant="default" className={`inline-flex items-center gap-1 text-xs max-w-[9rem] ${sourceClassName}`}>
-              <PlatformIcon type={sourcePlatform} className="size-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">{sourceLabel}</span>
-            </Badge>
+            <div className="flex min-w-0 items-center gap-1">
+              <Badge variant="default" className={`inline-flex items-center gap-1 text-xs max-w-[9rem] ${sourceClassName}`}>
+                <PlatformIcon type={sourcePlatform} className="size-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{sourceLabel}</span>
+              </Badge>
+              {outcomeBadge && (
+                <Badge variant={outcomeBadge.variant} size="sm" className="shrink-0">
+                  {outcomeBadge.label}
+                </Badge>
+              )}
+            </div>
             <span className="text-sm font-bold text-foreground tabular-nums">{valueFormatted}</span>
           </div>
 
@@ -286,6 +351,8 @@ function OpportunityCard({
               <span>{formatShortDate(referenceDate)}</span>
             </div>
           </div>
+
+          {opportunity.meta_purchase_event && <MetaSaleStatus event={opportunity.meta_purchase_event} />}
 
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="truncate">{lastActivityText}</span>
@@ -633,6 +700,7 @@ export function KanbanBoard({
   const [meetingOpportunity, setMeetingOpportunity] = useState<Opportunity | null>(null)
   const currentUser = useAuthStore((state) => state.user)
   const { addToast } = useToast()
+  const { confirmSaleValue, dialog: saleValueDialog } = useSaleValueGuard()
   const isMobile = useIsMobile()
   // Oportunidad cuyo destino se elige en la hoja inferior (sólo teléfono).
   const [movingOpportunity, setMovingOpportunity] = useState<Opportunity | null>(null)
@@ -691,6 +759,7 @@ export function KanbanBoard({
           title: stage.name,
           opportunities: stageOpportunities,
           color: stage.color || fallbackColors[index % fallbackColors.length],
+          outcome: stage.outcome ?? null,
         }
       })
 
@@ -782,15 +851,36 @@ export function KanbanBoard({
       // "Sin asignar" no es una etapa real: no se puede mover hacia ahí.
       if (destColumn.id === 0) return
 
+      let value: number | undefined
+      if (needsSaleValue(destColumn.outcome, sourceOpportunity.value)) {
+        const decision = await confirmSaleValue(sourceOpportunity.contact.name)
+        if (!decision) return
+        value = decision.value
+      }
+
       // Optimista: la tarjeta queda en destino mientras guarda y vuelve si el servidor falla.
-      const movedOpportunity = { ...sourceOpportunity, pipeline_stage_id: destColumn.id }
+      const movedOpportunity = { ...sourceOpportunity, pipeline_stage_id: destColumn.id, ...(value !== undefined ? { value } : {}) }
       setColumns((prev) => relocateOpportunity(prev, movedOpportunity, sourceColumn.id, destColumn.id))
 
       try {
-        await updateOpportunityStage(opportunityId, destColumn.id, pipelineId)
+        const updated = await updateOpportunityStage(opportunityId, destColumn.id, pipelineId, value)
+        // El estado lo deriva el backend de la etapa (Ganado/Perdido cierran, salir reabre).
+        const status: Opportunity["status"] = updated?.status ?? sourceOpportunity.status
+        setColumns((prev) =>
+          prev.map((col) => ({
+            ...col,
+            opportunities: col.opportunities.map((item) => (item.id === opportunityId ? { ...item, status } : item)),
+          }))
+        )
+        const title =
+          status === "won" && sourceOpportunity.status !== "won"
+            ? "Oportunidad ganada"
+            : status === "lost" && sourceOpportunity.status !== "lost"
+              ? "Oportunidad perdida"
+              : "Oportunidad movida"
         addToast({
           type: "success",
-          title: "Oportunidad movida",
+          title,
           description: `${sourceOpportunity.contact.name} pasó a ${destColumn.title}.`,
         })
       } catch {
@@ -802,7 +892,7 @@ export function KanbanBoard({
         })
       }
     },
-    [columns, pipelineId, addToast]
+    [columns, pipelineId, addToast, confirmSaleValue]
   )
 
   const stageMoveContext = useMemo<StageMoveContextValue>(
@@ -1002,6 +1092,8 @@ export function KanbanBoard({
           </div>
         </SheetContent>
       </Sheet>
+
+      {saleValueDialog}
 
       {meetingOpportunity && (
         <NewTaskModal

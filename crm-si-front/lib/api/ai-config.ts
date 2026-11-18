@@ -1,5 +1,3 @@
-import { getAuthToken } from "./auth-token"
-
 export type AiProviderId = "claude" | "openai"
 
 export interface AiConfig {
@@ -8,6 +6,8 @@ export interface AiConfig {
   enabled: boolean
   human_handoff_enabled: boolean
   system_prompt: string | null
+  website_url: string | null
+  website_context: string | null
   has_api_key: boolean
 }
 
@@ -17,16 +17,15 @@ export interface AiConfigInput {
   enabled: boolean
   human_handoff_enabled?: boolean
   system_prompt?: string | null
+  website_url?: string | null
+  website_context?: string | null
   // Write-only: solo se manda si el usuario cargó una nueva key.
   api_key?: string
 }
 
 export async function getAiConfig(): Promise<AiConfig | null> {
-  const token = getAuthToken()
-  if (!token) return null
-
   const res = await fetch("/api/ai-config", {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
 
@@ -40,11 +39,8 @@ export async function getAiConfig(): Promise<AiConfig | null> {
  * Devuelve [] si no hay key cargada o si el proveedor no responde.
  */
 export async function getAiModels(): Promise<string[]> {
-  const token = getAuthToken()
-  if (!token) return []
-
   const res = await fetch("/api/ai-config/models", {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: { Accept: "application/json" },
     cache: "no-store",
   })
 
@@ -83,21 +79,9 @@ export interface AiTestInput {
  * backend, devuelve un resultado con error_code "unknown".
  */
 export async function testAiConfig(input: AiTestInput): Promise<AiTestResult> {
-  const token = getAuthToken()
-  if (!token) {
-    return {
-      ok: false,
-      prompt_tokens: null,
-      cache_min_tokens: null,
-      error_code: "unknown",
-      error_message: "No auth",
-    }
-  }
-
   const res = await fetch("/api/ai-config/test", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -124,13 +108,9 @@ export async function testAiConfig(input: AiTestInput): Promise<AiTestResult> {
 export async function updateAiConfig(
   input: AiConfigInput,
 ): Promise<{ data?: AiConfig; error?: string; modelVisionWarning?: string | null }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No auth" }
-
   const res = await fetch("/api/ai-config", {
     method: "PUT",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -140,6 +120,33 @@ export async function updateAiConfig(
   const json = await res.json().catch(() => ({}))
   if (!res.ok) return { error: extractError(json) }
   return { data: json.data, modelVisionWarning: json.model_vision_warning ?? null }
+}
+
+export interface WebsiteContextResult {
+  website_context: string
+  website_url: string
+  pages_read: string[]
+}
+
+/**
+ * Lee el sitio del tenant y devuelve un borrador de "información del sitio".
+ * No guarda nada: el texto se persiste con updateAiConfig.
+ */
+export async function generateWebsiteContext(
+  url: string,
+): Promise<{ data?: WebsiteContextResult; error?: string }> {
+  const res = await fetch("/api/ai-config/website-context", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ url }),
+  })
+
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) return { error: extractError(json) }
+  return { data: json.data }
 }
 
 export function extractError(json: any): string {

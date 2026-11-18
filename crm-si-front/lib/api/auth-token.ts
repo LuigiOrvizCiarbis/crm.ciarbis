@@ -1,13 +1,3 @@
-export function getAuthToken(): string | null {
-  const authStorage = localStorage.getItem("auth-storage");
-  if (!authStorage) return null;
-  try {
-    return JSON.parse(authStorage)?.state?.token ?? null;
-  } catch {
-    return null;
-  }
-}
-
 const WORKSPACE_KEY = "active-workspace-id"
 
 /** Contexto por pestaña; el cookie permite que los proxies Next lo reenvíen. */

@@ -1,4 +1,3 @@
-import { getAuthToken } from "./auth-token"
 import { throwApiError } from "./api-error"
 
 export type ManualAiDraft = {
@@ -12,11 +11,9 @@ export type ManualAiDraft = {
 }
 
 async function request<T>(conversationId: number, method: string, body?: unknown): Promise<T | null> {
-  const token = getAuthToken()
-  if (!token) throw new Error("Token faltante")
   const response = await fetch(`/api/conversations/${conversationId}/ai-draft`, {
     method,
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...(body ? { "Content-Type": "application/json" } : {}) },
+    headers: { Accept: "application/json", ...(body ? { "Content-Type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined,
     cache: "no-store",
   })

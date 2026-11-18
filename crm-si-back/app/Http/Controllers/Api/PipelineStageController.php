@@ -36,6 +36,7 @@ class PipelineStageController extends Controller
             'pipeline_id' => ['sometimes', 'integer', Rule::exists('pipelines', 'id')->where('tenant_id', $request->user()->tenant_id)],
             'color' => ['sometimes', 'string', 'regex:/^#([0-9A-Fa-f]{6})$/'],
             'win_probability' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:100'],
+            'outcome' => ['sometimes', 'nullable', Rule::in([PipelineStage::OUTCOME_WON, PipelineStage::OUTCOME_LOST])],
         ]);
 
         // Sin pipeline_id explícito la etapa va al pipeline predeterminado.
@@ -48,6 +49,7 @@ class PipelineStageController extends Controller
             'color' => $validated['color'] ?? '#3B82F6',
             'sort_order' => $maxOrder + 1,
             'win_probability' => $validated['win_probability'] ?? null,
+            'outcome' => $validated['outcome'] ?? null,
         ]);
 
         return response()->json($stage, 201);
@@ -64,6 +66,7 @@ class PipelineStageController extends Controller
             'color' => ['sometimes', 'string', 'regex:/^#([0-9A-Fa-f]{6})$/'],
             'sort_order' => 'sometimes|integer',
             'win_probability' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:100'],
+            'outcome' => ['sometimes', 'nullable', Rule::in([PipelineStage::OUTCOME_WON, PipelineStage::OUTCOME_LOST])],
         ]);
 
         // Un nombre elegido por el usuario gana sobre la plantilla mensual. El

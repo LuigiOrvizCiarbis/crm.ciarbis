@@ -73,7 +73,10 @@ class MessengerMessageService
         try {
             $message = $event['message'] ?? null;
             if (! is_array($message)) {
-                // Eventos de delivery/read/reaction/postback: fuera de alcance.
+                // Eventos de delivery/read/reaction/postback: fuera de alcance,
+                // salvo el referral de anuncio en un hilo ya existente.
+                $this->recordStandaloneAdReferral($entryId, $event);
+
                 return null;
             }
 
@@ -111,7 +114,7 @@ class MessengerMessageService
 
             $extracted = $this->extractContent($message, $tenantId);
 
-            return $this->createMessage([
+            $created = $this->createMessage([
                 'tenant_id' => $tenantId,
                 'conversation_id' => $conversation->getKey(),
                 'sender_type' => SenderType::CONTACT,
@@ -124,7 +127,14 @@ class MessengerMessageService
                 'direction' => $isEcho ? MessageDirection::OUTBOUND : MessageDirection::INBOUND,
                 'external_id' => $mid,
                 'delivered_at' => now(),
+                'reply_to_message_id' => Message::replyTargetIdByExternalId($conversation->getKey(), $message['reply_to']['mid'] ?? null),
             ], $isEcho);
+
+            if ($created && ! $isEcho) {
+                $this->recordMessageAdReferral($message, $event, $created, $contact, $conversation);
+            }
+
+            return $created;
         } catch (\Throwable $e) {
             Log::error('Error procesando mensaje de Messenger: '.$e->getMessage(), [
                 'entry_id' => $entryId,
@@ -132,6 +142,89 @@ class MessengerMessageService
 
             return null;
         }
+    }
+
+    /**
+     * Primer mensaje de un Click-to-Messenger: el anuncio viene en `message.referral`.
+     *
+     * @param  array<string, mixed>  $message
+     * @param  array<string, mixed>  $event
+     */
+    private function recordMessageAdReferral(array $message, array $event, Message $created, Contact $contact, Conversation $conversation): void
+    {
+        $recorder = app(AdReferralRecorder::class);
+        $attributes = $recorder->fromMetaMessaging((array) ($message['referral'] ?? []));
+        if ($attributes === null) {
+            return;
+        }
+
+        $recorder->record(
+            $attributes,
+            'facebook',
+            'facebook:'.($created->external_id ?? $created->id),
+            $contact,
+            $conversation,
+            $created,
+            $recorder->referredAtFromMillis($event['timestamp'] ?? null),
+        );
+    }
+
+    /**
+     * Un contacto que ya tenía hilo con la página y vuelve a entrar desde un
+     * anuncio dispara `messaging_referrals` (o `postback.referral` desde el
+     * botón Empezar) sin mensaje. Solo se registra sobre conversaciones
+     * existentes: no se crea una conversación vacía en la bandeja.
+     *
+     * @param  array<string, mixed>  $event
+     */
+    private function recordStandaloneAdReferral(?string $entryId, array $event): void
+    {
+        $referral = $event['referral'] ?? data_get($event, 'postback.referral');
+        if (! is_array($referral)) {
+            return;
+        }
+
+        $recorder = app(AdReferralRecorder::class);
+        $attributes = $recorder->fromMetaMessaging($referral);
+        if ($attributes === null) {
+            return;
+        }
+
+        $channel = $this->resolveChannel($entryId, $event['recipient']['id'] ?? null);
+        $psid = $event['sender']['id'] ?? null;
+        if (! $channel || ! $psid) {
+            return;
+        }
+
+        $contact = Contact::where('tenant_id', $channel->tenant_id)
+            ->where('source', 'facebook')
+            ->where('external_id', $psid)
+            ->first();
+        $conversation = $contact
+            ? Conversation::where('tenant_id', $channel->tenant_id)
+                ->where('contact_id', $contact->id)
+                ->where('channel_id', $channel->id)
+                ->first()
+            : null;
+
+        if (! $contact || ! $conversation) {
+            Log::info('Messenger referral sin conversación previa, ignorado', [
+                'psid' => $psid,
+                'channel_id' => $channel->id,
+            ]);
+
+            return;
+        }
+
+        $recorder->record(
+            $attributes,
+            'facebook',
+            'facebook:referral:'.$psid.':'.($event['timestamp'] ?? now()->getTimestampMs()),
+            $contact,
+            $conversation,
+            null,
+            $recorder->referredAtFromMillis($event['timestamp'] ?? null),
+        );
     }
 
     /**
@@ -459,6 +552,7 @@ class MessengerMessageService
         }
 
         try {
+            $message->loadReplyPreview();
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $messageData['tenant_id']));
         } catch (\Exception $e) {
@@ -557,7 +651,7 @@ class MessengerMessageService
         ];
     }
 
-    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user): Message
+    public function sendTextMessageFromCRM(Conversation $conversation, string $content, User $user, ?string $messageTag = null, ?Message $replyTo = null): Message
     {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -565,13 +659,15 @@ class MessengerMessageService
         $externalId = $this->postMessage($pageId, $token, [
             'recipient' => ['id' => $recipientId],
             'message' => ['text' => $content],
-        ]);
+            ...$this->replyToPayload($replyTo),
+        ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
             'content' => $content,
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
             'last_content' => $content,
+            'reply_to_message_id' => $replyTo?->id,
         ]);
     }
 
@@ -581,7 +677,9 @@ class MessengerMessageService
         string $mediaUrl,
         string $mimeType,
         ?string $caption,
-        User $user
+        User $user,
+        ?string $messageTag = null,
+        ?Message $replyTo = null,
     ): Message {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -597,7 +695,8 @@ class MessengerMessageService
                     ],
                 ],
             ],
-        ]);
+            ...$this->replyToPayload($replyTo),
+        ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
             'content' => $caption ?? '',
@@ -607,6 +706,7 @@ class MessengerMessageService
             'media_mime_type' => $mimeType,
             'media_filename' => basename($localMediaPath),
             'last_content' => '📷 '.($caption ?: 'Imagen'),
+            'reply_to_message_id' => $replyTo?->id,
         ]);
     }
 
@@ -615,7 +715,9 @@ class MessengerMessageService
         string $localMediaPath,
         string $mediaUrl,
         string $mimeType,
-        User $user
+        User $user,
+        ?string $messageTag = null,
+        ?Message $replyTo = null,
     ): Message {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -631,7 +733,8 @@ class MessengerMessageService
                     ],
                 ],
             ],
-        ]);
+            ...$this->replyToPayload($replyTo),
+        ], $messageTag);
 
         return $this->persistOutbound($conversation, $user, [
             'content' => '',
@@ -641,6 +744,7 @@ class MessengerMessageService
             'media_mime_type' => $mimeType,
             'media_filename' => basename($localMediaPath),
             'last_content' => '🎵 Audio',
+            'reply_to_message_id' => $replyTo?->id,
         ]);
     }
 
@@ -651,11 +755,10 @@ class MessengerMessageService
      * la ventana estándar de 24h, que cubre todo el flujo del CRM (el contacto
      * escribe, el agente o la IA responde).
      *
-     * $tag queda preparado para la tag HUMAN_AGENT (extiende la ventana a 7 días
-     * para respuestas manuales de un agente). Todavía nadie lo pasa: requiere el
-     * feature aprobado en App Review, y aplicarlo a la auto-respuesta de IA sería
-     * una violación de política de Meta. Cuando esté aprobado, gatear con
-     * config('services.messenger.human_agent_enabled') desde los send* de humano.
+     * $tag sólo llega en envíos inmediatos de una persona (HUMAN_AGENT, hasta 7
+     * días): lo decide MessagingWindowService::tagForHumanSend desde
+     * OutboundMessageSender. La IA, los programados y los mensajes de sistema
+     * nunca lo pasan, por política de Meta.
      *
      * @param  array<string, mixed>  $payload
      */
@@ -695,6 +798,19 @@ class MessengerMessageService
     }
 
     /**
+     * `reply_to.mid` de la Send API (hermano de recipient/message) para
+     * responder citando un mensaje.
+     *
+     * @return array<string, mixed>
+     */
+    private function replyToPayload(?Message $replyTo): array
+    {
+        return $replyTo?->external_id
+            ? ['reply_to' => ['mid' => $replyTo->external_id]]
+            : [];
+    }
+
+    /**
      * @param  array<string, mixed>  $data
      */
     private function persistOutbound(Conversation $conversation, User $user, array $data): Message
@@ -712,6 +828,7 @@ class MessengerMessageService
             'direction' => MessageDirection::OUTBOUND,
             'delivered_at' => now(),
             'external_id' => $data['external_id'],
+            'reply_to_message_id' => $data['reply_to_message_id'] ?? null,
         ]);
 
         $conversation->update([
@@ -723,6 +840,7 @@ class MessengerMessageService
         app(AiTypingIndicatorService::class)->stop($conversation->id);
 
         try {
+            $message->loadReplyPreview();
             broadcast(new MessageSent($message));
             broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
         } catch (\Exception $e) {

@@ -76,12 +76,14 @@ import {
 } from "@/components/ui/alert-dialog"
 
 import { sendMessage, sendContactsMessage, saveSharedContact, sendMailMessage, editMessage, deleteMessage, translateMessage, reactToMessage, type SendMailMessageInput } from "@/lib/api/messages"
+import { sendFlowMessage, type SendFlowInput } from "@/lib/api/whatsapp-flows"
 import { ConversationHeader } from "@/components/chat/ConversationHeader"
 import { PendingAiBookingsBanner } from "@/components/chat/PendingAiBookingsBanner"
 import { HumanHandoffBanner } from "@/components/chat/HumanHandoffBanner"
 import { MessageList } from "@/components/chat/MessageList"
 import { applyReactionToggle } from "@/components/chat/messageThreadUtils"
 import { MessageInput } from "@/components/chat/MessageInput"
+import { toReplyPreview } from "@/components/chat/QuotedMessage"
 import { MailMessageInput } from "@/components/chat/MailMessageInput"
 import { ConversationList } from "@/components/chat/ConversationList"
 import { FilteredConversationsHeader } from "@/components/chat/FilteredConversationsHeader"
@@ -94,6 +96,7 @@ import { ChannelHeader } from "@/components/chat/AccountHeader"
 import { useConversationFilters } from "@/hooks/useConversationFilters"
 import { TagFilterMenu } from "@/components/tags/TagFilterMenu"
 import { StageFilterMenu, matchesStageFilter, stageKeysOf } from "@/components/chat/StageFilterMenu"
+import { AdFilterMenu, adKeysOf, matchesAdFilter } from "@/components/chat/AdFilterMenu"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useSSEMessages, type MessageStatusUpdate, type MessageReactionUpdate, type HumanHandoffUpdate } from "@/hooks/useSSEMessages"
 import { useTenantSSE } from "@/hooks/useTenantSSE"
@@ -113,6 +116,7 @@ import { getMailIntakeCount } from "@/lib/api/mail-intakes"
 import { setActiveConversationId } from "@/lib/activeConversation"
 import { useNotificationsStore } from "@/store/useNotificationsStore"
 import { useScheduledMessages } from "@/hooks/useScheduledMessages"
+import { useMessagingWindowStatus } from "@/hooks/useMessagingWindowStatus"
 import { createScheduledMessage, supportsScheduledMessages } from "@/lib/api/scheduled-messages"
 import { ScheduledMessagesBar } from "@/components/chat/ScheduledMessagesBar"
 import { EmptyState } from "@/components/EmptyState"
@@ -165,6 +169,10 @@ function matchesConversationView(conversation: Conversation, view: ConversationV
  * conversaciones se filtran como "facebook" (que es el ChannelType).
  */
 type ConnectableChannel = "whatsapp" | "instagram" | "messenger" | "mail"
+
+type BroadcastTarget =
+  | { channelId: number; ids: number[]; skippedCount: number }
+  | { error: "mixedChannels" | "noWhatsApp" }
 
 /**
  * Canales conectables. Está acá y se mapea en los 3 menús (desktop, móvil y
@@ -366,6 +374,7 @@ export default function ChatsPage() {
   const [activeFilter, setActiveFilter] = useState<FilterType>("todos")
   const [tagFilterSlugs, setTagFilterSlugs] = useState<string[]>([])
   const [stageFilter, setStageFilter] = useState<string[]>([])
+  const [adFilter, setAdFilter] = useState<string[]>([])
   const [viewType, setViewType] = useState<ConversationView>("inbox")
   const [mailReviewCount, setMailReviewCount] = useState(0)
   const [searchQuery, setSearchQuery] = useState("")
@@ -510,6 +519,32 @@ export default function ChatsPage() {
   const hasMoreConversationsRef = useRef(false)
   const isLoadingMoreConversationsRef = useRef(false)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
+  // Mensaje citado por el próximo envío en vivo (texto/imagen/audio).
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null)
+  // Estado vigente para los callbacks de envíos en vuelo, que cierran sobre valores viejos.
+  const selectedConversationIdRef = useRef(selectedConversationId)
+  const editingMessageRef = useRef(editingMessage)
+  useEffect(() => {
+    selectedConversationIdRef.current = selectedConversationId
+    editingMessageRef.current = editingMessage
+  }, [selectedConversationId, editingMessage])
+
+  /**
+   * Vuelve a citar tras un envío fallido, salvo que el usuario ya haya seguido:
+   * eligió otra cita, está editando o cambió de conversación.
+   */
+  const restoreReplyTarget = useCallback((target: Message | null) => {
+    if (!target || editingMessageRef.current) return
+    if (target.conversation_id !== selectedConversationIdRef.current) return
+    setReplyingTo((current) => current ?? target)
+  }, [])
+
+  /** Cierra la cita abierta tras un envío que no la usa (plantilla, contactos, flow), si sigue siendo la misma. */
+  const dropReplyTarget = useCallback((target: Message | null) => {
+    if (!target) return
+    setReplyingTo((current) => (current?.id === target.id ? null : current))
+  }, [])
+
   const [aiDraft, setAiDraft] = useState<ManualAiDraft | null>(null)
 
   const [selectionMode, setSelectionMode] = useState(false)
@@ -651,10 +686,15 @@ export default function ChatsPage() {
     [normalizeIncomingTemplateContent]
   );
 
+  // Declarado antes de handleRealTimeMessage: su lista de deps lo referencia.
+  const scheduledMessages = useScheduledMessages(selectedConversationId);
+  const { noteInbound } = scheduledMessages;
+  const windowStatus = useMessagingWindowStatus(scheduledMessages.window);
 
   const handleRealTimeMessage = useCallback((newMessage: Message) => {
     if (newMessage.direction === "inbound" && selectedConversationId === newMessage.conversation_id) {
       setAiDraft(null)
+      noteInbound(newMessage)
     }
     // 1. Actualizar el chat abierto (si coincide el ID)
     if (selectedConversationId === newMessage.conversation_id) {
@@ -719,7 +759,7 @@ export default function ChatsPage() {
       newConversations.splice(index, 1);
       return [updatedConversation, ...newConversations];
     });
-  }, [getRealtimeMessagePreview, normalizeIncomingTemplateContent, selectedConversationId]);
+  }, [getRealtimeMessagePreview, normalizeIncomingTemplateContent, selectedConversationId, noteInbound]);
 
   const handleRealTimeEdit = useCallback((updatedMsg: Message) => {
     setCurrentConversation((prev) =>
@@ -728,6 +768,7 @@ export default function ChatsPage() {
         content: updatedMsg.content,
         edited_at: updatedMsg.edited_at,
         original_content: updatedMsg.original_content ?? m.original_content,
+        interactive: updatedMsg.interactive ?? m.interactive,
       })),
     );
   }, []);
@@ -782,8 +823,6 @@ export default function ChatsPage() {
     setCurrentConversation((prev) => (prev && prev.id === data.conversation_id ? patch(prev) : prev));
     setConversations((prev) => prev.map((c) => (c.id === data.conversation_id ? patch(c) : c)));
   }, []);
-
-  const scheduledMessages = useScheduledMessages(selectedConversationId);
 
   useSSEMessages({
     conversationId: selectedConversationId,
@@ -904,27 +943,45 @@ export default function ChatsPage() {
   })
 
   const tagFilteredConversations = useMemo(() => {
-    if (tagFilterSlugs.length === 0 && stageFilter.length === 0) return filteredConversations
+    if (tagFilterSlugs.length === 0 && stageFilter.length === 0 && adFilter.length === 0) return filteredConversations
 
     const selected = new Set(tagFilterSlugs)
     const stages = new Set(stageFilter)
+    const ads = new Set(adFilter)
     return filteredConversations.filter((conversation) => (
       (selected.size === 0 || conversation.tags?.some((tag) => selected.has(tag.slug)))
       && matchesStageFilter(conversation, stages)
+      && matchesAdFilter(conversation, ads)
     ))
-  }, [filteredConversations, tagFilterSlugs, stageFilter])
+  }, [filteredConversations, tagFilterSlugs, stageFilter, adFilter])
 
   // Chats por etapa con todos los filtros menos el de etapas: lo que mostraría elegirla.
   const stageFilterCounts = useMemo(() => {
     const selectedTags = new Set(tagFilterSlugs)
+    const ads = new Set(adFilter)
     const counts = new Map<string, number>()
     filteredConversations.forEach((conversation) => {
       if (selectedTags.size > 0 && !conversation.tags?.some((tag) => selectedTags.has(tag.slug))) return
+      if (!matchesAdFilter(conversation, ads)) return
       if (!matchesConversationView(conversation, viewType)) return
       stageKeysOf(conversation).forEach((key) => counts.set(key, (counts.get(key) ?? 0) + 1))
     })
     return counts
-  }, [filteredConversations, tagFilterSlugs, viewType])
+  }, [filteredConversations, tagFilterSlugs, adFilter, viewType])
+
+  // Chats por anuncio con todos los filtros menos el de anuncios: lo que mostraría elegirlo.
+  const adFilterCounts = useMemo(() => {
+    const selectedTags = new Set(tagFilterSlugs)
+    const stages = new Set(stageFilter)
+    const counts = new Map<string, number>()
+    filteredConversations.forEach((conversation) => {
+      if (selectedTags.size > 0 && !conversation.tags?.some((tag) => selectedTags.has(tag.slug))) return
+      if (!matchesStageFilter(conversation, stages)) return
+      if (!matchesConversationView(conversation, viewType)) return
+      adKeysOf(conversation).forEach((key) => counts.set(key, (counts.get(key) ?? 0) + 1))
+    })
+    return counts
+  }, [filteredConversations, tagFilterSlugs, stageFilter, viewType])
 
   const conversationViewCounts = useMemo(() => ({
     inbox: tagFilteredConversations.filter((conversation) => matchesConversationView(conversation, "inbox")).length,
@@ -995,6 +1052,7 @@ export default function ChatsPage() {
     const visibleIds = new Set(visibleConversations.map((c) => c.id))
     const tagSet = new Set(tagFilterSlugs)
     const stageSet = new Set(stageFilter)
+    const adSet = new Set(adFilter)
     const targetType = filterTypeToChannelType(activeFilter)
     const matchingChannelIds = targetType
       ? new Set(channels.filter((ch) => ch.type === targetType).map((ch) => ch.id))
@@ -1005,9 +1063,10 @@ export default function ChatsPage() {
       if (matchingChannelIds && !matchingChannelIds.has(conversation.channelId)) return false
       if (tagSet.size > 0 && !conversation.tags?.some((tag) => tagSet.has(tag.slug))) return false
       if (!matchesStageFilter(conversation, stageSet)) return false
+      if (!matchesAdFilter(conversation, adSet)) return false
       return matchesConversationView(conversation, viewType)
     })
-  }, [messageSearchResults, visibleConversations, searchQuery, activeFilter, channels, tagFilterSlugs, stageFilter, viewType])
+  }, [messageSearchResults, visibleConversations, searchQuery, activeFilter, channels, tagFilterSlugs, stageFilter, adFilter, viewType])
 
   // Channels and the first lightweight cursor page are independent.
   useEffect(() => {
@@ -1088,12 +1147,14 @@ export default function ChatsPage() {
   useEffect(() => {
     if (!selectedConversationId) {
       setCurrentConversation(null);
+      setReplyingTo(null);
       setAiDraft(null);
       return;
     }
 
     // Clear stale data immediately so we never show conversation A under conversation B's header
     setCurrentConversation(null);
+    setReplyingTo(null);
     setConversationLoadError(null);
     setLoadMoreMessagesFailed(false);
 
@@ -1407,6 +1468,9 @@ export default function ChatsPage() {
     if (!selectedConversationId) return;
     const conversationId = selectedConversationId;
     const previousLastMessage = conversationsRef.current.find((c) => c.id === conversationId)?.last_message;
+    // La plantilla no cita: se cierra la respuesta abierta y vuelve si el envío falla.
+    const replyTarget = replyingTo;
+    dropReplyTarget(replyTarget);
 
     const tempId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticMessage: any = {
@@ -1437,6 +1501,7 @@ export default function ChatsPage() {
 
     // Igual que con los mensajes de texto: si falla, el optimista se quita del hilo.
     return () => {
+      restoreReplyTarget(replyTarget);
       setCurrentConversation((prev) => (
         prev && prev.id === conversationId
           ? { ...prev, messages: (prev.messages || []).filter((m) => String(m.id) !== tempId) }
@@ -1450,6 +1515,7 @@ export default function ChatsPage() {
   };
 
   const handleEditMessage = useCallback((msg: Message) => {
+    setReplyingTo(null);
     setEditingMessage(msg);
     setMessage(msg.content || "");
   }, []);
@@ -1458,6 +1524,14 @@ export default function ChatsPage() {
     setEditingMessage(null);
     setMessage("");
   }, []);
+
+  const handleReplyMessage = useCallback((msg: Message) => {
+    if (editingMessage) setMessage("");
+    setEditingMessage(null);
+    setReplyingTo(msg);
+  }, [editingMessage]);
+
+  const handleCancelReply = useCallback(() => setReplyingTo(null), []);
 
   const handleSaveEdit = async (content: string) => {
     if (!editingMessage) return;
@@ -1663,9 +1737,11 @@ export default function ChatsPage() {
     if (!selectedConversationId) return;
 
     const textToSend = content;
+    const replyTarget = replyingTo;
     const mediaType = media?.type.startsWith("audio/") ? "audio" : media ? "image" : "text";
 
     setMessage("");
+    setReplyingTo(null);
 
     const tempId = `temp-${Date.now()}-${Math.random()}`;
     const optimisticMessage: any = {
@@ -1680,6 +1756,8 @@ export default function ChatsPage() {
       direction: "outbound",
       sender_type: "user",
       sender_id: currentUserId,
+      reply_to_message_id: replyTarget?.id ?? null,
+      reply_to: replyTarget ? toReplyPreview(replyTarget) : null,
     };
 
     setCurrentConversation((prev) => {
@@ -1708,7 +1786,7 @@ export default function ChatsPage() {
     });
 
     try {
-      const savedMessage = await sendMessage(selectedConversationId, textToSend, media, voice);
+      const savedMessage = await sendMessage(selectedConversationId, textToSend, media, voice, replyTarget?.id);
 
       setCurrentConversation((prev) => {
         if (!prev) return prev;
@@ -1770,6 +1848,7 @@ export default function ChatsPage() {
       });
 
       setMessage(textToSend);
+      restoreReplyTarget(replyTarget);
 
       setCurrentConversation((prev) => {
         if (!prev) return prev;
@@ -1817,8 +1896,10 @@ export default function ChatsPage() {
 
   const handleShareContacts = async (contactIds: number[]) => {
     if (!selectedConversationId) return
+    const replyTarget = replyingTo
     try {
       const savedMessage = await sendContactsMessage(selectedConversationId, contactIds)
+      dropReplyTarget(replyTarget)
       setCurrentConversation((prev) => prev ? { ...prev, aiAutoreplyEnabled: false, messages: [...(prev.messages || []), savedMessage] } : prev)
       setConversations((prev) => {
         const index = prev.findIndex((conversation) => conversation.id === selectedConversationId)
@@ -1832,6 +1913,24 @@ export default function ChatsPage() {
     } catch (error) {
       addToast({ type: "error", title: t("chats.contactsSendError"), description: error instanceof Error ? error.message : undefined })
     }
+  }
+
+  const handleSendFlow = async (input: SendFlowInput) => {
+    if (!selectedConversationId) return
+    const conversationId = selectedConversationId
+    const replyTarget = replyingTo
+    const savedMessage = await sendFlowMessage(conversationId, input)
+    dropReplyTarget(replyTarget)
+    setCurrentConversation((prev) => prev && prev.id === conversationId ? { ...prev, aiAutoreplyEnabled: false, messages: [...(prev.messages || []), savedMessage] } : prev)
+    setConversations((prev) => {
+      const index = prev.findIndex((conversation) => conversation.id === conversationId)
+      if (index < 0) return prev
+      const next = [...prev]
+      const current = next[index]
+      next.splice(index, 1)
+      return [{ ...current, last_message: savedMessage.content, updated_at: savedMessage.created_at, aiAutoreplyEnabled: false }, ...next]
+    })
+    addToast({ type: "success", title: t("chats.flows.sent") })
   }
 
   const handleSaveSharedContact = useCallback(async (message: Message, index: number) => {
@@ -2084,42 +2183,43 @@ export default function ChatsPage() {
     [visibleConversations, selectedConversationIds],
   )
 
-  // Canal representativo de la selección para difusión. Las plantillas son por
-  // NÚMERO de WhatsApp (whatsapp_config), no por canal: varios canales pueden
-  // compartir config, así que se compara por config id (igual que el backend).
-  // null si mezclan números o si algún id seleccionado no está en el estado
-  // local (nunca calcular sobre un subconjunto y abrir el diálogo por accidente).
-  const selectedCommonChannelId = useMemo(() => {
-    if (selectedConversationIds.size === 0) return null
+  // Destinatarios de la difusión: sólo las conversaciones de WhatsApp de la
+  // selección; las de otros canales (o no cargadas en el estado local) se
+  // omiten y el diálogo lo avisa. Las plantillas son por NÚMERO de WhatsApp
+  // (whatsapp_config), no por canal: varios canales pueden compartir config,
+  // así que se compara por config id (igual que el backend).
+  const broadcastTarget = useMemo((): BroadcastTarget => {
     const conversationById = new Map(conversations.map((c) => [c.id, c]))
     const configByChannelId = new Map(
       channels.map((ch) => [ch.id, ch.whatsapp_config?.id ?? null]),
     )
     let commonConfigId: number | null = null
-    let representativeChannelId: number | null = null
+    let channelId: number | null = null
+    const ids: number[] = []
     for (const id of selectedConversationIds) {
       const conversation = conversationById.get(id)
-      const channelId = conversation?.channel?.id ?? conversation?.channelId
-      if (channelId === undefined || channelId === null) return null
-      const configId = configByChannelId.get(channelId)
-      if (configId === undefined || configId === null) return null
+      const conversationChannelId = conversation?.channel?.id ?? conversation?.channelId
+      const configId = conversationChannelId == null ? null : configByChannelId.get(conversationChannelId) ?? null
+      if (configId === null) continue
       if (commonConfigId === null) {
         commonConfigId = configId
-        representativeChannelId = channelId
+        channelId = conversationChannelId ?? null
       } else if (commonConfigId !== configId) {
-        return null
+        return { error: "mixedChannels" }
       }
+      ids.push(id)
     }
-    return representativeChannelId
+    if (channelId === null) return { error: "noWhatsApp" }
+    return { channelId, ids, skippedCount: selectedConversationIds.size - ids.length }
   }, [selectedConversationIds, conversations, channels])
 
   const handleBroadcastClick = useCallback(() => {
-    if (selectedCommonChannelId === null) {
-      addToast({ type: "info", title: t("chats.broadcast.errors.mixedChannels") })
+    if ("error" in broadcastTarget) {
+      addToast({ type: "info", title: t(`chats.broadcast.errors.${broadcastTarget.error}`) })
       return
     }
     setBroadcastOpen(true)
-  }, [selectedCommonChannelId, addToast, t])
+  }, [broadcastTarget, addToast, t])
 
   const viewOptions: { key: ConversationView; label: string; title: string; count: number }[] = [
     { key: "inbox", label: t("chats.views.inbox"), title: t("chats.views.inbox"), count: conversationViewCounts.inbox },
@@ -2211,6 +2311,13 @@ export default function ChatsPage() {
           selected={stageFilter}
           onChange={setStageFilter}
           counts={stageFilterCounts}
+          resultCount={visibleConversations.length}
+          onShowResults={() => setIsChannelsSheetOpen(false)}
+        />
+        <AdFilterMenu
+          selected={adFilter}
+          onChange={setAdFilter}
+          counts={adFilterCounts}
           resultCount={visibleConversations.length}
           onShowResults={() => setIsChannelsSheetOpen(false)}
         />
@@ -2542,7 +2649,7 @@ export default function ChatsPage() {
                 emptyState={
                   searchQuery
                     ? { title: t("chats.noSearchResults"), description: t("chats.noSearchResultsDesc") }
-                    : tagFilterSlugs.length > 0 || stageFilter.length > 0 || groupsOnly
+                    : tagFilterSlugs.length > 0 || stageFilter.length > 0 || groupsOnly || adFilter.length > 0
                     ? {
                         title: t("chats.noSearchResults"),
                         description: t("chats.noFilterMatchesDesc"),
@@ -2552,6 +2659,7 @@ export default function ChatsPage() {
                             setTagFilterSlugs([])
                             setStageFilter([])
                             setGroupsOnly(false)
+                            setAdFilter([])
                           },
                         },
                       }
@@ -2576,6 +2684,9 @@ export default function ChatsPage() {
                 onRenameGroup={handleRenameGroup}
                 onToggleAiAutoreply={handleToggleAiAutoreply}
                 onSearchMessages={() => handleThreadSearchOpenChange(true)}
+                // El detalle es más reciente que la tarjeta: si el contacto vuelve a entrar por otro anuncio,
+                // la lista no se entera hasta recargar.
+                adReferral={currentConversation.id === activeConversation.id ? currentConversation.adReferral ?? null : null}
               />
               {currentConversation?.id === selectedConversationId && (
                 <HumanHandoffBanner
@@ -2641,6 +2752,8 @@ export default function ChatsPage() {
                 onEditMessage={handleEditMessage}
                 onDeleteMessage={handleDeleteMessage}
                 onReactMessage={handleReactToMessage}
+                onReplyMessage={handleReplyMessage}
+                contactName={activeConversation?.contact?.name}
                 onSaveContact={handleSaveSharedContact}
                 currentUserId={currentUserId}
                 isAdmin={isAdmin}
@@ -2669,7 +2782,7 @@ export default function ChatsPage() {
                 <>
                 <ScheduledMessagesBar
                   items={scheduledMessages.items}
-                  windowExpiresAt={scheduledMessages.windowExpiresAt}
+                  windowExpiresAt={scheduledMessages.window?.expiresAt ?? null}
                   currentUserId={currentUserId}
                   onChanged={scheduledMessages.upsert}
                   onRemoved={scheduledMessages.remove}
@@ -2684,10 +2797,18 @@ export default function ChatsPage() {
                   supportsVoice={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   supportsContactSharing={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   onShareContacts={handleShareContacts}
+                  supportsFlows={activeConversation?.channel?.type === ChannelType.WHATSAPP}
+                  onSendFlow={handleSendFlow}
                   onSchedule={supportsScheduledMessages(activeConversation?.channel?.type) ? handleScheduleMessage : undefined}
-                  windowExpiresAt={scheduledMessages.windowExpiresAt}
+                  windowExpiresAt={scheduledMessages.window?.expiresAt ?? null}
+                  windowStatus={windowStatus}
+                  humanAgentExpiresAt={scheduledMessages.window?.humanAgentExpiresAt ?? null}
+                  channelType={activeConversation?.channel?.type}
                   editingMessage={editingMessage}
                   onCancelEdit={handleCancelEdit}
+                  replyingTo={replyingTo}
+                  onCancelReply={handleCancelReply}
+                  contactName={activeConversation?.contact?.name}
                   expansionContext={hotkeyExpansionContext}
                   contactLanguage={(currentConversation ?? activeConversation)?.contactLanguage ?? "es"}
                   onContactLanguageChange={handleTranslationLanguageChange}
@@ -2814,8 +2935,9 @@ export default function ChatsPage() {
       <BroadcastDialog
         open={broadcastOpen}
         onOpenChange={setBroadcastOpen}
-        selectedIds={Array.from(selectedConversationIds)}
-        channelId={selectedCommonChannelId}
+        selectedIds={"error" in broadcastTarget ? [] : broadcastTarget.ids}
+        skippedCount={"error" in broadcastTarget ? 0 : broadcastTarget.skippedCount}
+        channelId={"error" in broadcastTarget ? null : broadcastTarget.channelId}
         onSuccess={() => {
           refreshConversations()
           handleExitSelectionMode()

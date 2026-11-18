@@ -1,16 +1,11 @@
-import { getAuthToken } from "./auth-token"
 import type { NavigationLabels } from "@/data/navigation"
 
 export async function updateNavigationLabels(
   labels: NavigationLabels,
 ): Promise<{ labels?: NavigationLabels; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No autenticado" }
-
   const response = await fetch("/api/navigation-labels", {
     method: "PUT",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },

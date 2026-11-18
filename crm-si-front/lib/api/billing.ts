@@ -1,4 +1,4 @@
-import { getAuthToken, workspaceHeaders } from "./auth-token";
+import { workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 
 export interface BillingConfig {
@@ -44,11 +44,8 @@ export interface BillingTemplateDraft {
 }
 
 export async function getBillingConfig(): Promise<BillingConfig> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const res = await fetch("/api/billing-config", {
-    headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+    headers: { ...workspaceHeaders() },
     cache: "no-store",
   });
   const data = await res.json().catch(() => ({}));
@@ -57,11 +54,8 @@ export async function getBillingConfig(): Promise<BillingConfig> {
 }
 
 export async function getBillingTemplateDrafts(): Promise<BillingTemplateDraft[]> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-
   const res = await fetch("/api/billing-config/template-drafts", {
-    headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+    headers: { ...workspaceHeaders() },
     cache: "no-store",
   });
   const data = await res.json().catch(() => ({}));

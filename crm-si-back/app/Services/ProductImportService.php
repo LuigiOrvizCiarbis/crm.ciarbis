@@ -8,10 +8,11 @@ use App\Models\ProductField;
 use App\Models\ProductImport;
 use App\Support\ProductFieldRegistry;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class ProductImportService
@@ -27,13 +28,19 @@ class ProductImportService
         if (! is_int($identifierColumn)) {
             throw ValidationException::withMessages(['mapping' => 'Debes mapear la columna usada como identificador.']);
         }
-        $seen = []; $duplicates = [];
+        $seen = [];
+        $duplicates = [];
         foreach ($dataRows as $offset => $row) {
             $value = $this->normalize((string) ($row[$identifierColumn] ?? ''));
-            if ($value === '') continue;
-            if (isset($seen[$value])) $duplicates[] = $offset + (($mapping['has_headers'] ?? true) ? 2 : 1);
+            if ($value === '') {
+                continue;
+            }
+            if (isset($seen[$value])) {
+                $duplicates[] = $offset + (($mapping['has_headers'] ?? true) ? 2 : 1);
+            }
             $seen[$value] = true;
         }
+
         return [
             'total_rows' => count($dataRows),
             'sample_rows' => array_slice($dataRows, 0, 5),
@@ -54,6 +61,7 @@ class ProductImportService
                 $import->mode, $import->match_field, $import->preserve_empty,
             );
             $import->update(['mapping' => $mapping]);
+
             return $result;
         });
     }
@@ -72,10 +80,18 @@ class ProductImportService
     private function processRows(array $rows, array $mapping, int $tenantId, int $userId, string $mode, string $matchField, bool $preserveEmpty): array
     {
         $hasHeaders = ($mapping['has_headers'] ?? true) !== false;
-        if ($hasHeaders) array_shift($rows);
+        if ($hasHeaders) {
+            array_shift($rows);
+        }
         $fields = ProductField::forTenant($tenantId)->keyBy('key');
         $existing = $this->existingIndex($tenantId, $matchField);
-        $seen = []; $created = 0; $updated = 0; $duplicates = 0; $errors = 0; $errorRows = [];
+        $seen = [];
+        $created = 0;
+        $updated = 0;
+        $duplicates = 0;
+        $errors = 0;
+        $errorRows = [];
+        $wooManagedKeys = null;
 
         foreach ($rows as $offset => $row) {
             $rowNumber = $offset + ($hasHeaders ? 2 : 1);
@@ -84,10 +100,16 @@ class ProductImportService
                 ? $this->normalize($values['name'])
                 : $this->normalize((string) ($values['custom'][Str::after($matchField, 'custom:')] ?? ''));
             if ($identity === '') {
-                $errors++; $errorRows[] = ['row' => $rowNumber, 'reason' => 'Falta el identificador seleccionado']; continue;
+                $errors++;
+                $errorRows[] = ['row' => $rowNumber, 'reason' => 'Falta el identificador seleccionado'];
+
+                continue;
             }
             if (isset($seen[$identity])) {
-                $errors++; $errorRows[] = ['row' => $rowNumber, 'reason' => 'Identificador repetido dentro del archivo']; continue;
+                $errors++;
+                $errorRows[] = ['row' => $rowNumber, 'reason' => 'Identificador repetido dentro del archivo'];
+
+                continue;
             }
             $seen[$identity] = true;
             $product = $existing[$identity] ?? null;
@@ -95,19 +117,40 @@ class ProductImportService
             if ($validationError !== null) {
                 $errors++;
                 $errorRows[] = ['row' => $rowNumber, 'reason' => $validationError];
+
                 continue;
             }
             if ($values['name'] === '' && ! $product) {
-                $errors++; $errorRows[] = ['row' => $rowNumber, 'reason' => 'Nombre vacío']; continue;
+                $errors++;
+                $errorRows[] = ['row' => $rowNumber, 'reason' => 'Nombre vacío'];
+
+                continue;
             }
-            if (mb_strlen($values['name']) > 150) {
-                $errors++; $errorRows[] = ['row' => $rowNumber, 'reason' => 'Nombre excede 150 caracteres']; continue;
+            if (mb_strlen($values['name']) > Product::NAME_MAX_LENGTH) {
+                $errors++;
+                $errorRows[] = ['row' => $rowNumber, 'reason' => 'Nombre excede '.Product::NAME_MAX_LENGTH.' caracteres'];
+
+                continue;
             }
-            if ($product && $mode === 'create') { $duplicates++; continue; }
-            if (! $product && $mode === 'update') { $duplicates++; continue; }
+            if ($product && $mode === 'create') {
+                $duplicates++;
+
+                continue;
+            }
+            if (! $product && $mode === 'update') {
+                $duplicates++;
+
+                continue;
+            }
             if ($product) {
-                $this->updateProduct($product, $values, $mapping, $preserveEmpty);
+                // Lo que trae el sync de WooCommerce se edita en la tienda: el
+                // import solo actualiza los datos propios del CRM.
+                $lockedKeys = $product->source === WooCommerceCatalogWriter::SOURCE
+                    ? ($wooManagedKeys ??= WooCommerceCatalogWriter::managedKeys($tenantId))
+                    : [];
+                $this->updateProduct($product, $values, $mapping, $preserveEmpty, $lockedKeys);
                 $updated++;
+
                 continue;
             }
             Product::withoutGlobalScopes()->create([
@@ -117,6 +160,7 @@ class ProductImportService
             ]);
             $created++;
         }
+
         return ['imported' => $created, 'created' => $created, 'updated' => $updated, 'duplicates' => $duplicates,
             'errors' => $errors, 'error_rows' => array_slice($errorRows, 0, 50),
             'total' => $created + $updated + $duplicates + $errors];
@@ -125,7 +169,7 @@ class ProductImportService
     /**
      * Validates source values before any coercion can reach create/update.
      *
-     * @param  \Illuminate\Support\Collection<string, ProductField>  $fields
+     * @param  Collection<string, ProductField>  $fields
      * @param  array<string, mixed>  $values
      * @param  array<string, mixed>  $mapping
      */
@@ -163,6 +207,7 @@ class ProductImportService
                 if ($field->is_required) {
                     return "{$field->label} es requerido";
                 }
+
                 continue;
             }
 
@@ -191,20 +236,26 @@ class ProductImportService
         return null;
     }
 
-    /** @param \Illuminate\Support\Collection<string, ProductField> $fields
+    /** @param Collection<string, ProductField> $fields
      * @return array{name:string,price:float|null,description:string|null,is_active:bool,custom:array<string,mixed>,raw:array<string,string>}
      */
     private function rowValues(array $row, array $mapping, $fields): array
     {
         $raw = fn (string $key): string => isset($mapping[$key]) && is_int($mapping[$key]) ? trim((string) ($row[$mapping[$key]] ?? '')) : '';
-        $custom = []; $customRaw = [];
+        $custom = [];
+        $customRaw = [];
         foreach ((array) ($mapping['custom'] ?? []) as $key => $column) {
-            if (! is_int($column) || ! isset($fields[$key])) continue;
+            if (! is_int($column) || ! isset($fields[$key])) {
+                continue;
+            }
             $value = trim((string) ($row[$column] ?? ''));
             $customRaw[$key] = $value;
             $custom[$key] = $value === '' ? null : $this->castValue($value, $fields[$key]);
         }
-        $price = $raw('price'); $description = $raw('description'); $active = $raw('is_active');
+        $price = $raw('price');
+        $description = $raw('description');
+        $active = $raw('is_active');
+
         return [
             'name' => $raw('name'), 'price' => $price === '' ? null : (float) $this->normalizePrice($price),
             'description' => $description === '' ? null : $description,
@@ -214,19 +265,29 @@ class ProductImportService
         ];
     }
 
-    private function updateProduct(Product $product, array $values, array $mapping, bool $preserveEmpty): void
+    /** @param list<string> $lockedKeys columnas o claves de custom_data que no se tocan */
+    private function updateProduct(Product $product, array $values, array $mapping, bool $preserveEmpty, array $lockedKeys): void
     {
         $payload = [];
-        foreach (['name', 'price', 'description', 'is_active'] as $field) {
-            if (! isset($mapping[$field]) || ($preserveEmpty && ($values['raw'][$field] ?? '') === '')) continue;
+        foreach (array_diff(['name', 'price', 'description', 'is_active'], $lockedKeys) as $field) {
+            if (! isset($mapping[$field]) || ($preserveEmpty && ($values['raw'][$field] ?? '') === '')) {
+                continue;
+            }
             $payload[$field] = $values[$field];
         }
         $custom = $product->custom_data ?? [];
-        foreach ($values['custom'] as $key => $value) {
-            if (! ($preserveEmpty && ($values['raw'][$key] ?? '') === '')) $custom[$key] = $value;
+        $importedCustom = array_diff_key($values['custom'], array_flip($lockedKeys));
+        foreach ($importedCustom as $key => $value) {
+            if (! ($preserveEmpty && ($values['raw'][$key] ?? '') === '')) {
+                $custom[$key] = $value;
+            }
         }
-        if ($values['custom'] !== []) $payload['custom_data'] = $custom;
-        if ($payload !== []) $product->update($payload);
+        if ($importedCustom !== []) {
+            $payload['custom_data'] = $custom;
+        }
+        if ($payload !== []) {
+            $product->update($payload);
+        }
     }
 
     /** @return array<string, Product> */
@@ -235,27 +296,42 @@ class ProductImportService
         $index = [];
         foreach (Product::withoutGlobalScopes()->where('tenant_id', $tenantId)->get() as $product) {
             $value = $matchField === 'name' ? $product->name : data_get($product->custom_data, Str::after($matchField, 'custom:'));
-            if (is_scalar($value) && (string) $value !== '') $index[$this->normalize((string) $value)] = $product;
+            if (is_scalar($value) && (string) $value !== '') {
+                $index[$this->normalize((string) $value)] = $product;
+            }
         }
+
         return $index;
     }
 
     /** @return array<string, mixed> */
     private function resolveProposedFields(ProductImport $import): array
     {
-        $mapping = $import->mapping; $custom = (array) ($mapping['custom'] ?? []); $created = [];
+        $mapping = $import->mapping;
+        $custom = (array) ($mapping['custom'] ?? []);
+        $created = [];
         foreach ((array) $import->proposed_fields as $proposal) {
-            if (! is_array($proposal)) continue;
-            $id = (string) ($proposal['id'] ?? ''); $label = trim((string) ($proposal['label'] ?? ''));
+            if (! is_array($proposal)) {
+                continue;
+            }
+            $id = (string) ($proposal['id'] ?? '');
+            $label = trim((string) ($proposal['label'] ?? ''));
             $type = ContactFieldType::tryFrom((string) ($proposal['type'] ?? 'text'));
-            if ($id === '' || $label === '' || ! $type) throw ValidationException::withMessages(['mapping' => 'Hay un campo nuevo inválido.']);
+            if ($id === '' || $label === '' || ! $type) {
+                throw ValidationException::withMessages(['mapping' => 'Hay un campo nuevo inválido.']);
+            }
             $field = $this->findOrCreateField($import->tenant_id, $label, $type, (array) ($proposal['options'] ?? []), (bool) ($proposal['is_unique'] ?? false));
             foreach ($custom as $key => $column) {
-                if ($key === "proposed:{$id}") { unset($custom[$key]); $custom[$field->key] = $column; }
+                if ($key === "proposed:{$id}") {
+                    unset($custom[$key]);
+                    $custom[$field->key] = $column;
+                }
             }
             $created[] = ['key' => $field->key, 'label' => $field->label, 'type' => $field->type->value];
         }
-        $mapping['custom'] = $custom; $import->update(['created_fields' => $created]);
+        $mapping['custom'] = $custom;
+        $import->update(['created_fields' => $created]);
+
         return $mapping;
     }
 
@@ -263,13 +339,22 @@ class ProductImportService
     {
         $existing = ProductField::withTrashed()->where('tenant_id', $tenantId)->get()
             ->first(fn (ProductField $field): bool => $this->normalize($field->label) === $this->normalize($label));
-        if ($existing && ! $existing->trashed() && $existing->type === $type) return $existing;
-        if ($existing) throw ValidationException::withMessages(['mapping' => "El campo '{$label}' ya existe con otro tipo."]);
+        if ($existing && ! $existing->trashed() && $existing->type === $type) {
+            return $existing;
+        }
+        if ($existing) {
+            throw ValidationException::withMessages(['mapping' => "El campo '{$label}' ya existe con otro tipo."]);
+        }
         if (in_array($type, [ContactFieldType::Select, ContactFieldType::MultiSelect], true) && empty($options['choices'])) {
             throw ValidationException::withMessages(['mapping' => "El campo '{$label}' requiere opciones."]);
         }
-        $base = substr(Str::slug($label, '_') ?: 'field', 0, 50); $key = $base; $suffix = 1;
-        while (in_array($key, ProductFieldRegistry::reservedKeys(), true) || ProductField::withTrashed()->where('tenant_id', $tenantId)->where('key', $key)->exists()) $key = $base.'_'.++$suffix;
+        $base = substr(Str::slug($label, '_') ?: 'field', 0, 50);
+        $key = $base;
+        $suffix = 1;
+        while (in_array($key, ProductFieldRegistry::reservedKeys(), true) || ProductField::withTrashed()->where('tenant_id', $tenantId)->where('key', $key)->exists()) {
+            $key = $base.'_'.++$suffix;
+        }
+
         return ProductField::create(['tenant_id' => $tenantId, 'key' => $key, 'label' => $label, 'type' => $type,
             'options' => $type->requiresOptions() ? $options : null, 'is_required' => false, 'is_unique' => $isUnique,
             'display_order' => (int) ProductField::withoutGlobalScopes()->where('tenant_id', $tenantId)->max('display_order') + 1]);
@@ -279,12 +364,20 @@ class ProductImportService
     private function readRows(string $path): array
     {
         $handle = fopen($path, 'r');
-        if ($handle === false) throw new \RuntimeException('No se pudo abrir el archivo de importación.');
-        $first = fgets($handle); rewind($handle);
+        if ($handle === false) {
+            throw new \RuntimeException('No se pudo abrir el archivo de importación.');
+        }
+        $first = fgets($handle);
+        rewind($handle);
         $delimiter = $first !== false && substr_count($first, ';') > substr_count($first, ',') ? ';' : ',';
         $rows = [];
-        while (($row = fgetcsv($handle, 0, $delimiter)) !== false) if (array_filter($row, fn ($v) => trim((string) $v) !== '') !== []) $rows[] = $row;
+        while (($row = fgetcsv($handle, 0, $delimiter)) !== false) {
+            if (array_filter($row, fn ($v) => trim((string) $v) !== '') !== []) {
+                $rows[] = $row;
+            }
+        }
         fclose($handle);
+
         return $rows;
     }
 
@@ -297,8 +390,22 @@ class ProductImportService
             default => $value,
         };
     }
+
     /** @return list<string> */
-    private function booleanValues(): array { return ['1', '0', 'true', 'false', 'si', 'sí', 'no', 'yes', 'activo', 'inactivo', 'active', 'inactive']; }
-    private function normalizePrice(string $value): string { $value = preg_replace('/[^0-9,.-]/', '', $value) ?? ''; return str_contains($value, ',') && str_contains($value, '.') ? str_replace(',', '.', str_replace('.', '', $value)) : str_replace(',', '.', $value); }
-    private function normalize(string $value): string { return mb_strtolower(trim($value)); }
+    private function booleanValues(): array
+    {
+        return ['1', '0', 'true', 'false', 'si', 'sí', 'no', 'yes', 'activo', 'inactivo', 'active', 'inactive'];
+    }
+
+    private function normalizePrice(string $value): string
+    {
+        $value = preg_replace('/[^0-9,.-]/', '', $value) ?? '';
+
+        return str_contains($value, ',') && str_contains($value, '.') ? str_replace(',', '.', str_replace('.', '', $value)) : str_replace(',', '.', $value);
+    }
+
+    private function normalize(string $value): string
+    {
+        return mb_strtolower(trim($value));
+    }
 }

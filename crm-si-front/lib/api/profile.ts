@@ -1,4 +1,3 @@
-import { getAuthToken } from "./auth-token"
 import type { User } from "@/store/useAuthStore"
 
 export interface ProfileUpdateInput {
@@ -30,9 +29,8 @@ function extractError(payload: any, fallback: string): string {
   return String(firstError || payload?.message || fallback)
 }
 
-function authHeaders(token: string, json = true): HeadersInit {
+function authHeaders(json = true): HeadersInit {
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
     Accept: "application/json",
   }
   if (json) headers["Content-Type"] = "application/json"
@@ -40,12 +38,9 @@ function authHeaders(token: string, json = true): HeadersInit {
 }
 
 export async function updateProfile(input: ProfileUpdateInput): Promise<{ data?: User; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No autenticado" }
-
   const response = await fetch("/api/profile", {
     method: "PUT",
-    headers: authHeaders(token),
+    headers: authHeaders(),
     body: JSON.stringify(input),
   })
   const payload = await response.json().catch(() => ({}))
@@ -62,12 +57,9 @@ export async function updatePassword(input: {
   password: string
   password_confirmation: string
 }): Promise<{ error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No autenticado" }
-
   const response = await fetch("/api/profile/password", {
     method: "PUT",
-    headers: authHeaders(token),
+    headers: authHeaders(),
     body: JSON.stringify(input),
   })
   const payload = await response.json().catch(() => ({}))
@@ -82,12 +74,9 @@ export async function updatePassword(input: {
 export async function updatePreferences(
   input: ProfilePreferences,
 ): Promise<{ data?: ProfilePreferences; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No autenticado" }
-
   const response = await fetch("/api/profile/preferences", {
     method: "PUT",
-    headers: authHeaders(token),
+    headers: authHeaders(),
     body: JSON.stringify(input),
   })
   const payload = await response.json().catch(() => ({}))
@@ -100,15 +89,11 @@ export async function updatePreferences(
 }
 
 export async function uploadAvatar(file: File): Promise<{ avatar_url?: string; error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No autenticado" }
-
   const formData = new FormData()
   formData.append("avatar", file)
 
   const response = await fetch("/api/profile/avatar", {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
     body: formData,
   })
   const payload = await response.json().catch(() => ({}))
@@ -121,12 +106,9 @@ export async function uploadAvatar(file: File): Promise<{ avatar_url?: string; e
 }
 
 export async function deleteAvatar(): Promise<{ error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No autenticado" }
-
   const response = await fetch("/api/profile/avatar", {
     method: "DELETE",
-    headers: authHeaders(token, false),
+    headers: authHeaders(false),
   })
 
   if (!response.ok) {
@@ -138,11 +120,8 @@ export async function deleteAvatar(): Promise<{ error?: string }> {
 }
 
 export async function getSessions(): Promise<ProfileSession[]> {
-  const token = getAuthToken()
-  if (!token) return []
-
   const response = await fetch("/api/profile/sessions", {
-    headers: authHeaders(token, false),
+    headers: authHeaders(false),
     cache: "no-store",
   })
   if (!response.ok) return []
@@ -152,12 +131,9 @@ export async function getSessions(): Promise<ProfileSession[]> {
 }
 
 export async function revokeSession(id: number): Promise<{ error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No autenticado" }
-
   const response = await fetch(`/api/profile/sessions/${id}`, {
     method: "DELETE",
-    headers: authHeaders(token, false),
+    headers: authHeaders(false),
   })
 
   if (!response.ok) {
@@ -169,12 +145,9 @@ export async function revokeSession(id: number): Promise<{ error?: string }> {
 }
 
 export async function revokeOtherSessions(): Promise<{ error?: string }> {
-  const token = getAuthToken()
-  if (!token) return { error: "No autenticado" }
-
   const response = await fetch("/api/profile/sessions", {
     method: "DELETE",
-    headers: authHeaders(token, false),
+    headers: authHeaders(false),
   })
 
   if (!response.ok) {

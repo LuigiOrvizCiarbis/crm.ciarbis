@@ -17,9 +17,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, Tags, FileText, Paperclip, RotateCcw, Trash2, Pencil } from "lucide-react"
-import type { RangeFilterValue } from "./contacts/RangeFilterMenu"
+import { contactFiltersToParams, EMPTY_CONTACT_FILTERS, hasActiveContactFilters, type ContactFilters } from "./contacts/contactFilters"
+import { ActiveFiltersBar } from "./contacts/ActiveFiltersBar"
 import { BulkFieldsDialog } from "./contacts/bulk-fields-dialog"
-import { getAuthToken, getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
+import { getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
 import { ContactPipelineDialog } from "@/components/contact-pipeline-dialog"
 import { updateContact, type ContactAvatar as ContactAvatarPayload, type ContactAvatarSource, type ContactUpdate } from "@/lib/api/contacts"
 import { ContactAvatarActions } from "@/components/contact-avatar-actions"
@@ -239,25 +240,17 @@ function exportContactsCsv(contacts: Contact[]): void {
 }
 
 interface ContactsListProps {
-  searchTerm?: string
-  onSearchTermChange?: (value: string) => void
-  sourceFilter?: string
-  tagFilterSlugs?: string[]
-  customRangeFilter?: Record<string, RangeFilterValue>
-  audience?: "all" | "clients"
+  filters: ContactFilters
+  onFiltersChange: (filters: ContactFilters) => void
   /** Avisa que se crearon, editaron, borraron o importaron contactos (p. ej. para refrescar métricas). */
   onContactsChanged?: () => void
 }
 
 export function ContactsList({
-  searchTerm = "",
-  onSearchTermChange,
-  sourceFilter = "all",
-  tagFilterSlugs = [],
-  customRangeFilter = {},
-  audience = "all",
+  filters,
+  onFiltersChange,
   onContactsChanged,
-}: ContactsListProps = {}) {
+}: ContactsListProps) {
   const { t } = useTranslation()
   const router = useRouter()
   const workspaceId = getWorkspaceId()
@@ -479,20 +472,12 @@ export function ContactsList({
   }
 
   const listCriteria = useMemo(() => {
-    const queryParams = new URLSearchParams()
-    if (searchTerm) queryParams.append("search", searchTerm)
-    if (sourceFilter !== "all") queryParams.append("source", sourceFilter)
-    if (tagFilterSlugs.length > 0) queryParams.append("tags", tagFilterSlugs.join(","))
-    for (const [key, range] of Object.entries(customRangeFilter)) {
-      if (range.from) queryParams.append(`custom_range[${key}][from]`, range.from)
-      if (range.to) queryParams.append(`custom_range[${key}][to]`, range.to)
-    }
-    if (audience === "clients") queryParams.append("billing", "clients")
+    const queryParams = contactFiltersToParams(filters)
     queryParams.append("per_page", String(perPage))
     queryParams.append("sort_by", sortField)
     queryParams.append("sort_dir", sortDirection)
     return queryParams.toString()
-  }, [searchTerm, sourceFilter, tagFilterSlugs, customRangeFilter, audience, perPage, sortField, sortDirection])
+  }, [filters, perPage, sortField, sortDirection])
 
   const contactsQuery = useMemo(() => `${listCriteria}&page=${page}`, [listCriteria, page])
 
@@ -503,9 +488,8 @@ export function ContactsList({
     setLoading(true)
     setError(null)
     try {
-      const token = getAuthToken()
       const response = await fetch(`/api/contacts?${contactsQuery}`, {
-        headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+        headers: workspaceHeaders(),
         signal: controller.signal,
       })
       if (!response.ok) throw new Error("No se pudieron cargar los contactos.")
@@ -587,12 +571,10 @@ export function ContactsList({
     const method = isEdit ? "PUT" : "POST"
 
     try {
-      const token = getAuthToken()
       const response = await fetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
           ...workspaceHeaders(),
         },
         body: JSON.stringify({
@@ -665,10 +647,9 @@ export function ContactsList({
     if (!deleteContact) return
     setDeleting(true)
     try {
-      const token = getAuthToken()
       const response = await fetch(`/api/contacts/${deleteContact.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+        headers: workspaceHeaders(),
       })
       if (!response.ok) throw new Error(String(response.status))
       setDeleteContact(null)
@@ -685,12 +666,11 @@ export function ContactsList({
     if (ids.length === 0) return
     setBulkDeleting(true)
     try {
-      const token = getAuthToken()
       const results = await Promise.allSettled(
         ids.map((id) =>
           fetch(`/api/contacts/${id}`, {
             method: "DELETE",
-            headers: { Authorization: `Bearer ${token}`, ...workspaceHeaders() },
+            headers: workspaceHeaders(),
           }).then((response) => {
             if (!response.ok) throw new Error(String(response.status))
             return response
@@ -730,12 +710,8 @@ export function ContactsList({
   const filteredContacts = contacts
   const isInitialLoading = loading && contacts.length === 0 && !error
   // Distingue "no hay resultados para estos filtros" de "todavía no hay contactos".
-  const hasActiveFilters =
-    Boolean(searchTerm) ||
-    sourceFilter !== "all" ||
-    tagFilterSlugs.length > 0 ||
-    Object.values(customRangeFilter).some((range) => Boolean(range.from || range.to)) ||
-    audience === "clients"
+  const hasActiveFilters = hasActiveContactFilters(filters)
+  const onlySearchActive = hasActiveFilters && !hasActiveContactFilters({ ...filters, search: "" })
 
   const renderCell = (contact: Contact, columnId: ColumnId): React.ReactNode => {
     switch (columnId) {
@@ -1096,15 +1072,13 @@ export function ContactsList({
       <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
       {hasActiveFilters ? (
         <>
-          <h3 className="text-lg font-medium text-foreground mb-2">No se encontraron contactos</h3>
+          <h3 className="text-lg font-medium text-foreground mb-2">{t("contactsPage.filters.active.noResults")}</h3>
           <p className="text-muted-foreground">
-            {searchTerm ? "Probá con otros términos de búsqueda o ajustá los filtros." : "Probá ajustando o quitando los filtros."}
+            {filters.search ? "Probá con otros términos de búsqueda o ajustá los filtros." : "Probá ajustando o quitando los filtros."}
           </p>
-          {searchTerm && onSearchTermChange ? (
-            <Button variant="outline" className="mt-4" onClick={() => onSearchTermChange("")}>
-              Limpiar búsqueda
-            </Button>
-          ) : null}
+          <Button variant="outline" className="mt-4" onClick={() => onFiltersChange(EMPTY_CONTACT_FILTERS)}>
+            {onlySearchActive ? "Limpiar búsqueda" : t("contactsPage.filters.active.clearAll")}
+          </Button>
         </>
       ) : (
         <>
@@ -1120,6 +1094,14 @@ export function ContactsList({
 
   return (
     <div className="space-y-3">
+      <ActiveFiltersBar
+        filters={filters}
+        onChange={onFiltersChange}
+        fields={contactFields}
+        total={paginationMeta.total}
+        loading={loading}
+      />
+
       {/* Sin tarjeta: es la cabecera de la tabla, no un bloque aparte. */}
       <DataTablePagination
         page={paginationMeta.current_page}

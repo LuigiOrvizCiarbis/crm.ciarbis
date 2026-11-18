@@ -18,10 +18,12 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Mockery;
+use Tests\Concerns\ReceivesInboundMessages;
 use Tests\TestCase;
 
 class WhatsAppVoiceMessageTest extends TestCase
 {
+    use ReceivesInboundMessages;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -205,6 +207,9 @@ class WhatsAppVoiceMessageTest extends TestCase
             'source' => strtolower($type->value),
             'external_id' => 'CONTACT_'.uniqid(),
         ]);
-        return [$user, Conversation::create(['tenant_id' => $tenant->id, 'channel_id' => $channel->id, 'contact_id' => $contact->id, 'status' => 'open'])];
+        $conversation = Conversation::create(['tenant_id' => $tenant->id, 'channel_id' => $channel->id, 'contact_id' => $contact->id, 'status' => 'open']);
+        $this->receiveInbound($conversation);
+
+        return [$user, $conversation];
     }
 }

@@ -352,7 +352,7 @@ function StageTrack({ stages, selectedSet }: { stages: PipelineStage[]; selected
   )
 }
 
-function CheckBox({ state, color }: { state: "on" | "off" | "mixed"; color?: string }) {
+export function CheckBox({ state, color }: { state: "on" | "off" | "mixed"; color?: string }) {
   return (
     <span
       className={cn(

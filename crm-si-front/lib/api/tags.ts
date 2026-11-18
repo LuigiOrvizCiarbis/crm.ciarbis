@@ -1,5 +1,5 @@
 import { throwApiError } from "./api-error";
-import { getAuthToken, workspaceHeaders } from "./auth-token";
+import { workspaceHeaders } from "./auth-token";
 
 export interface Tag {
   id: number;
@@ -44,17 +44,10 @@ export interface TagInput {
   description?: string | null;
 }
 
-function requireToken(): string {
-  const token = getAuthToken();
-  if (!token) throw new Error("No authentication token found");
-  return token;
-}
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...options,
     headers: {
-      Authorization: `Bearer ${requireToken()}`,
       Accept: "application/json",
       "Content-Type": "application/json",
       ...workspaceHeaders(),
@@ -108,7 +101,7 @@ export async function updateTag(tagId: number, input: Partial<TagInput>): Promis
 export async function deleteTag(tagId: number): Promise<void> {
   const response = await fetch(`/api/tags/${tagId}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${requireToken()}`, Accept: "application/json", ...workspaceHeaders() },
+    headers: { Accept: "application/json", ...workspaceHeaders() },
     cache: "no-store",
   });
   const payload = await response.json().catch(() => ({}));

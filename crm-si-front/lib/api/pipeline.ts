@@ -1,4 +1,3 @@
-import { getAuthToken } from "./auth-token";
 
 export interface PipelineStage {
   id: number
@@ -9,6 +8,8 @@ export interface PipelineStage {
   is_default: boolean
   /** Probabilidad de cierre (0 a 100) para proyectar ingresos; null si no se definió. */
   win_probability: number | null
+  /** Resultado que fija la etapa a sus oportunidades; null = en curso. */
+  outcome: "won" | "lost" | null
 }
 
 export interface Pipeline {
@@ -18,9 +19,8 @@ export interface Pipeline {
   opportunities_count?: number
 }
 
-function authHeaders(token: string): HeadersInit {
+function authHeaders(): HeadersInit {
   return {
-    Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
 }
@@ -31,19 +31,15 @@ function apiErrorMessage(payload: { message?: string; errors?: Record<string, st
 }
 
 export async function getPipelines(): Promise<Pipeline[]> {
-  const token = getAuthToken()
-  if (!token) return []
-  const res = await fetch("/api/pipelines", { headers: authHeaders(token), cache: "no-store" })
+  const res = await fetch("/api/pipelines", { headers: authHeaders(), cache: "no-store" })
   if (!res.ok) throw new Error("No se pudieron cargar los embudos")
   return res.json()
 }
 
 export async function createPipeline(name: string, stages?: { name: string; color: string }[]): Promise<Pipeline> {
-  const token = getAuthToken()
-  if (!token) throw new Error("No autenticado")
   const res = await fetch("/api/pipelines", {
     method: "POST",
-    headers: authHeaders(token),
+    headers: authHeaders(),
     body: JSON.stringify(stages?.length ? { name, stages } : { name }),
   })
   const payload = await res.json().catch(() => ({}))
@@ -52,30 +48,22 @@ export async function createPipeline(name: string, stages?: { name: string; colo
 }
 
 export async function updatePipeline(id: number, data: { name?: string; is_default?: boolean }): Promise<Pipeline> {
-  const token = getAuthToken()
-  if (!token) throw new Error("No autenticado")
-  const res = await fetch(`/api/pipelines/${id}`, { method: "PUT", headers: authHeaders(token), body: JSON.stringify(data) })
+  const res = await fetch(`/api/pipelines/${id}`, { method: "PUT", headers: authHeaders(), body: JSON.stringify(data) })
   const payload = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(apiErrorMessage(payload, "No se pudo actualizar el embudo"))
   return payload
 }
 
 export async function deletePipeline(id: number): Promise<void> {
-  const token = getAuthToken()
-  if (!token) throw new Error("No autenticado")
-  const res = await fetch(`/api/pipelines/${id}`, { method: "DELETE", headers: authHeaders(token) })
+  const res = await fetch(`/api/pipelines/${id}`, { method: "DELETE", headers: authHeaders() })
   if (!res.ok) throw new Error(apiErrorMessage(await res.json().catch(() => ({})), "No se pudo eliminar el embudo"))
 }
 
 /** Igual que getPipelineStages pero lanza si falla, para las pantallas que distinguen "error" de "sin etapas". */
 export async function fetchPipelineStages(pipelineId?: number): Promise<PipelineStage[]> {
-  const token = getAuthToken();
-
-  if (!token) return [];
-
   const query = pipelineId ? `?pipeline_id=${pipelineId}` : ""
   const res = await fetch(`/api/pipeline-stages${query}`, {
-    headers: authHeaders(token),
+    headers: authHeaders(),
   });
 
   if (!res.ok) throw new Error(apiErrorMessage(await res.json().catch(() => ({})), "No se pudieron cargar las etapas"))
@@ -96,12 +84,9 @@ export async function createPipelineStage(data: {
   name: string
   color: string
 }): Promise<PipelineStage> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No autenticado");
-
   const res = await fetch("/api/pipeline-stages", {
     method: "POST",
-    headers: authHeaders(token),
+    headers: authHeaders(),
     body: JSON.stringify(data),
   });
 
@@ -111,14 +96,11 @@ export async function createPipelineStage(data: {
 
 export async function updatePipelineStage(
   id: number,
-  data: { name?: string; color?: string; sort_order?: number; win_probability?: number | null }
+  data: { name?: string; color?: string; sort_order?: number; win_probability?: number | null; outcome?: "won" | "lost" | null }
 ): Promise<PipelineStage> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No autenticado");
-
   const res = await fetch(`/api/pipeline-stages/${id}`, {
     method: "PUT",
-    headers: authHeaders(token),
+    headers: authHeaders(),
     body: JSON.stringify(data),
   });
 
@@ -127,12 +109,9 @@ export async function updatePipelineStage(
 }
 
 export async function deletePipelineStage(id: number): Promise<void> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No autenticado");
-
   const res = await fetch(`/api/pipeline-stages/${id}`, {
     method: "DELETE",
-    headers: authHeaders(token),
+    headers: authHeaders(),
   });
 
   if (!res.ok) throw new Error(apiErrorMessage(await res.json().catch(() => ({})), "No se pudo eliminar la etapa"));
@@ -142,12 +121,9 @@ export async function reorderPipelineStages(
   pipelineId: number,
   stages: { id: number; sort_order: number }[]
 ): Promise<void> {
-  const token = getAuthToken();
-  if (!token) throw new Error("No autenticado");
-
   const res = await fetch("/api/pipeline-stages/reorder", {
     method: "POST",
-    headers: authHeaders(token),
+    headers: authHeaders(),
     body: JSON.stringify({ pipeline_id: pipelineId, stages }),
   });
 

@@ -1,4 +1,5 @@
 import { ChannelType } from "./enums"
+import type { FlowDefinition } from "@/lib/flow-builder/types"
 
 export type TranslationLanguage = "es" | "en" | "pt" | "fr" | "it" | "de" | "zh"
 
@@ -84,6 +85,30 @@ export interface WhatsAppGroupSummary {
   invite_link: string | null
 }
 
+/** Entrada de un contacto desde un anuncio de Meta (CTWA / Messenger / Instagram). */
+export interface AdReferral {
+  id: number
+  platform: "whatsapp" | "facebook" | "instagram"
+  source_type: "ad" | "post"
+  ad_id: string | null
+  ref: string | null
+  headline: string | null
+  body: string | null
+  source_url: string | null
+  media_type: string | null
+  media_url: string | null
+  conversation_id: number | null
+  channel_id: number
+  referred_at: string
+}
+
+/** Anuncio por el que entraron chats visibles para el usuario: opción del filtro por anuncio. */
+export interface ConversationAd {
+  ad_id: string
+  headline: string | null
+  source_type: AdReferral["source_type"]
+}
+
 export interface Conversation {
   id: number
   channelId: number
@@ -122,6 +147,10 @@ export interface Conversation {
     assigned_to?: number | null
     notifications?: Array<{ destination_type: string; status: string; error?: string | null }>
   } | null
+  /** Último anuncio de Meta por el que entró la conversación (bandeja y detalle). */
+  adReferral?: AdReferral | null
+  /** Ids de todos los anuncios por los que entró, no sólo el último: los usa el filtro por anuncio. */
+  adIds?: string[]
 }
 
 export interface Tag {
@@ -164,7 +193,218 @@ export interface TemplateComponent {
   text?: string
   format?: string
   parameters?: { type: string; text?: string }[]
-  buttons?: { type: string; text: string; url?: string; phone_number?: string }[]
+  /** Ejemplos enviados a revisión; en encabezados con media, `header_handle` trae la URL del ejemplo. */
+  example?: { header_handle?: string[] }
+  buttons?: {
+    /** QUICK_REPLY | URL | PHONE_NUMBER | COPY_CODE | FLOW */
+    type: string
+    text: string
+    url?: string
+    phone_number?: string
+    flow_id?: string
+    /** Alternativa a flow_id: el backend (WhatsAppTemplate::flowButton) también resuelve el formulario por nombre. */
+    flow_name?: string
+    flow_action?: "navigate" | "data_exchange"
+    navigate_screen?: string
+  }[]
+}
+
+export type WhatsAppFlowStatus = "DRAFT" | "PUBLISHED" | "DEPRECATED" | "BLOCKED" | "THROTTLED"
+
+export type WhatsAppFlowCategory =
+  | "SIGN_UP"
+  | "SIGN_IN"
+  | "APPOINTMENT_BOOKING"
+  | "LEAD_GENERATION"
+  | "CONTACT_US"
+  | "CUSTOMER_SUPPORT"
+  | "SURVEY"
+  | "OTHER"
+
+export interface WhatsAppFlowFieldMapping {
+  response_key: string
+  target: string
+}
+
+export interface WhatsAppFlowValidationError {
+  error?: string
+  error_type?: string
+  message: string
+  line_start?: number
+  line_end?: number
+  column_start?: number
+  column_end?: number
+  pointers?: unknown[]
+}
+
+export interface WhatsAppFlow {
+  id: number
+  whatsapp_config_id: number
+  meta_flow_id: string
+  name: string
+  status: WhatsAppFlowStatus
+  categories: WhatsAppFlowCategory[]
+  json_version: string | null
+  data_api_version: string | null
+  uses_endpoint: boolean
+  endpoint_uri: string | null
+  validation_errors: WhatsAppFlowValidationError[]
+  field_mappings: WhatsAppFlowFieldMapping[]
+  screens: string[]
+  has_published_version: boolean
+  has_builder_definition: boolean
+  /** Textos con los que se envía; el backend completa los que falten. */
+  send_defaults: WhatsAppFlowSendDefaults
+  /** false: `send_defaults` son los sugeridos (primer título del constructor y «Completar»), sin guardar. */
+  send_defaults_saved: boolean
+  /** Plantilla predeterminada y variables de cada plantilla que abre el formulario. */
+  opening: WhatsAppFlowOpening
+  /** Plantillas de la misma cuenta cuyo botón FLOW abre este formulario. */
+  send_templates: WhatsAppFlowSendTemplate[]
+  /** Plantilla que se usa fuera de la ventana de 24 h: la elegida si está lista; si no, la primera lista. */
+  effective_template_id: number | null
+  /** Lo que el CRM manda en el chat al recibir la respuesta; null si no manda nada. */
+  completion_message: WhatsAppFlowCompletionMessage | null
+  /** Respuestas de la versión publicada que el cierre puede citar (vacío en formularios JSON o sin publicar). */
+  response_fields: WhatsAppFlowResponseField[]
+  synced_at: string | null
+  published_at: string | null
+  updated_at: string | null
+  /** Sólo en el detalle (`getFlow`). */
+  flow_json?: string | null
+  builder_definition?: FlowDefinition | null
+}
+
+export interface WhatsAppFlowSendDefaults {
+  /** Sin imagen. Meta admite un solo encabezado: con imagen, este queda en null. */
+  header: string | null
+  /** Imagen de encabezado (reemplaza al de texto). */
+  image: WhatsAppFlowImage | null
+  /** Puede llevar `{{variables}}`; `variables` dice de dónde sale cada una. */
+  body: string
+  footer: string | null
+  cta: string
+  /** Variables del cuerpo, con la forma de los parámetros de plantilla (dato del contacto o texto fijo). */
+  variables: TemplateParameter[]
+}
+
+/** Parámetro de una plantilla: misma forma que en la acción de automatización `whatsapp_template`. */
+export interface TemplateParameter {
+  /** Por defecto `body`. */
+  component?: "body" | "header"
+  /** Variable del cuerpo ({{name}}), o el índice "1" en plantillas posicionales. */
+  name?: string
+  source: "literal" | "field" | "media_asset"
+  /** literal: texto fijo; en un encabezado de media, la URL https del archivo. */
+  value?: string
+  /** field: contact.name | contact.phone | contact.email | contact.custom_data.<key> | answers.<key> (sólo en el cierre). */
+  path?: string
+  /** Si el valor queda vacío. */
+  fallback?: string
+  /** media_asset: archivo subido con uploadMediaAsset. */
+  media_asset_id?: number
+}
+
+export interface WhatsAppFlowOpening {
+  /** Elegida a mano; null = automática. Puede apuntar a una que ya no está lista. */
+  default_template_id: number | null
+  /** Variables configuradas por id de plantilla. */
+  templates: Record<string, { parameters: TemplateParameter[] }>
+}
+
+export interface WhatsAppFlowSendTemplate {
+  id: number
+  name: string
+  language: string
+  status: WhatsAppTemplate["status"]
+  /** Aprobada y con las variables completas. */
+  ready: boolean
+  issue: null | "not_approved" | "parameters"
+}
+
+/** Imagen de encabezado de la apertura o del cierre de texto: archivo del espacio o URL https. */
+export type WhatsAppFlowImage =
+  | { source: "media_asset"; media_asset_id: number }
+  | { source: "literal"; value: string }
+
+export type WhatsAppFlowCompletionMessage =
+  | {
+      type: "text"
+      body: string
+      /** Encabezado de texto y pie: sólo con botón (mensaje interactivo); con imagen no hay encabezado de texto. */
+      header: string | null
+      footer: string | null
+      /** El botón abre `url`; los dos van juntos o ninguno. */
+      button_text: string | null
+      url: string | null
+      image: WhatsAppFlowImage | null
+      /** De dónde sale cada `{{clave}}`: respuesta, dato del contacto o texto fijo. Sin configurar, es la respuesta con esa clave. */
+      variables: TemplateParameter[]
+    }
+  | { type: "template"; template_id: number; parameters: TemplateParameter[] }
+
+export type WhatsAppFlowTextCompletion = Extract<WhatsAppFlowCompletionMessage, { type: "text" }>
+
+export interface WhatsAppFlowResponseField {
+  key: string
+  label: string
+}
+
+export interface WhatsAppFlowEncryptionStatus {
+  configured: boolean
+  uploaded_at: string | null
+  endpoint_url: string | null
+  signature_status: string | null
+}
+
+export interface MessageFlowProgress {
+  screens_done: number
+  last_screen_title: string | null
+  saved_fields: string[]
+  updated_at: string
+}
+
+export type MessageInteractive =
+  | {
+      kind: "flow"
+      whatsapp_flow_id: number
+      flow_name: string
+      session_id: number
+      body: string
+      cta: string
+      header?: string | null
+      /** URL de la imagen de encabezado de la apertura, si la llevó. */
+      image?: string | null
+      footer?: string | null
+      /** Avance del cliente en el formulario; llega por `message.edited`. */
+      progress?: MessageFlowProgress | null
+      session_status?: "pending" | "completed" | "superseded" | null
+    }
+  | {
+      kind: "flow_response"
+      whatsapp_flow_id: number | null
+      flow_name: string | null
+      session_id: number | null
+      response: Record<string, unknown>
+      /** Etiqueta de cada pregunta del constructor (clave → etiqueta); falta en mensajes viejos o en formularios JSON. */
+      labels?: Record<string, string>
+      /** Respuestas que no se pudieron guardar en el contacto (clave → motivo, que ya incluye la etiqueta). */
+      mapping_errors?: Record<string, string>
+      /** Grupos repetibles respondidos: sus filas también están en `response[key]`. */
+      groups?: FlowResponseGroup[]
+    }
+  | {
+      /** Mensaje al terminar: un texto normal; el botón de link también va en `content`. */
+      kind: "flow_completion"
+      whatsapp_flow_id: number
+      button: { text: string; url: string } | null
+    }
+
+export interface FlowResponseGroup {
+  key: string
+  label: string
+  columns: Array<{ key: string; label: string }>
+  rows: Array<Record<string, unknown>>
 }
 
 export interface WhatsAppTemplate {
@@ -209,8 +449,9 @@ export interface Message {
   id: number
   conversation_id: number
   content: string
-  message_type?: "text" | "image" | "sticker" | "document" | "audio" | "video" | "contacts"
+  message_type?: "text" | "image" | "sticker" | "document" | "audio" | "video" | "contacts" | "flow" | "flow_response"
   contacts?: SharedContact[] | null
+  interactive?: MessageInteractive | null
   media_url?: string | null
   media_full_url?: string | null
   media_mime_type?: string | null
@@ -241,6 +482,24 @@ export interface Message {
   updated_at?: string
   interactions?: Array<{ type: string; value?: string | null; content?: string | null; occurred_at: string }>
   reaction_summary?: MessageReaction[] | null
+  reply_to_message_id?: number | null
+  reply_to?: MessageReplyPreview | null
+}
+
+export interface MessageReplyPreview {
+  id: number
+  conversation_id: number
+  content: string | null
+  message_type?: Message["message_type"]
+  sender_type: Message["sender_type"]
+  sender_id?: number | null
+  sender?: { id: number; name: string } | null
+  direction: Message["direction"]
+  media_url?: string | null
+  media_full_url?: string | null
+  media_mime_type?: string | null
+  media_filename?: string | null
+  deleted_at?: string | null
 }
 
 export interface SharedContact {

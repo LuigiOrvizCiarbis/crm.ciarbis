@@ -1,4 +1,4 @@
-import { getAuthToken, workspaceHeaders } from "./auth-token";
+import { workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
 
 export type ExtractionStatus = "queued" | "processing" | "completed" | "failed" | "confirmed";
@@ -37,9 +37,7 @@ export interface ConfirmExtractionResult {
 }
 
 function headers(): HeadersInit {
-  const token = getAuthToken();
   return {
-    Authorization: token ? `Bearer ${token}` : "",
     Accept: "application/json",
     "Content-Type": "application/json",
     ...workspaceHeaders(),
@@ -51,14 +49,13 @@ function headers(): HeadersInit {
  * exige el permiso de automatizaciones, que el rol operativo no tiene.
  */
 export async function uploadContactDocument(contactId: number, file: File): Promise<UploadedDocument> {
-  const token = getAuthToken();
   const formData = new FormData();
   formData.append("file", file);
 
   const response = await fetch(`/api/contacts/${contactId}/documents`, {
     method: "POST",
     // Sin Content-Type: el browser pone el boundary del multipart.
-    headers: { Authorization: token ? `Bearer ${token}` : "", ...workspaceHeaders() },
+    headers: { ...workspaceHeaders() },
     body: formData,
   });
 

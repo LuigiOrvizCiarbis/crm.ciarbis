@@ -53,6 +53,7 @@ class AiTypingIndicatorService
 
         if (! $sent) {
             $this->forgetIfCurrent($conversation->id, $message->id);
+
             return;
         }
 
@@ -74,12 +75,14 @@ class AiTypingIndicatorService
             || ! $this->eligibility->hasUsableConfig($conversation->tenant_id)
             || now()->timestamp >= (int) $state['expires_at']) {
             $this->stop($conversationId, $messageId);
+
             return;
         }
 
         $message = Message::withoutGlobalScopes()->find($messageId);
         if (! $message) {
             $this->stop($conversationId, $messageId);
+
             return;
         }
 
@@ -87,6 +90,7 @@ class AiTypingIndicatorService
         if ($conversation->channel->type === ChannelType::WHATSAPP
             && $remaining <= self::WHATSAPP_TYPING_SECONDS) {
             $this->finishWhatsAppWindow($conversation, $message, $state);
+
             return;
         }
 
@@ -135,9 +139,11 @@ class AiTypingIndicatorService
     {
         try {
             $state = Cache::get($this->cacheKey($conversationId));
+
             return is_array($state) ? $state : null;
         } catch (\Throwable $e) {
             $this->logActionFailure('leer estado', $conversationId, $e);
+
             return null;
         }
     }
@@ -146,9 +152,11 @@ class AiTypingIndicatorService
     {
         try {
             $ttl = max(1, (int) $state['expires_at'] + self::REFRESH_SECONDS - now()->timestamp);
+
             return Cache::put($this->cacheKey($conversationId), $state, $ttl);
         } catch (\Throwable $e) {
             $this->logActionFailure('guardar estado', $conversationId, $e);
+
             return false;
         }
     }

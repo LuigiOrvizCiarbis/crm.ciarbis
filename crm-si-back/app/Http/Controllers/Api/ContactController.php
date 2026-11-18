@@ -14,6 +14,7 @@ use App\Rules\ValidContactCustomData;
 use App\Services\ContactImportService;
 use App\Support\BranchRuleResolver;
 use App\Support\ContactCustomDataNormalizer;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -55,36 +56,7 @@ class ContactController extends Controller
             $q->withTagSlugs($this->parseTagSlugs((string) $request->query('tags')));
         }
 
-        $customFilter = $request->query('custom');
-        if (is_array($customFilter) && $customFilter !== []) {
-            $allowedKeys = ContactField::forCurrentTenant()->pluck('key')->all();
-            foreach ($customFilter as $key => $value) {
-                if (! is_string($key) || ! in_array($key, $allowedKeys, true) || $value === null || $value === '') {
-                    continue;
-                }
-                $q->whereCustomField($key, $value);
-            }
-        }
-
-        $customRangeFilter = $request->query('custom_range');
-        if (is_array($customRangeFilter) && $customRangeFilter !== []) {
-            $fieldsByKey = ContactField::forCurrentTenant()->keyBy('key');
-            foreach ($customRangeFilter as $key => $range) {
-                if (! is_string($key) || ! is_array($range) || ! $fieldsByKey->has($key)) {
-                    continue;
-                }
-                $field = $fieldsByKey->get($key);
-                if (! in_array($field->type, [ContactFieldType::Date, ContactFieldType::Number], true)) {
-                    continue;
-                }
-                $from = isset($range['from']) && $range['from'] !== '' ? (string) $range['from'] : null;
-                $to = isset($range['to']) && $range['to'] !== '' ? (string) $range['to'] : null;
-                if ($from === null && $to === null) {
-                    continue;
-                }
-                $q->whereCustomFieldRange($key, $field->type, $from, $to);
-            }
-        }
+        $this->applyCustomFieldFilters($q, $request);
 
         // Un contacto cuenta como cliente con ciclo de cobranza activo cuando
         // tiene el campo de estado cargado con alguno de los valores que el
@@ -274,6 +246,11 @@ class ContactController extends Controller
             'conversations' => fn ($c) => $c->latest('last_message_at')
                 ->with(['pipelineStage:id,name', 'assignedUser:id,name,email'])
                 ->limit(5),
+            // whereHas aplica el BranchScope de Conversation; los huérfanos (conversación borrada) quedan visibles.
+            'adReferrals' => fn ($q) => $q
+                ->where(fn ($q) => $q->whereNull('conversation_id')->orWhereHas('conversation'))
+                ->orderByDesc('referred_at')->orderByDesc('id')
+                ->limit(10),
         ]);
 
         return response()->json(['data' => new ContactResource($contact)]);
@@ -492,6 +469,107 @@ class ContactController extends Controller
                 __('No tienes permiso para asignar contactos a esa sucursal.')
             ),
         ];
+    }
+
+    /**
+     * Filtros sobre `custom_data`, uno por operador:
+     * - `custom[key]`: igualdad (en Boolean, "false" incluye a quien no lo cargó).
+     * - `custom_any[key][]`: Select es alguno de / Multi-select contiene alguno de.
+     * - `custom_contains[key]`: Text, Email, URL y Teléfono contienen el texto.
+     * - `custom_range[key][from|to]`: Date, Number y Currency dentro del rango.
+     *
+     * Cada key se valida contra los campos del tenant y cada operador solo
+     * aplica a los tipos que lo admiten: lo que no encaja se descarta en vez de
+     * fallar, igual que el resto de los filtros del listado.
+     */
+    private function applyCustomFieldFilters(Builder $q, Request $request): void
+    {
+        $filters = array_filter([
+            'custom' => $request->query('custom'),
+            'custom_any' => $request->query('custom_any'),
+            'custom_contains' => $request->query('custom_contains'),
+            'custom_range' => $request->query('custom_range'),
+        ], fn ($values) => is_array($values) && $values !== []);
+
+        if ($filters === []) {
+            return;
+        }
+
+        $fieldsByKey = ContactField::forCurrentTenant()->keyBy('key');
+
+        foreach ($filters as $param => $values) {
+            foreach ($values as $key => $value) {
+                $field = is_string($key) ? $fieldsByKey->get($key) : null;
+                if ($field === null) {
+                    continue;
+                }
+
+                match ($param) {
+                    'custom' => $this->applyCustomEquals($q, $field, $value),
+                    'custom_any' => $this->applyCustomAny($q, $field, $value),
+                    'custom_contains' => $this->applyCustomContains($q, $field, $value),
+                    'custom_range' => $this->applyCustomRange($q, $field, $value),
+                };
+            }
+        }
+    }
+
+    private function applyCustomEquals(Builder $q, ContactField $field, mixed $value): void
+    {
+        if ($value === null || $value === '') {
+            return;
+        }
+
+        if ($field->type !== ContactFieldType::Boolean) {
+            $q->whereCustomField($field->key, $value);
+
+            return;
+        }
+
+        $boolean = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        if ($boolean !== null) {
+            $q->whereCustomBoolean($field->key, $boolean);
+        }
+    }
+
+    private function applyCustomAny(Builder $q, ContactField $field, mixed $value): void
+    {
+        if (! in_array($field->type, [ContactFieldType::Select, ContactFieldType::MultiSelect], true)) {
+            return;
+        }
+
+        $choices = array_values(array_filter(
+            is_array($value) ? $value : [$value],
+            fn ($choice) => is_string($choice) && $choice !== '',
+        ));
+        if ($choices === []) {
+            return;
+        }
+
+        $q->whereCustomFieldAny($field->key, $field->type, $choices);
+    }
+
+    private function applyCustomContains(Builder $q, ContactField $field, mixed $value): void
+    {
+        $textTypes = [ContactFieldType::Text, ContactFieldType::Email, ContactFieldType::Url, ContactFieldType::Phone];
+        if (! in_array($field->type, $textTypes, true) || ! is_string($value) || trim($value) === '') {
+            return;
+        }
+
+        $q->whereLike("custom_data->{$field->key}", '%'.trim($value).'%', caseSensitive: false);
+    }
+
+    private function applyCustomRange(Builder $q, ContactField $field, mixed $range): void
+    {
+        $rangeTypes = [ContactFieldType::Date, ContactFieldType::Number, ContactFieldType::Currency];
+        if (! is_array($range) || ! in_array($field->type, $rangeTypes, true)) {
+            return;
+        }
+
+        $from = isset($range['from']) && $range['from'] !== '' ? (string) $range['from'] : null;
+        $to = isset($range['to']) && $range['to'] !== '' ? (string) $range['to'] : null;
+
+        $q->whereCustomFieldRange($field->key, $field->type, $from, $to);
     }
 
     private function parseTagSlugs(string $tags): array

@@ -7,6 +7,7 @@ import { useToast } from "@/components/Toast"
 import {
   createProduct,
   deleteProduct,
+  getProduct,
   getProducts,
   updateProduct,
   type Product,
@@ -49,6 +50,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { UniversalImportDialog } from "@/components/import/universal-import-dialog"
 import { DEFAULT_CURRENCY, formatCurrency } from "@/lib/currency"
+import { ProductVariantsTable } from "@/components/products/ProductVariantsTable"
 
 interface FormState {
   name: string
@@ -160,6 +162,8 @@ export function ProductsList() {
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
+  // Datos que trae una integración (WooCommerce): se muestran bloqueados.
+  const managedFields = useMemo(() => new Set(editing?.managed_fields ?? []), [editing])
 
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null)
   const [importOpen, setImportOpen] = useState(false)
@@ -250,6 +254,14 @@ export function ProductsList() {
       custom_data: { ...(product.custom_data ?? {}) },
     })
     setDialogOpen(true)
+    // El listado no trae las variantes: se piden al abrir el detalle.
+    if (product.variants_count) {
+      getProduct(product.id)
+        .then((full) => setEditing((current) => (current?.id === full.id ? full : current)))
+        .catch((error) =>
+          addToast({ type: "error", title: t("catalog.loadError"), description: (error as Error).message }),
+        )
+    }
   }
 
   const handleSave = async () => {
@@ -263,13 +275,19 @@ export function ProductsList() {
       price: form.price.trim() === "" ? null : Number(form.price),
       description: form.description.trim() || null,
       is_active: form.is_active,
-      custom_data: form.custom_data,
+      custom_data: Object.fromEntries(
+        Object.entries(form.custom_data).filter(([key]) => !managedFields.has(key)),
+      ),
     }
 
     setSaving(true)
     try {
       if (editing) {
-        await updateProduct(editing.id, payload)
+        // Los datos gestionados por la integración no se reenvían.
+        const editable = Object.fromEntries(
+          Object.entries(payload).filter(([key]) => !managedFields.has(key)),
+        ) as Partial<ProductInput>
+        await updateProduct(editing.id, editable)
         addToast({ type: "success", title: t("catalog.updated") })
       } else {
         await createProduct(payload)
@@ -355,12 +373,20 @@ export function ProductsList() {
 
   const handleBulkSetActive = async (active: boolean) => {
     if (selectedProducts.length === 0) return
+    // El estado de los productos de WooCommerce lo define la tienda.
+    const editable = selectedProducts.filter((p) => !p.managed_fields.includes("is_active"))
+    const skipped = selectedProducts.length - editable.length
+    if (editable.length === 0) {
+      addToast({ type: "error", title: t("catalog.bulkSkippedManaged", { count: skipped }) })
+      return
+    }
     setBulkBusy(true)
     try {
-      await Promise.all(selectedProducts.map((p) => updateProduct(p.id, { is_active: active })))
+      await Promise.all(editable.map((p) => updateProduct(p.id, { is_active: active })))
       addToast({
         type: "success",
         title: active ? t("catalog.bulkActivated") : t("catalog.bulkDeactivated"),
+        description: skipped > 0 ? t("catalog.bulkSkippedManaged", { count: skipped }) : undefined,
       })
       clearSelection()
       await load(search.trim() || undefined)
@@ -397,6 +423,11 @@ export function ProductsList() {
           <div className="font-medium">{product.name}</div>
           {product.description && (
             <div className="line-clamp-1 text-sm text-muted-foreground">{product.description}</div>
+          )}
+          {!!product.variants_count && (
+            <div className="text-xs text-muted-foreground">
+              {t(`catalog.variantsCount_${product.variants_count === 1 ? "one" : "other"}`, { count: product.variants_count })}
+            </div>
           )}
         </div>
       ),
@@ -591,12 +622,19 @@ export function ProductsList() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            {editing && editing.managed_fields.length > 0 && (
+              <p className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                {t("catalog.managedByWoo")}
+              </p>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="product-name">{t("catalog.columnName")}</Label>
               <Input
                 id="product-name"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                disabled={managedFields.has("name")}
                 placeholder={t("catalog.namePlaceholder")}
               />
             </div>
@@ -610,6 +648,7 @@ export function ProductsList() {
                 step="0.01"
                 value={form.price}
                 onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
+                disabled={managedFields.has("price")}
                 placeholder="0.00"
               />
             </div>
@@ -620,6 +659,7 @@ export function ProductsList() {
                 id="product-description"
                 value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                disabled={managedFields.has("description")}
                 placeholder={t("catalog.descriptionPlaceholder")}
                 rows={4}
               />
@@ -634,27 +674,26 @@ export function ProductsList() {
                 id="product-active"
                 checked={form.is_active}
                 onCheckedChange={(checked) => setForm((f) => ({ ...f, is_active: checked }))}
+                disabled={managedFields.has("is_active")}
               />
             </div>
 
             {customFields.map((field) => (
-              <div key={field.key} className="space-y-2">
-                <Label htmlFor={`cf-${field.key}`}>
-                  {field.label}
-                  {field.is_required ? <span className="text-destructive"> *</span> : null}
-                </Label>
-                <CustomFieldInput
-                  field={field}
-                  value={form.custom_data[field.key]}
-                  onChange={(next) =>
-                    setForm((f) => ({
-                      ...f,
-                      custom_data: { ...f.custom_data, [field.key]: next },
-                    }))
-                  }
-                />
-              </div>
+              <CustomFieldInput
+                key={field.key}
+                field={field}
+                value={form.custom_data[field.key]}
+                onChange={(next) =>
+                  setForm((f) => ({
+                    ...f,
+                    custom_data: { ...f.custom_data, [field.key]: next },
+                  }))
+                }
+                disabled={managedFields.has(field.key)}
+              />
             ))}
+
+            {!!editing?.variants?.length && <ProductVariantsTable variants={editing.variants} />}
           </div>
 
           <DialogFooter>
