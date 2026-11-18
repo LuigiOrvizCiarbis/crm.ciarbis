@@ -166,7 +166,7 @@ export function TaskCalendarView({
         type="button"
         onClick={(e) => openPopover({ kind: "google", event }, e.currentTarget)}
         title={label}
-        className={`flex w-full items-center gap-1 truncate border text-left border-sky-500/40 bg-sky-500/15 text-sky-800 hover:bg-sky-500/25 dark:bg-sky-500/25 dark:text-sky-200 dark:hover:bg-sky-500/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${box}`}
+        className={`flex w-full cursor-pointer items-center gap-1 truncate border text-left border-sky-500/40 bg-sky-500/15 text-sky-800 hover:bg-sky-500/25 dark:bg-sky-500/25 dark:text-sky-200 dark:hover:bg-sky-500/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${box}`}
       >
         <Icon className="size-3 shrink-0" aria-hidden="true" />
         <span className="truncate">{label}</span>
@@ -282,7 +282,7 @@ export function TaskCalendarView({
                           key={task.id}
                           type="button"
                           onClick={(e) => openPopover({ kind: "task", taskId: task.id }, e.currentTarget)}
-                          className={`block w-full truncate rounded p-1 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${priorityColors[task.priority]}`}
+                          className={`block w-full cursor-pointer truncate rounded p-1 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${priorityColors[task.priority]}`}
                           title={`${format(new Date(task.deadline!), "HH:mm")} hs · ${task.name}`}
                         >
                           <span className="mr-1 font-semibold tabular-nums">{format(new Date(task.deadline!), "HH:mm")}</span>
@@ -292,7 +292,7 @@ export function TaskCalendarView({
                       {dayTasks.length > 3 && (
                         <button
                           type="button"
-                          className="rounded-sm text-xs text-muted-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                          className="cursor-pointer rounded-sm text-xs text-muted-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
                           onClick={() => { setView("day"); setCurrentDate(day) }}
                         >
                           +{dayTasks.length - 3} más
@@ -302,7 +302,7 @@ export function TaskCalendarView({
                       {dayEvents.length > 2 && (
                         <button
                           type="button"
-                          className="text-xs text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                          className="cursor-pointer text-xs text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
                           onClick={() => { setView("day"); setCurrentDate(day) }}
                         >
                           {tr("more", { count: dayEvents.length - 2 })}
@@ -343,7 +343,7 @@ export function TaskCalendarView({
                           key={task.id}
                           type="button"
                           onClick={(e) => openPopover({ kind: "task", taskId: task.id }, e.currentTarget)}
-                          className={`block w-full rounded p-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${priorityColors[task.priority]}`}
+                          className={`block w-full cursor-pointer rounded p-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${priorityColors[task.priority]}`}
                         >
                           <span className="mb-1 block text-xs font-medium">
                             <span className="mr-1 tabular-nums">{format(new Date(task.deadline!), "HH:mm")} hs</span>
@@ -370,7 +370,7 @@ export function TaskCalendarView({
                     <button
                       type="button"
                       onClick={(e) => openPopover({ kind: "task", taskId: task.id }, e.currentTarget)}
-                      className="-m-1 flex-1 rounded-md p-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="-m-1 flex-1 cursor-pointer rounded-md p-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <span className="mb-1 block font-semibold">{task.name}</span>
                       <span className="block text-sm font-medium tabular-nums opacity-90">
