@@ -25,6 +25,8 @@ ARG NEXT_PUBLIC_REVERB_APP_KEY
 ARG NEXT_PUBLIC_REVERB_HOST
 ARG NEXT_PUBLIC_REVERB_PORT
 ARG NEXT_PUBLIC_REVERB_SCHEME
+# Número de ventas de la landing (wa.me). Vacío: la landing no muestra el link.
+ARG NEXT_PUBLIC_SALES_WHATSAPP
 # El token de Sentry (subida de source maps) se monta como BuildKit secret solo
 # durante este paso: no queda en ningún layer ni en la metadata de la imagen.
 # Es opcional: si el secret no existe, el build funciona y se saltea la subida.
