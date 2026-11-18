@@ -177,7 +177,19 @@
     "bulkDeleteConfirmBody": "Se eliminarán {{count}} producto(s) del catálogo. Esta acción no se puede deshacer.",
     "clearSelection": "Limpiar selección",
     "bulkSelected_one": "{{count}} seleccionado",
-    "bulkSelected_other": "{{count}} seleccionados"
+    "bulkSelected_other": "{{count}} seleccionados",
+    "managedByWoo": "Este producto se sincroniza desde WooCommerce. Los campos bloqueados se editan en la tienda.",
+    "variants": "Variantes",
+    "variantsHint": "Combinaciones que se eligen al comprar, con su propio precio y stock.",
+    "variantSku": "SKU",
+    "variantStock": "Stock",
+    "variantAnyValue": "Cualquiera",
+    "stockStatus_instock": "En stock",
+    "stockStatus_outofstock": "Sin stock",
+    "stockStatus_onbackorder": "Por encargo",
+    "variantsCount_one": "{{count}} variante",
+    "variantsCount_other": "{{count}} variantes",
+    "bulkSkippedManaged": "{{count}} producto(s) de WooCommerce no se modificaron: su estado se gestiona en la tienda."
   },
   "dashboard": {
     "title": "Panel",
@@ -1910,7 +1922,11 @@
       "sync": "Sincronizar productos",
       "syncing": "Sincronizando…",
       "syncOk": "Sincronización completada",
-      "syncResult": "{{created}} productos creados, {{updated}} actualizados.",
+      "syncResult": "{{created}} productos creados, {{updated}} actualizados, {{deactivated}} desactivados, {{variants}} variantes.",
+      "syncProgress": "Sincronizando… {{total}} productos procesados.",
+      "syncFailed": "La sincronización falló",
+      "syncSkippedFields": "No se completaron estos campos porque ya existen en el catálogo con otro tipo: {{fields}}.",
+      "syncStale": "La sincronización no avanza hace más de 20 minutos. Podés volver a iniciarla.",
       "lastSynced": "Última sincronización: {{date}}"
     },
     "webhooks": {

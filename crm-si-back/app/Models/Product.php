@@ -6,10 +6,17 @@ use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Product extends Model
 {
     use BelongsToTenant;
+
+    // Límites de la API de productos; las integraciones recortan a lo mismo
+    // para que un producto sincronizado se pueda reenviar sin cambios.
+    public const NAME_MAX_LENGTH = 150;
+
+    public const DESCRIPTION_MAX_LENGTH = 5000;
 
     protected $fillable = [
         'tenant_id',
@@ -20,6 +27,9 @@ class Product extends Model
         'is_active',
         'source',
         'external_id',
+        'external_type',
+        'requires_shipping',
+        'external_sync_run_id',
         'custom_data',
     ];
 
@@ -30,6 +40,7 @@ class Product extends Model
     protected $casts = [
         'price' => 'decimal:2',
         'is_active' => 'boolean',
+        'requires_shipping' => 'boolean',
         'custom_data' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -38,6 +49,11 @@ class Product extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function variants(): HasMany
+    {
+        return $this->hasMany(ProductVariant::class)->orderBy('id');
     }
 
     public function scopeWhereCustomField(Builder $query, string $key, mixed $value): Builder

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,12 +11,17 @@ import { useToast } from "@/components/Toast"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useAuthStore } from "@/store/useAuthStore"
 import { isAdminRole } from "@/lib/permissions"
+import { useProductFieldsStore } from "@/store/useProductFieldsStore"
 import {
   getWooConfig,
   updateWooConfig,
   testWooConfig,
   syncWooProducts,
+  type WooConfig,
+  type WooSyncState,
 } from "@/lib/api/woocommerce"
+
+const SYNC_POLL_MS = 2000
 
 export function WooCommerceSettings() {
   const { addToast } = useToast()
@@ -31,7 +36,9 @@ export function WooCommerceSettings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
-  const [syncing, setSyncing] = useState(false)
+  const [requestingSync, setRequestingSync] = useState(false)
+  const [sync, setSync] = useState<WooSyncState | null>(null)
+  const invalidateProductFields = useProductFieldsStore((state) => state.invalidate)
 
   const [storeUrl, setStoreUrl] = useState("")
   const [enabled, setEnabled] = useState(false)
@@ -40,21 +47,69 @@ export function WooCommerceSettings() {
   const [hasCredentials, setHasCredentials] = useState(false)
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
 
-  useEffect(() => {
-    loadConfig()
+  const applyConfig = useCallback((config: WooConfig) => {
+    setStoreUrl(config.store_url ?? "")
+    setEnabled(config.enabled)
+    setHasCredentials(config.has_credentials)
+    setLastSyncedAt(config.last_synced_at)
+    setSync(config.sync)
   }, [])
 
-  const loadConfig = async () => {
-    setLoading(true)
-    const config = await getWooConfig()
-    if (config) {
-      setStoreUrl(config.store_url ?? "")
-      setEnabled(config.enabled)
-      setHasCredentials(config.has_credentials)
-      setLastSyncedAt(config.last_synced_at)
+  useEffect(() => {
+    const loadConfig = async () => {
+      setLoading(true)
+      const config = await getWooConfig()
+      if (config) applyConfig(config)
+      setLoading(false)
     }
-    setLoading(false)
-  }
+    void loadConfig()
+  }, [applyConfig])
+
+  // Una corrida "stale" no avanza hace rato (worker caído o job perdido): se
+  // deja de consultar y se habilita reiniciarla.
+  const syncRunning = sync?.status === "running" && !sync.stale
+
+  // El sync corre en cola: mientras esté en curso se consulta su progreso.
+  // Timeout encadenado para no superponer requests lentos.
+  useEffect(() => {
+    if (!syncRunning) return
+
+    let cancelled = false
+    let timer = 0
+
+    const poll = async () => {
+      try {
+        const config = await getWooConfig()
+        if (cancelled) return
+        if (config?.sync) {
+          setSync(config.sync)
+          setLastSyncedAt(config.last_synced_at)
+          if (config.sync.status === "completed") {
+            // El sync puede crear campos del catálogo (SKU, Stock…).
+            invalidateProductFields()
+            addToast({ type: "success", title: t("settings.woocommerce.syncOk") })
+          } else if (config.sync.status === "failed") {
+            addToast({
+              type: "error",
+              title: t("settings.woocommerce.syncFailed"),
+              description: config.sync.error ?? undefined,
+            })
+          }
+          if (config.sync.status !== "running" || config.sync.stale) return
+        }
+      } catch {
+        // Error de red puntual: se reintenta en el próximo ciclo.
+        if (cancelled) return
+      }
+      timer = window.setTimeout(poll, SYNC_POLL_MS)
+    }
+
+    timer = window.setTimeout(poll, SYNC_POLL_MS)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [syncRunning, invalidateProductFields, addToast, t])
 
   const handleSave = async () => {
     setSaving(true)
@@ -126,9 +181,9 @@ export function WooCommerceSettings() {
   }
 
   const handleSync = async () => {
-    setSyncing(true)
+    setRequestingSync(true)
     const result = await syncWooProducts()
-    setSyncing(false)
+    setRequestingSync(false)
 
     if (result.error) {
       addToast({
@@ -139,17 +194,7 @@ export function WooCommerceSettings() {
       return
     }
 
-    if (result.data) {
-      setLastSyncedAt(result.data.last_synced_at)
-      addToast({
-        type: "success",
-        title: t("settings.woocommerce.syncOk"),
-        description: t("settings.woocommerce.syncResult", {
-          created: result.data.created,
-          updated: result.data.updated,
-        }),
-      })
-    }
+    if (result.data) setSync(result.data.sync)
   }
 
   if (!isAdmin) {
@@ -157,6 +202,8 @@ export function WooCommerceSettings() {
   }
 
   const canSync = hasCredentials && !!storeUrl.trim()
+  const syncing = requestingSync || syncRunning
+  const syncResult = sync?.result
 
   return (
     <div className="space-y-4">
@@ -231,6 +278,42 @@ export function WooCommerceSettings() {
                   date: new Date(lastSyncedAt).toLocaleString(),
                 })}
               </p>
+            )}
+
+            {sync && (
+              <div className="space-y-1 text-xs" aria-live="polite">
+                {sync.status === "running" && !sync.stale && (
+                  <p className="text-muted-foreground">
+                    {t("settings.woocommerce.syncProgress", { total: syncResult?.total ?? 0 })}
+                  </p>
+                )}
+                {sync.status === "running" && sync.stale && (
+                  <p className="text-warning">{t("settings.woocommerce.syncStale")}</p>
+                )}
+                {sync.status === "completed" && syncResult && (
+                  <p className="text-muted-foreground">
+                    {t("settings.woocommerce.syncResult", {
+                      created: syncResult.created,
+                      updated: syncResult.updated,
+                      deactivated: syncResult.deactivated,
+                      variants: syncResult.variants,
+                    })}
+                  </p>
+                )}
+                {sync.status === "failed" && (
+                  <p className="text-destructive">
+                    {t("settings.woocommerce.syncFailed")}
+                    {sync.error ? `: ${sync.error}` : ""}
+                  </p>
+                )}
+                {sync.status !== "running" && syncResult && syncResult.skipped_fields.length > 0 && (
+                  <p className="text-warning">
+                    {t("settings.woocommerce.syncSkippedFields", {
+                      fields: syncResult.skipped_fields.join(", "),
+                    })}
+                  </p>
+                )}
+              </div>
             )}
 
             <div className="flex flex-wrap justify-end gap-2">

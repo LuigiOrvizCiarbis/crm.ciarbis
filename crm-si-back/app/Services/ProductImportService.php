@@ -91,6 +91,7 @@ class ProductImportService
         $duplicates = 0;
         $errors = 0;
         $errorRows = [];
+        $wooManagedKeys = null;
 
         foreach ($rows as $offset => $row) {
             $rowNumber = $offset + ($hasHeaders ? 2 : 1);
@@ -125,9 +126,9 @@ class ProductImportService
 
                 continue;
             }
-            if (mb_strlen($values['name']) > 150) {
+            if (mb_strlen($values['name']) > Product::NAME_MAX_LENGTH) {
                 $errors++;
-                $errorRows[] = ['row' => $rowNumber, 'reason' => 'Nombre excede 150 caracteres'];
+                $errorRows[] = ['row' => $rowNumber, 'reason' => 'Nombre excede '.Product::NAME_MAX_LENGTH.' caracteres'];
 
                 continue;
             }
@@ -142,7 +143,12 @@ class ProductImportService
                 continue;
             }
             if ($product) {
-                $this->updateProduct($product, $values, $mapping, $preserveEmpty);
+                // Lo que trae el sync de WooCommerce se edita en la tienda: el
+                // import solo actualiza los datos propios del CRM.
+                $lockedKeys = $product->source === WooCommerceCatalogWriter::SOURCE
+                    ? ($wooManagedKeys ??= WooCommerceCatalogWriter::managedKeys($tenantId))
+                    : [];
+                $this->updateProduct($product, $values, $mapping, $preserveEmpty, $lockedKeys);
                 $updated++;
 
                 continue;
@@ -259,22 +265,24 @@ class ProductImportService
         ];
     }
 
-    private function updateProduct(Product $product, array $values, array $mapping, bool $preserveEmpty): void
+    /** @param list<string> $lockedKeys columnas o claves de custom_data que no se tocan */
+    private function updateProduct(Product $product, array $values, array $mapping, bool $preserveEmpty, array $lockedKeys): void
     {
         $payload = [];
-        foreach (['name', 'price', 'description', 'is_active'] as $field) {
+        foreach (array_diff(['name', 'price', 'description', 'is_active'], $lockedKeys) as $field) {
             if (! isset($mapping[$field]) || ($preserveEmpty && ($values['raw'][$field] ?? '') === '')) {
                 continue;
             }
             $payload[$field] = $values[$field];
         }
         $custom = $product->custom_data ?? [];
-        foreach ($values['custom'] as $key => $value) {
+        $importedCustom = array_diff_key($values['custom'], array_flip($lockedKeys));
+        foreach ($importedCustom as $key => $value) {
             if (! ($preserveEmpty && ($values['raw'][$key] ?? '') === '')) {
                 $custom[$key] = $value;
             }
         }
-        if ($values['custom'] !== []) {
+        if ($importedCustom !== []) {
             $payload['custom_data'] = $custom;
         }
         if ($payload !== []) {

@@ -177,7 +177,19 @@
     "bulkDeleteConfirmBody": "{{count}} product(s) will be removed from the catalog. This action cannot be undone.",
     "clearSelection": "Clear selection",
     "bulkSelected_one": "{{count}} selected",
-    "bulkSelected_other": "{{count}} selected"
+    "bulkSelected_other": "{{count}} selected",
+    "managedByWoo": "This product is synced from WooCommerce. Locked fields are edited in the store.",
+    "variants": "Variants",
+    "variantsHint": "Combinations chosen at checkout, each with its own price and stock.",
+    "variantSku": "SKU",
+    "variantStock": "Stock",
+    "variantAnyValue": "Any",
+    "stockStatus_instock": "In stock",
+    "stockStatus_outofstock": "Out of stock",
+    "stockStatus_onbackorder": "On backorder",
+    "variantsCount_one": "{{count}} variant",
+    "variantsCount_other": "{{count}} variants",
+    "bulkSkippedManaged": "{{count}} WooCommerce product(s) were not changed: their status is managed in the store."
   },
   "dashboard": {
     "title": "Dashboard",
@@ -1910,7 +1922,11 @@
       "sync": "Sync products",
       "syncing": "Syncing…",
       "syncOk": "Sync complete",
-      "syncResult": "{{created}} products created, {{updated}} updated.",
+      "syncResult": "{{created}} products created, {{updated}} updated, {{deactivated}} deactivated, {{variants}} variants.",
+      "syncProgress": "Syncing… {{total}} products processed.",
+      "syncFailed": "Sync failed",
+      "syncSkippedFields": "These fields were not filled because they already exist in the catalog with another type: {{fields}}.",
+      "syncStale": "The sync has not progressed for over 20 minutes. You can start it again.",
       "lastSynced": "Last sync: {{date}}"
     },
     "webhooks": {
