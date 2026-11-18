@@ -53,8 +53,10 @@ class MetaConversionEventTest extends TestCase
 
         $this->moveTo($opportunity, self::WON_STAGE);
 
+        // Graph rechaza (error 100) un cuerpo cuya raíz no sea un objeto, como "[]".
         Http::assertSent(fn (Request $request) => $request->method() === 'POST'
-            && $request->url() === 'https://graph.facebook.com/v21.0/waba-test/dataset');
+            && $request->url() === 'https://graph.facebook.com/v21.0/waba-test/dataset'
+            && $request->body() === '{}');
         Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/DS_1/events')
             && $request['data'][0]['event_name'] === 'Purchase'
             && $request['data'][0]['action_source'] === 'business_messaging'
@@ -67,6 +69,10 @@ class MetaConversionEventTest extends TestCase
         $event = MetaConversionEvent::where('opportunity_id', $opportunity->id)->where('event_name', 'Purchase')->sole();
         $this->assertSame('sent', $event->status);
         $this->assertSame('DS_1', $channel->whatsappConfig->fresh()->meta_dataset_id);
+
+        $this->getJson("/api/opportunities/{$opportunity->id}")
+            ->assertOk()
+            ->assertJsonPath('data.meta_purchase_event.status', 'sent');
     }
 
     public function test_winning_again_does_not_resend_purchase(): void
@@ -169,6 +175,11 @@ class MetaConversionEventTest extends TestCase
         $event = MetaConversionEvent::where('opportunity_id', $opportunity->id)->where('event_name', 'Purchase')->sole();
         $this->assertSame('failed', $event->status);
         $this->assertNotEmpty($event->error);
+
+        $this->getJson('/api/opportunities')
+            ->assertOk()
+            ->assertJsonPath('data.0.meta_purchase_event.status', 'failed')
+            ->assertJsonPath('data.0.meta_purchase_event.error', $event->error);
     }
 
     /**

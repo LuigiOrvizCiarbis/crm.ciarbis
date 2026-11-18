@@ -122,15 +122,6 @@ export const imageFromParameter = (parameter: TemplateParameter): WhatsAppFlowIm
       ? { source: "media_asset", media_asset_id: parameter.media_asset_id }
       : null
 
-/** URL para mostrar la imagen: un link https, o un archivo recién subido en esta pantalla. Uno ya guardado se ve como ícono. */
-export function imagePreviewUrl(parameter: TemplateParameter, uploaded: { id: number; url: string } | null): string | null {
-  if (parameter.source === "literal") {
-    const value = parameter.value?.trim() ?? ""
-    return value.startsWith("https://") ? value : null
-  }
-  return uploaded && uploaded.id === parameter.media_asset_id ? uploaded.url : null
-}
-
 export interface ParameterErrors {
   /** Errores del conjunto (cantidad de variables, plantilla). */
   general: string[]

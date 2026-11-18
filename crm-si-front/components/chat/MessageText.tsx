@@ -1,7 +1,13 @@
 "use client"
 
-import { Fragment, type ReactNode } from "react"
+import { createContext, Fragment, use, type ReactNode } from "react"
+
+import { RichText } from "@/components/rich-text/RichText"
+
 import { highlightText } from "./messageThreadUtils"
+
+/** El hilo es de WhatsApp: el texto se muestra con su formato (*negrita*, _cursiva_, ~tachado~). */
+export const WhatsAppFormattingContext = createContext(false)
 
 /**
  * Detecta URLs (http/https/www.) y emails en texto plano. Deliberadamente no
@@ -112,7 +118,11 @@ export function MessageText({
   /** El texto va sobre el color de acción (burbuja propia). */
   onAccent?: boolean
 }): ReactNode {
-  return highlightText(content, query, activeMatchKey, matchKeyPrefix, (part, key) => (
-    <Fragment key={key}>{autolinkSegment(part, key, onAccent)}</Fragment>
-  ))
+  const autolink = (part: string, key: string) => <Fragment key={key}>{autolinkSegment(part, key, onAccent)}</Fragment>
+  // Con una búsqueda activa el texto va sin formato: MessageList cuenta las coincidencias sobre el
+  // texto crudo y los marcadores sacados desfasarían los data-match-key.
+  if (use(WhatsAppFormattingContext) && !query) {
+    return <RichText text={content} dialect="whatsapp" inline renderText={autolink} />
+  }
+  return highlightText(content, query, activeMatchKey, matchKeyPrefix, autolink)
 }

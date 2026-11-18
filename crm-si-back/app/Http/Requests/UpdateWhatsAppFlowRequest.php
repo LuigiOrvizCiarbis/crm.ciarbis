@@ -52,6 +52,9 @@ class UpdateWhatsAppFlowRequest extends FormRequest
             'completion_message' => ['sometimes', 'nullable', 'array'],
             'completion_message.type' => ['required_with:completion_message', Rule::in(['text', 'template'])],
             'completion_message.body' => ['exclude_unless:completion_message.type,text', 'required', 'string', 'max:1024'],
+            // Encabezado de texto y pie: sólo con botón (mensaje interactivo), límites de Meta y sin variables, como en la apertura.
+            'completion_message.header' => ['exclude_unless:completion_message.type,text', 'nullable', 'string', 'max:60', 'not_regex:/\{\{/'],
+            'completion_message.footer' => ['exclude_unless:completion_message.type,text', 'nullable', 'string', 'max:60', 'not_regex:/\{\{/'],
             'completion_message.button_text' => ['exclude_unless:completion_message.type,text', 'nullable', 'string', 'max:20', 'required_with:completion_message.url'],
             'completion_message.url' => ['exclude_unless:completion_message.type,text', 'nullable', 'url:https', 'max:2000', 'required_with:completion_message.button_text'],
             'completion_message.image' => ['exclude_unless:completion_message.type,text', 'nullable', 'array'],
@@ -114,6 +117,7 @@ class UpdateWhatsAppFlowRequest extends FormRequest
     {
         return [
             'send_defaults.*.not_regex' => 'Las variables sólo van en el mensaje, no en el encabezado, el pie ni el botón.',
+            'completion_message.*.not_regex' => 'Las variables sólo van en el texto, no en el encabezado ni en el pie.',
         ];
     }
 }

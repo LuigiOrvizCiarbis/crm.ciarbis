@@ -1,6 +1,7 @@
 "use client"
 
 import { CalendarCheck, ClipboardList, TriangleAlert } from "lucide-react"
+import { RichText } from "@/components/rich-text/RichText"
 import type { Message } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
 
@@ -21,7 +22,11 @@ export function FlowMessageCard({ message, isUser }: FlowMessageCardProps) {
 
   // El cierre de texto (flow_completion) es un mensaje común: se muestra como texto.
   if (!interactive || interactive.kind === "flow_completion") {
-    return <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{message.content}</p>
+    return (
+      <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
+        <RichText text={message.content ?? ""} dialect="whatsapp" inline />
+      </p>
+    )
   }
 
   const formatValue = (value: unknown): string => {
@@ -66,7 +71,9 @@ export function FlowMessageCard({ message, isUser }: FlowMessageCardProps) {
           <img src={interactive.image} alt="" className="max-h-48 w-full rounded-md object-cover" />
         ) : null}
         {interactive.header && <p className="text-sm font-semibold">{interactive.header}</p>}
-        <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{interactive.body}</p>
+        <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
+          <RichText text={interactive.body} dialect="whatsapp" inline />
+        </p>
         {interactive.footer && <p className="text-xs opacity-70">{interactive.footer}</p>}
         <span
           aria-disabled="true"

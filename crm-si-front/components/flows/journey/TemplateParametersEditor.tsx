@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import type { TemplateParameter, WhatsAppTemplate } from "@/data/types"
 import { useTranslation } from "@/hooks/useTranslation"
-import { uploadMediaAsset, type MediaAsset } from "@/lib/api/media-assets"
+import { uploadMediaAsset } from "@/lib/api/media-assets"
 import {
   ANSWER_PREFIX,
   CONTACT_PATHS,
@@ -205,7 +205,6 @@ export function HeaderRow({
   disabled,
   label,
   onChange,
-  onUploaded,
 }: {
   parameter: TemplateParameter
   format: "IMAGE" | "VIDEO" | "DOCUMENT"
@@ -215,8 +214,6 @@ export function HeaderRow({
   /** Reemplaza el rótulo «Encabezado: …». */
   label?: string
   onChange: (next: TemplateParameter) => void
-  /** Recibe el archivo recién subido, por ejemplo para mostrarlo en la vista previa. */
-  onUploaded?: (asset: MediaAsset) => void
 }) {
   const { t } = useTranslation()
   const [uploading, setUploading] = useState(false)
@@ -233,7 +230,6 @@ export function HeaderRow({
       const asset = await uploadMediaAsset(file)
       setUploadedName(asset.name)
       onChange({ component: "header", source: "media_asset", media_asset_id: asset.id })
-      onUploaded?.(asset)
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : t("flows.journey.params.uploadError"))
     } finally {

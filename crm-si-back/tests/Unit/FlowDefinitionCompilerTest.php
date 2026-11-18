@@ -130,6 +130,23 @@ class FlowDefinitionCompilerTest extends TestCase
         $this->assertSame(['crm_action' => 'book_appointment', 'slot' => '${form.slot}'], $slotFooter['payload']);
     }
 
+    public function test_paragraphs_and_notes_render_meta_markdown_but_titles_stay_plain(): void
+    {
+        $children = (new FlowDefinitionCompiler)->compile($this->definition([
+            $this->screen('a', [
+                ['type' => 'heading', 'text' => 'Tus datos'],
+                ['type' => 'body', 'text' => 'Completá **todo**'],
+                ['type' => 'caption', 'text' => '*Opcional*'],
+                ['type' => 'short_text', 'key' => 'nombre', 'label' => 'Nombre', 'input_type' => 'text', 'required' => true],
+            ]),
+        ]))->flowJson['screens'][0]['layout']['children'];
+
+        // Sin `markdown` Meta muestra los asteriscos tal cual; los títulos no lo admiten.
+        $this->assertSame(['type' => 'TextHeading', 'text' => 'Tus datos'], $children[0]);
+        $this->assertSame(['type' => 'TextBody', 'text' => 'Completá **todo**', 'markdown' => true], $children[1]);
+        $this->assertSame(['type' => 'TextCaption', 'text' => '*Opcional*', 'markdown' => true], $children[2]);
+    }
+
     public function test_images_compile_to_meta_components_with_their_real_proportions(): void
     {
         $wide = $this->png(40, 20);

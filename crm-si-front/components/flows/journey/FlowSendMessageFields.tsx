@@ -1,12 +1,10 @@
 "use client"
 
-import { useState, type ChangeEvent } from "react"
-
-import { Input } from "@/components/ui/input"
+import { EmojiInput, FormattedTextarea } from "@/components/rich-text/FormattedField"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
 import type { TemplateParameter, WhatsAppFlowSendDefaults } from "@/data/types"
+import { useImagePreviewUrl } from "@/hooks/useImagePreviewUrl"
 import { useTranslation } from "@/hooks/useTranslation"
 import {
   NO_PARAMETER_ERRORS,
@@ -15,7 +13,6 @@ import {
   cleanParameters,
   imageFromParameter,
   imageParameter,
-  imagePreviewUrl,
   parameterIssue,
   type ParameterContext,
   type ParameterErrors,
@@ -91,14 +88,12 @@ export function FlowSendMessageFields({
   disabled,
 }: FlowSendMessageFieldsProps) {
   const { t } = useTranslation()
-  const change = (key: "header" | "body" | "footer" | "cta") => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    onChange({ ...values, [key]: event.target.value })
+  const set = (key: "header" | "body" | "footer" | "cta") => (value: string) => onChange({ ...values, [key]: value })
   const message = toSendDefaults(values, context)
   const rows = variableRows(values, context)
   const invalid = invalidVariables(values.body)
   const outsideBody = [values.withImage ? "" : values.header, values.footer, values.cta].some((text) => text.includes("{{"))
-  // Sólo un archivo subido en esta pantalla tiene URL para la vista previa; uno guardado se ve como ícono.
-  const [uploaded, setUploaded] = useState<{ id: number; url: string } | null>(null)
+  const imageUrl = useImagePreviewUrl(values.withImage ? imageFromParameter(values.image) : null)
 
   return (
     <div className="space-y-3">
@@ -123,26 +118,26 @@ export function FlowSendMessageFields({
             disabled={Boolean(disabled)}
             errors={imageErrors}
             onChange={(image) => onChange({ ...values, image })}
-            onUploaded={(asset) => setUploaded({ id: asset.id, url: asset.url })}
           />
         ) : (
           <div className="space-y-1.5">
             <Label htmlFor={`${idPrefix}-header`}>{t("chats.flows.header")}</Label>
-            <Input id={`${idPrefix}-header`} value={values.header} maxLength={HEADER_FOOTER_MAX} disabled={disabled} onChange={change("header")} />
+            <EmojiInput id={`${idPrefix}-header`} value={values.header} maxLength={HEADER_FOOTER_MAX} disabled={disabled} onValueChange={set("header")} />
           </div>
         )}
       </div>
       <div className="space-y-1.5">
         <Label htmlFor={`${idPrefix}-body`}>{t("chats.flows.body")}</Label>
-        <Textarea
+        <FormattedTextarea
           id={`${idPrefix}-body`}
+          dialect="whatsapp"
           value={values.body}
           maxLength={BODY_MAX}
           rows={3}
           disabled={disabled}
           aria-invalid={message.body === "" || invalid.length > 0}
           aria-describedby={`${idPrefix}-body-hint`}
-          onChange={change("body")}
+          onValueChange={set("body")}
         />
         <div className="flex items-start justify-between gap-3 text-xs">
           <p id={`${idPrefix}-body-hint`} className={invalid.length > 0 ? "text-destructive" : "text-muted-foreground"}>
@@ -168,17 +163,17 @@ export function FlowSendMessageFields({
       ) : null}
       <div className="space-y-1.5">
         <Label htmlFor={`${idPrefix}-footer`}>{t("chats.flows.footer")}</Label>
-        <Input id={`${idPrefix}-footer`} value={values.footer} maxLength={HEADER_FOOTER_MAX} disabled={disabled} onChange={change("footer")} />
+        <EmojiInput id={`${idPrefix}-footer`} value={values.footer} maxLength={HEADER_FOOTER_MAX} disabled={disabled} onValueChange={set("footer")} />
       </div>
       <div className="space-y-1.5">
         <Label htmlFor={`${idPrefix}-cta`}>{t("chats.flows.cta")}</Label>
-        <Input
+        <EmojiInput
           id={`${idPrefix}-cta`}
           value={values.cta}
           maxLength={CTA_MAX}
           disabled={disabled}
           aria-invalid={message.cta === ""}
-          onChange={change("cta")}
+          onValueChange={set("cta")}
         />
         <p className="text-right text-xs text-muted-foreground">{values.cta.length}/{CTA_MAX}</p>
       </div>
@@ -189,7 +184,7 @@ export function FlowSendMessageFields({
           <ChatBubble
             content={{
               header: values.withImage
-                ? { kind: "image", url: imagePreviewUrl(values.image, uploaded) }
+                ? { kind: "image", url: imageUrl }
                 : message.header
                   ? { kind: "text", text: message.header }
                   : null,
