@@ -91,6 +91,29 @@
     "unblocked": "Agenda desbloqueada",
     "notDeletable": "Solo podés eliminar desde el CRM los eventos que organizás vos. Gestionalo desde Google Calendar.",
     "managedElsewhere": "Este evento lo gestiona el CRM en otro workspace. Gestionalo desde ahí.",
+    "editTask": "Editar tarea",
+    "deleteTask": "Eliminar tarea",
+    "openGoogle": "Abrir en Google Calendar",
+    "joinMeet": "Unirse con Google Meet",
+    "copyMeet": "Copiar enlace de Meet",
+    "meetCopied": "Enlace de Meet copiado",
+    "copyFailed": "No se pudo copiar el enlace",
+    "reminderBefore": "{{minutes}} minutos antes",
+    "unassigned": "Sin responsable",
+    "rows": {
+      "meet": "Videollamada",
+      "guest": "Invitado",
+      "reminder": "Aviso",
+      "related": "Relacionado con",
+      "description": "Descripción",
+      "assignee": "Responsable",
+      "sync": "Google Calendar"
+    },
+    "related": {
+      "contact": "Contacto",
+      "pipeline": "Oportunidad",
+      "chat": "Chat"
+    },
     "errors": {
       "notConnected": "Conectá o reconectá tu Google Calendar para eliminar eventos.",
       "busy": "La agenda está siendo actualizada. Volvé a intentar.",
