@@ -36,7 +36,7 @@ class PublicUrlGuard
      *
      * @return array{0: string, 1: int, 2: list<string>}
      *
-     * @throws PublicUrlRejectedException
+     * @throws PublicUrlRejectedException UnresolvableHostException si el dominio no resolvió.
      */
     public function assertPublicUrl(string $url): array
     {
@@ -66,7 +66,7 @@ class PublicUrlGuard
 
         $ips = $this->resolveHost($host);
         if ($ips === []) {
-            throw new PublicUrlRejectedException('No se pudo resolver el dominio.');
+            throw new UnresolvableHostException('No se pudo resolver el dominio.');
         }
 
         foreach ($ips as $ip) {
