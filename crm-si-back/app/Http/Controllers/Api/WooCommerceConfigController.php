@@ -4,14 +4,19 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\WooCommerceConfig;
+use App\Services\WooCommerceCatalogSync;
 use App\Services\WooCommerceService;
+use App\Services\WooCommerceSyncException;
 use App\Services\WooCommerceUrlException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class WooCommerceConfigController extends Controller
 {
-    public function __construct(private readonly WooCommerceService $woo) {}
+    public function __construct(
+        private readonly WooCommerceService $woo,
+        private readonly WooCommerceCatalogSync $catalogSync,
+    ) {}
 
     /**
      * Config de WooCommerce del tenant. Nunca devuelve las credenciales: solo un
@@ -112,8 +117,8 @@ class WooCommerceConfigController extends Controller
     }
 
     /**
-     * Sincroniza los productos de la tienda al catálogo. Requiere config guardada
-     * con credenciales.
+     * Encola el sync del catálogo. Requiere config guardada con credenciales.
+     * La UI sigue el progreso con show() (campo sync).
      */
     public function sync(Request $request): JsonResponse
     {
@@ -132,17 +137,21 @@ class WooCommerceConfigController extends Controller
         }
 
         try {
-            $result = $this->woo->syncProducts($config);
-        } catch (WooCommerceUrlException $e) {
+            // Falla temprano ante una URL bloqueada o credenciales ilegibles
+            // (p. ej. tras rotar APP_KEY), antes de encolar.
+            $this->woo->client($config);
+        } catch (WooCommerceUrlException|WooCommerceSyncException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        return response()->json([
-            'data' => [
-                ...$result,
-                'last_synced_at' => $config->fresh()->last_synced_at?->toIso8601String(),
-            ],
-        ]);
+        if (! $this->catalogSync->start($config)) {
+            return response()->json([
+                'message' => 'Ya hay una sincronización en curso.',
+                'data' => $this->transform($config->fresh()),
+            ], 409);
+        }
+
+        return response()->json(['data' => $this->transform($config->fresh())], 202);
     }
 
     /**
@@ -158,6 +167,7 @@ class WooCommerceConfigController extends Controller
                 'enabled' => false,
                 'has_credentials' => false,
                 'last_synced_at' => null,
+                'sync' => null,
             ];
         }
 
@@ -166,6 +176,15 @@ class WooCommerceConfigController extends Controller
             'enabled' => $config->enabled,
             'has_credentials' => $config->hasCredentials(),
             'last_synced_at' => $config->last_synced_at?->toIso8601String(),
+            'sync' => $config->sync_status === null ? null : [
+                'status' => $config->sync_status,
+                // En curso pero sin avance: la UI permite reiniciarla.
+                'stale' => $this->catalogSync->isStale($config),
+                'started_at' => $config->sync_started_at?->toIso8601String(),
+                'finished_at' => $config->sync_finished_at?->toIso8601String(),
+                'result' => $config->sync_result,
+                'error' => $config->sync_error,
+            ],
         ];
     }
 }

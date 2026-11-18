@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // La sync recorre toda la tienda por páginas: puede tardar. Timeout amplio.
+    // Solo encola el sync: el progreso se consulta con GET /woocommerce-config.
     const { data, status } = await proxyToLaravel(
       "/api/woocommerce-config/sync",
       authHeader,
@@ -22,7 +22,6 @@ export async function POST(request: NextRequest) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
-        timeoutMs: 120000,
       }
     );
     return NextResponse.json(data, { status });

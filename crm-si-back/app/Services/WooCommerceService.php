@@ -2,28 +2,30 @@
 
 namespace App\Services;
 
-use App\Models\Product;
 use App\Models\WooCommerceConfig;
 use App\Support\PublicUrlGuard;
 use App\Support\PublicUrlRejectedException;
+use App\Support\UnresolvableHostException;
 use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Support\Carbon;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 
 /**
- * Conector con la REST API de WooCommerce (wc/v3). Prueba credenciales e importa
- * los productos de la tienda al catálogo local (source='woocommerce'), usando
- * WooCommerce como fuente de verdad (upsert idempotente por external_id).
+ * Conector con la REST API de WooCommerce (wc/v3): prueba credenciales y lee
+ * productos y variaciones. La escritura al catálogo local la hace
+ * WooCommerceCatalogWriter; la orquestación del sync, WooCommerceCatalogSync.
  */
 class WooCommerceService
 {
     private const API_PREFIX = '/wp-json/wc/v3';
 
-    private const PER_PAGE = 100;
+    // Página chica a propósito: cada producto variable suma un request de
+    // variaciones y la página entera tiene que entrar en el timeout del job.
+    public const PRODUCTS_PER_PAGE = 25;
 
-    private const MAX_PAGES = 100; // Tope de seguridad: hasta 10.000 productos por sync.
+    private const VARIATIONS_PER_PAGE = 100;
+
+    private const MAX_VARIATION_PAGES = 20;
 
     public function __construct(private PublicUrlGuard $urlGuard) {}
 
@@ -72,131 +74,118 @@ class WooCommerceService
     }
 
     /**
-     * Sincroniza todos los productos de la tienda al catálogo del tenant.
-     * WooCommerce es la fuente de verdad: crea los nuevos y pisa los existentes
-     * (match por source='woocommerce' + external_id). No borra productos manuales
-     * ni los que ya no estén en Woo.
-     *
-     * @return array{created: int, updated: int, total: int}
+     * Cliente autenticado contra la tienda del config. Se arma una vez por
+     * página de sync para validar la URL (anti-SSRF) una sola vez.
      *
      * @throws WooCommerceUrlException si la store_url no es una URL pública válida.
+     * @throws WooCommerceSyncException si faltan credenciales.
      */
-    public function syncProducts(WooCommerceConfig $config): array
+    public function client(WooCommerceConfig $config): PendingRequest
     {
-        $storeUrl = $config->store_url;
         $key = $config->getDecryptedConsumerKey();
         $secret = $config->getDecryptedConsumerSecret();
 
         if (! $key || ! $secret) {
-            return ['created' => 0, 'updated' => 0, 'total' => 0];
+            throw new WooCommerceSyncException('Configurá y guardá las credenciales de WooCommerce antes de sincronizar.');
         }
 
-        // Falla temprano ante una URL bloqueada, antes de tocar la DB.
-        $this->assertPublicUrl($storeUrl);
+        return $this->request($config->store_url, $key, $secret);
+    }
 
-        $created = 0;
-        $updated = 0;
-        $total = 0;
+    /**
+     * Una página de productos publicados.
+     *
+     * @return array{items: list<array<string, mixed>>, total_pages: ?int}
+     *
+     * @throws WooCommerceSyncException
+     */
+    public function fetchProductsPage(PendingRequest $client, int $page): array
+    {
+        $response = $client->get('/products', [
+            'per_page' => self::PRODUCTS_PER_PAGE,
+            'page' => $page,
+            'status' => 'publish',
+        ]);
+        $this->assertSuccessful($response, "los productos (página {$page})");
 
-        for ($page = 1; $page <= self::MAX_PAGES; $page++) {
-            $response = $this->request($storeUrl, $key, $secret)->get('/products', [
-                'per_page' => self::PER_PAGE,
+        return [
+            'items' => $this->items($response, "los productos (página {$page})"),
+            'total_pages' => $this->totalPages($response),
+        ];
+    }
+
+    /**
+     * Todas las variaciones de un producto variable.
+     *
+     * @return list<array<string, mixed>>
+     *
+     * @throws WooCommerceSyncException
+     */
+    public function fetchVariations(PendingRequest $client, int $productId): array
+    {
+        $variations = [];
+
+        for ($page = 1; $page <= self::MAX_VARIATION_PAGES; $page++) {
+            $response = $client->get("/products/{$productId}/variations", [
+                'per_page' => self::VARIATIONS_PER_PAGE,
                 'page' => $page,
-                'status' => 'publish',
             ]);
+            $this->assertSuccessful($response, "las variaciones del producto {$productId}");
 
-            if (! $response->successful()) {
-                Log::warning('WooCommerce sync: página falló', [
-                    'tenant_id' => $config->tenant_id,
-                    'page' => $page,
-                    'status' => $response->status(),
-                ]);
-                break;
-            }
+            $items = $this->items($response, "las variaciones del producto {$productId}");
+            array_push($variations, ...$items);
 
-            $items = $response->json();
-
-            if (! is_array($items) || count($items) === 0) {
-                break;
-            }
-
-            foreach ($items as $item) {
-                $result = $this->upsertProduct($config->tenant_id, $item);
-                $result === 'created' ? $created++ : $updated++;
-                $total++;
-            }
-
-            // Si la página vino incompleta, no hay más.
-            if (count($items) < self::PER_PAGE) {
+            $totalPages = $this->totalPages($response);
+            $isLastPage = $totalPages !== null ? $page >= $totalPages : count($items) < self::VARIATIONS_PER_PAGE;
+            if ($items === [] || $isLastPage) {
                 break;
             }
         }
 
-        $config->last_synced_at = Carbon::now();
-        $config->save();
-
-        return ['created' => $created, 'updated' => $updated, 'total' => $total];
+        return $variations;
     }
 
     /**
-     * Inserta o actualiza un producto local a partir de un item de la API de Woo.
-     *
-     * @param  array<string, mixed>  $item
-     * @return 'created'|'updated'
+     * @throws WooCommerceSyncException
      */
-    private function upsertProduct(int $tenantId, array $item): string
+    private function assertSuccessful(Response $response, string $resource): void
     {
-        $externalId = (string) ($item['id'] ?? '');
-
-        $product = Product::withoutGlobalScopes()
-            ->where('tenant_id', $tenantId)
-            ->where('source', 'woocommerce')
-            ->where('external_id', $externalId)
-            ->first();
-
-        $exists = $product !== null;
-
-        if (! $exists) {
-            $product = new Product;
-            $product->tenant_id = $tenantId;
-            $product->source = 'woocommerce';
-            $product->external_id = $externalId;
+        if ($response->successful()) {
+            return;
         }
 
-        $product->name = (string) ($item['name'] ?? 'Sin nombre');
-        $product->price = $this->parsePrice($item['price'] ?? null);
-        $product->description = $this->cleanDescription($item);
-        $product->is_active = ($item['status'] ?? 'publish') === 'publish';
-        $product->save();
+        $status = $response->status();
 
-        return $exists ? 'updated' : 'created';
-    }
-
-    private function parsePrice(mixed $price): ?float
-    {
-        if ($price === null || $price === '') {
-            return null;
-        }
-
-        return is_numeric($price) ? (float) $price : null;
+        throw new WooCommerceSyncException(in_array($status, [401, 403], true)
+            ? "WooCommerce rechazó las credenciales al leer {$resource}."
+            : "WooCommerce respondió con un error ({$status}) al leer {$resource}.");
     }
 
     /**
-     * Toma la descripción corta (o la larga como fallback), le quita el HTML y
-     * la normaliza. WooCommerce devuelve HTML en estos campos.
+     * Un 200 que no es una lista JSON (HTML de WordPress sin permalinks, una
+     * página de caché o de mantenimiento) no es "no hay productos": tomarlo
+     * así desactivaría todo el catálogo y borraría las variantes.
      *
-     * @param  array<string, mixed>  $item
+     * @return list<array<string, mixed>>
+     *
+     * @throws WooCommerceSyncException
      */
-    private function cleanDescription(array $item): ?string
+    private function items(Response $response, string $resource): array
     {
-        $raw = $item['short_description'] ?? '';
-        if (trim((string) $raw) === '') {
-            $raw = $item['description'] ?? '';
+        $items = $response->json();
+
+        if (! is_array($items) || ! array_is_list($items)) {
+            throw new WooCommerceSyncException("WooCommerce no devolvió una lista válida al leer {$resource}. Revisá que la API REST esté accesible (enlaces permanentes, caché o modo mantenimiento).");
         }
 
-        $text = trim(Str::of((string) $raw)->stripTags()->squish()->value());
+        return array_values(array_filter($items, 'is_array'));
+    }
 
-        return $text === '' ? null : $text;
+    private function totalPages(Response $response): ?int
+    {
+        $header = $response->header('X-WP-TotalPages');
+
+        return is_numeric($header) ? (int) $header : null;
     }
 
     /**
@@ -241,7 +230,11 @@ class WooCommerceService
         try {
             return $this->urlGuard->assertPublicUrl($storeUrl);
         } catch (PublicUrlRejectedException $exception) {
-            throw new WooCommerceUrlException($exception->getMessage(), previous: $exception);
+            throw new WooCommerceUrlException(
+                $exception->getMessage(),
+                retryable: $exception instanceof UnresolvableHostException,
+                previous: $exception,
+            );
         }
     }
 }

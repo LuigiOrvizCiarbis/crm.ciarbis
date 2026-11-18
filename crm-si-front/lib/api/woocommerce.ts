@@ -3,6 +3,7 @@ export interface WooConfig {
   enabled: boolean
   has_credentials: boolean
   last_synced_at: string | null
+  sync: WooSyncState | null
 }
 
 export interface WooConfigInput {
@@ -34,8 +35,21 @@ export interface WooTestInput {
 export interface WooSyncResult {
   created: number
   updated: number
+  deactivated: number
+  variants: number
   total: number
-  last_synced_at: string | null
+  // Campos del CRM con el mismo nombre pero otro tipo: el sync no los completa.
+  skipped_fields: string[]
+}
+
+export interface WooSyncState {
+  status: "running" | "completed" | "failed"
+  // En curso pero sin avance hace rato: se puede volver a iniciar.
+  stale: boolean
+  started_at: string | null
+  finished_at: string | null
+  result: WooSyncResult | null
+  error: string | null
 }
 
 export async function getWooConfig(): Promise<WooConfig | null> {
@@ -94,8 +108,12 @@ export async function testWooConfig(input: WooTestInput): Promise<WooTestResult>
   }
 }
 
+/**
+ * Encola el sync del catálogo. Si ya hay uno en curso (409) también devuelve
+ * la config, para que la UI siga mostrando su progreso.
+ */
 export async function syncWooProducts(): Promise<{
-  data?: WooSyncResult
+  data?: WooConfig
   error?: string
 }> {
   const res = await fetch("/api/woocommerce-config/sync", {
@@ -104,8 +122,8 @@ export async function syncWooProducts(): Promise<{
   })
 
   const json = await res.json().catch(() => ({}))
-  if (!res.ok) return { error: extractError(json) }
-  return { data: json.data }
+  if (res.ok || (res.status === 409 && json?.data)) return { data: json.data }
+  return { error: extractError(json) }
 }
 
 function extractError(json: any): string {
