@@ -1,4 +1,5 @@
-import { Instagram, Facebook, MessageSquare } from "lucide-react"
+import { Facebook, Instagram, MessageCircle } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 type MockConversation = {
   name: string
@@ -6,50 +7,60 @@ type MockConversation = {
   time: string
   unread: number
   channel: "whatsapp" | "instagram" | "facebook"
-  active?: boolean
+  assignee: string | null
+  tag?: string
 }
 
 /**
- * Réplica estática de la bandeja real (ver components/chat/ConversationList.tsx).
- * Es decorativa: el texto del hero comunica lo mismo para lectores de pantalla.
+ * Réplica estática de la bandeja real (ver components/chat/ConversationList.tsx): no leído por
+ * peso y contador, responsable visible en cada fila. Es decorativa; la sección lo cuenta en texto.
+ * Mismo elenco que el hilo del hero, HandoffMockup y PipelineMockup: la página sigue una sola tarde.
  */
 const conversations: MockConversation[] = [
   {
-    name: "María González",
-    message: "Hola, me interesa conocer más sobre sus servicios",
-    time: "10:30",
+    name: "Carlos Rodríguez",
+    message: "¿Cuánto me sale si llevo 200 y necesito factura A?",
+    time: "19:58",
     unread: 2,
-    channel: "instagram",
-    active: true,
+    channel: "whatsapp",
+    assignee: null,
+    tag: "Mayorista",
   },
   {
-    name: "Carlos Rodríguez",
-    message: "¿Podrían enviarme una cotización?",
-    time: "09:45",
-    unread: 1,
+    name: "Martina Ruiz",
+    message: "Mañana a las 10 me viene bien",
+    time: "19:44",
+    unread: 0,
     channel: "whatsapp",
+    assignee: "Sofía",
+    tag: "Reunión",
   },
   {
     name: "Ana Martínez",
-    message: "Perfecto, agendemos una reunión la próxima semana",
-    time: "Ayer",
-    unread: 0,
-    channel: "facebook",
+    message: "Vi el reel, ¿tienen talle M en negro?",
+    time: "19:12",
+    unread: 1,
+    channel: "instagram",
+    assignee: "Nico",
   },
   {
-    name: "Laura Pérez",
-    message: "¿Cuándo podríamos hacer una videollamada?",
-    time: "2d",
-    unread: 3,
+    name: "Diego Fernández",
+    message: "Gracias! Ya hice la transferencia",
+    time: "Ayer",
+    unread: 0,
     channel: "whatsapp",
+    assignee: "Sofía",
+    tag: "Pagó",
   },
 ]
 
 const channelIcon = {
-  whatsapp: { Icon: MessageSquare, className: "text-green-500" },
-  instagram: { Icon: Instagram, className: "text-pink-500" },
-  facebook: { Icon: Facebook, className: "text-blue-500" },
+  whatsapp: { Icon: MessageCircle, className: "text-green-600 dark:text-green-400", label: "WhatsApp" },
+  instagram: { Icon: Instagram, className: "text-pink-600 dark:text-pink-400", label: "Instagram" },
+  facebook: { Icon: Facebook, className: "text-blue-600 dark:text-blue-400", label: "Facebook" },
 }
+
+const filters = ["Todos", "Sin asignar", "Míos"]
 
 function initials(name: string) {
   return name
@@ -60,49 +71,75 @@ function initials(name: string) {
 
 export function InboxMockup() {
   return (
-    <div
-      aria-hidden="true"
-      className="overflow-hidden rounded-xl border border-border bg-card shadow-lg select-none"
-    >
-      <div className="border-b border-border px-4 py-3">
-        <p className="text-sm font-semibold text-card-foreground">Conversaciones</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">Todos los canales • 6 sin leer</p>
+    <div aria-hidden="true" className="select-none overflow-hidden rounded-2xl border bg-card shadow-lg">
+      <div className="flex items-center gap-1.5 border-b px-4 py-3">
+        {filters.map((filter, index) => (
+          <span
+            key={filter}
+            className={cn(
+              "rounded-full px-2.5 py-1 text-xs font-medium",
+              index === 0 ? "bg-foreground text-background" : "text-muted-foreground"
+            )}
+          >
+            {filter}
+          </span>
+        ))}
       </div>
 
-      <div className="divide-y divide-border">
-        {conversations.map((conversation) => {
-          const { Icon, className } = channelIcon[conversation.channel]
+      <div className="divide-y">
+        {conversations.map((conversation) => (
+          <ConversationRow key={conversation.name} conversation={conversation} />
+        ))}
+      </div>
+    </div>
+  )
+}
 
-          return (
-            <div
-              key={conversation.name}
-              className={`flex items-start gap-3 px-4 py-3 ${conversation.active ? "bg-muted" : ""}`}
-            >
-              <div className="relative shrink-0">
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-[0.6875rem] font-medium text-muted-foreground">
-                  {initials(conversation.name)}
-                </span>
-                <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-card">
-                  <Icon className={`h-2.5 w-2.5 ${className}`} />
-                </span>
-              </div>
+function ConversationRow({ conversation }: { conversation: MockConversation }) {
+  const { Icon, className } = channelIcon[conversation.channel]
+  const isUnread = conversation.unread > 0
 
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline justify-between gap-2">
-                  <p className="truncate text-sm font-medium text-card-foreground">{conversation.name}</p>
-                  <span className="shrink-0 text-[0.6875rem] text-muted-foreground">{conversation.time}</span>
-                </div>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">{conversation.message}</p>
-              </div>
+  return (
+    <div className="flex items-start gap-3 px-4 py-3">
+      <span className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+        {initials(conversation.name)}
+        <span className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-card">
+          <Icon className={cn("size-2.5", className)} />
+        </span>
+      </span>
 
-              {conversation.unread > 0 && (
-                <span className="mt-1 flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-semibold text-primary-foreground">
-                  {conversation.unread}
-                </span>
-              )}
-            </div>
-          )
-        })}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className={cn("truncate text-sm", isUnread ? "font-semibold" : "font-medium")}>{conversation.name}</p>
+          <span
+            className={cn(
+              "shrink-0 text-[11px] tabular-nums",
+              isUnread ? "font-semibold text-primary" : "text-muted-foreground"
+            )}
+          >
+            {conversation.time}
+          </span>
+        </div>
+        <div className="mt-0.5 flex items-center gap-2">
+          <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{conversation.message}</p>
+          {isUnread && (
+            <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold tabular-nums text-primary-foreground">
+              {conversation.unread}
+            </span>
+          )}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] font-medium">
+          {conversation.assignee ? (
+            <span className="rounded-full bg-muted px-2 py-0.5 text-foreground">{conversation.assignee}</span>
+          ) : (
+            <span className="rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-warning">
+              Sin asignar
+            </span>
+          )}
+          {conversation.tag && (
+            <span className="rounded-full border px-2 py-0.5 text-muted-foreground">{conversation.tag}</span>
+          )}
+        </div>
       </div>
     </div>
   )

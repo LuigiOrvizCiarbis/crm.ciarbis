@@ -133,19 +133,23 @@
 }
 
 /*
- * Piloto de identidad BIMS. Se activa con la clase `brand-bims` en <html> (sólo en /dashboard por
- * ahora) y redefine los tokens semánticos: el resto de los componentes cambia sin tocarlos.
+ * Piloto de identidad BIMS. Se activa con la clase `brand-bims` en <html> (pantallas del piloto, ver
+ * BrandPilot) o en un contenedor (la landing, que la necesita desde el render del servidor) y
+ * redefine los tokens semánticos: el resto de los componentes cambia sin tocarlos.
  * - Neutros teñidos hacia el marino del wordmark (tono 257).
  * - Turquesa de las barras del isotipo = acción y "en vivo". En claro baja a L 0.50 para llevar
  *   texto blanco (5.5:1) y leerse sobre su tinte /10 (4.9:1).
  * - Violeta de la B = IA, y nada más. Los gráficos no lo usan.
  * Contrastes verificados: texto 16:1 o más; texto secundario 5.2:1 o más sobre fondo y muted.
+ * Dentro de un contenedor BIMS, `.dark` abre una zona oscura aunque la página esté en claro.
  */
-html.brand-bims {
+html.brand-bims,
+.brand-bims {
   --font-app-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
 }
 
-html.brand-bims:not(.dark) {
+html.brand-bims:not(.dark),
+html:not(.dark) .brand-bims {
   --background: oklch(0.975 0.005 257);
   --foreground: oklch(0.22 0.028 257);
   --card: oklch(0.995 0.002 257);
@@ -180,7 +184,9 @@ html.brand-bims:not(.dark) {
   --sidebar-ring: oklch(0.5 0.085 198);
 }
 
-html.brand-bims.dark {
+html.brand-bims.dark,
+html.dark .brand-bims,
+.brand-bims .dark {
   --background: oklch(0.17 0.02 257);
   --foreground: oklch(0.965 0.006 257);
   --card: oklch(0.215 0.022 257);
@@ -213,6 +219,26 @@ html.brand-bims.dark {
   --sidebar-accent-foreground: oklch(0.965 0.006 257);
   --sidebar-border: oklch(0.3 0.02 257);
   --sidebar-ring: oklch(0.746 0.127 195);
+}
+
+/* Landing: las zonas de noche usan el marino del wordmark, más profundo y con más croma que la app. */
+.brand-bims .landing-night {
+  --background: oklch(0.2 0.035 262);
+  --card: oklch(0.245 0.036 262);
+  --muted: oklch(0.29 0.034 262);
+  --border: oklch(0.33 0.03 262);
+  --input: oklch(0.33 0.03 262);
+  --primary-foreground: oklch(0.2 0.035 262);
+}
+
+/* Con la página en oscuro (L 0.17) la noche tiene que bajar más para seguir separando las zonas. */
+html.dark .brand-bims .landing-night {
+  --background: oklch(0.135 0.03 262);
+  --card: oklch(0.185 0.032 262);
+  --muted: oklch(0.23 0.03 262);
+  --border: oklch(0.275 0.028 262);
+  --input: oklch(0.275 0.028 262);
+  --primary-foreground: oklch(0.135 0.03 262);
 }
 
 @theme inline {
@@ -361,8 +387,64 @@ html.brand-bims.dark {
     animation: landing-rise 600ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
   }
 
+  /* El hilo del hero se arma mensaje a mensaje; cada paso fija su delay. */
+  @keyframes landing-in {
+    from {
+      opacity: 0;
+      transform: translateY(0.5rem) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* Longhands: el shorthand resetea animation-delay y pisaba los [animation-delay:…] de cada paso. */
+  .animate-landing-in {
+    animation-name: landing-in;
+    animation-duration: 520ms;
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    animation-fill-mode: both;
+  }
+
+  /* La oportunidad arranca una columna atrás y avanza a la siguiente etapa. */
+  @keyframes landing-advance {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: none;
+    }
+  }
+
+  .animate-landing-advance {
+    animation-name: landing-advance;
+    animation-duration: 800ms;
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    animation-fill-mode: both;
+  }
+
+  /* Retícula de puntos del hilo, quieta: la misma textura que /chats sin el parálax. */
+  .landing-dots {
+    background-image: radial-gradient(currentColor 1px, transparent 1.25px);
+    background-size: 18px 18px;
+    mask-image: linear-gradient(to bottom, black, transparent 85%);
+  }
+
+  /*
+   * Las escenas animadas esperan a estar a la vista (PlayOnView marca data-inview); sin JS no hay
+   * observer, así que la pausa sólo aplica cuando hay scripting y nunca deja la escena oculta.
+   */
+  @media (scripting: enabled) {
+    .landing-stage:not([data-inview]) :is(.animate-landing-in, .animate-landing-advance) {
+      animation-play-state: paused;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .animate-landing-rise {
+    .animate-landing-rise,
+    .animate-landing-in,
+    .animate-landing-advance {
       animation: none;
     }
   }
