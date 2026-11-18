@@ -239,6 +239,7 @@ class TaskController extends Controller
 
         $isMeeting = $task->type === TaskType::MEETING;
         $taskId = $task->id;
+        $tenantId = $task->tenant_id;
 
         // El sync cae por cascade junto con la tarea, así que el snapshot del
         // evento tiene que tomarse antes del delete: después no hay de dónde
@@ -250,6 +251,7 @@ class TaskController extends Controller
         if ($snapshot) {
             DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatchCancelExisting(
                 $taskId,
+                $tenantId,
                 $snapshot['owner_user_id'],
                 $snapshot['google_calendar_id'],
                 $snapshot['external_event_id'],
@@ -310,6 +312,7 @@ class TaskController extends Controller
             if ($droppedMeetingSnapshot) {
                 DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatchCancelExisting(
                     $task->id,
+                    $task->tenant_id,
                     $droppedMeetingSnapshot['owner_user_id'],
                     $droppedMeetingSnapshot['google_calendar_id'],
                     $droppedMeetingSnapshot['external_event_id'],
@@ -341,6 +344,7 @@ class TaskController extends Controller
 
                 DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatchCancelExisting(
                     $task->id,
+                    $task->tenant_id,
                     $previousOwnerId,
                     $previousCalendarId,
                     $previousEventId,
