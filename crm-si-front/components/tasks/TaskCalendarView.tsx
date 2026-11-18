@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ChevronLeft, ChevronRight, CalendarIcon, CalendarOff } from "lucide-react"
 import type { Task } from "@/lib/types/task"
-import { CalendarSyncBadge } from "./CalendarSyncBadge"
+import { CalendarSyncBadge, showsCalendarSync } from "./CalendarSyncBadge"
 import { useTranslation } from "@/hooks/useTranslation"
 import { AiBookingApprovalBadge } from "./AiBookingApprovalBadge"
 import { typeLabels } from "./task-labels"
@@ -357,7 +357,7 @@ export function TaskCalendarView({
                       <p className="text-sm opacity-90">Tipo: {typeLabels[task.type]}</p>
                       {task.description && <p className="text-sm mt-2 opacity-90">{task.description}</p>}
                     </div>
-                    {task.type === "reunion" && (
+                    {showsCalendarSync(task) && (
                       <div className="shrink-0 space-y-1.5 rounded-md bg-background/90 p-1.5">
                         <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />
                         <AiBookingApprovalBadge task={task} />

@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { CalendarClock, ExternalLink, Loader2, RefreshCw } from "lucide-react"
 import { useToast } from "@/components/Toast"
-import type { TaskCalendarSyncInfo } from "@/lib/types/task"
+import type { Task, TaskCalendarSyncInfo } from "@/lib/types/task"
 import { retryTaskCalendarSync } from "@/lib/api/google-calendar"
 
 const STATUS_STYLES: Record<TaskCalendarSyncInfo["status"], string> = {
@@ -26,6 +26,15 @@ interface CalendarSyncBadgeProps {
   taskId: string
   sync?: TaskCalendarSyncInfo | null
   onRetried?: () => void
+}
+
+/**
+ * Las reuniones siempre muestran su estado en Google Calendar. El resto de los
+ * tipos son recordatorios opcionales: el back crea su fila de sync recién
+ * cuando el responsable tiene Google conectado, así que sin fila no hay badge.
+ */
+export function showsCalendarSync(task: Pick<Task, "type" | "calendarSync">): boolean {
+  return task.type === "reunion" || Boolean(task.calendarSync)
 }
 
 export function CalendarSyncBadge({ taskId, sync, onRetried }: CalendarSyncBadgeProps) {

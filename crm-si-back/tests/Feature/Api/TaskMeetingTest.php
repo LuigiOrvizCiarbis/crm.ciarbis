@@ -93,17 +93,55 @@ class TaskMeetingTest extends TestCase
         );
     }
 
-    public function test_non_meeting_tasks_are_unaffected_by_new_validation(): void
+    public function test_non_meeting_task_skips_meeting_validation_and_queues_its_reminder(): void
     {
         Queue::fake();
 
         $response = $this->postJson('/api/tasks', [
             'name' => 'Llamar al cliente',
             'type' => 'llamado',
+            'assigned_to' => $this->user->id,
+            'deadline' => '2026-11-20T13:30:00.000Z',
         ]);
 
         $response->assertStatus(201);
+        Queue::assertPushed(SyncTaskCalendarEventJob::class, fn ($job) => $job->taskId === $response->json('data.id')
+            && $job->action === 'upsert');
+    }
+
+    public function test_creating_task_without_assignee_or_deadline_queues_nothing(): void
+    {
+        Queue::fake();
+
+        $this->postJson('/api/tasks', [
+            'name' => 'Sin responsable',
+            'type' => 'llamado',
+            'deadline' => '2026-11-20T13:30:00.000Z',
+        ])->assertStatus(201);
+
+        $this->postJson('/api/tasks', [
+            'name' => 'Sin vencimiento',
+            'type' => 'seguimiento',
+            'assigned_to' => $this->user->id,
+        ])->assertStatus(201);
+
         Queue::assertNothingPushed();
+    }
+
+    public function test_deadline_instant_from_the_browser_is_stored_as_app_local_time(): void
+    {
+        Queue::fake();
+
+        // El navegador convierte 10:30 de Buenos Aires a este instante.
+        $response = $this->postJson('/api/tasks', [
+            'name' => 'Seguimiento',
+            'type' => 'seguimiento',
+            'deadline' => '2026-11-13T13:30:00.000Z',
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertSame('2026-11-13 10:30:00', Task::first()->getRawOriginal('deadline'));
+        $this->assertSame('2026-11-13T13:30:00.000000Z', $response->json('data.deadline'));
     }
 
     public function test_converting_task_to_meeting_requires_meeting_fields(): void
@@ -260,24 +298,22 @@ class TaskMeetingTest extends TestCase
             && $job->cancelCalendarId === 'primary');
     }
 
-    public function test_changing_meeting_to_other_type_cancels_event_with_snapshot(): void
+    public function test_changing_meeting_to_other_type_rewrites_the_same_event(): void
     {
         Queue::fake();
         $task = $this->makeMeeting();
 
-        $sync = $this->syncedCalendarRow($task, 'droppedeventid1234567');
+        $sync = $this->syncedCalendarRow($task, 'keptevent1234567890');
 
         Queue::fake();
 
         $this->patchJson("/api/tasks/{$task->id}", ['type' => 'seguimiento'])->assertOk();
 
-        Queue::assertPushed(SyncTaskCalendarEventJob::class, fn ($job) => $job->taskId === $task->id
-            && $job->action === 'cancel_previous'
-            && $job->cancelEventId === 'droppedeventid1234567');
-        Queue::assertNotPushed(SyncTaskCalendarEventJob::class, fn ($job) => $job->action === 'upsert');
-
-        $sync->refresh();
-        $this->assertSame('paused', $sync->status);
+        // El upsert reescribe el evento existente como recordatorio (mismo ID):
+        // no hace falta cancelarlo aparte ni queda un evento huérfano.
+        Queue::assertPushed(SyncTaskCalendarEventJob::class, fn ($job) => $job->taskId === $task->id && $job->action === 'upsert');
+        Queue::assertNotPushed(SyncTaskCalendarEventJob::class, fn ($job) => $job->action === 'cancel_previous');
+        $this->assertSame('keptevent1234567890', $sync->fresh()->external_event_id);
     }
 
     public function test_reassigning_meeting_bumps_generation_and_cancels_previous_event(): void
@@ -334,7 +370,29 @@ class TaskMeetingTest extends TestCase
         Queue::assertPushed(SyncTaskCalendarEventJob::class, fn ($job) => $job->taskId === $task->id && $job->action === 'upsert');
     }
 
-    public function test_retry_endpoint_rejects_non_meeting_task(): void
+    public function test_retry_endpoint_rejects_task_without_assignee_or_schedule(): void
+    {
+        Queue::fake();
+
+        $unassigned = Task::create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Seguimiento',
+            'type' => 'seguimiento',
+            'deadline' => now()->addDay(),
+        ]);
+        $undated = Task::create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Seguimiento',
+            'type' => 'seguimiento',
+            'assigned_to' => $this->user->id,
+        ]);
+
+        $this->postJson("/api/tasks/{$unassigned->id}/google-calendar/retry")->assertStatus(422);
+        $this->postJson("/api/tasks/{$undated->id}/google-calendar/retry")->assertStatus(422);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_retry_endpoint_requeues_reminder_in_error(): void
     {
         Queue::fake();
 
@@ -342,9 +400,16 @@ class TaskMeetingTest extends TestCase
             'tenant_id' => $this->tenant->id,
             'name' => 'Seguimiento',
             'type' => 'seguimiento',
+            'assigned_to' => $this->user->id,
+            'deadline' => now()->addDay(),
         ]);
+        $sync = $this->syncedCalendarRow($task, 'remindereventid12345');
+        $sync->update(['status' => 'error', 'last_error' => 'boom']);
 
-        $this->postJson("/api/tasks/{$task->id}/google-calendar/retry")->assertStatus(422);
+        $this->postJson("/api/tasks/{$task->id}/google-calendar/retry")->assertOk();
+
+        $this->assertSame('pending', $sync->fresh()->status);
+        Queue::assertPushed(SyncTaskCalendarEventJob::class, fn ($job) => $job->taskId === $task->id && $job->action === 'upsert');
     }
 
     private function makeMeeting(): Task
