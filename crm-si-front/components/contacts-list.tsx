@@ -38,7 +38,7 @@ import { useTranslation } from "@/hooks/useTranslation"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
-import { formatCurrency } from "@/lib/currency"
+import { formatCustomFieldValue } from "@/lib/custom-field-value"
 import { channelChipClass } from "@/lib/utils/channelHelpers"
 
 const UniversalImportDialog = dynamic(
@@ -150,34 +150,6 @@ function sortFieldForColumn(columnId: ColumnId): SortField | null {
   return COLUMN_SORT_FIELDS[columnId] ?? null
 }
 
-function formatCustomValue(value: unknown, type: string | undefined, currency?: unknown): string {
-  if (value === null || value === undefined || value === "") return "—"
-  if (type === "currency") return formatCurrency(value, currency)
-  if (type === "repeater" && Array.isArray(value)) return `${value.length} elementos`
-  if (Array.isArray(value)) return value.length > 0 ? value.join(", ") : "—"
-  if (typeof value === "boolean") return value ? "Sí" : "No"
-  if (type === "date" && typeof value === "string") {
-    try {
-      // Un campo `date` guarda una fecha pelada (`2026-09-14`), sin hora ni
-      // zona. `new Date()` la interpreta como medianoche UTC, así que al
-      // formatearla en hora local cualquier tenant al oeste de Greenwich veía
-      // el día anterior. Se construye la fecha en local para que el día que se
-      // muestra sea el que se guardó.
-      const parts = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
-      const parsed = parts
-        ? new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]))
-        : new Date(value)
-      return format(parsed, "d MMM yyyy", { locale: es })
-    } catch {
-      return value
-    }
-  }
-  // Un campo tipo archivo guarda un media_asset_id; mostrar el número crudo no
-  // aporta, así que se indica solo que hay un archivo cargado.
-  if (type === "file") return "Archivo"
-  return String(value)
-}
-
 function loadColumnOrder(workspaceId: number | null): Column[] {
   if (typeof window === "undefined") return DEFAULT_COLUMNS
   try {
@@ -251,7 +223,7 @@ export function ContactsList({
   onFiltersChange,
   onContactsChanged,
 }: ContactsListProps) {
-  const { t } = useTranslation()
+  const { t, language } = useTranslation()
   const router = useRouter()
   const workspaceId = getWorkspaceId()
   const { addToast } = useToast()
@@ -910,7 +882,7 @@ export function ContactsList({
           if (!field) {
             return (
               <span className="truncate text-sm text-foreground">
-                {formatCustomValue(raw, undefined)}
+                {formatCustomFieldValue(raw, undefined, { t, language })}
               </span>
             )
           }
@@ -927,7 +899,7 @@ export function ContactsList({
                       className="w-full truncate rounded px-1 py-0.5 text-left text-sm text-foreground transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                       aria-label={`Editar ${field.label}`}
                     >
-                      {formatCustomValue(raw, field.type, field.options?.currency)}
+                      {formatCustomFieldValue(raw, field.type, { t, language, currency: field.options?.currency })}
                     </button>
                   </PopoverTrigger>
                   <PopoverContent
@@ -1029,7 +1001,7 @@ export function ContactsList({
                 ? raw === null || raw === undefined || raw === ""
                   ? "—"
                   : <CustomChoiceBadge choice={String(raw)} color={field.options?.choice_colors?.[String(raw)]} />
-                : formatCustomValue(raw, field.type, field.options?.currency)}
+                : formatCustomFieldValue(raw, field.type, { t, language, currency: field.options?.currency })}
             </button>
           )
         }

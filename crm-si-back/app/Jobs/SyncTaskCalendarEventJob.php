@@ -4,10 +4,10 @@ namespace App\Jobs;
 
 use App\Enums\AiBookingStatus;
 use App\Enums\TaskStatus;
+use App\Models\GoogleCalendarConnection;
 use App\Models\Scopes\TenantScope;
 use App\Models\Task;
 use App\Models\TaskCalendarSync;
-use App\Models\User;
 use App\Support\GoogleCalendarClient;
 use Google\Service\Calendar as GoogleCalendarService;
 use Google\Service\Calendar\ConferenceData;
@@ -58,6 +58,7 @@ class SyncTaskCalendarEventJob implements ShouldQueue
         public ?string $cancelCalendarId = null,
         public ?string $cancelEventId = null,
         public int $conferencePoll = 0,
+        public ?int $cancelTenantId = null,
     ) {}
 
     /**
@@ -65,9 +66,9 @@ class SyncTaskCalendarEventJob implements ShouldQueue
      * tocar el `task_calendar_syncs` actual, que ya representa la nueva
      * generación creada para el nuevo responsable.
      */
-    public static function dispatchCancelExisting(int $taskId, int $ownerUserId, string $calendarId, string $eventId): void
+    public static function dispatchCancelExisting(int $taskId, int $tenantId, int $ownerUserId, string $calendarId, string $eventId): void
     {
-        self::dispatch($taskId, 'cancel_previous', $ownerUserId, $calendarId, $eventId);
+        self::dispatch($taskId, 'cancel_previous', $ownerUserId, $calendarId, $eventId, cancelTenantId: $tenantId);
     }
 
     public function handle(): void
@@ -139,8 +140,7 @@ class SyncTaskCalendarEventJob implements ShouldQueue
 
     private function cancelPrevious(): void
     {
-        $owner = User::withoutGlobalScope(TenantScope::class)->find($this->cancelOwnerUserId);
-        $connection = $owner?->googleCalendarConnection;
+        $connection = $this->connectionFor($this->cancelTenantId, $this->cancelOwnerUserId);
 
         if (! $connection) {
             return;
@@ -211,7 +211,7 @@ class SyncTaskCalendarEventJob implements ShouldQueue
             $sync->external_event_id = $this->deterministicEventId($task, $sync->event_generation);
         }
 
-        $connection = $task->assignedUser?->googleCalendarConnection;
+        $connection = $this->connectionFor($task->tenant_id, $task->assigned_to);
 
         if (! $connection || $connection->status === 'needs_reauth') {
             $this->markPending($sync, $connection ? 'needs_reauth' : 'not_connected');
@@ -311,7 +311,7 @@ class SyncTaskCalendarEventJob implements ShouldQueue
             return;
         }
 
-        $connection = $task->assignedUser?->googleCalendarConnection;
+        $connection = $this->connectionFor($task->tenant_id, $task->assigned_to);
         $service = $connection ? GoogleCalendarClient::serviceFor($connection) : null;
 
         if (! $service) {
@@ -361,13 +361,32 @@ class SyncTaskCalendarEventJob implements ShouldQueue
         }
     }
 
+    /**
+     * La conexión es por usuario *y* workspace. `$user->googleCalendarConnection`
+     * no sirve acá: en el worker no hay usuario autenticado, así que el
+     * TenantScope no filtra y un usuario que pertenece a varios workspaces
+     * puede resolver la conexión de otro tenant (otra cuenta de Google o una
+     * conexión en `needs_reauth`), dejando la reunión sin llegar a su calendario.
+     */
+    private function connectionFor(?int $tenantId, ?int $userId): ?GoogleCalendarConnection
+    {
+        if (! $tenantId || ! $userId) {
+            return null;
+        }
+
+        return GoogleCalendarConnection::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $tenantId)
+            ->where('user_id', $userId)
+            ->first();
+    }
+
     private function cancel(Task $task, TaskCalendarSync $sync): void
     {
         if (! $sync->exists || ! $sync->external_event_id) {
             return;
         }
 
-        $connection = $sync->ownerUser?->googleCalendarConnection;
+        $connection = $this->connectionFor($sync->tenant_id, $sync->owner_user_id);
 
         if (! $connection) {
             return;
