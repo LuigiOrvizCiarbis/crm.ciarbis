@@ -5,8 +5,6 @@ namespace App\Support;
 use App\Jobs\SyncTaskCalendarEventJob;
 use App\Models\GoogleCalendarConnection;
 use App\Models\Scopes\TenantScope;
-use App\Models\Task;
-use App\Models\TaskCalendarSync;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
@@ -67,39 +65,10 @@ class GoogleCalendarOAuth
         $connection->save();
 
         if ($connection->status === 'connected') {
-            self::dispatchPendingMeetingSyncs($user);
+            SyncTaskCalendarEventJob::dispatchPendingFor($user->tenant_id, $user->id);
         }
 
         return $connection;
-    }
-
-    private static function dispatchPendingMeetingSyncs(User $user): void
-    {
-        $taskIds = Task::withoutGlobalScope(TenantScope::class)
-            ->where('tenant_id', $user->tenant_id)
-            ->where('assigned_to', $user->id)
-            ->where('type', 'reunion')
-            ->where('status', '!=', 'cancelado')
-            ->pluck('id');
-
-        if ($taskIds->isEmpty()) {
-            return;
-        }
-
-        $syncs = TaskCalendarSync::withoutGlobalScope(TenantScope::class)
-            ->whereIn('task_id', $taskIds)
-            ->get(['task_id', 'status']);
-
-        $existingTaskIds = $syncs->pluck('task_id');
-        $pendingTaskIds = $syncs
-            ->whereIn('status', ['pending', 'error'])
-            ->pluck('task_id');
-
-        $taskIds
-            ->diff($existingTaskIds)
-            ->merge($pendingTaskIds)
-            ->unique()
-            ->each(fn (int $taskId) => SyncTaskCalendarEventJob::dispatch($taskId, 'upsert'));
     }
 
     private static function cacheKey(string $state): string

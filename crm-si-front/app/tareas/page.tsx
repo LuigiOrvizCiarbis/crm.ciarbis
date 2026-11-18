@@ -87,9 +87,10 @@ export default function TareasPage() {
   }, [loadUsers])
 
   const hasCalendarSyncInFlight = tasks.some((task) => {
-    if (task.type !== "reunion") return false
-
     if (!task.calendarSync) {
+      // Un recordatorio sin fila es lo normal cuando el responsable no conectó
+      // Google: solo las reuniones recién guardadas esperan que aparezca.
+      if (task.type !== "reunion") return false
       const updatedAt = task.updatedAt ? new Date(task.updatedAt).getTime() : 0
       return updatedAt > 0 && Date.now() - updatedAt < 120_000
     }

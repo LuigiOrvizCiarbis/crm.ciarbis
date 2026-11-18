@@ -458,6 +458,9 @@ export function NewTaskModal({ open, onOpenChange, onCreateTask, prefilledData }
                     className="h-10 pl-10"
                   />
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Si el responsable conectó Google Calendar, se agenda como recordatorio de 30 minutos, sin invitados.
+                </p>
               </div>
             )}
           </div>
