@@ -3,7 +3,8 @@
 import { useTranslation } from "@/hooks/useTranslation"
 import type { ProductVariant } from "@/lib/api/products"
 import { DEFAULT_CURRENCY, formatCurrency } from "@/lib/currency"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { cn } from "@/lib/utils"
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table"
 
 /**
  * Variantes de un producto sincronizado (talle, color, capacidad…). Solo
@@ -20,44 +21,52 @@ export function ProductVariantsTable({ variants }: { variants: ProductVariant[] 
     return variant.stock_quantity === null ? status : `${variant.stock_quantity} · ${status}`
   }
 
+  const columns: DataTableColumn<ProductVariant>[] = [
+    {
+      id: "attributes",
+      header: t("catalog.variants"),
+      rowHeader: true,
+      cell: (variant) =>
+        Object.entries(variant.attributes)
+          .map(([name, value]) => `${name}: ${value || t("catalog.variantAnyValue")}`)
+          .join(" · "),
+    },
+    {
+      id: "sku",
+      header: t("catalog.variantSku"),
+      className: "whitespace-nowrap text-muted-foreground",
+      cell: (variant) => variant.sku ?? "—",
+    },
+    {
+      id: "price",
+      header: t("catalog.columnPrice"),
+      align: "right",
+      className: (variant) => cn("whitespace-nowrap tabular-nums", variant.price === null && "text-muted-foreground"),
+      cell: (variant) => formatCurrency(variant.price, DEFAULT_CURRENCY),
+    },
+    {
+      id: "stock",
+      header: t("catalog.variantStock"),
+      className: (variant) =>
+        cn("whitespace-nowrap tabular-nums", variant.stock_status === "outofstock" && "text-muted-foreground"),
+      cell: stock,
+    },
+  ]
+
   return (
     <div className="space-y-2">
       <div>
         <p className="text-sm font-medium">{t("catalog.variants")}</p>
         <p className="text-xs text-muted-foreground">{t("catalog.variantsHint")}</p>
       </div>
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("catalog.variants")}</TableHead>
-              <TableHead>{t("catalog.variantSku")}</TableHead>
-              <TableHead className="text-right">{t("catalog.columnPrice")}</TableHead>
-              <TableHead>{t("catalog.variantStock")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {variants.map((variant) => (
-              <TableRow key={variant.id}>
-                <TableCell className="font-medium">
-                  {Object.entries(variant.attributes)
-                    .map(([name, value]) => `${name}: ${value || t("catalog.variantAnyValue")}`)
-                    .join(" · ")}
-                </TableCell>
-                <TableCell className="whitespace-nowrap text-muted-foreground">{variant.sku ?? "—"}</TableCell>
-                <TableCell className="whitespace-nowrap text-right tabular-nums">
-                  {formatCurrency(variant.price, DEFAULT_CURRENCY)}
-                </TableCell>
-                <TableCell
-                  className={`whitespace-nowrap ${variant.stock_status === "outofstock" ? "text-muted-foreground" : ""}`}
-                >
-                  {stock(variant)}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      <DataTable
+        columns={columns}
+        data={variants}
+        getRowId={(variant) => variant.id}
+        variant="plain"
+        density="compact"
+        maxHeight="15rem"
+      />
     </div>
   )
 }
