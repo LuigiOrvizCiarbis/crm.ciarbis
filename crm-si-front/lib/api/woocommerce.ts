@@ -10,11 +10,17 @@ export interface WooConfig {
   tracking_meta_key: string | null
   paid_template_id: number | null
   shipped_template_id: number | null
-  // Etiquetas de lo que falta para vender por WhatsApp (vacío = listo).
-  checkout_missing: string[]
+  // Lo que falta para vender por WhatsApp (vacío = nada falta); la UI traduce cada código.
+  checkout_missing: WooCheckoutMissing[]
 }
 
 export type WooRetailerIdFormat = "product_id" | "sku"
+
+export type WooCheckoutMissing =
+  | "woo_credentials"
+  | "mercado_pago"
+  | "meta_catalog_id"
+  | "flow_installed"
 
 export interface WooConfigInput {
   store_url: string
@@ -34,6 +40,8 @@ export interface WhatsAppCheckoutInstallResult {
   whatsapp_config_id: number
   flow_id: number | null
   status: string
+  // Meta no activó el carrito/catálogo en ese número: el formulario quedó instalado pero no llegan carritos.
+  commerce_error: string | null
 }
 
 export type WooTestErrorCode =

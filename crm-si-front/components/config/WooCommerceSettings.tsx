@@ -29,12 +29,21 @@ import {
   installWhatsAppCheckout,
   type WhatsAppCheckoutInstallResult,
   type WooConfig,
+  type WooCheckoutMissing,
   type WooRetailerIdFormat,
   type WooSyncState,
 } from "@/lib/api/woocommerce"
 
 const SYNC_POLL_MS = 2000
 const NO_TEMPLATE = "none"
+const UNAVAILABLE_TEMPLATE = "unavailable"
+
+const MISSING_LABEL_KEYS: Record<WooCheckoutMissing, string> = {
+  woo_credentials: "settings.woocommerce.checkout.missing.wooCredentials",
+  mercado_pago: "settings.woocommerce.checkout.missing.mercadoPago",
+  meta_catalog_id: "settings.woocommerce.checkout.missing.metaCatalogId",
+  flow_installed: "settings.woocommerce.checkout.missing.flowInstalled",
+}
 
 interface TemplateOption {
   id: number
@@ -71,7 +80,14 @@ export function WooCommerceSettings() {
   const [trackingMetaKey, setTrackingMetaKey] = useState("")
   const [paidTemplateId, setPaidTemplateId] = useState<number | null>(null)
   const [shippedTemplateId, setShippedTemplateId] = useState<number | null>(null)
-  const [checkoutMissing, setCheckoutMissing] = useState<string[]>([])
+  // Lo guardado en el back: el estado "listo" y el envío de plantillas se comparan contra esto.
+  const [savedCheckout, setSavedCheckout] = useState<{
+    enabled: boolean
+    paidTemplateId: number | null
+    shippedTemplateId: number | null
+  } | null>(null)
+  // null hasta que carga la config: sin datos no se puede afirmar que está todo listo.
+  const [checkoutMissing, setCheckoutMissing] = useState<WooCheckoutMissing[] | null>(null)
   const [templateOptions, setTemplateOptions] = useState<TemplateOption[]>([])
   const [phoneByConfigId, setPhoneByConfigId] = useState<Record<number, string>>({})
   const [installing, setInstalling] = useState(false)
@@ -89,6 +105,11 @@ export function WooCommerceSettings() {
     setTrackingMetaKey(config.tracking_meta_key ?? "")
     setPaidTemplateId(config.paid_template_id ?? null)
     setShippedTemplateId(config.shipped_template_id ?? null)
+    setSavedCheckout({
+      enabled: config.whatsapp_checkout_enabled ?? false,
+      paidTemplateId: config.paid_template_id ?? null,
+      shippedTemplateId: config.shipped_template_id ?? null,
+    })
     setCheckoutMissing(config.checkout_missing ?? [])
   }, [])
 
@@ -202,8 +223,10 @@ export function WooCommerceSettings() {
       meta_catalog_id: metaCatalogId.trim() || null,
       catalog_retailer_id_format: retailerIdFormat,
       tracking_meta_key: trackingMetaKey.trim() || null,
-      paid_template_id: paidTemplateId,
-      shipped_template_id: shippedTemplateId,
+      // Solo si cambiaron: una plantilla guardada que dejó de estar aprobada no
+      // debe impedir guardar la URL o las credenciales.
+      ...(paidTemplateId !== savedCheckout?.paidTemplateId ? { paid_template_id: paidTemplateId } : {}),
+      ...(shippedTemplateId !== savedCheckout?.shippedTemplateId ? { shipped_template_id: shippedTemplateId } : {}),
     })
 
     setSaving(false)
@@ -219,6 +242,11 @@ export function WooCommerceSettings() {
 
     if (result.data) {
       setHasCredentials(result.data.has_credentials)
+      setSavedCheckout({
+        enabled: result.data.whatsapp_checkout_enabled ?? false,
+        paidTemplateId: result.data.paid_template_id ?? null,
+        shippedTemplateId: result.data.shipped_template_id ?? null,
+      })
       setCheckoutMissing(result.data.checkout_missing ?? [])
     }
     setConsumerKey("")
@@ -294,8 +322,17 @@ export function WooCommerceSettings() {
       return
     }
 
-    setInstallResults(result.data ?? [])
-    addToast({ type: "success", title: t("settings.woocommerce.checkout.installed") })
+    const results = result.data ?? []
+    setInstallResults(results)
+    if (results.some((r) => r.commerce_error)) {
+      addToast({
+        type: "warning",
+        title: t("settings.woocommerce.checkout.installedWithWarnings"),
+        description: t("settings.woocommerce.checkout.commerceErrorHint"),
+      })
+    } else {
+      addToast({ type: "success", title: t("settings.woocommerce.checkout.installed") })
+    }
     const config = await getWooConfig()
     if (config) setCheckoutMissing(config.checkout_missing ?? [])
   }
@@ -303,24 +340,38 @@ export function WooCommerceSettings() {
   const templateSelect = (
     value: number | null,
     onChange: (value: number | null) => void,
-  ) => (
-    <Select
-      value={value === null ? NO_TEMPLATE : String(value)}
-      onValueChange={(v) => onChange(v === NO_TEMPLATE ? null : Number(v))}
-    >
-      <SelectTrigger className="w-full">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={NO_TEMPLATE}>{t("settings.woocommerce.checkout.noTemplate")}</SelectItem>
-        {templateOptions.map((option) => (
-          <SelectItem key={option.id} value={String(option.id)}>
-            {option.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
+  ) => {
+    // La guardada puede no estar en la lista (pausada, rechazada, borrada o
+    // sin cargar): se muestra como no disponible en vez de un select vacío.
+    const missingFromList = value !== null && !templateOptions.some((option) => option.id === value)
+
+    return (
+      <Select
+        value={value === null ? NO_TEMPLATE : missingFromList ? UNAVAILABLE_TEMPLATE : String(value)}
+        onValueChange={(v) => {
+          if (v === UNAVAILABLE_TEMPLATE) return
+          onChange(v === NO_TEMPLATE ? null : Number(v))
+        }}
+      >
+        <SelectTrigger className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_TEMPLATE}>{t("settings.woocommerce.checkout.noTemplate")}</SelectItem>
+          {missingFromList && (
+            <SelectItem value={UNAVAILABLE_TEMPLATE} disabled>
+              {t("settings.woocommerce.checkout.templateUnavailable")}
+            </SelectItem>
+          )}
+          {templateOptions.map((option) => (
+            <SelectItem key={option.id} value={String(option.id)}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    )
+  }
 
   if (!isAdmin) {
     return null
@@ -552,23 +603,30 @@ export function WooCommerceSettings() {
                 </p>
               </div>
 
-              {checkoutMissing.length > 0 ? (
-                <div className="space-y-1 text-xs">
-                  <p className="font-medium">{t("settings.woocommerce.checkout.missingTitle")}</p>
-                  <ul className="space-y-1">
-                    {checkoutMissing.map((item) => (
-                      <li key={item} className="flex items-center gap-2 text-warning">
-                        <CircleAlert className="h-3.5 w-3.5" />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <p className="flex items-center gap-2 text-xs text-success">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {t("settings.woocommerce.checkout.ready")}
-                </p>
+              {checkoutMissing !== null && savedCheckout !== null && (
+                checkoutMissing.length > 0 ? (
+                  <div className="space-y-1 text-xs">
+                    <p className="font-medium">{t("settings.woocommerce.checkout.missingTitle")}</p>
+                    <ul className="space-y-1">
+                      {checkoutMissing.map((code) => (
+                        <li key={code} className="flex items-center gap-2 text-warning">
+                          <CircleAlert className="h-3.5 w-3.5" />
+                          {t(MISSING_LABEL_KEYS[code] ?? code)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : savedCheckout.enabled ? (
+                  <p className="flex items-center gap-2 text-xs text-success">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {t("settings.woocommerce.checkout.ready")}
+                  </p>
+                ) : (
+                  <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <CircleAlert className="h-3.5 w-3.5" />
+                    {t("settings.woocommerce.checkout.disabled")}
+                  </p>
+                )
               )}
 
               {installResults && (
@@ -582,6 +640,11 @@ export function WooCommerceSettings() {
                         phone: phoneByConfigId[r.whatsapp_config_id] ?? `#${r.whatsapp_config_id}`,
                         status: r.status,
                       })}
+                      {r.commerce_error && (
+                        <span className="block text-warning">
+                          {t("settings.woocommerce.checkout.commerceError", { error: r.commerce_error })}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>

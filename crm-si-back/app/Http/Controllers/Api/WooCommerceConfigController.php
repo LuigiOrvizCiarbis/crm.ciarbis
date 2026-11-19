@@ -68,8 +68,8 @@ class WooCommerceConfigController extends Controller
             'shipped_template_id' => ['sometimes', 'nullable', 'integer'],
         ]);
 
-        $this->assertCheckoutTemplate($validated, 'paid_template_id', $user->tenant_id, ['pedido', 'total']);
-        $this->assertCheckoutTemplate($validated, 'shipped_template_id', $user->tenant_id, ['pedido', 'seguimiento']);
+        $this->assertCheckoutTemplate($validated, 'paid_template_id', $user->tenant_id, ['pedido', 'total'], 'pago confirmado');
+        $this->assertCheckoutTemplate($validated, 'shipped_template_id', $user->tenant_id, ['pedido', 'seguimiento'], 'pedido despachado');
 
         $config = WooCommerceConfig::firstOrNew(['tenant_id' => $user->tenant_id]);
         $config->tenant_id = $user->tenant_id;
@@ -192,7 +192,7 @@ class WooCommerceConfigController extends Controller
      *
      * @throws ValidationException
      */
-    private function assertCheckoutTemplate(array $validated, string $field, int $tenantId, array $variables): void
+    private function assertCheckoutTemplate(array $validated, string $field, int $tenantId, array $variables, string $label): void
     {
         if (empty($validated[$field])) {
             return;
@@ -200,7 +200,7 @@ class WooCommerceConfigController extends Controller
 
         $template = WhatsAppTemplate::where('tenant_id', $tenantId)->find($validated[$field]);
         if (! $template || $template->status !== TemplateStatus::Approved) {
-            throw ValidationException::withMessages([$field => 'Elegí una plantilla aprobada.']);
+            throw ValidationException::withMessages([$field => "La plantilla de {$label} ya no está aprobada. Elegí otra."]);
         }
 
         $parameters = array_map(
@@ -210,34 +210,35 @@ class WooCommerceConfigController extends Controller
 
         $errors = $this->templateRenderer->validateAgainstTemplate($template, $parameters);
         if ($errors !== []) {
-            throw ValidationException::withMessages([$field => array_merge(...array_values($errors))]);
+            $details = implode(' ', array_merge(...array_values($errors)));
+            throw ValidationException::withMessages([$field => "Plantilla de {$label}: {$details}"]);
         }
     }
 
     /**
-     * Lo que falta para vender por WhatsApp, con etiquetas para la UI.
+     * Códigos de lo que falta para vender por WhatsApp; la UI los traduce.
      *
-     * @return list<string>
+     * @return list<'woo_credentials'|'mercado_pago'|'meta_catalog_id'|'flow_installed'>
      */
     private function checkoutMissing(?WooCommerceConfig $config, int $tenantId): array
     {
         $missing = [];
 
         if (! $config?->hasCredentials()) {
-            $missing[] = 'Credenciales de WooCommerce';
+            $missing[] = 'woo_credentials';
         }
 
         $mercadoPago = MercadoPagoConfig::withoutGlobalScopes()->where('tenant_id', $tenantId)->first();
         if (! $mercadoPago?->hasCredentials()) {
-            $missing[] = 'Mercado Pago';
+            $missing[] = 'mercado_pago';
         }
 
         if (empty($config?->meta_catalog_id)) {
-            $missing[] = 'ID del catálogo';
+            $missing[] = 'meta_catalog_id';
         }
 
         if (! app(WhatsAppCheckoutInstaller::class)->hasPublishedFlow($tenantId)) {
-            $missing[] = 'Formulario instalado';
+            $missing[] = 'flow_installed';
         }
 
         return $missing;

@@ -1979,10 +1979,21 @@
         "shippedTemplate": "Plantilla de pedido despachado",
         "templateVariables": "Variables: {{vars}}",
         "noTemplate": "Sin plantilla",
+        "templateUnavailable": "Plantilla no disponible (ya no está aprobada)",
         "missingTitle": "Falta para vender por WhatsApp:",
         "ready": "Todo listo para vender por WhatsApp.",
+        "disabled": "La compra por WhatsApp está desactivada.",
+        "missing": {
+          "wooCredentials": "Credenciales de WooCommerce",
+          "mercadoPago": "Mercado Pago",
+          "metaCatalogId": "ID del catálogo",
+          "flowInstalled": "Formulario instalado"
+        },
         "install": "Instalar compra por WhatsApp",
         "installed": "Compra por WhatsApp instalada",
+        "installedWithWarnings": "Formulario instalado, pero el carrito no quedó activo",
+        "commerceErrorHint": "Activá \"Mostrar catálogo\" y \"Carrito\" a mano en WhatsApp Manager para los números marcados.",
+        "commerceError": "No se pudo activar el catálogo y el carrito: {{error}}",
         "installNoNumbers": "No hay números de WhatsApp conectados.",
         "installRow": "{{phone}}: {{status}}"
       }
