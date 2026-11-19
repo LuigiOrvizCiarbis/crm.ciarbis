@@ -1966,7 +1966,42 @@
       "syncFailed": "Sync failed",
       "syncSkippedFields": "These fields were not filled because they already exist in the catalog with another type: {{fields}}.",
       "syncStale": "The sync has not progressed for over 20 minutes. You can start it again.",
-      "lastSynced": "Last sync: {{date}}"
+      "lastSynced": "Last sync: {{date}}",
+      "checkout": {
+        "title": "WhatsApp checkout",
+        "hint": "Customers build their cart in the WhatsApp catalog, enter shipping details in a form and pay with Mercado Pago.",
+        "metaCatalogId": "Meta catalog ID",
+        "retailerIdFormat": "Product ID in the catalog",
+        "retailerIdProductId": "WooCommerce ID (Facebook for WooCommerce)",
+        "retailerIdSku": "SKU",
+        "trackingMetaKey": "Tracking number field (optional)",
+        "paidTemplate": "Payment confirmed template",
+        "shippedTemplate": "Order shipped template",
+        "templateVariables": "Variables: {{vars}}",
+        "noTemplate": "No template",
+        "missingTitle": "Missing to sell on WhatsApp:",
+        "ready": "Ready to sell on WhatsApp.",
+        "install": "Install WhatsApp checkout",
+        "installed": "WhatsApp checkout installed",
+        "installNoNumbers": "No WhatsApp numbers connected.",
+        "installRow": "{{phone}}: {{status}}"
+      }
+    },
+    "mercadopago": {
+      "title": "Mercado Pago",
+      "description": "Collect WhatsApp orders with a Mercado Pago payment link.",
+      "accessToken": "Access token",
+      "accessTokenHint": "The production access token of your Mercado Pago account (Your integrations → Credentials). Stored encrypted.",
+      "credentialSet": "•••••••••••• (unchanged)",
+      "statementDescriptor": "Name on card statement",
+      "statementDescriptorHint": "Up to 22 characters. Shown on the customer's card statement.",
+      "test": "Test",
+      "testing": "Testing…",
+      "testOk": "Valid credential",
+      "testOkAccount": "Valid credential: account {{nickname}}",
+      "testError": "The Mercado Pago credential is not valid.",
+      "saved": "Mercado Pago settings saved",
+      "lastVerified": "Last verified: {{date}}"
     },
     "webhooks": {
       "title": "Incoming webhooks",
@@ -3768,5 +3803,12 @@
         "createAndActivate": "Create and activate"
       }
     }
+  },
+  "whatsappPurchase": {
+    "approved": "Done, we received your payment! We'll confirm order #{{pedido}} on WhatsApp.",
+    "approvedNoOrder": "Done, we received your payment! We'll confirm your order on WhatsApp.",
+    "pending": "Your payment is being processed.",
+    "failed": "The payment was not completed. You can retry from the button we sent you on WhatsApp.",
+    "backToWhatsApp": "Back to WhatsApp"
   }
 }

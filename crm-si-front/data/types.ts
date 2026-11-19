@@ -449,7 +449,7 @@ export interface Message {
   id: number
   conversation_id: number
   content: string
-  message_type?: "text" | "image" | "sticker" | "document" | "audio" | "video" | "contacts" | "flow" | "flow_response"
+  message_type?: "text" | "image" | "sticker" | "document" | "audio" | "video" | "contacts" | "flow" | "flow_response" | "order"
   contacts?: SharedContact[] | null
   interactive?: MessageInteractive | null
   media_url?: string | null

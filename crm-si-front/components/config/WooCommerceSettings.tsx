@@ -6,22 +6,40 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Loader2, PlugZap, RefreshCw } from "lucide-react"
+import { CheckCircle2, CircleAlert, Loader2, PlugZap, RefreshCw, ShoppingCart } from "lucide-react"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { useToast } from "@/components/Toast"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useAuthStore } from "@/store/useAuthStore"
 import { isAdminRole } from "@/lib/permissions"
 import { useProductFieldsStore } from "@/store/useProductFieldsStore"
+import { getChannels } from "@/lib/api/channels"
+import { getTemplates } from "@/lib/api/templates"
 import {
   getWooConfig,
   updateWooConfig,
   testWooConfig,
   syncWooProducts,
+  installWhatsAppCheckout,
+  type WhatsAppCheckoutInstallResult,
   type WooConfig,
+  type WooRetailerIdFormat,
   type WooSyncState,
 } from "@/lib/api/woocommerce"
 
 const SYNC_POLL_MS = 2000
+const NO_TEMPLATE = "none"
+
+interface TemplateOption {
+  id: number
+  label: string
+}
 
 export function WooCommerceSettings() {
   const { addToast } = useToast()
@@ -47,12 +65,31 @@ export function WooCommerceSettings() {
   const [hasCredentials, setHasCredentials] = useState(false)
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
 
+  const [checkoutEnabled, setCheckoutEnabled] = useState(false)
+  const [metaCatalogId, setMetaCatalogId] = useState("")
+  const [retailerIdFormat, setRetailerIdFormat] = useState<WooRetailerIdFormat>("product_id")
+  const [trackingMetaKey, setTrackingMetaKey] = useState("")
+  const [paidTemplateId, setPaidTemplateId] = useState<number | null>(null)
+  const [shippedTemplateId, setShippedTemplateId] = useState<number | null>(null)
+  const [checkoutMissing, setCheckoutMissing] = useState<string[]>([])
+  const [templateOptions, setTemplateOptions] = useState<TemplateOption[]>([])
+  const [phoneByConfigId, setPhoneByConfigId] = useState<Record<number, string>>({})
+  const [installing, setInstalling] = useState(false)
+  const [installResults, setInstallResults] = useState<WhatsAppCheckoutInstallResult[] | null>(null)
+
   const applyConfig = useCallback((config: WooConfig) => {
     setStoreUrl(config.store_url ?? "")
     setEnabled(config.enabled)
     setHasCredentials(config.has_credentials)
     setLastSyncedAt(config.last_synced_at)
     setSync(config.sync)
+    setCheckoutEnabled(config.whatsapp_checkout_enabled ?? false)
+    setMetaCatalogId(config.meta_catalog_id ?? "")
+    setRetailerIdFormat(config.catalog_retailer_id_format ?? "product_id")
+    setTrackingMetaKey(config.tracking_meta_key ?? "")
+    setPaidTemplateId(config.paid_template_id ?? null)
+    setShippedTemplateId(config.shipped_template_id ?? null)
+    setCheckoutMissing(config.checkout_missing ?? [])
   }, [])
 
   useEffect(() => {
@@ -64,6 +101,45 @@ export function WooCommerceSettings() {
     }
     void loadConfig()
   }, [applyConfig])
+
+  // Plantillas aprobadas de todos los números de WhatsApp, para los avisos
+  // fuera de la ventana de 24 h.
+  useEffect(() => {
+    if (!isAdmin) return
+    let cancelled = false
+
+    const loadTemplates = async () => {
+      try {
+        const channels = (await getChannels()).filter((c) => c.whatsapp_config)
+        const phones: Record<number, string> = {}
+        const lists = await Promise.all(
+          channels.map(async (channel) => {
+            const config = channel.whatsapp_config!
+            phones[config.id] = config.display_phone_number || channel.name
+            const templates = await getTemplates(channel.id).catch(() => [])
+            return templates
+              .filter((tpl) => tpl.status === "APPROVED")
+              .map((tpl) => ({
+                id: tpl.id,
+                label: channels.length > 1
+                  ? `${tpl.name} (${tpl.language}) · ${channel.name}`
+                  : `${tpl.name} (${tpl.language})`,
+              }))
+          }),
+        )
+        if (cancelled) return
+        setPhoneByConfigId(phones)
+        setTemplateOptions(lists.flat())
+      } catch {
+        // Sin plantillas: los selects quedan solo con "Sin plantilla".
+      }
+    }
+
+    void loadTemplates()
+    return () => {
+      cancelled = true
+    }
+  }, [isAdmin])
 
   // Una corrida "stale" no avanza hace rato (worker caído o job perdido): se
   // deja de consultar y se habilita reiniciarla.
@@ -122,6 +198,12 @@ export function WooCommerceSettings() {
       ...(consumerSecret.trim()
         ? { consumer_secret: consumerSecret.trim() }
         : {}),
+      whatsapp_checkout_enabled: checkoutEnabled,
+      meta_catalog_id: metaCatalogId.trim() || null,
+      catalog_retailer_id_format: retailerIdFormat,
+      tracking_meta_key: trackingMetaKey.trim() || null,
+      paid_template_id: paidTemplateId,
+      shipped_template_id: shippedTemplateId,
     })
 
     setSaving(false)
@@ -137,6 +219,7 @@ export function WooCommerceSettings() {
 
     if (result.data) {
       setHasCredentials(result.data.has_credentials)
+      setCheckoutMissing(result.data.checkout_missing ?? [])
     }
     setConsumerKey("")
     setConsumerSecret("")
@@ -196,6 +279,48 @@ export function WooCommerceSettings() {
 
     if (result.data) setSync(result.data.sync)
   }
+
+  const handleInstall = async () => {
+    setInstalling(true)
+    const result = await installWhatsAppCheckout()
+    setInstalling(false)
+
+    if (result.error) {
+      addToast({
+        type: "error",
+        title: t("common.error"),
+        description: result.error,
+      })
+      return
+    }
+
+    setInstallResults(result.data ?? [])
+    addToast({ type: "success", title: t("settings.woocommerce.checkout.installed") })
+    const config = await getWooConfig()
+    if (config) setCheckoutMissing(config.checkout_missing ?? [])
+  }
+
+  const templateSelect = (
+    value: number | null,
+    onChange: (value: number | null) => void,
+  ) => (
+    <Select
+      value={value === null ? NO_TEMPLATE : String(value)}
+      onValueChange={(v) => onChange(v === NO_TEMPLATE ? null : Number(v))}
+    >
+      <SelectTrigger className="w-full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={NO_TEMPLATE}>{t("settings.woocommerce.checkout.noTemplate")}</SelectItem>
+        {templateOptions.map((option) => (
+          <SelectItem key={option.id} value={String(option.id)}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
 
   if (!isAdmin) {
     return null
@@ -357,6 +482,122 @@ export function WooCommerceSettings() {
                 {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {t("common.save")}
               </Button>
+            </div>
+
+            <div className="space-y-4 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label className="flex items-center gap-2">
+                    <ShoppingCart className="h-4 w-4" />
+                    {t("settings.woocommerce.checkout.title")}
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t("settings.woocommerce.checkout.hint")}
+                  </p>
+                </div>
+                <Switch checked={checkoutEnabled} onCheckedChange={setCheckoutEnabled} />
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("settings.woocommerce.checkout.metaCatalogId")}</Label>
+                <Input
+                  value={metaCatalogId}
+                  onChange={(e) => setMetaCatalogId(e.target.value)}
+                  placeholder="123456789012345"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("settings.woocommerce.checkout.retailerIdFormat")}</Label>
+                <Select
+                  value={retailerIdFormat}
+                  onValueChange={(v) => setRetailerIdFormat(v as WooRetailerIdFormat)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="product_id">
+                      {t("settings.woocommerce.checkout.retailerIdProductId")}
+                    </SelectItem>
+                    <SelectItem value="sku">
+                      {t("settings.woocommerce.checkout.retailerIdSku")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("settings.woocommerce.checkout.trackingMetaKey")}</Label>
+                <Input
+                  value={trackingMetaKey}
+                  onChange={(e) => setTrackingMetaKey(e.target.value)}
+                  placeholder="_tracking_number"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("settings.woocommerce.checkout.paidTemplate")}</Label>
+                {templateSelect(paidTemplateId, setPaidTemplateId)}
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.woocommerce.checkout.templateVariables", { vars: "{{pedido}}, {{total}}" })}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("settings.woocommerce.checkout.shippedTemplate")}</Label>
+                {templateSelect(shippedTemplateId, setShippedTemplateId)}
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.woocommerce.checkout.templateVariables", { vars: "{{pedido}}, {{seguimiento}}" })}
+                </p>
+              </div>
+
+              {checkoutMissing.length > 0 ? (
+                <div className="space-y-1 text-xs">
+                  <p className="font-medium">{t("settings.woocommerce.checkout.missingTitle")}</p>
+                  <ul className="space-y-1">
+                    {checkoutMissing.map((item) => (
+                      <li key={item} className="flex items-center gap-2 text-warning">
+                        <CircleAlert className="h-3.5 w-3.5" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="flex items-center gap-2 text-xs text-success">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  {t("settings.woocommerce.checkout.ready")}
+                </p>
+              )}
+
+              {installResults && (
+                <ul className="space-y-1 text-xs text-muted-foreground" aria-live="polite">
+                  {installResults.length === 0 && (
+                    <li>{t("settings.woocommerce.checkout.installNoNumbers")}</li>
+                  )}
+                  {installResults.map((r) => (
+                    <li key={r.whatsapp_config_id}>
+                      {t("settings.woocommerce.checkout.installRow", {
+                        phone: phoneByConfigId[r.whatsapp_config_id] ?? `#${r.whatsapp_config_id}`,
+                        status: r.status,
+                      })}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleInstall}
+                  disabled={installing || saving}
+                >
+                  {installing && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  {t("settings.woocommerce.checkout.install")}
+                </Button>
+              </div>
             </div>
           </>
         )}
