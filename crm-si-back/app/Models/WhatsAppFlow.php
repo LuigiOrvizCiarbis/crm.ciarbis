@@ -19,6 +19,9 @@ class WhatsAppFlow extends Model
 
     public const DEFAULT_SEND_CTA = 'Completar';
 
+    /** Formulario de compra por WhatsApp que instala el CRM (WhatsAppCheckoutInstaller). */
+    public const SYSTEM_CHECKOUT = 'whatsapp_checkout';
+
     protected $fillable = [
         'tenant_id',
         'whatsapp_config_id',
@@ -39,6 +42,7 @@ class WhatsAppFlow extends Model
         'opening',
         'completion_message',
         'published_version',
+        'system_key',
     ];
 
     protected $casts = [

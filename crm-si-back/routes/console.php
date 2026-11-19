@@ -47,6 +47,8 @@ Schedule::call(function (): void {
 Schedule::command('automations:dispatch-due')->everyMinute()->withoutOverlapping(5);
 Schedule::command('broadcasts:dispatch-due')->everyMinute()->withoutOverlapping(5);
 Schedule::command('messages:dispatch-scheduled')->everyMinute()->withoutOverlapping(5);
+// Compra por WhatsApp: recordatorios de carrito y de pago, vencimiento de la reserva de stock.
+Schedule::command('whatsapp-checkouts:follow-up')->everyFiveMinutes()->withoutOverlapping(10);
 // Polling IMAP de los canales de email. Los canales de chat usan webhooks; el
 // correo no, así que la latencia de entrada es el intervalo de este schedule.
 Schedule::command('mail:sync-channels')->everyMinute()->withoutOverlapping(10);

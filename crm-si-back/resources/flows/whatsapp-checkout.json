@@ -1,0 +1,339 @@
+{
+    "version": "7.3",
+    "data_api_version": "3.0",
+    "routing_model": {
+        "DATOS": [
+            "ENVIO"
+        ],
+        "ENVIO": [
+            "RESUMEN"
+        ],
+        "RESUMEN": []
+    },
+    "screens": [
+        {
+            "id": "DATOS",
+            "title": "Datos de envío",
+            "data": {
+                "cart_text": {
+                    "type": "string",
+                    "__example__": "1 × Conjunto bebé futbol boca (Talle 2) $24.300"
+                },
+                "first_name": {
+                    "type": "string",
+                    "__example__": ""
+                },
+                "last_name": {
+                    "type": "string",
+                    "__example__": ""
+                },
+                "phone": {
+                    "type": "string",
+                    "__example__": ""
+                },
+                "email": {
+                    "type": "string",
+                    "__example__": ""
+                },
+                "street": {
+                    "type": "string",
+                    "__example__": ""
+                },
+                "street_number": {
+                    "type": "string",
+                    "__example__": ""
+                },
+                "apartment": {
+                    "type": "string",
+                    "__example__": ""
+                },
+                "city": {
+                    "type": "string",
+                    "__example__": ""
+                },
+                "postal_code": {
+                    "type": "string",
+                    "__example__": ""
+                },
+                "state": {
+                    "type": "string",
+                    "__example__": ""
+                },
+                "states": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "title": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "__example__": [
+                        {
+                            "id": "B",
+                            "title": "Buenos Aires"
+                        }
+                    ]
+                },
+                "has_states": {
+                    "type": "boolean",
+                    "__example__": true
+                },
+                "has_no_states": {
+                    "type": "boolean",
+                    "__example__": false
+                },
+                "has_error": {
+                    "type": "boolean",
+                    "__example__": false
+                },
+                "error_message": {
+                    "type": "string",
+                    "__example__": ""
+                }
+            },
+            "layout": {
+                "type": "SingleColumnLayout",
+                "children": [
+                    {
+                        "type": "TextBody",
+                        "text": "${data.error_message}",
+                        "visible": "${data.has_error}"
+                    },
+                    {
+                        "type": "TextBody",
+                        "text": "${data.cart_text}"
+                    },
+                    {
+                        "type": "TextInput",
+                        "name": "first_name",
+                        "label": "Nombre",
+                        "required": true,
+                        "init-value": "${data.first_name}"
+                    },
+                    {
+                        "type": "TextInput",
+                        "name": "last_name",
+                        "label": "Apellido",
+                        "required": true,
+                        "init-value": "${data.last_name}"
+                    },
+                    {
+                        "type": "TextInput",
+                        "name": "phone",
+                        "label": "Teléfono",
+                        "required": true,
+                        "init-value": "${data.phone}",
+                        "input-type": "phone"
+                    },
+                    {
+                        "type": "TextInput",
+                        "name": "email",
+                        "label": "Email (opcional)",
+                        "required": false,
+                        "init-value": "${data.email}",
+                        "input-type": "email"
+                    },
+                    {
+                        "type": "TextInput",
+                        "name": "street",
+                        "label": "Calle",
+                        "required": true,
+                        "init-value": "${data.street}"
+                    },
+                    {
+                        "type": "TextInput",
+                        "name": "street_number",
+                        "label": "Número",
+                        "required": true,
+                        "init-value": "${data.street_number}"
+                    },
+                    {
+                        "type": "TextInput",
+                        "name": "apartment",
+                        "label": "Piso / Depto (opcional)",
+                        "required": false,
+                        "init-value": "${data.apartment}"
+                    },
+                    {
+                        "type": "TextInput",
+                        "name": "city",
+                        "label": "Ciudad",
+                        "required": true,
+                        "init-value": "${data.city}"
+                    },
+                    {
+                        "type": "TextInput",
+                        "name": "postal_code",
+                        "label": "Código postal",
+                        "required": true,
+                        "init-value": "${data.postal_code}"
+                    },
+                    {
+                        "type": "Dropdown",
+                        "name": "state",
+                        "label": "Provincia",
+                        "required": false,
+                        "data-source": "${data.states}",
+                        "visible": "${data.has_states}"
+                    },
+                    {
+                        "type": "TextInput",
+                        "name": "state_text",
+                        "label": "Provincia / Estado",
+                        "required": false,
+                        "init-value": "${data.state}",
+                        "visible": "${data.has_no_states}"
+                    },
+                    {
+                        "type": "Footer",
+                        "label": "Ver opciones de envío",
+                        "on-click-action": {
+                            "name": "data_exchange",
+                            "payload": {
+                                "crm_action": "shipping_quote",
+                                "first_name": "${form.first_name}",
+                                "last_name": "${form.last_name}",
+                                "phone": "${form.phone}",
+                                "email": "${form.email}",
+                                "street": "${form.street}",
+                                "street_number": "${form.street_number}",
+                                "apartment": "${form.apartment}",
+                                "city": "${form.city}",
+                                "postal_code": "${form.postal_code}",
+                                "state": "${form.state}",
+                                "state_text": "${form.state_text}"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "id": "ENVIO",
+            "title": "Envío",
+            "data": {
+                "shipping_options": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "title": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "__example__": [
+                        {
+                            "id": "correo:1",
+                            "title": "Correo Argentino clásico a domicilio · $10.396",
+                            "description": "3 a 6 días hábiles"
+                        }
+                    ]
+                },
+                "coupon_code": {
+                    "type": "string",
+                    "__example__": ""
+                },
+                "has_error": {
+                    "type": "boolean",
+                    "__example__": false
+                },
+                "error_message": {
+                    "type": "string",
+                    "__example__": ""
+                }
+            },
+            "layout": {
+                "type": "SingleColumnLayout",
+                "children": [
+                    {
+                        "type": "TextBody",
+                        "text": "${data.error_message}",
+                        "visible": "${data.has_error}"
+                    },
+                    {
+                        "type": "RadioButtonsGroup",
+                        "name": "shipping_rate_id",
+                        "label": "Opción de envío",
+                        "required": true,
+                        "data-source": "${data.shipping_options}"
+                    },
+                    {
+                        "type": "TextInput",
+                        "name": "coupon_code",
+                        "label": "Código de descuento (opcional)",
+                        "required": false,
+                        "init-value": "${data.coupon_code}"
+                    },
+                    {
+                        "type": "Footer",
+                        "label": "Ver resumen",
+                        "on-click-action": {
+                            "name": "data_exchange",
+                            "payload": {
+                                "crm_action": "review",
+                                "shipping_rate_id": "${form.shipping_rate_id}",
+                                "coupon_code": "${form.coupon_code}"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "id": "RESUMEN",
+            "title": "Confirmá tu pedido",
+            "terminal": true,
+            "success": true,
+            "data": {
+                "summary_text": {
+                    "type": "string",
+                    "__example__": "1 × Conjunto (Talle 2) $24.300\nEnvío: $10.396\nTotal: $34.696"
+                },
+                "has_error": {
+                    "type": "boolean",
+                    "__example__": false
+                },
+                "error_message": {
+                    "type": "string",
+                    "__example__": ""
+                }
+            },
+            "layout": {
+                "type": "SingleColumnLayout",
+                "children": [
+                    {
+                        "type": "TextBody",
+                        "text": "${data.error_message}",
+                        "visible": "${data.has_error}"
+                    },
+                    {
+                        "type": "TextBody",
+                        "text": "${data.summary_text}"
+                    },
+                    {
+                        "type": "Footer",
+                        "label": "Confirmar y pagar",
+                        "on-click-action": {
+                            "name": "data_exchange",
+                            "payload": {
+                                "crm_action": "place_order"
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}
