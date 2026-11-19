@@ -33,6 +33,8 @@ use App\Http\Controllers\Api\MailIntakeController;
 use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MediaAssetController;
 use App\Http\Controllers\Api\MediaAssetDownloadController;
+use App\Http\Controllers\Api\MercadoPagoConfigController;
+use App\Http\Controllers\Api\MercadoPagoWebhookController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\MessageHotkeyController;
 use App\Http\Controllers\Api\MessageMediaController;
@@ -57,6 +59,8 @@ use App\Http\Controllers\Api\TaskAiBookingController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\WebhookEndpointController;
+use App\Http\Controllers\Api\WhatsAppCheckoutController;
+use App\Http\Controllers\Api\WhatsAppCheckoutInstallController;
 use App\Http\Controllers\Api\WhatsAppFlowController;
 use App\Http\Controllers\Api\WhatsAppGroupController;
 use App\Http\Controllers\Api\WhatsAppGroupInvitationController;
@@ -564,6 +568,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('woocommerce-config', [WooCommerceConfigController::class, 'update']);
     Route::post('woocommerce-config/test', [WooCommerceConfigController::class, 'test']);
     Route::post('woocommerce-config/sync', [WooCommerceConfigController::class, 'sync']);
+    Route::post('woocommerce-config/whatsapp-checkout/install', WhatsAppCheckoutInstallController::class);
+
+    // Config de Mercado Pago por tenant (cobro de la compra por WhatsApp).
+    Route::get('mercadopago-config', [MercadoPagoConfigController::class, 'show']);
+    Route::put('mercadopago-config', [MercadoPagoConfigController::class, 'update']);
+    Route::post('mercadopago-config/test', [MercadoPagoConfigController::class, 'test']);
 
     // Config del módulo de cobranzas por tenant (qué campo custom es el
     // vencimiento/estado/contador de mora, ver Fase 3 del plan SI-27).
@@ -748,6 +758,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('whatsapp-flows/{whatsappFlow}/clone', [WhatsAppFlowController::class, 'clone']);
     Route::get('whatsapp-flows/{whatsappFlow}/preview', [WhatsAppFlowController::class, 'preview']);
     Route::post('conversations/{conversation}/send-flow', [WhatsAppFlowController::class, 'send']);
+    Route::post('conversations/{conversation}/whatsapp-checkout', [WhatsAppCheckoutController::class, 'store']);
     Route::get('conversations/{conversation}/scheduled-messages', [ScheduledMessageController::class, 'index']);
     Route::post('conversations/{conversation}/scheduled-messages', [ScheduledMessageController::class, 'store']);
     Route::put('scheduled-messages/{scheduledMessage}', [ScheduledMessageController::class, 'update']);
@@ -768,6 +779,10 @@ Route::get('plans', [PlanController::class, 'index']);
 Route::match(['get', 'post'], 'whatsapp-webhook', [WhatsAppController::class, 'webhook']);
 
 Route::post('whatsapp-flow-endpoint/{token}', WhatsAppFlowEndpointController::class);
+
+// El job vuelve a consultar el pago en la API de Mercado Pago: el cuerpo de la notificación no se usa como fuente.
+Route::post('mercadopago-webhook/{token}', MercadoPagoWebhookController::class)
+    ->middleware('throttle:incoming-webhooks');
 
 Route::match(['get', 'post'], 'instagram-webhook', [InstagramController::class, 'webhook']);
 

@@ -28,6 +28,7 @@ use App\Models\Tag;
 use App\Models\User;
 use App\Models\WhatsAppGroup;
 use App\Models\WhatsAppGroupParticipant;
+use App\Services\Commerce\WhatsAppCatalogOrderService;
 use App\Services\Concerns\ResolvesWhatsAppChannel;
 use App\Services\Concerns\ResolvesWhatsAppCredentials;
 use App\Services\Flows\FlowResponseService;
@@ -144,6 +145,11 @@ class WhatsAppMessageService
                 $messageType = 'text';
             }
 
+            // Carrito enviado desde el catálogo de WhatsApp.
+            $catalogOrder = $messageType === 'order' && is_array($messageData['order'] ?? null)
+                ? $messageData['order']
+                : null;
+
             if (! $this->isSupportedMessageType($messageType)) {
                 Log::warning('WhatsApp message type no soportado, payload ignorado', [
                     'type' => $messageType,
@@ -229,6 +235,10 @@ class WhatsAppMessageService
                 ]);
             }
 
+            if ($catalogOrder !== null) {
+                $messageAttributes = array_merge($messageAttributes, $this->catalogOrderAttributes($catalogOrder));
+            }
+
             $message = $this->createMessage($messageAttributes);
 
             if ($groupWaId === null && is_array($messageData['referral'] ?? null)) {
@@ -237,6 +247,8 @@ class WhatsAppMessageService
 
             if ($flowReply !== null) {
                 app(FlowResponseService::class)->complete($flowReply, $message, $contact, $conversation);
+            } elseif ($catalogOrder !== null) {
+                app(WhatsAppCatalogOrderService::class)->handle($message, $conversation, $catalogOrder);
             } elseif ($interaction !== null) {
                 $this->recordReplyInteraction($message, $interaction);
             } else {
@@ -633,7 +645,31 @@ class WhatsAppMessageService
             'location',
             'contacts',
             'flow_response',
+            'order',
         ], true);
+    }
+
+    /**
+     * Mensaje `order` (carrito del catálogo de WhatsApp): resumen legible y
+     * los productos en `interactive`.
+     *
+     * @param  array<string, mixed>  $order
+     * @return array{content: string, message_type: string, interactive: array<string, mixed>}
+     */
+    private function catalogOrderAttributes(array $order): array
+    {
+        $items = array_values(array_filter((array) ($order['product_items'] ?? []), 'is_array'));
+        $text = trim((string) ($order['text'] ?? ''));
+
+        return [
+            'content' => '🛒 Carrito: '.count($items).' productos'.($text !== '' ? "\n{$text}" : ''),
+            'message_type' => MessageType::Order->value,
+            'interactive' => [
+                'kind' => 'order',
+                'catalog_id' => $order['catalog_id'] ?? null,
+                'product_items' => $items,
+            ],
+        ];
     }
 
     /** @return array{type: string, value: ?string, content: string, target_external_id: ?string}|null */

@@ -3,19 +3,27 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Enums\TemplateStatus;
+use App\Models\MercadoPagoConfig;
+use App\Models\WhatsAppTemplate;
 use App\Models\WooCommerceConfig;
+use App\Services\Commerce\WhatsAppCheckoutInstaller;
+use App\Services\Templates\TemplateParameterRenderer;
 use App\Services\WooCommerceCatalogSync;
 use App\Services\WooCommerceService;
 use App\Services\WooCommerceSyncException;
 use App\Services\WooCommerceUrlException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class WooCommerceConfigController extends Controller
 {
     public function __construct(
         private readonly WooCommerceService $woo,
         private readonly WooCommerceCatalogSync $catalogSync,
+        private readonly TemplateParameterRenderer $templateRenderer,
     ) {}
 
     /**
@@ -32,7 +40,7 @@ class WooCommerceConfigController extends Controller
 
         $config = WooCommerceConfig::where('tenant_id', $user->tenant_id)->first();
 
-        return response()->json(['data' => $this->transform($config)]);
+        return response()->json(['data' => $this->transform($config, $user->tenant_id)]);
     }
 
     /**
@@ -52,12 +60,33 @@ class WooCommerceConfigController extends Controller
             'enabled' => ['required', 'boolean'],
             'consumer_key' => ['nullable', 'string', 'max:255'],
             'consumer_secret' => ['nullable', 'string', 'max:255'],
+            'whatsapp_checkout_enabled' => ['sometimes', 'boolean'],
+            'meta_catalog_id' => ['sometimes', 'nullable', 'string', 'max:64'],
+            'catalog_retailer_id_format' => ['sometimes', Rule::in([WooCommerceConfig::RETAILER_ID_PRODUCT_ID, WooCommerceConfig::RETAILER_ID_SKU])],
+            'tracking_meta_key' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'paid_template_id' => ['sometimes', 'nullable', 'integer'],
+            'shipped_template_id' => ['sometimes', 'nullable', 'integer'],
         ]);
+
+        $this->assertCheckoutTemplate($validated, 'paid_template_id', $user->tenant_id, ['pedido', 'total'], 'pago confirmado');
+        $this->assertCheckoutTemplate($validated, 'shipped_template_id', $user->tenant_id, ['pedido', 'seguimiento'], 'pedido despachado');
 
         $config = WooCommerceConfig::firstOrNew(['tenant_id' => $user->tenant_id]);
         $config->tenant_id = $user->tenant_id;
         $config->store_url = rtrim($validated['store_url'], '/');
         $config->enabled = $validated['enabled'];
+
+        foreach (['whatsapp_checkout_enabled', 'catalog_retailer_id_format', 'paid_template_id', 'shipped_template_id'] as $field) {
+            if (array_key_exists($field, $validated)) {
+                $config->{$field} = $validated[$field];
+            }
+        }
+        foreach (['meta_catalog_id', 'tracking_meta_key'] as $field) {
+            if (array_key_exists($field, $validated)) {
+                $value = trim((string) $validated[$field]);
+                $config->{$field} = $value === '' ? null : $value;
+            }
+        }
 
         if (! empty($validated['consumer_key'])) {
             $config->setEncryptedConsumerKey($validated['consumer_key']);
@@ -69,7 +98,7 @@ class WooCommerceConfigController extends Controller
 
         $config->save();
 
-        return response()->json(['data' => $this->transform($config->fresh())]);
+        return response()->json(['data' => $this->transform($config->fresh(), $user->tenant_id)]);
     }
 
     /**
@@ -147,11 +176,72 @@ class WooCommerceConfigController extends Controller
         if (! $this->catalogSync->start($config)) {
             return response()->json([
                 'message' => 'Ya hay una sincronización en curso.',
-                'data' => $this->transform($config->fresh()),
+                'data' => $this->transform($config->fresh(), $user->tenant_id),
             ], 409);
         }
 
-        return response()->json(['data' => $this->transform($config->fresh())], 202);
+        return response()->json(['data' => $this->transform($config->fresh(), $user->tenant_id)], 202);
+    }
+
+    /**
+     * La plantilla tiene que ser del tenant, estar aprobada y aceptar las
+     * variables literales del aviso (p. ej. {{pedido}} y {{total}}).
+     *
+     * @param  array<string, mixed>  $validated
+     * @param  list<string>  $variables
+     *
+     * @throws ValidationException
+     */
+    private function assertCheckoutTemplate(array $validated, string $field, int $tenantId, array $variables, string $label): void
+    {
+        if (empty($validated[$field])) {
+            return;
+        }
+
+        $template = WhatsAppTemplate::where('tenant_id', $tenantId)->find($validated[$field]);
+        if (! $template || $template->status !== TemplateStatus::Approved) {
+            throw ValidationException::withMessages([$field => "La plantilla de {$label} ya no está aprobada. Elegí otra."]);
+        }
+
+        $parameters = array_map(
+            fn (string $name) => ['component' => 'body', 'name' => $name, 'source' => 'literal', 'value' => $name],
+            $variables,
+        );
+
+        $errors = $this->templateRenderer->validateAgainstTemplate($template, $parameters);
+        if ($errors !== []) {
+            $details = implode(' ', array_merge(...array_values($errors)));
+            throw ValidationException::withMessages([$field => "Plantilla de {$label}: {$details}"]);
+        }
+    }
+
+    /**
+     * Códigos de lo que falta para vender por WhatsApp; la UI los traduce.
+     *
+     * @return list<'woo_credentials'|'mercado_pago'|'meta_catalog_id'|'flow_installed'>
+     */
+    private function checkoutMissing(?WooCommerceConfig $config, int $tenantId): array
+    {
+        $missing = [];
+
+        if (! $config?->hasCredentials()) {
+            $missing[] = 'woo_credentials';
+        }
+
+        $mercadoPago = MercadoPagoConfig::withoutGlobalScopes()->where('tenant_id', $tenantId)->first();
+        if (! $mercadoPago?->hasCredentials()) {
+            $missing[] = 'mercado_pago';
+        }
+
+        if (empty($config?->meta_catalog_id)) {
+            $missing[] = 'meta_catalog_id';
+        }
+
+        if (! app(WhatsAppCheckoutInstaller::class)->hasPublishedFlow($tenantId)) {
+            $missing[] = 'flow_installed';
+        }
+
+        return $missing;
     }
 
     /**
@@ -159,7 +249,7 @@ class WooCommerceConfigController extends Controller
      *
      * @return array<string, mixed>
      */
-    private function transform(?WooCommerceConfig $config): array
+    private function transform(?WooCommerceConfig $config, int $tenantId): array
     {
         if (! $config) {
             return [
@@ -168,6 +258,13 @@ class WooCommerceConfigController extends Controller
                 'has_credentials' => false,
                 'last_synced_at' => null,
                 'sync' => null,
+                'whatsapp_checkout_enabled' => false,
+                'meta_catalog_id' => null,
+                'catalog_retailer_id_format' => WooCommerceConfig::RETAILER_ID_PRODUCT_ID,
+                'tracking_meta_key' => null,
+                'paid_template_id' => null,
+                'shipped_template_id' => null,
+                'checkout_missing' => $this->checkoutMissing(null, $tenantId),
             ];
         }
 
@@ -176,6 +273,13 @@ class WooCommerceConfigController extends Controller
             'enabled' => $config->enabled,
             'has_credentials' => $config->hasCredentials(),
             'last_synced_at' => $config->last_synced_at?->toIso8601String(),
+            'whatsapp_checkout_enabled' => $config->whatsapp_checkout_enabled,
+            'meta_catalog_id' => $config->meta_catalog_id,
+            'catalog_retailer_id_format' => $config->catalog_retailer_id_format ?? WooCommerceConfig::RETAILER_ID_PRODUCT_ID,
+            'tracking_meta_key' => $config->tracking_meta_key,
+            'paid_template_id' => $config->paid_template_id,
+            'shipped_template_id' => $config->shipped_template_id,
+            'checkout_missing' => $this->checkoutMissing($config, $tenantId),
             'sync' => $config->sync_status === null ? null : [
                 'status' => $config->sync_status,
                 // En curso pero sin avance: la UI permite reiniciarla.
