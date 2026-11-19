@@ -79,6 +79,7 @@ import { sendMessage, sendContactsMessage, saveSharedContact, sendMailMessage, e
 import { sendFlowMessage, type SendFlowInput } from "@/lib/api/whatsapp-flows"
 import { ConversationHeader } from "@/components/chat/ConversationHeader"
 import { PendingAiBookingsBanner } from "@/components/chat/PendingAiBookingsBanner"
+import { WhatsAppCheckoutCard } from "@/components/chat/WhatsAppCheckoutCard"
 import { HumanHandoffBanner } from "@/components/chat/HumanHandoffBanner"
 import { MessageList } from "@/components/chat/MessageList"
 import { applyReactionToggle } from "@/components/chat/messageThreadUtils"
@@ -389,8 +390,8 @@ export default function ChatsPage() {
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null)
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(chatIdNumber)
   // Se incrementa con cada mensaje de sistema de la conversación abierta para
-  // que el banner de turnos de la IA vuelva a consultar los pendientes.
-  const [aiBookingsRefreshKey, setAiBookingsRefreshKey] = useState(0)
+  // que el banner de turnos de la IA y la tarjeta del pedido vuelvan a consultar.
+  const [systemEventsRefreshKey, setSystemEventsRefreshKey] = useState(0)
 
   // Un deep link puede apuntar a una conversación que todavía no llegó en la paginación:
   // mientras tanto el hilo usa la conversación cargada por id.
@@ -737,7 +738,7 @@ export default function ChatsPage() {
       });
 
       if (newMessage.sender_type === "system") {
-        setAiBookingsRefreshKey((k) => k + 1);
+        setSystemEventsRefreshKey((k) => k + 1);
       }
     }
 
@@ -2702,7 +2703,12 @@ export default function ChatsPage() {
               <PendingAiBookingsBanner
                 key={`ai-bookings-${selectedConversationId}`}
                 conversationId={selectedConversationId}
-                refreshKey={aiBookingsRefreshKey}
+                refreshKey={systemEventsRefreshKey}
+              />
+              <WhatsAppCheckoutCard
+                key={`checkout-${selectedConversationId}`}
+                conversationId={selectedConversationId}
+                refreshKey={systemEventsRefreshKey}
               />
               {/* Quick Bar */}
               <ChatQuickBar
