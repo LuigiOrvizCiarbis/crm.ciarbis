@@ -19,6 +19,8 @@ class WooCommerceService
 {
     private const API_PREFIX = '/wp-json/wc/v3';
 
+    public const STORE_API_PREFIX = '/wp-json/wc/store/v1';
+
     // Página chica a propósito: cada producto variable suma un request de
     // variaciones y la página entera tiene que entrar en el timeout del job.
     public const PRODUCTS_PER_PAGE = 25;
@@ -90,6 +92,19 @@ class WooCommerceService
         }
 
         return $this->request($config->store_url, $key, $secret);
+    }
+
+    /**
+     * Cliente sin autenticación contra la Store API (wc/store/v1) de la tienda,
+     * con el mismo anti-SSRF y fijado de IP que el cliente REST. El header
+     * X-CRM-Checkout identifica las cotizaciones del CRM ante la tienda.
+     *
+     * @throws WooCommerceUrlException si la store_url no es una URL pública válida.
+     */
+    public function storeApiClient(WooCommerceConfig $config): PendingRequest
+    {
+        return $this->request($config->store_url, null, null, self::STORE_API_PREFIX)
+            ->withHeaders(['X-CRM-Checkout' => '1']);
     }
 
     /**
@@ -193,15 +208,20 @@ class WooCommerceService
      *
      * @throws WooCommerceUrlException si la store_url no es una URL pública válida.
      */
-    private function request(string $storeUrl, string $consumerKey, string $consumerSecret): PendingRequest
+    private function request(string $storeUrl, ?string $consumerKey, ?string $consumerSecret, string $apiPrefix = self::API_PREFIX): PendingRequest
     {
         // La store_url la controla el tenant → validar contra SSRF antes de pegarle.
         // Devuelve host/puerto/IPs públicas ya validadas para pinnearlas en la conexión.
         [$host, $port, $ips] = $this->assertPublicUrl($storeUrl);
 
-        $base = rtrim($storeUrl, '/').self::API_PREFIX;
+        $base = rtrim($storeUrl, '/').$apiPrefix;
 
-        return Http::withBasicAuth($consumerKey, $consumerSecret)
+        $client = Http::acceptJson();
+        if ($consumerKey !== null && $consumerSecret !== null) {
+            $client = $client->withBasicAuth($consumerKey, $consumerSecret);
+        }
+
+        return $client
             ->acceptJson()
             ->timeout(30)
             // Sin redirects automáticos: un 30x podría llevarnos a un host interno

@@ -5,7 +5,7 @@ import { MessageStatus } from "./MessageStatus"
 import { MessageReactions } from "./MessageReactions"
 import { ReactionPicker } from "./ReactionPicker"
 import { EmojiPicker } from "./EmojiPicker"
-import { MoreHorizontal, Pencil, Trash2, Bot, Languages, EyeOff, Phone, Mail, Ban, AlertCircle, Reply } from "lucide-react"
+import { MoreHorizontal, Pencil, Trash2, Bot, Languages, EyeOff, Phone, Mail, Ban, AlertCircle, Reply, ShoppingCart } from "lucide-react"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useLongPress } from "@/hooks/useLongPress"
 import { useSwipeToReply, SWIPE_REPLY_THRESHOLD } from "@/hooks/useSwipeToReply"
@@ -491,6 +491,9 @@ export const MessageBubble = memo(function MessageBubble({
   ) : (
     <div>
       <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
+        {msg.message_type === "order" && (
+          <ShoppingCart className="mr-1 inline h-4 w-4 align-text-bottom" aria-hidden="true" />
+        )}
         <MessageText
           content={msg.content || ""}
           query={normalizedQuery}

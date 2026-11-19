@@ -4,7 +4,23 @@ export interface WooConfig {
   has_credentials: boolean
   last_synced_at: string | null
   sync: WooSyncState | null
+  whatsapp_checkout_enabled: boolean
+  meta_catalog_id: string | null
+  catalog_retailer_id_format: WooRetailerIdFormat
+  tracking_meta_key: string | null
+  paid_template_id: number | null
+  shipped_template_id: number | null
+  // Lo que falta para vender por WhatsApp (vacío = nada falta); la UI traduce cada código.
+  checkout_missing: WooCheckoutMissing[]
 }
+
+export type WooRetailerIdFormat = "product_id" | "sku"
+
+export type WooCheckoutMissing =
+  | "woo_credentials"
+  | "mercado_pago"
+  | "meta_catalog_id"
+  | "flow_installed"
 
 export interface WooConfigInput {
   store_url: string
@@ -12,6 +28,20 @@ export interface WooConfigInput {
   // Write-only: solo se mandan si el usuario cargó unas nuevas.
   consumer_key?: string
   consumer_secret?: string
+  whatsapp_checkout_enabled?: boolean
+  meta_catalog_id?: string | null
+  catalog_retailer_id_format?: WooRetailerIdFormat
+  tracking_meta_key?: string | null
+  paid_template_id?: number | null
+  shipped_template_id?: number | null
+}
+
+export interface WhatsAppCheckoutInstallResult {
+  whatsapp_config_id: number
+  flow_id: number | null
+  status: string
+  // Meta no activó el carrito/catálogo en ese número: el formulario quedó instalado pero no llegan carritos.
+  commerce_error: string | null
 }
 
 export type WooTestErrorCode =
@@ -124,6 +154,36 @@ export async function syncWooProducts(): Promise<{
   const json = await res.json().catch(() => ({}))
   if (res.ok || (res.status === 409 && json?.data)) return { data: json.data }
   return { error: extractError(json) }
+}
+
+/** Instala el formulario de compra en cada número de WhatsApp del tenant. */
+export async function installWhatsAppCheckout(): Promise<{
+  data?: WhatsAppCheckoutInstallResult[]
+  error?: string
+}> {
+  const res = await fetch("/api/woocommerce-config/whatsapp-checkout/install", {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  })
+
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const details = Array.isArray(json?.validation_errors)
+      ? (json.validation_errors as unknown[])
+          .map((e) =>
+            typeof e === "string"
+              ? e
+              : e && typeof e === "object" && "message" in e
+                ? String(e.message)
+                : JSON.stringify(e),
+          )
+          .join(" · ")
+      : ""
+    const message = extractError(json)
+    return { error: details ? `${message}: ${details}` : message }
+  }
+  const list = Array.isArray(json) ? json : json?.data
+  return { data: Array.isArray(list) ? list : [] }
 }
 
 function extractError(json: any): string {

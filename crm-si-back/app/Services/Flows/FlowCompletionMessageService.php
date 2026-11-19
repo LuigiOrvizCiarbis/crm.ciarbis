@@ -2,22 +2,15 @@
 
 namespace App\Services\Flows;
 
-use App\Enums\MessageDirection;
-use App\Enums\MessageType;
-use App\Enums\SenderType;
-use App\Events\MessageSent;
-use App\Events\TenantMessageReceived;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppTemplate;
 use App\Services\Templates\TemplateParameterException;
 use App\Services\Templates\TemplateParameterRenderer;
-use App\Services\WhatsAppMessageService;
+use App\Services\WhatsAppInteractiveSender;
 use App\Services\WhatsAppTemplateService;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use RuntimeException;
 
 /**
  * Cierre del formulario: lo manda el CRM en el chat apenas llega la respuesta.
@@ -35,7 +28,7 @@ class FlowCompletionMessageService
     public const PLACEHOLDER = '/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/';
 
     public function __construct(
-        private readonly WhatsAppMessageService $messages,
+        private readonly WhatsAppInteractiveSender $sender,
         private readonly WhatsAppTemplateService $templates,
         private readonly TemplateParameterRenderer $parameters,
     ) {}
@@ -111,7 +104,13 @@ class FlowCompletionMessageService
 
         return $body === ''
             ? null
-            : $this->deliver($flow, $conversation, $body, $config, $this->imageLink($flow, $config['image']));
+            : $this->sender->send(
+                $conversation,
+                $body,
+                $config,
+                $this->imageLink($flow, $config['image']),
+                ['kind' => 'flow_completion', 'whatsapp_flow_id' => $flow->id],
+            );
     }
 
     /**
@@ -174,78 +173,5 @@ class FlowCompletionMessageService
             fn (array $match) => $values[$match[1]] ?? '',
             $template,
         );
-    }
-
-    /**
-     * @param  array{header: ?string, footer: ?string, button_text: ?string, url: ?string}  $config
-     */
-    private function deliver(WhatsAppFlow $flow, Conversation $conversation, string $body, array $config, ?string $imageLink): Message
-    {
-        ['header' => $header, 'footer' => $footer, 'button_text' => $buttonText, 'url' => $url] = $config;
-        $context = $this->messages->resolveOutboundWhatsAppContext($conversation);
-        $payload = [
-            'messaging_product' => 'whatsapp',
-            'recipient_type' => $context['recipient_type'],
-            'to' => $context['to'],
-        ];
-
-        if ($buttonText !== null && $url !== null) {
-            $payload['type'] = 'interactive';
-            $payload['interactive'] = [
-                'type' => 'cta_url',
-                ...($imageLink !== null
-                    ? ['header' => ['type' => 'image', 'image' => ['link' => $imageLink]]]
-                    : ($header !== null ? ['header' => ['type' => 'text', 'text' => $header]] : [])),
-                'body' => ['text' => $body],
-                ...($footer !== null ? ['footer' => ['text' => $footer]] : []),
-                'action' => ['name' => 'cta_url', 'parameters' => ['display_text' => $buttonText, 'url' => $url]],
-            ];
-        } elseif ($imageLink !== null) {
-            // Sin botón, la imagen va como mensaje de imagen con el texto de epígrafe (también hasta 1024).
-            $payload['type'] = 'image';
-            $payload['image'] = ['link' => $imageLink, 'caption' => $body];
-        } else {
-            $payload['type'] = 'text';
-            $payload['text'] = ['body' => $body, 'preview_url' => true];
-        }
-
-        $response = Http::withToken($context['business_token'])
-            ->timeout(10)
-            ->post('https://graph.facebook.com/'.config('services.facebook.graph_version', 'v26.0')."/{$context['business_phone_id']}/messages", $payload);
-
-        if (! $response->successful()) {
-            $this->messages->throwIfWindowClosed($response);
-
-            throw new RuntimeException('Meta rechazó el mensaje: '.$response->body());
-        }
-
-        // El chat muestra encabezado, pie y link como texto; el detalle queda en `interactive`.
-        $content = implode("\n\n", array_filter([$header, $body, $footer, $buttonText !== null ? "🔗 {$buttonText}: {$url}" : null]));
-        $message = Message::create([
-            'tenant_id' => $conversation->tenant_id,
-            'conversation_id' => $conversation->id,
-            'sender_type' => SenderType::SYSTEM,
-            'content' => $content,
-            'message_type' => $imageLink !== null ? MessageType::Image : MessageType::Text,
-            'media_url' => $imageLink,
-            'direction' => MessageDirection::OUTBOUND,
-            'external_id' => $response->json('messages.0.id'),
-            'interactive' => [
-                'kind' => 'flow_completion',
-                'whatsapp_flow_id' => $flow->id,
-                'button' => $buttonText !== null ? ['text' => $buttonText, 'url' => $url] : null,
-            ],
-        ]);
-
-        $conversation->update(['last_message_at' => $message->created_at, 'last_message_content' => $content]);
-
-        try {
-            broadcast(new MessageSent($message));
-            broadcast(new TenantMessageReceived($message, $conversation->tenant_id));
-        } catch (\Exception $e) {
-            Log::error('Error broadcasting flow completion message: '.$e->getMessage());
-        }
-
-        return $message;
     }
 }
