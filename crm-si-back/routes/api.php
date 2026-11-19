@@ -761,6 +761,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('whatsapp-flows/{whatsappFlow}/preview', [WhatsAppFlowController::class, 'preview']);
     Route::post('conversations/{conversation}/send-flow', [WhatsAppFlowController::class, 'send']);
     Route::post('conversations/{conversation}/whatsapp-checkout', [WhatsAppCheckoutController::class, 'store']);
+    Route::get('conversations/{conversation}/whatsapp-checkout', [WhatsAppCheckoutController::class, 'show']);
+    Route::post('conversations/{conversation}/whatsapp-catalog', [WhatsAppCheckoutController::class, 'catalog']);
     Route::get('conversations/{conversation}/scheduled-messages', [ScheduledMessageController::class, 'index']);
     Route::post('conversations/{conversation}/scheduled-messages', [ScheduledMessageController::class, 'store']);
     Route::put('scheduled-messages/{scheduledMessage}', [ScheduledMessageController::class, 'update']);

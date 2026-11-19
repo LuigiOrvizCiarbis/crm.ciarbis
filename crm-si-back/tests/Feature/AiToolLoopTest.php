@@ -316,6 +316,16 @@ class AiToolLoopTest extends TestCase
 
                 return "resultado de {$name}";
             }
+
+            public function promptSection(): string
+            {
+                return '';
+            }
+
+            public function fallbackMessage(): ?string
+            {
+                return null;
+            }
         };
     }
 }
