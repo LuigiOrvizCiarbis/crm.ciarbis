@@ -1995,7 +1995,11 @@
         "commerceErrorHint": "Turn on \"Show catalog\" and \"Cart\" manually in WhatsApp Manager for the flagged numbers.",
         "commerceError": "Couldn't turn on the catalog and cart: {{error}}",
         "installNoNumbers": "No WhatsApp numbers connected.",
-        "installRow": "{{phone}}: {{status}}"
+        "installRow": "{{phone}}: {{status}}",
+        "webhooks": "Turn on automatic updates",
+        "webhooksActivated": "Automatic updates turned on",
+        "webhooksActive": "Automatic updates on",
+        "webhooksInactive": "No automatic updates: the catalog and orders only update when you sync."
       }
     },
     "mercadopago": {

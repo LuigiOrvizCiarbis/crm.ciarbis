@@ -70,17 +70,20 @@ class WhatsAppCheckoutLifecycle
 
     /**
      * Marca el pedido pagado en Woo y en el CRM. Un error de Woo se relanza
-     * para que el job reintente: el estado todavía no cambió.
+     * para que el job reintente: el estado todavía no cambió. Con $updateWoo
+     * en false el pedido ya figura pagado en Woo (llegó por su webhook).
      */
-    public function markPaid(WhatsAppCheckout $checkout, string $paymentId, bool $late = false): void
+    public function markPaid(WhatsAppCheckout $checkout, string $paymentId, bool $late = false, bool $updateWoo = true): void
     {
         $config = $checkout->wooConfig();
 
-        $this->gateway->updateOrder($config, (int) $checkout->external_order_id, [
-            'status' => 'processing',
-            'transaction_id' => $paymentId,
-            'meta_data' => [['key' => 'crm_mercadopago_payment_id', 'value' => $paymentId]],
-        ]);
+        if ($updateWoo) {
+            $this->gateway->updateOrder($config, (int) $checkout->external_order_id, [
+                'status' => 'processing',
+                'transaction_id' => $paymentId,
+                'meta_data' => [['key' => 'crm_mercadopago_payment_id', 'value' => $paymentId]],
+            ]);
+        }
 
         $conversation = $checkout->conversationUnscoped();
 
@@ -124,6 +127,78 @@ class WhatsAppCheckoutLifecycle
             ['component' => 'body', 'name' => 'pedido', 'source' => 'literal', 'value' => $number],
             ['component' => 'body', 'name' => 'total', 'source' => 'literal', 'value' => $amount],
         ]);
+    }
+
+    /**
+     * Cambio de estado del pedido en Woo (webhook order.updated). Comparte el
+     * lock con el webhook de pago para no marcar ni avisar dos veces.
+     *
+     * @param  array<string, mixed>  $wooOrder
+     */
+    public function orderUpdated(WhatsAppCheckout $checkout, array $wooOrder): void
+    {
+        $this->exclusively($checkout, function (WhatsAppCheckout $current) use ($wooOrder): void {
+            $status = $wooOrder['status'] ?? null;
+
+            if (in_array($status, ['processing', 'completed'], true) && $current->status === WhatsAppCheckout::AWAITING_PAYMENT) {
+                $this->markPaid($current, (string) ($wooOrder['transaction_id'] ?? ''), updateWoo: false);
+            }
+
+            if ($status === 'completed' && $current->status === WhatsAppCheckout::PAID && $current->shipped_notified_at === null) {
+                $this->notifyShipped($current, $wooOrder);
+
+                return;
+            }
+
+            if ($status === 'cancelled' && $current->status === WhatsAppCheckout::AWAITING_PAYMENT) {
+                $mpConfig = $current->mercadoPagoConfig();
+                if ($mpConfig !== null && $current->payment_preference_id !== null) {
+                    $this->mercadoPago->expirePreference($mpConfig, $current->payment_preference_id);
+                }
+                $current->update(['status' => WhatsAppCheckout::CANCELLED, 'closed_at' => now()]);
+            }
+        });
+    }
+
+    /**
+     * Avisa que el pedido salió, con el número de seguimiento si la tienda lo
+     * guarda en el meta configurado.
+     *
+     * @param  array<string, mixed>  $wooOrder
+     */
+    private function notifyShipped(WhatsAppCheckout $checkout, array $wooOrder): void
+    {
+        $config = $checkout->wooConfig();
+        $tracking = null;
+
+        if (! empty($config?->tracking_meta_key)) {
+            foreach ($wooOrder['meta_data'] ?? [] as $meta) {
+                if (is_array($meta) && ($meta['key'] ?? null) === $config->tracking_meta_key && is_scalar($meta['value'] ?? null)) {
+                    $tracking = trim((string) $meta['value']) ?: null;
+                    break;
+                }
+            }
+        }
+
+        $number = (string) $checkout->external_order_number;
+        $conversation = $checkout->conversationUnscoped();
+
+        if ($conversation !== null) {
+            if ($this->window->isOpen($conversation)) {
+                $this->notify(
+                    $conversation,
+                    "Tu pedido #{$number} ya está en camino 🚚".($tracking !== null ? "\nNúmero de seguimiento: {$tracking}" : ''),
+                    $checkout,
+                );
+            } else {
+                $this->sendTemplate($conversation, $checkout, $config?->shipped_template_id, [
+                    ['component' => 'body', 'name' => 'pedido', 'source' => 'literal', 'value' => $number],
+                    ['component' => 'body', 'name' => 'seguimiento', 'source' => 'literal', 'value' => $tracking ?? '-'],
+                ]);
+            }
+        }
+
+        $checkout->update(['tracking_number' => $tracking, 'shipped_notified_at' => now()]);
     }
 
     /**
