@@ -1995,7 +1995,11 @@
         "commerceErrorHint": "Activá \"Mostrar catálogo\" y \"Carrito\" a mano en WhatsApp Manager para los números marcados.",
         "commerceError": "No se pudo activar el catálogo y el carrito: {{error}}",
         "installNoNumbers": "No hay números de WhatsApp conectados.",
-        "installRow": "{{phone}}: {{status}}"
+        "installRow": "{{phone}}: {{status}}",
+        "webhooks": "Activar actualizaciones automáticas",
+        "webhooksActivated": "Actualizaciones automáticas activadas",
+        "webhooksActive": "Actualizaciones automáticas activas",
+        "webhooksInactive": "Sin actualizaciones automáticas: el catálogo y los pedidos sólo se actualizan al sincronizar."
       }
     },
     "mercadopago": {

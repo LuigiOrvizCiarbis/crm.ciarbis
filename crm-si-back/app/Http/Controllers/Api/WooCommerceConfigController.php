@@ -8,11 +8,13 @@ use App\Models\MercadoPagoConfig;
 use App\Models\WhatsAppTemplate;
 use App\Models\WooCommerceConfig;
 use App\Services\Commerce\WhatsAppCheckoutInstaller;
+use App\Services\Commerce\WooCommerceWebhookRegistrar;
 use App\Services\Templates\TemplateParameterRenderer;
 use App\Services\WooCommerceCatalogSync;
 use App\Services\WooCommerceService;
 use App\Services\WooCommerceSyncException;
 use App\Services\WooCommerceUrlException;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -184,6 +186,34 @@ class WooCommerceConfigController extends Controller
     }
 
     /**
+     * Registra (o re-registra) los webhooks de producto y pedido en la tienda.
+     */
+    public function webhooks(Request $request, WooCommerceWebhookRegistrar $registrar): JsonResponse
+    {
+        $user = $request->user();
+
+        if (! $user?->can('woocommerce.manage')) {
+            abort(403);
+        }
+
+        $config = WooCommerceConfig::where('tenant_id', $user->tenant_id)->first();
+
+        if (! $config || ! $config->hasCredentials()) {
+            return response()->json(['message' => 'Configurá y guardá las credenciales de WooCommerce primero.'], 422);
+        }
+
+        try {
+            $registrar->register($config);
+        } catch (WooCommerceUrlException|WooCommerceSyncException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (ConnectionException) {
+            return response()->json(['message' => 'No pudimos comunicarnos con la tienda. Probá de nuevo en un rato.'], 422);
+        }
+
+        return response()->json(['data' => $this->transform($config->fresh(), $user->tenant_id)]);
+    }
+
+    /**
      * La plantilla tiene que ser del tenant, estar aprobada y aceptar las
      * variables literales del aviso (p. ej. {{pedido}} y {{total}}).
      *
@@ -264,6 +294,7 @@ class WooCommerceConfigController extends Controller
                 'tracking_meta_key' => null,
                 'paid_template_id' => null,
                 'shipped_template_id' => null,
+                'webhooks_active' => false,
                 'checkout_missing' => $this->checkoutMissing(null, $tenantId),
             ];
         }
@@ -279,6 +310,7 @@ class WooCommerceConfigController extends Controller
             'tracking_meta_key' => $config->tracking_meta_key,
             'paid_template_id' => $config->paid_template_id,
             'shipped_template_id' => $config->shipped_template_id,
+            'webhooks_active' => ! empty($config->webhook_ids),
             'checkout_missing' => $this->checkoutMissing($config, $tenantId),
             'sync' => $config->sync_status === null ? null : [
                 'status' => $config->sync_status,

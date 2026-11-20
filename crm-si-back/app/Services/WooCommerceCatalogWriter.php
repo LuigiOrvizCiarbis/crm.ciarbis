@@ -145,6 +145,22 @@ class WooCommerceCatalogWriter
     }
 
     /**
+     * Crea o actualiza un solo producto (con sus variaciones) fuera de un sync
+     * completo, p. ej. desde un webhook de WooCommerce.
+     *
+     * @param  array<string, mixed>  $item
+     * @param  list<array<string, mixed>>  $variations
+     */
+    public function upsertSingle(int $tenantId, array $item, array $variations, string $runId): Product
+    {
+        $prepared = $this->prepareFields($tenantId, [$item]);
+        $product = $this->upsertProduct($tenantId, $item, $prepared['fields'], $runId);
+        $this->syncVariants($product, $variations);
+
+        return $product;
+    }
+
+    /**
      * Reemplaza las variantes del producto por las variaciones publicadas que
      * devolvió Woo. Las que ya no existen se borran.
      *

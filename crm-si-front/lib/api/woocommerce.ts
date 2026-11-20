@@ -10,6 +10,8 @@ export interface WooConfig {
   tracking_meta_key: string | null
   paid_template_id: number | null
   shipped_template_id: number | null
+  // Webhooks de productos y pedidos registrados en la tienda.
+  webhooks_active: boolean
   // Lo que falta para vender por WhatsApp (vacío = nada falta); la UI traduce cada código.
   checkout_missing: WooCheckoutMissing[]
 }
@@ -184,6 +186,21 @@ export async function installWhatsAppCheckout(): Promise<{
   }
   const list = Array.isArray(json) ? json : json?.data
   return { data: Array.isArray(list) ? list : [] }
+}
+
+/** Registra en la tienda los webhooks de productos y pedidos. */
+export async function registerWooWebhooks(): Promise<{
+  data?: WooConfig
+  error?: string
+}> {
+  const res = await fetch("/api/woocommerce-config/webhooks", {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  })
+
+  const json = await res.json().catch(() => ({}))
+  if (res.ok) return { data: json.data }
+  return { error: extractError(json) }
 }
 
 function extractError(json: any): string {
