@@ -180,25 +180,29 @@ class WhatsAppCheckoutLifecycle
             }
         }
 
+        // Se guarda antes de avisar: la tarjeta del chat se recarga con el
+        // mensaje y tiene que encontrar el pedido ya despachado.
+        $checkout->update(['tracking_number' => $tracking, 'shipped_notified_at' => now()]);
+
         $number = (string) $checkout->external_order_number;
         $conversation = $checkout->conversationUnscoped();
 
-        if ($conversation !== null) {
-            if ($this->window->isOpen($conversation)) {
-                $this->notify(
-                    $conversation,
-                    "Tu pedido #{$number} ya está en camino 🚚".($tracking !== null ? "\nNúmero de seguimiento: {$tracking}" : ''),
-                    $checkout,
-                );
-            } else {
-                $this->sendTemplate($conversation, $checkout, $config?->shipped_template_id, [
-                    ['component' => 'body', 'name' => 'pedido', 'source' => 'literal', 'value' => $number],
-                    ['component' => 'body', 'name' => 'seguimiento', 'source' => 'literal', 'value' => $tracking ?? '-'],
-                ]);
-            }
+        if ($conversation === null) {
+            return;
         }
 
-        $checkout->update(['tracking_number' => $tracking, 'shipped_notified_at' => now()]);
+        if ($this->window->isOpen($conversation)) {
+            $this->notify(
+                $conversation,
+                "Tu pedido #{$number} ya está en camino 🚚".($tracking !== null ? "\nNúmero de seguimiento: {$tracking}" : ''),
+                $checkout,
+            );
+        } else {
+            $this->sendTemplate($conversation, $checkout, $config?->shipped_template_id, [
+                ['component' => 'body', 'name' => 'pedido', 'source' => 'literal', 'value' => $number],
+                ['component' => 'body', 'name' => 'seguimiento', 'source' => 'literal', 'value' => $tracking ?? '-'],
+            ]);
+        }
     }
 
     /**

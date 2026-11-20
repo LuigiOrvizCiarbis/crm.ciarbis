@@ -1375,6 +1375,7 @@
     "contactsSent": "Contacts sent",
     "catalog": {
       "send": "Send catalog",
+      "sent": "Catalog sent",
       "sendError": "Couldn't send the catalog",
       "windowClosed": "The 24-hour window is closed: the catalog can't be sent"
     },

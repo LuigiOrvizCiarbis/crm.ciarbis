@@ -80,6 +80,7 @@ import { sendFlowMessage, type SendFlowInput } from "@/lib/api/whatsapp-flows"
 import { ConversationHeader } from "@/components/chat/ConversationHeader"
 import { PendingAiBookingsBanner } from "@/components/chat/PendingAiBookingsBanner"
 import { WhatsAppCheckoutCard } from "@/components/chat/WhatsAppCheckoutCard"
+import { sendWhatsAppCatalog } from "@/lib/api/whatsapp-checkouts"
 import { HumanHandoffBanner } from "@/components/chat/HumanHandoffBanner"
 import { MessageList } from "@/components/chat/MessageList"
 import { applyReactionToggle } from "@/components/chat/messageThreadUtils"
@@ -834,6 +835,8 @@ export default function ChatsPage() {
     onReaction: handleRealTimeReaction,
     onScheduledMessage: scheduledMessages.upsert,
     onHumanHandoff: handleRealTimeHumanHandoff,
+    // Cambios del pedido sin mensaje de sistema (cancelado en Woo, vencido con la ventana cerrada).
+    onCheckoutUpdated: () => setSystemEventsRefreshKey((k) => k + 1),
   });
 
   const selectedChannelIdRef = useRef(selectedChannelId);
@@ -1934,6 +1937,23 @@ export default function ChatsPage() {
     addToast({ type: "success", title: t("chats.flows.sent") })
   }
 
+  const handleSendCatalog = async () => {
+    if (!selectedConversationId) return
+    const conversationId = selectedConversationId
+    const savedMessage = await sendWhatsAppCatalog(conversationId)
+    // El back apaga la IA al mandar el catálogo, igual que con los formularios.
+    setCurrentConversation((prev) => prev && prev.id === conversationId ? { ...prev, aiAutoreplyEnabled: false, messages: [...(prev.messages || []), savedMessage] } : prev)
+    setConversations((prev) => {
+      const index = prev.findIndex((conversation) => conversation.id === conversationId)
+      if (index < 0) return prev
+      const next = [...prev]
+      const current = next[index]
+      next.splice(index, 1)
+      return [{ ...current, last_message: savedMessage.content, updated_at: savedMessage.created_at, aiAutoreplyEnabled: false }, ...next]
+    })
+    addToast({ type: "success", title: t("chats.catalog.sent") })
+  }
+
   const handleSaveSharedContact = useCallback(async (message: Message, index: number) => {
     try {
       await saveSharedContact(message.id, index)
@@ -2705,11 +2725,13 @@ export default function ChatsPage() {
                 conversationId={selectedConversationId}
                 refreshKey={systemEventsRefreshKey}
               />
-              <WhatsAppCheckoutCard
-                key={`checkout-${selectedConversationId}`}
-                conversationId={selectedConversationId}
-                refreshKey={systemEventsRefreshKey}
-              />
+              {activeConversation?.channel?.type === ChannelType.WHATSAPP && (
+                <WhatsAppCheckoutCard
+                  key={`checkout-${selectedConversationId}`}
+                  conversationId={selectedConversationId}
+                  refreshKey={systemEventsRefreshKey}
+                />
+              )}
               {/* Quick Bar */}
               <ChatQuickBar
                 chatId={selectedConversationId}
@@ -2805,6 +2827,7 @@ export default function ChatsPage() {
                   onShareContacts={handleShareContacts}
                   supportsFlows={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   onSendFlow={handleSendFlow}
+                  onSendCatalog={handleSendCatalog}
                   onSchedule={supportsScheduledMessages(activeConversation?.channel?.type) ? handleScheduleMessage : undefined}
                   windowExpiresAt={scheduledMessages.window?.expiresAt ?? null}
                   windowStatus={windowStatus}

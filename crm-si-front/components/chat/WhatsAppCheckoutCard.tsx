@@ -10,7 +10,7 @@ import type { WhatsAppCheckoutSummary } from "@/data/types"
 
 interface WhatsAppCheckoutCardProps {
   conversationId: number
-  /** Los avisos del ciclo de vida son mensajes de sistema: cada uno sube esta clave y recarga. */
+  /** Sube con los mensajes de sistema y con el evento whatsapp-checkout.updated: cada cambio recarga. */
   refreshKey?: number
 }
 
@@ -20,6 +20,8 @@ export function WhatsAppCheckoutCard({ conversationId, refreshKey }: WhatsAppChe
   const [checkout, setCheckout] = useState<WhatsAppCheckoutSummary | null>(null)
   const [expanded, setExpanded] = useState(false)
   const loadGeneration = useRef(0)
+  // Hora de referencia para saber si el link de pago ya venció; se actualiza al vencer.
+  const [now, setNow] = useState(() => Date.now())
 
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current
@@ -31,8 +33,6 @@ export function WhatsAppCheckoutCard({ conversationId, refreshKey }: WhatsAppChe
     }
   }, [conversationId])
 
-  // El padre la monta con `key` por conversación: cambiar de chat la resetea.
-
   useEffect(() => {
     void load()
     return () => {
@@ -40,7 +40,23 @@ export function WhatsAppCheckoutCard({ conversationId, refreshKey }: WhatsAppChe
     }
   }, [load, refreshKey])
 
+  // Al vencer el link: deja de ofrecer copiarlo y vuelve a pedir el estado (el
+  // back lo cierra en la próxima corrida del seguimiento y avisa con el evento).
+  const expiresAt = checkout?.status === "awaiting_payment" && checkout.payment_expires_at
+    ? Date.parse(checkout.payment_expires_at)
+    : Number.NaN
+  useEffect(() => {
+    if (Number.isNaN(expiresAt)) return
+    const timer = window.setTimeout(() => {
+      setNow(Date.now())
+      void load()
+    }, Math.max(0, expiresAt - Date.now()))
+    return () => window.clearTimeout(timer)
+  }, [expiresAt, load])
+
   if (!checkout) return null
+
+  const paymentLinkActive = checkout.status === "awaiting_payment" && !!checkout.payment_url && expiresAt > now
 
   const locale = language === "en" ? "en-US" : "es-AR"
   const time = (value: string | null) =>
@@ -109,7 +125,7 @@ export function WhatsAppCheckoutCard({ conversationId, refreshKey }: WhatsAppChe
           <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
         </button>
         <div className="flex items-center gap-1">
-          {checkout.status === "awaiting_payment" && checkout.payment_url && (
+          {paymentLinkActive && (
             <Button type="button" size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs" onClick={() => void copyPaymentLink()}>
               <Copy className="h-3.5 w-3.5" />
               {t("chats.checkout.copyPaymentLink")}
