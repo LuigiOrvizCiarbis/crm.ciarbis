@@ -64,7 +64,7 @@ class AppointmentToolsetTest extends TestCase
         $this->assertTrue($task->ends_at->equalTo(CarbonImmutable::parse('2026-07-20 11:30', self::TZ)));
         $this->assertStringContainsString('Motivo: Cotización', $task->description);
         Queue::assertNotPushed(SyncTaskCalendarEventJob::class);
-        $this->assertStringStartsWith('Registramos tu pedido de turno para el lunes 20 de julio a las 11:00', $toolset->bookingFallbackMessage());
+        $this->assertStringStartsWith('Registramos tu pedido de turno para el lunes 20 de julio a las 11:00', $toolset->fallbackMessage());
     }
 
     public function test_auto_mode_confirms_and_queues_google_sync_without_promising_invitation(): void
@@ -132,7 +132,7 @@ class AppointmentToolsetTest extends TestCase
 
         $this->assertStringContainsString('Un asesor tomó la conversación', $result);
         $this->assertSame(0, Task::withoutGlobalScopes()->count());
-        $this->assertNull($toolset->bookingFallbackMessage());
+        $this->assertNull($toolset->fallbackMessage());
         Queue::assertNotPushed(SyncTaskCalendarEventJob::class);
     }
 

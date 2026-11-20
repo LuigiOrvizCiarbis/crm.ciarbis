@@ -1373,6 +1373,27 @@
     "facebookLoadingTitle": "Getting Facebook ready",
     "facebookLoadingDesc": "The Facebook connection is still loading. Try again in a few seconds.",
     "contactsSent": "Contacts sent",
+    "catalog": {
+      "send": "Send catalog",
+      "sendError": "Couldn't send the catalog",
+      "windowClosed": "The 24-hour window is closed: the catalog can't be sent"
+    },
+    "checkout": {
+      "order": "Order #{{number}}",
+      "cart": "Cart",
+      "status": {
+        "cart": "Cart not completed",
+        "placing": "Confirming order…",
+        "awaitingPayment": "Awaiting payment · expires {{time}}",
+        "paid": "Paid",
+        "shipped": "Shipped",
+        "expired": "Expired",
+        "cancelled": "Cancelled"
+      },
+      "copyPaymentLink": "Copy payment link",
+      "linkCopied": "Payment link copied",
+      "openInWooCommerce": "View in WooCommerce"
+    },
     "flows": {
       "send": "Send form",
       "windowClosed": "Outside the 24-hour window it's sent with one of the form's templates",

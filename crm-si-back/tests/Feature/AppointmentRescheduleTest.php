@@ -65,7 +65,7 @@ class AppointmentRescheduleTest extends TestCase
         $this->assertTrue($task->deadline->equalTo($task->starts_at));
         $this->assertNull($task->ai_reschedule_starts_at);
         Queue::assertPushed(SyncTaskCalendarEventJob::class, fn ($job) => $job->taskId === $task->id && $job->action === 'upsert');
-        $this->assertSame('Tu turno quedó cambiado para el martes 21 de julio a las 10:30 hs.', $toolset->bookingFallbackMessage());
+        $this->assertSame('Tu turno quedó cambiado para el martes 21 de julio a las 10:30 hs.', $toolset->fallbackMessage());
     }
 
     public function test_approval_mode_keeps_confirmed_turno_and_records_a_request_that_blocks_the_slot(): void
@@ -84,7 +84,7 @@ class AppointmentRescheduleTest extends TestCase
         $this->assertTrue($task->ai_reschedule_ends_at->equalTo(CarbonImmutable::parse('2026-07-21 10:30', self::TZ)));
         $this->assertNotNull($task->ai_reschedule_requested_at);
         Queue::assertNotPushed(SyncTaskCalendarEventJob::class);
-        $this->assertStringStartsWith('Registramos tu pedido para cambiar el turno al martes 21 de julio a las 10:00 hs.', $toolset->bookingFallbackMessage());
+        $this->assertStringStartsWith('Registramos tu pedido para cambiar el turno al martes 21 de julio a las 10:00 hs.', $toolset->fallbackMessage());
 
         // Otra conversación del mismo vendedor ya no ve el horario pedido ni el vigente.
         $other = $this->toolsetFor($this->makeConversation($this->tenant, $this->owner, $this->owner->id), $toolset);
@@ -122,7 +122,7 @@ class AppointmentRescheduleTest extends TestCase
         $this->assertSame(AiBookingStatus::PENDING, $task->ai_booking_status);
         $this->assertTrue($task->starts_at->equalTo(CarbonImmutable::parse('2026-07-22 09:00', self::TZ)));
         Queue::assertNotPushed(SyncTaskCalendarEventJob::class);
-        $this->assertStringStartsWith('Cambiamos tu pedido de turno al miércoles 22 de julio a las 09:00 hs.', $toolset->bookingFallbackMessage());
+        $this->assertStringStartsWith('Cambiamos tu pedido de turno al miércoles 22 de julio a las 09:00 hs.', $toolset->fallbackMessage());
     }
 
     public function test_choosing_the_current_time_withdraws_the_pending_request_without_reading_google(): void
@@ -136,7 +136,7 @@ class AppointmentRescheduleTest extends TestCase
 
         $this->assertStringContainsString('no hubo cambios', $result);
         $this->assertNull($task->fresh()->ai_reschedule_starts_at);
-        $this->assertStringContainsString('Tu turno sigue confirmado para el martes 21 de julio a las 11:00 hs.', $toolset->bookingFallbackMessage());
+        $this->assertStringContainsString('Tu turno sigue confirmado para el martes 21 de julio a las 11:00 hs.', $toolset->fallbackMessage());
     }
 
     public function test_refusals_leave_the_turno_untouched(): void
