@@ -52,9 +52,13 @@ class WhatsAppCheckoutsFollowUp extends Command
                 $checkout->update(['reminded_at' => now()]);
             });
 
+        // Fila por fila (no un update masivo) para que el modelo avise a la tarjeta del chat.
         $query(WhatsAppCheckout::CART)
             ->where('created_at', '<=', now()->subDay())
-            ->update(['status' => WhatsAppCheckout::EXPIRED, 'closed_at' => now(), 'updated_at' => now()]);
+            ->get()->each(fn (WhatsAppCheckout $checkout) => $checkout->update([
+                'status' => WhatsAppCheckout::EXPIRED,
+                'closed_at' => now(),
+            ]));
 
         // Pedidos sin pagar: recordatorio 1 h antes, cierre al vencer.
         $query(WhatsAppCheckout::AWAITING_PAYMENT)

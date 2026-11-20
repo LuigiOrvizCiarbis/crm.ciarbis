@@ -26,6 +26,13 @@ export interface HumanHandoffUpdate {
   ai_autoreply_enabled?: boolean;
 }
 
+/** Cambio de estado de un pedido por WhatsApp; la tarjeta vuelve a pedir el detalle. */
+export interface WhatsAppCheckoutUpdate {
+  conversation_id: number;
+  checkout_id: number;
+  status: string;
+}
+
 interface UseReverbMessagesProps {
   conversationId: string | number | null;
   onMessage: (message: Message) => void;
@@ -35,6 +42,7 @@ interface UseReverbMessagesProps {
   onReaction?: (data: MessageReactionUpdate) => void;
   onScheduledMessage?: (data: ScheduledMessage) => void;
   onHumanHandoff?: (data: HumanHandoffUpdate) => void;
+  onCheckoutUpdated?: (data: WhatsAppCheckoutUpdate) => void;
 }
 
 export function useSSEMessages({
@@ -46,6 +54,7 @@ export function useSSEMessages({
   onReaction,
   onScheduledMessage,
   onHumanHandoff,
+  onCheckoutUpdated,
 }: UseReverbMessagesProps) {
   const onMessageRef = useRef(onMessage);
   const onEditedRef = useRef(onEdited);
@@ -54,6 +63,7 @@ export function useSSEMessages({
   const onReactionRef = useRef(onReaction);
   const onScheduledMessageRef = useRef(onScheduledMessage);
   const onHumanHandoffRef = useRef(onHumanHandoff);
+  const onCheckoutUpdatedRef = useRef(onCheckoutUpdated);
 
   useEffect(() => {
     onMessageRef.current = onMessage;
@@ -82,6 +92,10 @@ export function useSSEMessages({
   useEffect(() => {
     onHumanHandoffRef.current = onHumanHandoff;
   }, [onHumanHandoff]);
+
+  useEffect(() => {
+    onCheckoutUpdatedRef.current = onCheckoutUpdated;
+  }, [onCheckoutUpdated]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -115,6 +129,10 @@ export function useSSEMessages({
 
     channel.bind("human-handoff.updated", (data: HumanHandoffUpdate) => {
       onHumanHandoffRef.current?.(data);
+    });
+
+    channel.bind("whatsapp-checkout.updated", (data: WhatsAppCheckoutUpdate) => {
+      onCheckoutUpdatedRef.current?.(data);
     });
 
     return () => {
