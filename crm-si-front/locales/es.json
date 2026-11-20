@@ -1373,6 +1373,27 @@
     "facebookLoadingTitle": "Preparando Facebook",
     "facebookLoadingDesc": "La conexión con Facebook se está cargando. Intentá de nuevo en unos segundos.",
     "contactsSent": "Contactos enviados",
+    "catalog": {
+      "send": "Enviar catálogo",
+      "sendError": "No se pudo enviar el catálogo",
+      "windowClosed": "La ventana de 24 h está cerrada: no se puede enviar el catálogo"
+    },
+    "checkout": {
+      "order": "Pedido #{{number}}",
+      "cart": "Carrito",
+      "status": {
+        "cart": "Carrito sin completar",
+        "placing": "Confirmando pedido…",
+        "awaitingPayment": "Esperando pago · vence {{time}}",
+        "paid": "Pagado",
+        "shipped": "Despachado",
+        "expired": "Vencido",
+        "cancelled": "Cancelado"
+      },
+      "copyPaymentLink": "Copiar link de pago",
+      "linkCopied": "Link de pago copiado",
+      "openInWooCommerce": "Ver en WooCommerce"
+    },
     "flows": {
       "send": "Enviar formulario",
       "windowClosed": "Fuera de la ventana de 24 h se envía con una plantilla del formulario",
@@ -1995,7 +2016,11 @@
         "commerceErrorHint": "Activá \"Mostrar catálogo\" y \"Carrito\" a mano en WhatsApp Manager para los números marcados.",
         "commerceError": "No se pudo activar el catálogo y el carrito: {{error}}",
         "installNoNumbers": "No hay números de WhatsApp conectados.",
-        "installRow": "{{phone}}: {{status}}"
+        "installRow": "{{phone}}: {{status}}",
+        "webhooks": "Activar actualizaciones automáticas",
+        "webhooksActivated": "Actualizaciones automáticas activadas",
+        "webhooksActive": "Actualizaciones automáticas activas",
+        "webhooksInactive": "Sin actualizaciones automáticas: el catálogo y los pedidos sólo se actualizan al sincronizar."
       }
     },
     "mercadopago": {

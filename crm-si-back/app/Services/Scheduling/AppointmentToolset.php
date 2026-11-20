@@ -149,7 +149,7 @@ class AppointmentToolset implements AiToolset
      * Mensaje fijo de respaldo para los cambios de agenda de esta generación,
      * incluido un turno que ya estaba en el horario solicitado.
      */
-    public function bookingFallbackMessage(): ?string
+    public function fallbackMessage(): ?string
     {
         if (! $this->lastBooking) {
             return null;

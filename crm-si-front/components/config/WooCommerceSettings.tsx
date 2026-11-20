@@ -27,6 +27,7 @@ import {
   testWooConfig,
   syncWooProducts,
   installWhatsAppCheckout,
+  registerWooWebhooks,
   type WhatsAppCheckoutInstallResult,
   type WooConfig,
   type WooCheckoutMissing,
@@ -92,6 +93,8 @@ export function WooCommerceSettings() {
   const [phoneByConfigId, setPhoneByConfigId] = useState<Record<number, string>>({})
   const [installing, setInstalling] = useState(false)
   const [installResults, setInstallResults] = useState<WhatsAppCheckoutInstallResult[] | null>(null)
+  const [registeringWebhooks, setRegisteringWebhooks] = useState(false)
+  const [webhooksActive, setWebhooksActive] = useState(false)
 
   const applyConfig = useCallback((config: WooConfig) => {
     setStoreUrl(config.store_url ?? "")
@@ -111,6 +114,7 @@ export function WooCommerceSettings() {
       shippedTemplateId: config.shipped_template_id ?? null,
     })
     setCheckoutMissing(config.checkout_missing ?? [])
+    setWebhooksActive(config.webhooks_active ?? false)
   }, [])
 
   useEffect(() => {
@@ -335,6 +339,24 @@ export function WooCommerceSettings() {
     }
     const config = await getWooConfig()
     if (config) setCheckoutMissing(config.checkout_missing ?? [])
+  }
+
+  const handleRegisterWebhooks = async () => {
+    setRegisteringWebhooks(true)
+    const result = await registerWooWebhooks()
+    setRegisteringWebhooks(false)
+
+    if (result.error) {
+      addToast({
+        type: "error",
+        title: t("common.error"),
+        description: result.error,
+      })
+      return
+    }
+
+    setWebhooksActive(result.data?.webhooks_active ?? true)
+    addToast({ type: "success", title: t("settings.woocommerce.checkout.webhooksActivated") })
   }
 
   const templateSelect = (
@@ -650,7 +672,29 @@ export function WooCommerceSettings() {
                 </ul>
               )}
 
+              <p className="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+                {webhooksActive ? (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                ) : (
+                  <CircleAlert className="h-3.5 w-3.5" />
+                )}
+                {t(
+                  webhooksActive
+                    ? "settings.woocommerce.checkout.webhooksActive"
+                    : "settings.woocommerce.checkout.webhooksInactive",
+                )}
+              </p>
+
               <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleRegisterWebhooks}
+                  disabled={registeringWebhooks || saving}
+                >
+                  {registeringWebhooks && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  {t("settings.woocommerce.checkout.webhooks")}
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
