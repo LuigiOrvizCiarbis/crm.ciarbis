@@ -2,9 +2,13 @@
 
 namespace App\Models;
 
+use App\Events\WhatsAppCheckoutUpdated;
 use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Compra por WhatsApp: del carrito recibido al pedido pagado en WooCommerce.
@@ -58,6 +62,34 @@ class WhatsAppCheckout extends Model
     ];
 
     protected $hidden = ['cart_token'];
+
+    /** Campos que muestra la tarjeta del pedido en el chat. */
+    private const CARD_FIELDS = ['status', 'external_order_number', 'payment_url', 'payment_expires_at', 'total', 'shipped_notified_at', 'tracking_number'];
+
+    protected static function booted(): void
+    {
+        static::created(fn (self $checkout) => $checkout->broadcastCardUpdate());
+        static::updated(function (self $checkout) {
+            if ($checkout->wasChanged(self::CARD_FIELDS)) {
+                $checkout->broadcastCardUpdate();
+            }
+        });
+    }
+
+    /**
+     * Avisa después del commit para no anunciar un estado que se revierte. Un
+     * Reverb caído no puede frenar el cobro ni el despacho.
+     */
+    private function broadcastCardUpdate(): void
+    {
+        DB::afterCommit(function () {
+            try {
+                broadcast(new WhatsAppCheckoutUpdated($this));
+            } catch (Throwable $e) {
+                Log::warning('WhatsAppCheckoutUpdated: no se pudo emitir', ['checkout_id' => $this->id, 'error' => $e->getMessage()]);
+            }
+        });
+    }
 
     protected function casts(): array
     {

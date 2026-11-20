@@ -3,12 +3,14 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Events\WhatsAppCheckoutUpdated;
 use App\Models\Message;
 use App\Models\User;
 use App\Support\RoleProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Event;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Concerns\WhatsAppCheckoutFixtures;
@@ -94,5 +96,31 @@ class WhatsAppCheckoutCardTest extends TestCase
             ->assertStatus(422)
             ->assertJsonStructure(['message']);
         Http::assertNothingSent();
+    }
+
+    public function test_an_abandoned_cart_expiring_without_a_message_still_refreshes_the_card(): void
+    {
+        $checkout = $this->makeCheckout();
+        $checkout->forceFill(['created_at' => now()->subDays(2), 'updated_at' => now()->subDays(2)])->saveQuietly();
+        Event::fake([WhatsAppCheckoutUpdated::class]);
+
+        $this->artisan('whatsapp-checkouts:follow-up')->assertSuccessful();
+
+        Event::assertDispatched(
+            WhatsAppCheckoutUpdated::class,
+            fn (WhatsAppCheckoutUpdated $event) => $event->checkout->is($checkout)
+                && $event->broadcastWith()['status'] === 'expired'
+                && $event->broadcastOn()[0]->name === "private-conversations.{$this->conversation->id}",
+        );
+    }
+
+    public function test_bookkeeping_changes_do_not_refresh_the_card(): void
+    {
+        $checkout = $this->awaitingPaymentCheckout();
+        Event::fake([WhatsAppCheckoutUpdated::class]);
+
+        $checkout->update(['reminded_at' => now()]);
+
+        Event::assertNotDispatched(WhatsAppCheckoutUpdated::class);
     }
 }
