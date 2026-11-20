@@ -1,5 +1,10 @@
 # ── Composer dependencies ──
-FROM composer:latest AS deps
+# Mismo PHP que la imagen final (php:8.4-apache): composer:latest trae el PHP
+# más nuevo y el lock deja de instalar cuando un paquete no lo soporta todavía.
+FROM php:8.4-cli AS deps
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+RUN apt-get update && apt-get install -y --no-install-recommends unzip \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist
