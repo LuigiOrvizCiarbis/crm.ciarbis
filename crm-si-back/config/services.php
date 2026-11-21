@@ -78,6 +78,32 @@ return [
             'openai' => env('AI_OPENAI_WEBSITE_CONTEXT_MODEL', 'gpt-5-mini'),
             'claude' => env('AI_CLAUDE_WEBSITE_CONTEXT_MODEL', 'claude-haiku-4-5-20251001'),
         ],
+        // Asistente interno del CRM (consultas del equipo sobre su workspace).
+        // source=tenant: usa la key BYOK del workspace (AiConfig) con un modelo
+        // económico. source=platform: usa nuestra key o servidor; driver
+        // ollama|openai|anthropic|openai-compatible (url para ollama y
+        // openai-compatible; en Docker sobre Mac: http://host.docker.internal:11434).
+        'assistant' => [
+            'source' => env('AI_ASSISTANT_SOURCE', 'tenant'),
+            'tenant_models' => [
+                'openai' => env('AI_ASSISTANT_OPENAI_MODEL', 'gpt-5-mini'),
+                'claude' => env('AI_ASSISTANT_CLAUDE_MODEL', 'claude-haiku-4-5-20251001'),
+            ],
+            'platform' => [
+                'driver' => env('AI_ASSISTANT_DRIVER', 'ollama'),
+                'key' => env('AI_ASSISTANT_API_KEY'),
+                'url' => env('AI_ASSISTANT_URL'),
+                'model' => env('AI_ASSISTANT_MODEL', 'qwen3:8b'),
+            ],
+            // Mensajes previos del hilo que se reenvían al modelo en cada turno.
+            'max_history_messages' => env('AI_ASSISTANT_MAX_HISTORY_MESSAGES', 10),
+            // Corta una respuesta que encadena herramientas sin control.
+            'max_input_tokens_per_run' => env('AI_ASSISTANT_MAX_INPUT_TOKENS_PER_RUN', 30000),
+            // Cupo diario por workspace (input + output). Solo aplica con
+            // source=platform, que pagamos nosotros. 0 = sin límite.
+            'daily_token_limit_per_tenant' => env('AI_ASSISTANT_DAILY_TOKEN_LIMIT', 200000),
+            'per_minute_per_user' => env('AI_ASSISTANT_PER_MINUTE', 10),
+        ],
         'website_context' => [
             // Timeout del request al proveedor para redactar la información.
             'timeout' => env('AI_WEBSITE_CONTEXT_TIMEOUT', 90),

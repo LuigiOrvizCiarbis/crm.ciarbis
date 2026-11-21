@@ -7,6 +7,7 @@ import { Manrope } from "next/font/google"
 import { Suspense } from "react"
 import { usePathname } from "next/navigation"
 import { ThemeProvider } from "@/components/theme-provider"
+import { AssistantWidget } from "@/components/assistant/AssistantWidget"
 import { CommandPalette } from "@/components/CommandPalette"
 import { MobileBottomNav } from "@/components/MobileBottomNav"
 import { Toaster } from "@/components/Toast"
@@ -46,6 +47,7 @@ export default function ClientLayout({
             {!shouldSkipShell ? (
               <>
                 <CommandPalette />
+                <AssistantWidget />
                 <MobileBottomNav />
               </>
             ) : null}

@@ -113,6 +113,11 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('link-preview', fn (Request $request) => Limit::perMinute(20)
             ->by($request->user()?->id ?: $request->ip()));
 
+        // Cada turno del asistente interno es una llamada paga (o CPU de
+        // Ollama): se limita por usuario.
+        RateLimiter::for('ai-assistant', fn (Request $request) => Limit::perMinute((int) config('services.ai.assistant.per_minute_per_user', 10))
+            ->by($request->user()?->id ?: $request->ip()));
+
         Gate::policy(Branch::class, BranchPolicy::class);
         Gate::policy(Channel::class, ChannelPolicy::class);
         Gate::policy(Contact::class, ContactPolicy::class);

@@ -2318,6 +2318,7 @@
       "contacts": "Contactos",
       "contact_fields": "Campos de contacto",
       "document_extraction": "Extracción de documentos",
+      "assistant": "Asistente IA",
       "opportunities": "Oportunidades",
       "pipeline_stages": "Etapas del embudo",
       "products": "Productos",
@@ -2376,6 +2377,7 @@
       "contact_fields.view": "Ver campos de contacto",
       "contact_fields.manage": "Gestionar campos de contacto",
       "document_extraction.use": "Extraer datos de documentos",
+      "assistant.use": "Usar el asistente interno",
       "opportunities.view_any": "Ver todas las oportunidades",
       "opportunities.view_assigned": "Ver oportunidades asignadas",
       "opportunities.view": "Abrir una oportunidad",
@@ -3839,6 +3841,30 @@
         "saveChanges": "Guardar cambios",
         "createAndActivate": "Crear y activar"
       }
+    }
+  },
+  "assistant": {
+    "open": "Abrir asistente",
+    "title": "Asistente",
+    "conversations": "Conversaciones",
+    "noConversations": "Todavía no hay conversaciones",
+    "newConversation": "Nueva conversación",
+    "placeholder": "Preguntá algo sobre tu workspace…",
+    "send": "Enviar",
+    "stop": "Detener",
+    "toolRunning": "Consultando datos…",
+    "feedbackUp": "Respuesta útil",
+    "feedbackDown": "Respuesta no útil",
+    "empty": "Preguntame por tus contactos, embudos, tareas o actividad del workspace.",
+    "suggestions": {
+      "summary": "Dame un resumen del workspace",
+      "pipeline": "¿Cómo viene el embudo este mes?",
+      "tasks": "¿Qué tareas tengo vencidas?"
+    },
+    "configureAi": "Configurar IA",
+    "errors": {
+      "generic": "No se pudo enviar. Intentá de nuevo.",
+      "rateLimited": "Enviaste muchas preguntas seguidas. Esperá un minuto y volvé a intentar."
     }
   },
   "whatsappPurchase": {
