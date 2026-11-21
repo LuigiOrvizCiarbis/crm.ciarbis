@@ -1,7 +1,7 @@
 "use client"
 
 import type { UIMessage } from "ai"
-import { ThumbsDown, ThumbsUp } from "lucide-react"
+import { Loader2, ThumbsDown, ThumbsUp } from "lucide-react"
 import { RichText } from "@/components/rich-text/RichText"
 import {
   actionParts,
@@ -38,11 +38,17 @@ export function isRunningTool(message: UIMessage): boolean {
   )
 }
 
+/**
+ * El asistente no es una conversación con un contacto: la pregunta va en un bloque
+ * neutro y la respuesta se lee como texto corrido, sin la burbuja de la bandeja.
+ */
 export function AssistantMessageBubble({
   message,
   rating,
   onRate,
   onDecide,
+  ratingDisabled = false,
+  showActions = false,
 }: {
   message: UIMessage
   rating?: AssistantRating
@@ -50,14 +56,18 @@ export function AssistantMessageBubble({
   onRate?: (rating: AssistantRating) => void
   /** Ausente mientras hay un turno en curso: no se puede confirmar dos veces. */
   onDecide?: ApprovalHandler
+  /** Durante un turno la fila sigue en su lugar (sin saltos de layout) pero no acepta clics. */
+  ratingDisabled?: boolean
+  /** Acciones siempre visibles (última respuesta); en el resto aparecen al pasar o enfocar. */
+  showActions?: boolean
 }) {
   const { t } = useTranslation()
   const text = messageText(message)
 
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
-        <p className="bg-primary text-primary-foreground max-w-[85%] rounded-2xl rounded-br-sm px-3 py-2 text-sm whitespace-pre-wrap">
+      <div className="flex justify-end not-first:mt-1">
+        <p className="bg-muted text-foreground max-w-[85%] rounded-lg px-3 py-2 text-sm break-words whitespace-pre-wrap">
           {text}
         </p>
       </div>
@@ -65,14 +75,15 @@ export function AssistantMessageBubble({
   }
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className="group/message flex flex-col items-start gap-1">
       {isRunningTool(message) ? (
-        <span className="text-muted-foreground bg-muted/60 rounded-full px-2.5 py-0.5 text-xs">
+        <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
           {t("assistant.toolRunning")}
         </span>
       ) : null}
       {text ? (
-        <div className="bg-muted max-w-[90%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
+        <div className="w-full text-sm leading-relaxed break-words">
           <RichText text={text} dialect="flow" />
         </div>
       ) : null}
@@ -85,18 +96,28 @@ export function AssistantMessageBubble({
         />
       ))}
       {onRate && text ? (
-        <div className="flex gap-0.5">
+        <div
+          className={cn(
+            "-ml-1.5 flex gap-0.5 transition-opacity duration-150 ease-out",
+            // Sin hover (táctil) quedan siempre visibles.
+            !showActions &&
+              !rating &&
+              "[@media(hover:hover)]:opacity-0 group-focus-within/message:opacity-100 group-hover/message:opacity-100",
+          )}
+        >
           <RatingButton
             label={t("assistant.feedbackUp")}
             active={rating === 1}
+            disabled={ratingDisabled}
             onClick={() => onRate(1)}
-            icon={<ThumbsUp className="size-3.5" aria-hidden="true" />}
+            icon={ThumbsUp}
           />
           <RatingButton
             label={t("assistant.feedbackDown")}
             active={rating === -1}
+            disabled={ratingDisabled}
             onClick={() => onRate(-1)}
-            icon={<ThumbsDown className="size-3.5" aria-hidden="true" />}
+            icon={ThumbsDown}
           />
         </div>
       ) : null}
@@ -107,13 +128,15 @@ export function AssistantMessageBubble({
 function RatingButton({
   label,
   active,
+  disabled,
   onClick,
-  icon,
+  icon: Icon,
 }: {
   label: string
   active: boolean
+  disabled: boolean
   onClick: () => void
-  icon: React.ReactNode
+  icon: typeof ThumbsUp
 }) {
   return (
     <Button
@@ -123,10 +146,14 @@ function RatingButton({
       aria-label={label}
       aria-pressed={active}
       title={label}
+      disabled={disabled}
       onClick={onClick}
-      className={cn("size-7", active ? "text-primary" : "text-muted-foreground")}
+      className={cn(
+        "size-7 pointer-coarse:size-10",
+        active ? "text-primary" : "text-muted-foreground hover:text-foreground",
+      )}
     >
-      {icon}
+      <Icon className={cn("size-3.5", active && "fill-current/20")} aria-hidden="true" />
     </Button>
   )
 }
