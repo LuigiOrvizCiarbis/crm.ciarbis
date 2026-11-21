@@ -10,8 +10,12 @@ use App\Models\Tenant;
 use App\Models\TenantMembership;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
 use Illuminate\Testing\TestResponse;
+use Laravel\Ai\Approvals\PendingApproval;
 use Laravel\Ai\Models\ConversationMessage;
+use Laravel\Ai\Prompts\AgentPrompt;
+use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
@@ -157,6 +161,89 @@ class AssistantChatTest extends TestCase
         $this->putJson("/api/assistant/messages/{$assistantMessage}/feedback", ['rating' => -1])->assertNotFound();
     }
 
+    public function test_pending_action_waits_for_confirmation_and_resumes_with_the_decision(): void
+    {
+        WorkspaceAssistant::fake([
+            AgentResponse::fakeWithPendingApprovals([
+                new PendingApproval(
+                    id: 'call_1',
+                    tool: 'create_task',
+                    arguments: ['name' => 'Llamar a Jorge'],
+                    reason: 'Crear tarea «Llamar a Jorge»',
+                ),
+            ]),
+            'Listo, creé la tarea.',
+        ]);
+        $conversationId = $this->createConversation('Recordame llamar a Jorge');
+
+        $approvalRequest = $this->streamedParts($this->chat($conversationId, 'Recordame llamar a Jorge'))
+            ->firstWhere('type', 'tool-approval-request');
+        $this->assertSame('call_1', $approvalRequest['toolCallId']);
+        $this->assertSame('Crear tarea «Llamar a Jorge»', $approvalRequest['reason']);
+
+        $assistant = collect($this->getJson("/api/assistant/conversations/{$conversationId}/messages")->json('data'))
+            ->firstWhere('role', 'assistant');
+        $pending = collect($assistant['parts'])->firstWhere('type', 'tool-create_task');
+        $this->assertSame('approval-requested', $pending['state']);
+
+        // El cliente reenvía el mensaje completo del asistente, con razonamiento
+        // y texto que pueden superar cualquier tope de largo.
+        $resumed = $this->postJson('/api/assistant/chat', [
+            'conversation_id' => $conversationId,
+            'messages' => [[
+                'id' => $assistant['id'],
+                'role' => 'assistant',
+                'parts' => [
+                    ['type' => 'reasoning', 'text' => str_repeat('pensando ', 600)],
+                    ['type' => 'text', 'text' => str_repeat('Te propongo crear la tarea. ', 120)],
+                    [
+                        ...$pending,
+                        'state' => 'approval-responded',
+                        'approval' => ['id' => 'call_1', 'approved' => true],
+                    ],
+                ],
+            ]],
+        ]);
+
+        $resumed->assertOk();
+        $this->assertSame('Listo, creé la tarea.', $this->streamedText($resumed));
+        WorkspaceAssistant::assertPrompted(fn (AgentPrompt $prompt) => $prompt->hasApprovalDecisions()
+            && $prompt->approvalDecisions->get('call_1')->isApproved());
+    }
+
+    public function test_assistant_message_without_a_decision_is_rejected(): void
+    {
+        $conversationId = $this->createConversation('Hola');
+
+        $this->postJson('/api/assistant/chat', [
+            'conversation_id' => $conversationId,
+            'messages' => [['id' => 'a1', 'role' => 'assistant', 'parts' => [['type' => 'text', 'text' => 'hola']]]],
+        ])->assertUnprocessable()->assertJsonValidationErrors('messages.0.parts');
+    }
+
+    public function test_malformed_messages_are_rejected_as_validation_errors(): void
+    {
+        $conversationId = $this->createConversation('Hola');
+        $post = fn (array $message) => $this->postJson('/api/assistant/chat', [
+            'conversation_id' => $conversationId,
+            'messages' => [$message],
+        ]);
+
+        // Usuario: solo una parte de texto (sin adjuntos).
+        $post(['id' => 'u1', 'role' => 'user', 'parts' => [
+            ['type' => 'text', 'text' => 'hola'],
+            ['type' => 'file', 'mediaType' => 'image/png', 'url' => 'data:image/png;base64,AAAA'],
+        ]])->assertUnprocessable();
+
+        // Asistente: tipos inválidos en la parte de herramienta dan 422, no 500.
+        $post(['id' => 'a1', 'role' => 'assistant', 'parts' => [[
+            'type' => 'tool-create_task',
+            'toolCallId' => ['no-es-texto'],
+            'state' => 'approval-responded',
+            'approval' => ['id' => 'call_1', 'approved' => true],
+        ]]])->assertUnprocessable();
+    }
+
     private function memberOf(Tenant $tenant): User
     {
         app(PermissionRegistrar::class)->setPermissionsTeamId($tenant->id);
@@ -194,11 +281,19 @@ class AssistantChatTest extends TestCase
     /** Texto de la respuesta, unido desde los eventos text-delta del stream. */
     private function streamedText(TestResponse $response): string
     {
+        return $this->streamedParts($response)->where('type', 'text-delta')->pluck('delta')->implode('');
+    }
+
+    /**
+     * Eventos del stream (protocolo de useChat) ya decodificados.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function streamedParts(TestResponse $response): Collection
+    {
         return collect(explode("\n", $response->streamedContent()))
             ->filter(fn (string $line) => str_starts_with($line, 'data: {'))
             ->map(fn (string $line) => json_decode(substr($line, 6), true))
-            ->where('type', 'text-delta')
-            ->pluck('delta')
-            ->implode('');
+            ->values();
     }
 }

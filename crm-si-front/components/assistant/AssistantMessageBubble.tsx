@@ -3,6 +3,12 @@
 import type { UIMessage } from "ai"
 import { Loader2, ThumbsDown, ThumbsUp } from "lucide-react"
 import { RichText } from "@/components/rich-text/RichText"
+import {
+  actionParts,
+  AssistantActionCard,
+  hasPendingApproval,
+  type ApprovalHandler,
+} from "@/components/assistant/AssistantActionCard"
 import { Button } from "@/components/ui/button"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { AssistantRating } from "@/lib/api/assistant"
@@ -15,13 +21,20 @@ export function messageText(message: UIMessage): string {
     .join("")
 }
 
+/**
+ * Herramienta en ejecución. No cuenta la que espera confirmación ni la
+ * cancelada, ni la ya confirmada mientras otra del mismo mensaje sigue
+ * esperando: el turno recién se reanuda cuando se resuelven todas.
+ */
 export function isRunningTool(message: UIMessage): boolean {
+  const waiting = hasPendingApproval(message)
   return message.parts.some(
     (part) =>
       part.type.startsWith("tool-") &&
       "state" in part &&
-      part.state !== "output-available" &&
-      part.state !== "output-error",
+      (part.state === "input-streaming" ||
+        part.state === "input-available" ||
+        (part.state === "approval-responded" && !waiting)),
   )
 }
 
@@ -33,6 +46,7 @@ export function AssistantMessageBubble({
   message,
   rating,
   onRate,
+  onDecide,
   ratingDisabled = false,
   showActions = false,
 }: {
@@ -40,6 +54,8 @@ export function AssistantMessageBubble({
   rating?: AssistantRating
   /** Ausente mientras el mensaje no está guardado (todavía en streaming). */
   onRate?: (rating: AssistantRating) => void
+  /** Ausente mientras hay un turno en curso: no se puede confirmar dos veces. */
+  onDecide?: ApprovalHandler
   /** Durante un turno la fila sigue en su lugar (sin saltos de layout) pero no acepta clics. */
   ratingDisabled?: boolean
   /** Acciones siempre visibles (última respuesta); en el resto aparecen al pasar o enfocar. */
@@ -71,6 +87,14 @@ export function AssistantMessageBubble({
           <RichText text={text} dialect="flow" />
         </div>
       ) : null}
+      {actionParts(message).map((part) => (
+        <AssistantActionCard
+          key={part.toolCallId}
+          part={part}
+          onDecide={onDecide}
+          othersPending={hasPendingApproval(message)}
+        />
+      ))}
       {onRate && text ? (
         <div
           className={cn(

@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Api;
 
+use App\Ai\Agents\WorkspaceAssistant;
+use App\Ai\Tools\Assistant\CreateTask;
 use App\Ai\Tools\Assistant\ListTasks;
 use App\Ai\Tools\Assistant\SearchContacts;
 use App\Ai\Tools\Assistant\WorkspaceSummary;
@@ -9,9 +11,12 @@ use App\Models\Contact;
 use App\Models\Task;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\Tasks\TaskCreator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Laravel\Ai\Tools\Request;
 use Laravel\Sanctum\Sanctum;
+use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
@@ -70,6 +75,135 @@ class AssistantToolsTest extends TestCase
             'Pasá al menos 2 caracteres para buscar.',
             (new SearchContacts($owner))->handle(new Request(['query' => 'a'])),
         );
+    }
+
+    public function test_create_task_asks_confirmation_with_resolved_details_and_creates_after_it(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-21 12:00', 'America/Argentina/Buenos_Aires'));
+        $owner = $this->userWithRole('Owner');
+        // Ciudad de México es UTC-6; la app, UTC-3.
+        $owner->update(['preferences' => ['timezone' => 'America/Mexico_City']]);
+        $contact = Contact::create(['tenant_id' => $this->tenant->id, 'name' => 'Jorge Merlo', 'source' => 'manual']);
+        Sanctum::actingAs($owner);
+        $tool = new CreateTask($owner, app(TaskCreator::class));
+        $request = new Request([
+            'name' => 'Llamar a Jorge',
+            'deadline' => '2026-11-22 10:00',
+            'contact_id' => $contact->id,
+            'priority' => 'alta',
+            'description' => 'Ofrecerle el plan anual',
+        ], toolCallId: 'call_1');
+
+        $approval = $tool->shouldRequestApproval($request);
+        $this->assertNotNull($approval);
+        $this->assertStringContainsString('Contacto: Jorge Merlo', $approval->reason);
+        // Se muestra en la zona del usuario (10:00), no en la de la app (13:00).
+        $this->assertStringContainsString('22/11/2026 10:00', $approval->reason);
+        // Lo que se guarda como detalle también se confirma.
+        $this->assertStringContainsString('Detalle: Ofrecerle el plan anual', $approval->reason);
+        $this->assertSame(0, Task::withoutGlobalScopes()->count());
+
+        $result = json_decode($tool->handle($request), true);
+
+        $task = Task::withoutGlobalScopes()->findOrFail($result['task']['id']);
+        $this->assertSame($owner->id, $task->assigned_to);
+        $this->assertSame($contact->id, $task->contact_id);
+        $this->assertSame($this->tenant->id, $task->tenant_id);
+        $this->assertSame('2026-11-22 13:00', $task->deadline->format('Y-m-d H:i'));
+
+        // La misma confirmación reenviada (otra pestaña) no crea otra tarea.
+        $this->assertStringContainsString('ya se creó', $tool->handle($request));
+        $this->assertSame(1, Task::withoutGlobalScopes()->count());
+    }
+
+    public function test_create_task_summary_follows_the_user_language(): void
+    {
+        $owner = $this->userWithRole('Owner');
+        $owner->update(['preferences' => ['locale' => 'en']]);
+        Sanctum::actingAs($owner);
+
+        $approval = (new CreateTask($owner, app(TaskCreator::class)))
+            ->shouldRequestApproval(new Request(['name' => 'Call Jorge', 'priority' => 'alta']));
+
+        $this->assertStringContainsString('Create task «Call Jorge»', $approval->reason);
+        $this->assertStringContainsString('Priority: high', $approval->reason);
+    }
+
+    public function test_create_task_rejects_past_deadlines_without_asking(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-21 12:00', 'America/Argentina/Buenos_Aires'));
+        $owner = $this->userWithRole('Owner');
+        Sanctum::actingAs($owner);
+        $tool = new CreateTask($owner, app(TaskCreator::class));
+        $request = new Request(['name' => 'Llamar', 'deadline' => '2026-11-20 10:00']);
+
+        $this->assertNull($tool->shouldRequestApproval($request));
+        $this->assertStringContainsString('ya pasó', $tool->handle($request));
+        $this->assertSame(0, Task::withoutGlobalScopes()->count());
+    }
+
+    public function test_create_task_accepts_today_end_of_day_after_nine(): void
+    {
+        // "Recordame hoy…" a las 12:00: la regla del prompt manda hoy 23:59.
+        Carbon::setTestNow(Carbon::parse('2026-11-21 12:00', 'America/Argentina/Buenos_Aires'));
+        $owner = $this->userWithRole('Owner');
+        Sanctum::actingAs($owner);
+        $tool = new CreateTask($owner, app(TaskCreator::class));
+
+        $this->assertNotNull($tool->shouldRequestApproval(new Request(['name' => 'Llamar', 'deadline' => '2026-11-21 23:59'])));
+        // Hoy a las 09:00, ya pasado, vuelve al modelo con la instrucción para corregirlo.
+        $this->assertStringContainsString('usá hoy 23:59', $tool->handle(new Request(['name' => 'Llamar', 'deadline' => '2026-11-21 09:00'])));
+    }
+
+    public function test_create_task_shows_the_whole_description_and_rejects_longer_ones(): void
+    {
+        $owner = $this->userWithRole('Owner');
+        Sanctum::actingAs($owner);
+        $tool = new CreateTask($owner, app(TaskCreator::class));
+        $description = str_repeat('a', 499).'Z';
+
+        $approval = $tool->shouldRequestApproval(new Request(['name' => 'Llamar', 'description' => $description]));
+        $this->assertStringContainsString($description, $approval->reason);
+
+        $tooLong = new Request(['name' => 'Llamar', 'description' => str_repeat('a', 501)]);
+        $this->assertNull($tool->shouldRequestApproval($tooLong));
+        $this->assertStringContainsString('Datos inválidos', $tool->handle($tooLong));
+        $this->assertSame(0, Task::withoutGlobalScopes()->count());
+    }
+
+    public function test_create_task_refuses_contacts_the_member_cannot_see_without_asking(): void
+    {
+        $member = $this->userWithRole('Member');
+        $stranger = Contact::create(['tenant_id' => $this->tenant->id, 'name' => 'Ajeno', 'source' => 'manual']);
+        Sanctum::actingAs($member);
+        $tool = new CreateTask($member, app(TaskCreator::class));
+        $request = new Request(['name' => 'Llamar', 'contact_id' => $stranger->id]);
+
+        $this->assertNull($tool->shouldRequestApproval($request));
+        $this->assertStringContainsString('No encontré ese contacto', $tool->handle($request));
+        $this->assertSame(0, Task::withoutGlobalScopes()->count());
+    }
+
+    public function test_create_task_refuses_users_without_permission_without_asking(): void
+    {
+        $member = $this->userWithRole('Member');
+        Role::query()->where('tenant_id', $this->tenant->id)->where('name', 'Member')->firstOrFail()
+            ->revokePermissionTo('tasks.create');
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+        $member->unsetRelation('roles')->unsetRelation('permissions');
+        Sanctum::actingAs($member);
+        $tool = new CreateTask($member, app(TaskCreator::class));
+        $request = new Request(['name' => 'Llamar']);
+
+        // Sigue registrada (para poder reanudar un turno pausado), pero no
+        // pide confirmación ni crea nada.
+        $this->assertContains('create_task', array_map(
+            fn ($tool) => $tool->name(),
+            [...(new WorkspaceAssistant($member, [], 'model'))->tools()],
+        ));
+        $this->assertNull($tool->shouldRequestApproval($request));
+        $this->assertStringContainsString('no tiene permiso', $tool->handle($request));
+        $this->assertSame(0, Task::withoutGlobalScopes()->count());
     }
 
     private function userWithRole(string $role): User

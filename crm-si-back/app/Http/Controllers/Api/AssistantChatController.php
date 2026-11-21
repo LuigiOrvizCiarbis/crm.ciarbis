@@ -12,7 +12,6 @@ use App\Services\Ai\Assistant\AssistantUsageMeter;
 use App\Support\CurrentWorkspace;
 use Illuminate\Http\JsonResponse;
 use Laravel\Ai\Responses\StreamableAgentResponse;
-use Laravel\Ai\Responses\StreamedAgentResponse;
 use Laravel\Ai\Vercel\Vercel;
 
 /**
@@ -44,13 +43,16 @@ class AssistantChatController extends Controller
             return response()->json(['message' => $e->getMessage(), 'code' => $e->errorCode], $e->status);
         }
 
+        // Si el usuario corta (Detener, cierra la pestaña), PHP no muere a mitad
+        // de un paso: lo termina, lo registra (StepCompleted) y el agente se
+        // detiene antes del siguiente (ver WorkspaceAssistant::middleware).
+        ignore_user_abort(true);
+
         $chat = Vercel::chat($request);
-        $stream = (new WorkspaceAssistant($user, $provider->config, $provider->model))
+
+        return (new WorkspaceAssistant($user, $provider->config, $provider->model))
             ->continue($conversation->id, as: $membership)
-            ->stream($chat);
-
-        $stream->then(fn (StreamedAgentResponse $response) => $meter->record($tenantId, $response->usage));
-
-        return $stream->usingProtocol($chat->protocol());
+            ->stream($chat)
+            ->usingProtocol($chat->protocol());
     }
 }
