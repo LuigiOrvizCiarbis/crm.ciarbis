@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useChat } from "@ai-sdk/react"
-import { DefaultChatTransport } from "ai"
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai"
 import { Bot, History, Plus, Send, Square } from "lucide-react"
+import { hasPendingApproval } from "@/components/assistant/AssistantActionCard"
 import { AssistantMessageBubble, isRunningTool, messageText } from "@/components/assistant/AssistantMessageBubble"
 import { Button } from "@/components/ui/button"
 import {
@@ -99,8 +100,10 @@ function AssistantPanel() {
     [],
   )
 
-  const { messages, sendMessage, status, error, stop, setMessages, clearError } = useChat({
+  const { messages, sendMessage, status, error, stop, setMessages, clearError, addToolApprovalResponse } = useChat({
     transport,
+    // Al confirmar o cancelar una acción, el turno se reanuda solo.
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onFinish: () => {
       // useChat ya pasó a "ready", pero el ref se actualiza recién tras el render:
       // sin esto, la recarga del hilo podría descartarse por "turno en curso".
@@ -116,10 +119,13 @@ function AssistantPanel() {
 
   const chatActive = status === "submitted" || status === "streaming"
   const busy = chatActive || sending
-  const inputLocked = busy || loadingThread
+  const lastMessage = messages.at(-1)
+  // Con una acción esperando confirmación no se puede escribir otra cosa:
+  // el turno pausado tiene que resolverse primero.
+  const awaitingApproval = lastMessage?.role === "assistant" && hasPendingApproval(lastMessage)
+  const inputLocked = busy || loadingThread || awaitingApproval
   // Los modelos que razonan (p. ej. qwen3) emiten solo razonamiento al principio:
   // los puntos siguen hasta que aparece texto visible o una herramienta en curso.
-  const lastMessage = messages.at(-1)
   const showTyping =
     busy &&
     !(lastMessage?.role === "assistant" && (messageText(lastMessage) !== "" || isRunningTool(lastMessage)))
@@ -194,6 +200,17 @@ function AssistantPanel() {
       sendingRef.current = false
       setSending(false)
     }
+  }
+
+  /** Confirma o cancela la acción pendiente; sendAutomaticallyWhen reanuda el turno. */
+  function decide(approvalId: string, approved: boolean) {
+    if (sendingRef.current || chatActiveRef.current) return
+    resetErrors()
+    void addToolApprovalResponse({
+      id: approvalId,
+      approved,
+      options: { body: { conversation_id: conversationIdRef.current } },
+    })
   }
 
   function startNewConversation() {
@@ -339,6 +356,7 @@ function AssistantPanel() {
                       ? (rating) => void rate(message.id, rating)
                       : undefined
                   }
+                  onDecide={!busy && message === lastMessage ? decide : undefined}
                 />
               ))}
 

@@ -3862,6 +3862,15 @@
       "tasks": "Which of my tasks are overdue?"
     },
     "configureAi": "Set up AI",
+    "approval": {
+      "title": "Confirm the action",
+      "confirm": "Confirm",
+      "cancel": "Cancel",
+      "running": "Confirmed, running…",
+      "cancelled": "Action cancelled",
+      "taskCreated": "Task created.",
+      "viewTasks": "View tasks"
+    },
     "errors": {
       "generic": "Couldn't send. Try again.",
       "rateLimited": "You sent too many questions in a row. Wait a minute and try again."

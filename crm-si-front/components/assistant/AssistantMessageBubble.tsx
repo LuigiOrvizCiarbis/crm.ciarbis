@@ -3,6 +3,7 @@
 import type { UIMessage } from "ai"
 import { ThumbsDown, ThumbsUp } from "lucide-react"
 import { RichText } from "@/components/rich-text/RichText"
+import { actionParts, AssistantActionCard, type ApprovalHandler } from "@/components/assistant/AssistantActionCard"
 import { Button } from "@/components/ui/button"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { AssistantRating } from "@/lib/api/assistant"
@@ -15,13 +16,13 @@ export function messageText(message: UIMessage): string {
     .join("")
 }
 
+/** Herramienta en ejecución: no cuenta la que espera confirmación ni la cancelada. */
 export function isRunningTool(message: UIMessage): boolean {
   return message.parts.some(
     (part) =>
       part.type.startsWith("tool-") &&
       "state" in part &&
-      part.state !== "output-available" &&
-      part.state !== "output-error",
+      (part.state === "input-streaming" || part.state === "input-available" || part.state === "approval-responded"),
   )
 }
 
@@ -29,11 +30,14 @@ export function AssistantMessageBubble({
   message,
   rating,
   onRate,
+  onDecide,
 }: {
   message: UIMessage
   rating?: AssistantRating
   /** Ausente mientras el mensaje no está guardado (todavía en streaming). */
   onRate?: (rating: AssistantRating) => void
+  /** Ausente mientras hay un turno en curso: no se puede confirmar dos veces. */
+  onDecide?: ApprovalHandler
 }) {
   const { t } = useTranslation()
   const text = messageText(message)
@@ -60,6 +64,9 @@ export function AssistantMessageBubble({
           <RichText text={text} dialect="flow" />
         </div>
       ) : null}
+      {actionParts(message).map((part) => (
+        <AssistantActionCard key={part.toolCallId} part={part} onDecide={onDecide} />
+      ))}
       {onRate && text ? (
         <div className="flex gap-0.5">
           <RatingButton
