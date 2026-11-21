@@ -5,7 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport } from "ai"
-import { Bot, History, Plus, Send, Square } from "lucide-react"
+import { AlertCircle, Bot, Check, History, Plus, Send, Square } from "lucide-react"
 import { AssistantMessageBubble, isRunningTool, messageText } from "@/components/assistant/AssistantMessageBubble"
 import { Button } from "@/components/ui/button"
 import {
@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -33,6 +34,10 @@ import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/useAuthStore"
 
 const MAX_LENGTH = 2000
+// El contador aparece recién cerca del tope: antes es ruido.
+const COUNTER_THRESHOLD = MAX_LENGTH * 0.9
+// Distancia al fondo dentro de la cual el panel sigue el streaming.
+const STICK_THRESHOLD_PX = 64
 
 const SUGGESTIONS = ["summary", "pipeline", "tasks"] as const
 
@@ -46,6 +51,12 @@ function parseChatError(error: Error): AssistantError {
   } catch {
     return {}
   }
+}
+
+function formatConversationDate(value: string, language: string): string {
+  const date = new Date(value)
+  const sameYear = date.getFullYear() === new Date().getFullYear()
+  return date.toLocaleDateString(language, { day: "numeric", month: "short", year: sameYear ? undefined : "numeric" })
 }
 
 /**
@@ -76,6 +87,7 @@ function AssistantPanel() {
   // Turno en preparación (creando el hilo) antes de que useChat cambie de estado.
   const [sending, setSending] = useState(false)
   const [loadingThread, setLoadingThread] = useState(false)
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const conversationIdRef = useRef<string | null>(null)
   const lastSentRef = useRef("")
   const listLoadedRef = useRef(false)
@@ -84,6 +96,8 @@ function AssistantPanel() {
   const chatActiveRef = useRef(false)
   const endRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // Si el usuario sube a releer, el streaming no lo arrastra al fondo.
+  const stickToBottomRef = useRef(true)
 
   const transport = useMemo(
     () =>
@@ -143,8 +157,14 @@ function AssistantPanel() {
   }, [chatActive, open])
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" })
+    if (stickToBottomRef.current) endRef.current?.scrollIntoView({ block: "end" })
   }, [messages, status])
+
+  function selectConversation(conversationId: string | null) {
+    conversationIdRef.current = conversationId
+    setActiveConversationId(conversationId)
+    stickToBottomRef.current = true
+  }
 
   async function loadThread(conversationId: string) {
     const thread = await getAssistantThread(conversationId)
@@ -183,12 +203,13 @@ function AssistantPanel() {
           return
         }
         conversationId = created.data.id
-        conversationIdRef.current = conversationId
+        selectConversation(conversationId)
         setConversations((current) => [created.data!, ...current])
       }
 
       lastSentRef.current = content
       setInput("")
+      stickToBottomRef.current = true
       await sendMessage({ text: content }, { body: { conversation_id: conversationId } })
     } finally {
       sendingRef.current = false
@@ -199,7 +220,7 @@ function AssistantPanel() {
   function startNewConversation() {
     if (busy) void stop()
     resetErrors()
-    conversationIdRef.current = null
+    selectConversation(null)
     setMessages([])
     setFeedback({})
     setStoredIds(new Set())
@@ -208,7 +229,7 @@ function AssistantPanel() {
   async function openConversation(conversationId: string) {
     if (busy) void stop()
     resetErrors()
-    conversationIdRef.current = conversationId
+    selectConversation(conversationId)
     setMessages([])
     setLoadingThread(true)
     try {
@@ -246,7 +267,7 @@ function AssistantPanel() {
         title={t("assistant.open")}
         onClick={() => setOpen(true)}
         className={cn(
-          "fixed right-4 z-40 size-12 rounded-full shadow-lg md:right-6",
+          "fixed right-4 z-40 size-12 rounded-full shadow-lg md:right-6 dark:shadow-none",
           // Por encima de la barra inferior de mobile, contando el área segura del iPhone.
           pathname?.startsWith("/chats")
             ? "bottom-[calc(9rem+env(safe-area-inset-bottom))] md:bottom-28"
@@ -265,34 +286,51 @@ function AssistantPanel() {
             textareaRef.current?.focus()
           }}
         >
-          <header className="flex items-center gap-1 border-b py-3 pr-12 pl-4">
+          {/* Alto alineado con el cierre del Sheet (top-3, size-8; size-10 en táctil). */}
+          <header className="flex h-14 shrink-0 items-center gap-1 border-b pr-12 pl-4 pointer-coarse:h-16 pointer-coarse:pr-14">
             <SheetTitle className="mr-auto text-base">{t("assistant.title")}</SheetTitle>
             <SheetDescription className="sr-only">{t("assistant.empty")}</SheetDescription>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="ghost" size="icon" aria-label={t("assistant.conversations")} title={t("assistant.conversations")}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-foreground size-8 pointer-coarse:size-10"
+                  aria-label={t("assistant.conversations")}
+                  title={t("assistant.conversations")}
+                >
                   <History className="size-4" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
+              <DropdownMenuContent align="end" className="max-h-80 w-72 overflow-y-auto">
                 <DropdownMenuLabel>{t("assistant.conversations")}</DropdownMenuLabel>
                 {conversations.length === 0 ? (
                   <p className="text-muted-foreground px-2 py-1.5 text-sm">{t("assistant.noConversations")}</p>
                 ) : (
-                  conversations.map((conversation) => (
-                    <DropdownMenuItem
-                      key={conversation.id}
-                      onSelect={() => void openConversation(conversation.id)}
-                      className="flex flex-col items-start gap-0"
-                    >
-                      <span className="w-full truncate">{conversation.title}</span>
-                      {conversation.updated_at ? (
-                        <span className="text-muted-foreground text-xs">
-                          {new Date(conversation.updated_at).toLocaleDateString(language)}
-                        </span>
-                      ) : null}
-                    </DropdownMenuItem>
-                  ))
+                  conversations.map((conversation) => {
+                    const current = conversation.id === activeConversationId
+                    return (
+                      <DropdownMenuItem
+                        key={conversation.id}
+                        onSelect={() => void openConversation(conversation.id)}
+                        aria-current={current || undefined}
+                        className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-0"
+                      >
+                        <span className={cn("truncate", current && "font-medium")}>{conversation.title}</span>
+                        {current ? (
+                          <Check className="text-primary row-span-2 size-4" aria-hidden="true" />
+                        ) : (
+                          <span className="row-span-2" />
+                        )}
+                        {conversation.updated_at ? (
+                          <span className="text-muted-foreground text-xs">
+                            {formatConversationDate(conversation.updated_at, language)}
+                          </span>
+                        ) : null}
+                      </DropdownMenuItem>
+                    )
+                  })
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -300,6 +338,7 @@ function AssistantPanel() {
               type="button"
               variant="ghost"
               size="icon"
+              className="text-muted-foreground hover:text-foreground size-8 pointer-coarse:size-10"
               aria-label={t("assistant.newConversation")}
               title={t("assistant.newConversation")}
               onClick={startNewConversation}
@@ -308,18 +347,26 @@ function AssistantPanel() {
             </Button>
           </header>
 
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="flex flex-col gap-3 p-4" role="log" aria-live="polite" aria-busy={busy}>
+          <ScrollArea
+            className="min-h-0 flex-1"
+            onScrollCapture={(event) => {
+              const viewport = event.target as HTMLElement
+              if (viewport.dataset.slot !== "scroll-area-viewport") return
+              const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+              stickToBottomRef.current = distance < STICK_THRESHOLD_PX
+            }}
+          >
+            <div className="flex flex-col gap-2 px-4 py-5" role="log" aria-live="polite" aria-busy={busy || loadingThread}>
               {messages.length === 0 && !busy && !loadingThread ? (
-                <div className="flex flex-col items-start gap-3 py-6">
+                <div className="flex flex-col gap-4 py-2">
                   <p className="text-muted-foreground text-sm">{t("assistant.empty")}</p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-col gap-2">
                     {SUGGESTIONS.map((key) => (
                       <Button
                         key={key}
                         type="button"
                         variant="outline"
-                        size="sm"
+                        className="h-auto justify-start py-2 text-left font-normal whitespace-normal pointer-coarse:min-h-10"
                         onClick={() => void send(t(`assistant.suggestions.${key}`))}
                       >
                         {t(`assistant.suggestions.${key}`)}
@@ -329,13 +376,24 @@ function AssistantPanel() {
                 </div>
               ) : null}
 
+              {loadingThread && messages.length === 0 ? (
+                <div className="flex flex-col gap-2" aria-hidden="true">
+                  <Skeleton className="ml-auto h-9 w-2/3 motion-reduce:animate-none" />
+                  <Skeleton className="h-4 w-full motion-reduce:animate-none" />
+                  <Skeleton className="h-4 w-5/6 motion-reduce:animate-none" />
+                  <Skeleton className="h-4 w-2/3 motion-reduce:animate-none" />
+                </div>
+              ) : null}
+
               {messages.map((message) => (
                 <AssistantMessageBubble
                   key={message.id}
                   message={message}
                   rating={feedback[message.id]}
+                  showActions={message === lastMessage}
+                  ratingDisabled={busy}
                   onRate={
-                    !busy && message.role === "assistant" && storedIds.has(message.id)
+                    message.role === "assistant" && storedIds.has(message.id)
                       ? (rating) => void rate(message.id, rating)
                       : undefined
                   }
@@ -343,11 +401,11 @@ function AssistantPanel() {
               ))}
 
               {showTyping ? (
-                <div className="bg-muted flex w-fit gap-1 rounded-2xl rounded-bl-sm px-3 py-3" aria-hidden="true">
-                  {[0, 0.1, 0.2].map((delay) => (
+                <div className="flex h-5 items-center gap-1" aria-hidden="true">
+                  {[0, 0.2, 0.4].map((delay) => (
                     <span
                       key={delay}
-                      className="bg-muted-foreground/60 size-1.5 animate-bounce rounded-full motion-reduce:animate-none"
+                      className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full motion-reduce:animate-none"
                       style={{ animationDelay: `${delay}s` }}
                     />
                   ))}
@@ -358,27 +416,30 @@ function AssistantPanel() {
           </ScrollArea>
 
           <form
-            className="flex flex-col gap-2 border-t p-3"
+            className="flex shrink-0 flex-col gap-2 border-t p-3"
             onSubmit={(event) => {
               event.preventDefault()
               void send(input)
             }}
           >
             {visibleError ? (
-              <p role="alert" className="text-destructive text-sm">
-                {errorText}
-                {visibleError.code === "ai_not_configured" && canConfigureAi ? (
-                  <>
-                    {" "}
-                    <Link
-                      href="/configuracion/integraciones#ai-assistant"
-                      className="font-medium underline"
-                      onClick={() => setOpen(false)}
-                    >
-                      {t("assistant.configureAi")}
-                    </Link>
-                  </>
-                ) : null}
+              <p role="alert" className="text-destructive flex items-start gap-2 text-sm">
+                <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                <span>
+                  {errorText}
+                  {visibleError.code === "ai_not_configured" && canConfigureAi ? (
+                    <>
+                      {" "}
+                      <Link
+                        href="/configuracion/integraciones#ai-assistant"
+                        className="font-medium underline underline-offset-2"
+                        onClick={() => setOpen(false)}
+                      >
+                        {t("assistant.configureAi")}
+                      </Link>
+                    </>
+                  ) : null}
+                </span>
               </p>
             ) : null}
             <div className="flex items-end gap-2">
@@ -396,15 +457,35 @@ function AssistantPanel() {
                 readOnly={inputLocked}
               />
               {busy ? (
-                <Button type="button" size="icon" variant="outline" aria-label={t("assistant.stop")} title={t("assistant.stop")} onClick={() => void stop()}>
-                  <Square className="size-4" aria-hidden="true" />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="size-10 shrink-0"
+                  aria-label={t("assistant.stop")}
+                  title={t("assistant.stop")}
+                  onClick={() => void stop()}
+                >
+                  <Square className="size-3.5 fill-current" aria-hidden="true" />
                 </Button>
               ) : (
-                <Button type="submit" size="icon" aria-label={t("assistant.send")} title={t("assistant.send")} disabled={!input.trim() || loadingThread}>
+                <Button
+                  type="submit"
+                  size="icon"
+                  className="size-10 shrink-0"
+                  aria-label={t("assistant.send")}
+                  title={t("assistant.send")}
+                  disabled={!input.trim() || loadingThread}
+                >
                   <Send className="size-4" aria-hidden="true" />
                 </Button>
               )}
             </div>
+            {input.length >= COUNTER_THRESHOLD ? (
+              <span className="text-muted-foreground self-end text-xs tabular-nums" aria-live="polite">
+                {input.length}/{MAX_LENGTH}
+              </span>
+            ) : null}
           </form>
         </SheetContent>
       </Sheet>
