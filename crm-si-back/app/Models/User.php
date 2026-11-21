@@ -102,6 +102,17 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
+     * Zona horaria elegida por el usuario, o la de la app si la guardada no es
+     * un identificador válido.
+     */
+    public function preferredTimezone(): string
+    {
+        $timezone = (string) ($this->preferences['timezone'] ?? self::DEFAULT_PREFERENCES['timezone']);
+
+        return in_array($timezone, timezone_identifiers_list(), true) ? $timezone : (string) config('app.timezone');
+    }
+
+    /**
      * Preferencias de notificaciones in-app con defaults: todos los tipos
      * activos, sonido sí, notificación del navegador no (requiere permiso).
      *

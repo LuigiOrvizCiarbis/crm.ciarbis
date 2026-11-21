@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $date
  * @property int $input_tokens
  * @property int $output_tokens
+ * @property string $audio_seconds
  */
 class AssistantUsage extends Model
 {
@@ -25,6 +26,7 @@ class AssistantUsage extends Model
         'date',
         'input_tokens',
         'output_tokens',
+        'audio_seconds',
     ];
 
     protected function casts(): array

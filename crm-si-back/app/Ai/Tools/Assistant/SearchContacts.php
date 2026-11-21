@@ -27,7 +27,8 @@ class SearchContacts implements Tool
 
     public function description(): string
     {
-        return 'Busca contactos por nombre, teléfono o email y devuelve sus etiquetas, oportunidades abiertas y último mensaje.';
+        return 'Busca contactos por nombre, teléfono o email y devuelve su id, etiquetas, oportunidades abiertas y último mensaje. '
+            .'Usá el id para vincular el contacto en otras herramientas (p. ej. create_task).';
     }
 
     public function schema(JsonSchema $schema): array
@@ -56,6 +57,7 @@ class SearchContacts implements Tool
                 ->limit(self::LIMIT)
                 ->get()
                 ->map(fn (Contact $contact) => [
+                    'id' => $contact->id,
                     'name' => $contact->name,
                     'phone' => $contact->phone,
                     'email' => $contact->email,

@@ -103,6 +103,24 @@ return [
             // source=platform, que pagamos nosotros. 0 = sin límite.
             'daily_token_limit_per_tenant' => env('AI_ASSISTANT_DAILY_TOKEN_LIMIT', 200000),
             'per_minute_per_user' => env('AI_ASSISTANT_PER_MINUTE', 10),
+            // Dictado por voz. Con key de OpenAI del workspace se transcribe con
+            // ella; si no (p. ej. key de Claude, que no transcribe), con la
+            // nuestra (driver groq|openai|openai-compatible).
+            'transcription' => [
+                'openai_model' => env('AI_ASSISTANT_OPENAI_TRANSCRIPTION_MODEL', 'gpt-4o-mini-transcribe'),
+                'platform' => [
+                    'driver' => env('AI_ASSISTANT_TRANSCRIPTION_DRIVER', 'groq'),
+                    'key' => env('AI_ASSISTANT_TRANSCRIPTION_API_KEY'),
+                    'url' => env('AI_ASSISTANT_TRANSCRIPTION_URL'),
+                    'model' => env('AI_ASSISTANT_TRANSCRIPTION_MODEL', 'whisper-large-v3-turbo'),
+                ],
+                // Tope del archivo: 5 min de nota de voz entran holgados.
+                'max_kb' => env('AI_ASSISTANT_TRANSCRIPTION_MAX_KB', 10240),
+                'timeout' => env('AI_ASSISTANT_TRANSCRIPTION_TIMEOUT', 60),
+                // Cupo diario de audio por workspace, en segundos. Solo aplica
+                // cuando transcribe la key nuestra. 0 = sin límite.
+                'daily_audio_seconds_limit_per_tenant' => env('AI_ASSISTANT_TRANSCRIPTION_DAILY_SECONDS', 1800),
+            ],
         ],
         'website_context' => [
             // Timeout del request al proveedor para redactar la información.

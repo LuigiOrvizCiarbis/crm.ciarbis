@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Ai\Agents\WorkspaceAssistant;
 use App\Automation\AutomationRegistry;
 use App\Automation\Handlers\DateTriggerHandler;
 use App\Automation\Handlers\EventTriggerHandler;
@@ -47,6 +48,7 @@ use App\Policies\UserPolicy;
 use App\Policies\WhatsAppFlowPolicy;
 use App\Policies\WhatsAppGroupPolicy;
 use App\Policies\WhatsAppTemplatePolicy;
+use App\Services\Ai\Assistant\AssistantUsageMeter;
 use App\Support\CurrentWorkspace;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -56,6 +58,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Ai\Events\StepCompleted;
 use Sentry\Laravel\Integration;
 use Sentry\State\Scope;
 use Spatie\Permission\Models\Role;
@@ -117,6 +120,20 @@ class AppServiceProvider extends ServiceProvider
         // Ollama): se limita por usuario.
         RateLimiter::for('ai-assistant', fn (Request $request) => Limit::perMinute((int) config('services.ai.assistant.per_minute_per_user', 10))
             ->by($request->user()?->id ?: $request->ip()));
+
+        // Dictado por voz: límite propio, para que transcribir no le quite
+        // turnos al chat (cada dictado suele ir seguido de un mensaje).
+        RateLimiter::for('ai-assistant-transcription', fn (Request $request) => Limit::perMinute((int) config('services.ai.assistant.per_minute_per_user', 10))
+            ->by($request->user()?->id ?: $request->ip()));
+
+        // Uso del asistente por paso completado, no al final del turno: así se
+        // registra también lo consumido cuando el stream falla o el usuario lo
+        // corta a mitad de camino.
+        Event::listen(function (StepCompleted $event): void {
+            if ($event->agent instanceof WorkspaceAssistant) {
+                app(AssistantUsageMeter::class)->record((int) $event->agent->user->tenant_id, $event->response->usage);
+            }
+        });
 
         Gate::policy(Branch::class, BranchPolicy::class);
         Gate::policy(Channel::class, ChannelPolicy::class);

@@ -17,6 +17,7 @@ use App\Services\Scheduling\AppointmentAvailabilityException;
 use App\Services\Scheduling\AppointmentAvailabilityService;
 use App\Services\Scheduling\CalendarOwnerLock;
 use App\Services\Scheduling\CalendarRequestBudget;
+use App\Services\Tasks\TaskCreator;
 use App\Support\TimezoneAliases;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -65,21 +66,13 @@ class TaskController extends Controller
         ]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, TaskCreator $creator): JsonResponse
     {
         $this->authorize('create', Task::class);
         $this->normalizeMeetingTimezone($request);
         $validated = $request->validate($this->rules($request));
 
-        $task = Task::create($this->payload($validated));
-        app(DomainNotifier::class)->taskAssigned($task, $request->user());
-
-        // Una tarea nueva sin responsable u horario no tiene evento que crear
-        // ni que retirar: no vale el viaje a la cola.
-        if ($task->status !== TaskStatus::CANCELED && $task->hasCalendarSlot()) {
-            DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatch($task->id, 'upsert'));
-        }
-
+        $task = $creator->create($this->payload($validated), $request->user());
         $task->load(self::EAGER_LOAD);
 
         return response()->json(['data' => $task], 201);
@@ -105,7 +98,7 @@ class TaskController extends Controller
         $previousStatus = $task->status;
         $wasPendingAiBooking = $task->ai_booking_status === AiBookingStatus::PENDING;
 
-        $task->fill($this->payload($validated, true));
+        $task->fill($this->payload($validated));
 
         if (($validated['status'] ?? null) === TaskStatus::DONE->value && ! $task->completed_at) {
             $task->completed_at = now();
@@ -442,20 +435,9 @@ class TaskController extends Controller
         ]);
     }
 
-    private function payload(array $validated, bool $partial = false): array
+    private function payload(array $validated): array
     {
-        $defaults = $partial ? [] : [
-            'status' => TaskStatus::NEW->value,
-            'priority' => TaskPriority::MEDIUM->value,
-            'type' => TaskType::FOLLOW_UP->value,
-            'reminders' => [],
-            'depends_on' => [],
-            'checklist' => [],
-            'attachments' => [],
-            'synced_calendars' => [],
-        ];
-
-        $payload = array_merge($defaults, $validated);
+        $payload = $validated;
         unset($payload['confirm_overlap']);
 
         if (($payload['status'] ?? null) === TaskStatus::DONE->value && ! array_key_exists('completed_at', $payload)) {
