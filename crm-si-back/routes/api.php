@@ -3,6 +3,9 @@
 use App\Http\Controllers\Api\AiConfigController;
 use App\Http\Controllers\Api\AiSchedulingConfigController;
 use App\Http\Controllers\Api\AiWebsiteContextController;
+use App\Http\Controllers\Api\AssistantChatController;
+use App\Http\Controllers\Api\AssistantConversationController;
+use App\Http\Controllers\Api\AssistantFeedbackController;
 use App\Http\Controllers\Api\AutomationController;
 use App\Http\Controllers\Api\AutomationRunController;
 use App\Http\Controllers\Api\BillingConfigController;
@@ -563,6 +566,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // Agenda de turnos de la IA (horarios, modo de aprobación, calendario por defecto).
     Route::get('ai-config/scheduling', [AiSchedulingConfigController::class, 'show']);
     Route::put('ai-config/scheduling', [AiSchedulingConfigController::class, 'update']);
+
+    // Asistente interno del CRM (consultas del equipo sobre el workspace activo).
+    Route::get('assistant/conversations', [AssistantConversationController::class, 'index']);
+    Route::post('assistant/conversations', [AssistantConversationController::class, 'store']);
+    Route::get('assistant/conversations/{conversation}/messages', [AssistantConversationController::class, 'messages']);
+    Route::post('assistant/chat', AssistantChatController::class)->middleware('throttle:ai-assistant');
+    Route::put('assistant/messages/{message}/feedback', AssistantFeedbackController::class);
 
     // Config de WooCommerce por tenant (credenciales REST API + sync de productos).
     Route::get('woocommerce-config', [WooCommerceConfigController::class, 'show']);
