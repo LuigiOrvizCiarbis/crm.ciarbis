@@ -52,7 +52,16 @@ function wasCreated(output: unknown): boolean {
   }
 }
 
-export function AssistantActionCard({ part, onDecide }: { part: ToolPart; onDecide?: ApprovalHandler }) {
+export function AssistantActionCard({
+  part,
+  onDecide,
+  othersPending,
+}: {
+  part: ToolPart
+  onDecide?: ApprovalHandler
+  /** Otra acción del mismo mensaje sigue esperando: nada se ejecuta hasta resolverla. */
+  othersPending: boolean
+}) {
   const { t } = useTranslation()
   const summary = approvalText(part)
   const tool = ACTION_TOOLS[getToolName(part)]
@@ -64,7 +73,13 @@ export function AssistantActionCard({ part, onDecide }: { part: ToolPart; onDeci
         <p className="text-muted-foreground mb-1 text-xs font-medium">{t("assistant.approval.title")}</p>
         <p className="mb-3">{summary}</p>
         <div className="flex gap-2">
-          <Button type="button" size="sm" disabled={!onDecide} onClick={() => onDecide?.(approvalId, true)}>
+          <Button
+            type="button"
+            size="sm"
+            data-assistant-confirm
+            disabled={!onDecide}
+            onClick={() => onDecide?.(approvalId, true)}
+          >
             {t("assistant.approval.confirm")}
           </Button>
           <Button type="button" size="sm" variant="outline" disabled={!onDecide} onClick={() => onDecide?.(approvalId, false)}>
@@ -85,7 +100,11 @@ export function AssistantActionCard({ part, onDecide }: { part: ToolPart; onDeci
   }
 
   if (part.state === "approval-responded") {
-    return <p className="text-muted-foreground text-xs">{t("assistant.approval.running")}</p>
+    return (
+      <p className="text-muted-foreground text-xs">
+        {t(othersPending ? "assistant.approval.confirmed" : "assistant.approval.running")}
+      </p>
+    )
   }
 
   if (part.state === "output-available" && wasCreated(part.output)) {

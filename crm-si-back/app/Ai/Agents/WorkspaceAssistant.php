@@ -77,7 +77,7 @@ class WorkspaceAssistant implements Agent, Conversational, HasMiddleware, HasToo
         $today = now($timezone)->locale('es')->isoFormat('dddd YYYY-MM-DD');
         $actions = $this->canCreateTasks()
             ? 'Podés consultar datos y crear tareas con create_task; el usuario confirma cada tarea antes de que se cree, así que no digas que la creaste hasta tener el resultado. '
-                .'Las fechas relativas ("mañana a las 10") se interpretan en la zona horaria del usuario; si dio día sin hora, usá 09:00; si no dio fecha, no pongas vencimiento. '
+                .'Las fechas relativas ("mañana a las 10") se interpretan en la zona horaria del usuario; si dio un día sin hora, usá 09:00, salvo que sea hoy: ahí usá 23:59; si no dio fecha, no pongas vencimiento. '
                 .'No podés modificar ni enviar nada más.'
             : 'Solo podés consultar datos: no podés crear, modificar ni enviar nada.';
 
@@ -91,33 +91,35 @@ class WorkspaceAssistant implements Agent, Conversational, HasMiddleware, HasToo
         PROMPT;
     }
 
+    /**
+     * create_task se registra siempre, aunque el usuario no tenga permiso: si
+     * se lo quitan entre la pausa y la confirmación, el SDK necesita encontrar
+     * la herramienta para reanudar el turno. La propia herramienta rechaza al
+     * usuario sin permiso, y el prompt solo le ofrece crear tareas a quien puede.
+     */
     public function tools(): iterable
     {
-        $tools = [
+        return [
             new WorkspaceSummary($this->user),
             new ActivityStats($this->user),
             new PipelineBreakdown($this->user),
             new ListTasks($this->user),
             new SearchContacts($this->user),
+            new CreateTask($this->user, app(TaskCreator::class)),
         ];
-
-        // Sin permiso para crear tareas, la herramienta ni se ofrece.
-        if ($this->canCreateTasks()) {
-            $tools[] = new CreateTask($this->user, app(TaskCreator::class));
-        }
-
-        return $tools;
     }
 
     /**
      * Corta una respuesta que encadena herramientas antes de que su costo se
-     * dispare.
+     * dispare, y deja de llamar al modelo si el usuario ya cortó la conexión
+     * (el controlador ignora el abort para registrar el paso en curso).
      */
     public function middleware(): array
     {
         $maxInputTokens = (int) config('services.ai.assistant.max_input_tokens_per_run', 30000);
 
         return [
+            Stop::when(fn () => connection_aborted() === 1),
             Stop::unless(fn (PendingStep $step) => $step->usage->inputTokens < $maxInputTokens),
         ];
     }

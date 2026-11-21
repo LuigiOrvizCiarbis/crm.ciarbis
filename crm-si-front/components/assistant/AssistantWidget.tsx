@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useChat } from "@ai-sdk/react"
-import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai"
+import { DefaultChatTransport, isToolUIPart, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai"
 import { Bot, History, Plus, Send, Square } from "lucide-react"
 import { hasPendingApproval } from "@/components/assistant/AssistantActionCard"
 import { AssistantMessageBubble, isRunningTool, messageText } from "@/components/assistant/AssistantMessageBubble"
@@ -19,12 +19,14 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
+import { VoiceRecorder } from "@/components/chat/VoiceRecorder"
 import { useTranslation } from "@/hooks/useTranslation"
 import {
   createAssistantConversation,
   getAssistantThread,
   listAssistantConversations,
   sendAssistantFeedback,
+  transcribeAssistantAudio,
   type AssistantConversation,
   type AssistantRating,
 } from "@/lib/api/assistant"
@@ -38,6 +40,13 @@ const MAX_LENGTH = 2000
 const SUGGESTIONS = ["summary", "pipeline", "tasks"] as const
 
 type AssistantError = { message?: string; code?: string }
+
+/** Errores que se muestran traducidos en vez del texto del servidor. */
+const ERROR_KEYS: Record<string, string> = {
+  rate_limited: "assistant.errors.rateLimited",
+  voice_rate_limited: "assistant.voice.rateLimited",
+  network_error: "assistant.voice.networkError",
+}
 
 /** Los errores previos al stream llegan como JSON {message, code} en el cuerpo de la respuesta. */
 function parseChatError(error: Error): AssistantError {
@@ -77,6 +86,8 @@ function AssistantPanel() {
   // Turno en preparación (creando el hilo) antes de que useChat cambie de estado.
   const [sending, setSending] = useState(false)
   const [loadingThread, setLoadingThread] = useState(false)
+  // Grabando o transcribiendo un dictado: el grabador ocupa la fila del campo.
+  const [dictating, setDictating] = useState(false)
   const conversationIdRef = useRef<string | null>(null)
   const lastSentRef = useRef("")
   const listLoadedRef = useRef(false)
@@ -84,7 +95,9 @@ function AssistantPanel() {
   const sendingRef = useRef(false)
   const chatActiveRef = useRef(false)
   const endRef = useRef<HTMLDivElement>(null)
+  const logRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const wasDictatingRef = useRef(false)
 
   const transport = useMemo(
     () =>
@@ -92,10 +105,15 @@ function AssistantPanel() {
         api: "/api/assistant/chat",
         headers: () => workspaceHeaders(),
         // El historial lo carga el backend desde el hilo: solo viaja el último
-        // mensaje, junto al conversation_id que manda cada sendMessage.
-        prepareSendMessagesRequest: ({ messages, body }) => ({
-          body: { ...body, messages: messages.slice(-1) },
-        }),
+        // mensaje, junto al conversation_id que manda cada sendMessage. Al
+        // reanudar una confirmación, de ese mensaje del asistente solo importan
+        // las partes de herramientas (el texto y el razonamiento ya están guardados).
+        prepareSendMessagesRequest: ({ messages, body }) => {
+          const last = messages.at(-1)
+          const outgoing =
+            last?.role === "assistant" ? { ...last, parts: last.parts.filter((part) => isToolUIPart(part)) } : last
+          return { body: { ...body, messages: outgoing ? [outgoing] : [] } }
+        },
       }),
     [],
   )
@@ -111,9 +129,17 @@ function AssistantPanel() {
       void refreshAfterReply()
     },
     onError: () => {
-      // El turno no se guardó: se saca de la vista y el texto vuelve al input.
-      setMessages((current) => (current.at(-1)?.role === "user" ? current.slice(0, -1) : current))
-      setInput(lastSentRef.current)
+      // Un turno nuevo que falló no se guardó: se saca de la vista y el texto
+      // vuelve al campo. Si falló una reanudación (el último mensaje es del
+      // asistente) no se quitó nada y el borrador actual queda intacto.
+      // setMessages de useChat aplica el updater en el momento.
+      let removedUserMessage = false
+      setMessages((current) => {
+        if (current.at(-1)?.role !== "user") return current
+        removedUserMessage = true
+        return current.slice(0, -1)
+      })
+      if (removedUserMessage) setInput(lastSentRef.current)
     },
   })
 
@@ -130,10 +156,8 @@ function AssistantPanel() {
     busy &&
     !(lastMessage?.role === "assistant" && (messageText(lastMessage) !== "" || isRunningTool(lastMessage)))
   const visibleError = requestError ?? (error ? parseChatError(error) : null)
-  const errorText =
-    visibleError?.code === "rate_limited"
-      ? t("assistant.errors.rateLimited")
-      : visibleError?.message || t("assistant.errors.generic")
+  const errorKey = visibleError?.code ? ERROR_KEYS[visibleError.code] : undefined
+  const errorText = errorKey ? t(errorKey) : visibleError?.message || t("assistant.errors.generic")
   const canConfigureAi = Boolean(role?.is_owner) || hasPermission("ai_config.manage", permissions)
 
   useEffect(() => {
@@ -144,9 +168,25 @@ function AssistantPanel() {
 
   useEffect(() => {
     chatActiveRef.current = chatActive
-    // Al terminar un turno el textarea vuelve a estar disponible: el foco sigue ahí.
-    if (!chatActive && open) textareaRef.current?.focus()
-  }, [chatActive, open])
+  }, [chatActive])
+
+  useEffect(() => {
+    // Depende de busy y no solo de chatActive: el stream termina mientras
+    // sending sigue en true, con Confirmar todavía deshabilitado.
+    if (busy || !open) return
+    // Al terminar un turno el foco vuelve al campo; si quedó una acción por
+    // confirmar, va al botón Confirmar (el campo está bloqueado).
+    const confirm = awaitingApproval ? logRef.current?.querySelector<HTMLButtonElement>("[data-assistant-confirm]:not(:disabled)") : null
+    if (confirm) confirm.focus()
+    else textareaRef.current?.focus()
+  }, [busy, open, awaitingApproval])
+
+  useEffect(() => {
+    // Al terminar un dictado el campo se vuelve a montar con el texto
+    // transcripto: el foco va ahí recién cuando existe.
+    if (wasDictatingRef.current && !dictating) textareaRef.current?.focus()
+    wasDictatingRef.current = dictating
+  }, [dictating])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" })
@@ -175,7 +215,7 @@ function AssistantPanel() {
 
   async function send(text: string) {
     const content = text.trim()
-    if (!content || sendingRef.current || chatActiveRef.current || loadingThread) return
+    if (!content || sendingRef.current || chatActiveRef.current || loadingThread || awaitingApproval || dictating) return
     sendingRef.current = true
     setSending(true)
     resetErrors()
@@ -211,6 +251,21 @@ function AssistantPanel() {
       approved,
       options: { body: { conversation_id: conversationIdRef.current } },
     })
+  }
+
+  /**
+   * El dictado no se envía solo: el texto se suma al campo para revisarlo,
+   * así un error de transcripción no termina, p. ej., en una tarea mal creada.
+   */
+  async function dictate(audio: File) {
+    resetErrors()
+    const result = await transcribeAssistantAudio(audio)
+    if (result.text === undefined) {
+      setRequestError({ message: result.error, code: result.code })
+      return
+    }
+    const text = result.text
+    setInput((current) => (current.trim() ? `${current.trim()} ${text}` : text).slice(0, MAX_LENGTH))
   }
 
   function startNewConversation() {
@@ -326,7 +381,7 @@ function AssistantPanel() {
           </header>
 
           <ScrollArea className="min-h-0 flex-1">
-            <div className="flex flex-col gap-3 p-4" role="log" aria-live="polite" aria-busy={busy}>
+            <div ref={logRef} className="flex flex-col gap-3 p-4" role="log" aria-live="polite" aria-busy={busy}>
               {messages.length === 0 && !busy && !loadingThread ? (
                 <div className="flex flex-col items-start gap-3 py-6">
                   <p className="text-muted-foreground text-sm">{t("assistant.empty")}</p>
@@ -337,6 +392,8 @@ function AssistantPanel() {
                         type="button"
                         variant="outline"
                         size="sm"
+                        // Un turno lanzado mientras se graba quedaría sin botón Detener.
+                        disabled={dictating}
                         onClick={() => void send(t(`assistant.suggestions.${key}`))}
                       >
                         {t(`assistant.suggestions.${key}`)}
@@ -400,25 +457,38 @@ function AssistantPanel() {
               </p>
             ) : null}
             <div className="flex items-end gap-2">
-              <Textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={t("assistant.placeholder")}
-                aria-label={t("assistant.placeholder")}
-                maxLength={MAX_LENGTH}
-                rows={1}
-                className="max-h-40 min-h-10 resize-none"
-                // readOnly y no disabled: el foco se queda en el campo entre turnos.
-                readOnly={inputLocked}
+              {/* Mientras se graba, el grabador ocupa la fila (contador, cancelar, transcribir). */}
+              {dictating ? null : (
+                <Textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={t(awaitingApproval ? "assistant.approval.pending" : "assistant.placeholder")}
+                  aria-label={t("assistant.placeholder")}
+                  maxLength={MAX_LENGTH}
+                  rows={1}
+                  className="max-h-40 min-h-10 resize-none"
+                  // readOnly y no disabled: el foco se queda en el campo entre turnos.
+                  readOnly={inputLocked}
+                />
+              )}
+              <VoiceRecorder
+                onSend={dictate}
+                disabled={inputLocked}
+                onActiveChange={setDictating}
+                labels={{
+                  start: t("assistant.voice.start"),
+                  send: t("assistant.voice.send"),
+                  sending: t("assistant.voice.sending"),
+                }}
               />
-              {busy ? (
+              {dictating ? null : busy ? (
                 <Button type="button" size="icon" variant="outline" aria-label={t("assistant.stop")} title={t("assistant.stop")} onClick={() => void stop()}>
                   <Square className="size-4" aria-hidden="true" />
                 </Button>
               ) : (
-                <Button type="submit" size="icon" aria-label={t("assistant.send")} title={t("assistant.send")} disabled={!input.trim() || loadingThread}>
+                <Button type="submit" size="icon" aria-label={t("assistant.send")} title={t("assistant.send")} disabled={!input.trim() || inputLocked}>
                   <Send className="size-4" aria-hidden="true" />
                 </Button>
               )}

@@ -186,16 +186,22 @@ class AssistantChatTest extends TestCase
         $pending = collect($assistant['parts'])->firstWhere('type', 'tool-create_task');
         $this->assertSame('approval-requested', $pending['state']);
 
+        // El cliente reenvía el mensaje completo del asistente, con razonamiento
+        // y texto que pueden superar cualquier tope de largo.
         $resumed = $this->postJson('/api/assistant/chat', [
             'conversation_id' => $conversationId,
             'messages' => [[
                 'id' => $assistant['id'],
                 'role' => 'assistant',
-                'parts' => [[
-                    ...$pending,
-                    'state' => 'approval-responded',
-                    'approval' => ['id' => 'call_1', 'approved' => true],
-                ]],
+                'parts' => [
+                    ['type' => 'reasoning', 'text' => str_repeat('pensando ', 600)],
+                    ['type' => 'text', 'text' => str_repeat('Te propongo crear la tarea. ', 120)],
+                    [
+                        ...$pending,
+                        'state' => 'approval-responded',
+                        'approval' => ['id' => 'call_1', 'approved' => true],
+                    ],
+                ],
             ]],
         ]);
 
@@ -212,7 +218,30 @@ class AssistantChatTest extends TestCase
         $this->postJson('/api/assistant/chat', [
             'conversation_id' => $conversationId,
             'messages' => [['id' => 'a1', 'role' => 'assistant', 'parts' => [['type' => 'text', 'text' => 'hola']]]],
-        ])->assertUnprocessable()->assertJsonValidationErrors('messages.0');
+        ])->assertUnprocessable()->assertJsonValidationErrors('messages.0.parts');
+    }
+
+    public function test_malformed_messages_are_rejected_as_validation_errors(): void
+    {
+        $conversationId = $this->createConversation('Hola');
+        $post = fn (array $message) => $this->postJson('/api/assistant/chat', [
+            'conversation_id' => $conversationId,
+            'messages' => [$message],
+        ]);
+
+        // Usuario: solo una parte de texto (sin adjuntos).
+        $post(['id' => 'u1', 'role' => 'user', 'parts' => [
+            ['type' => 'text', 'text' => 'hola'],
+            ['type' => 'file', 'mediaType' => 'image/png', 'url' => 'data:image/png;base64,AAAA'],
+        ]])->assertUnprocessable();
+
+        // Asistente: tipos inválidos en la parte de herramienta dan 422, no 500.
+        $post(['id' => 'a1', 'role' => 'assistant', 'parts' => [[
+            'type' => 'tool-create_task',
+            'toolCallId' => ['no-es-texto'],
+            'state' => 'approval-responded',
+            'approval' => ['id' => 'call_1', 'approved' => true],
+        ]]])->assertUnprocessable();
     }
 
     private function memberOf(Tenant $tenant): User

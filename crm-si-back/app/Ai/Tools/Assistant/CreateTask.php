@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\Tasks\TaskCreator;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Laravel\Ai\Approvals\Approval;
@@ -24,14 +25,53 @@ use Laravel\Ai\Tools\Request;
  *
  * Todo se valida y resuelve antes de pedir la confirmación: el texto que ve el
  * usuario lo arma el servidor con los datos reales (nombre del contacto, fecha
- * en su zona horaria), no el modelo. Un pedido inválido no se le muestra para
- * confirmar: vuelve al modelo como error para que lo corrija o lo pregunte.
+ * en su zona horaria, detalle incluido), en su idioma, no el modelo. Un pedido
+ * inválido no se le muestra para confirmar: vuelve al modelo como error para
+ * que lo corrija o lo pregunte.
  */
 class CreateTask implements Approvable, Tool
 {
     use InteractsWithApprovals, RespondsSafely;
 
     private const DEADLINE_FORMAT = 'Y-m-d H:i';
+
+    /** Se muestra completa en la confirmación, así que tiene que seguir siendo legible. */
+    private const DESCRIPTION_MAX_LENGTH = 500;
+
+    /** Una misma llamada (toolCallId) no crea dos tareas, p. ej. desde dos pestañas. */
+    private const DEDUPE_TTL_SECONDS = 86400;
+
+    /**
+     * Textos del resumen a confirmar, por idioma del usuario.
+     *
+     * @var array<string, array<string, mixed>>
+     */
+    private const SUMMARY = [
+        'es' => [
+            'create' => 'Crear tarea «:name»',
+            'due' => 'Vence: :date',
+            'no_due' => 'Sin vencimiento',
+            'contact' => 'Contacto: :name',
+            'assignee' => 'Asignada a vos',
+            'priority' => 'Prioridad: :value',
+            'type' => 'Tipo: :value',
+            'detail' => 'Detalle: :value',
+            'priorities' => ['baja' => 'baja', 'media' => 'media', 'alta' => 'alta', 'critica' => 'crítica'],
+            'types' => ['llamado' => 'Llamado', 'demo' => 'Demo', 'propuesta' => 'Propuesta', 'visita' => 'Visita', 'seguimiento' => 'Seguimiento', 'soporte' => 'Soporte'],
+        ],
+        'en' => [
+            'create' => 'Create task «:name»',
+            'due' => 'Due: :date',
+            'no_due' => 'No due date',
+            'contact' => 'Contact: :name',
+            'assignee' => 'Assigned to you',
+            'priority' => 'Priority: :value',
+            'type' => 'Type: :value',
+            'detail' => 'Details: :value',
+            'priorities' => ['baja' => 'low', 'media' => 'medium', 'alta' => 'high', 'critica' => 'critical'],
+            'types' => ['llamado' => 'Call', 'demo' => 'Demo', 'propuesta' => 'Proposal', 'visita' => 'Visit', 'seguimiento' => 'Follow-up', 'soporte' => 'Support'],
+        ],
+    ];
 
     public function __construct(private User $user, private TaskCreator $creator) {}
 
@@ -51,32 +91,47 @@ class CreateTask implements Approvable, Tool
         return [
             'name' => $schema->string()->required()->description('Título corto de la tarea, p. ej. "Llamar a Jorge Merlo".'),
             'deadline' => $schema->string()
-                ->description('Vencimiento en la zona horaria del usuario, formato YYYY-MM-DD HH:MM. Omitilo si el usuario no dio fecha.'),
+                ->description('Vencimiento futuro en la zona horaria del usuario, formato YYYY-MM-DD HH:MM. Omitilo si el usuario no dio fecha.'),
             'contact_id' => $schema->integer()->description('Id del contacto (de search_contacts). Opcional.'),
             'priority' => $schema->string()->enum(TaskPriority::values())->description('Por defecto media.'),
             'type' => $schema->string()->enum($this->allowedTypes())->description('Por defecto seguimiento.'),
-            'description' => $schema->string()->description('Detalle opcional.'),
+            'description' => $schema->string()
+                ->description('Detalle opcional, solo con lo que pidió el usuario. Máximo '.self::DESCRIPTION_MAX_LENGTH.' caracteres.'),
         ];
     }
 
+    /**
+     * Sin aprobación, handle() devuelve el error al modelo sin crear nada. La
+     * herramienta se ofrece siempre (si desapareciera entre la pausa y la
+     * confirmación, el SDK no podría reanudar el turno), así que el permiso se
+     * revisa acá y en handle().
+     */
     protected function needsApproval(Request $request): Approval|bool
     {
+        if (! $this->canCreate()) {
+            return false;
+        }
+
         $prepared = $this->prepare($request);
 
-        // Sin aprobación, handle() devuelve el error al modelo sin crear nada.
         return is_string($prepared) ? false : Approval::required($prepared['summary']);
     }
 
     public function handle(Request $request): string
     {
         return $this->respond(function () use ($request): array|string {
-            if (! $this->user->can('create', Task::class)) {
-                return 'No tenés permiso para crear tareas.';
+            if (! $this->canCreate()) {
+                return 'El usuario no tiene permiso para crear tareas.';
             }
 
             $prepared = $this->prepare($request);
             if (is_string($prepared)) {
                 return $prepared;
+            }
+
+            $callId = $request->toolCallId();
+            if ($callId !== null && ! Cache::add("assistant:create_task:{$this->user->id}:{$callId}", true, self::DEDUPE_TTL_SECONDS)) {
+                return 'Esta tarea ya se creó con esta confirmación.';
             }
 
             $task = $this->creator->create($prepared['attributes'], $this->user);
@@ -95,6 +150,11 @@ class CreateTask implements Approvable, Tool
         });
     }
 
+    private function canCreate(): bool
+    {
+        return $this->user->can('create', Task::class);
+    }
+
     /**
      * Valida el pedido y lo convierte en atributos de Task más el resumen a
      * confirmar. Devuelve el error como texto si el pedido no es válido.
@@ -109,7 +169,8 @@ class CreateTask implements Approvable, Tool
             'contact_id' => ['nullable', 'integer'],
             'priority' => ['nullable', Rule::enum(TaskPriority::class)],
             'type' => ['nullable', Rule::in($this->allowedTypes())],
-            'description' => ['nullable', 'string', 'max:2000'],
+            // Mismo tope que muestra la confirmación: nada se guarda sin que el usuario lo vea.
+            'description' => ['nullable', 'string', 'max:'.self::DESCRIPTION_MAX_LENGTH],
         ]);
 
         if ($validator->fails()) {
@@ -128,15 +189,23 @@ class CreateTask implements Approvable, Tool
         $deadline = isset($data['deadline'])
             ? CarbonImmutable::createFromFormat(self::DEADLINE_FORMAT, $data['deadline'], $this->user->preferredTimezone())
             : null;
+        if ($deadline?->isPast()) {
+            return 'La fecha de vencimiento ya pasó. Si el usuario dijo "hoy" sin hora, usá hoy 23:59; '
+                .'si dio una hora que ya pasó, pedile una fecha futura.';
+        }
+
+        $name = trim($data['name']);
+        $description = isset($data['description']) ? trim($data['description']) : null;
         $priority = TaskPriority::from($data['priority'] ?? TaskPriority::MEDIUM->value);
         $type = TaskType::from($data['type'] ?? TaskType::FOLLOW_UP->value);
-        $deadlineLabel = $deadline?->locale('es')->isoFormat('ddd DD/MM HH:mm');
+        $locale = $this->locale();
+        $deadlineLabel = $deadline?->locale($locale)->isoFormat('ddd DD/MM/YYYY HH:mm');
 
         return [
             'attributes' => [
                 'tenant_id' => $this->user->tenant_id,
-                'name' => trim($data['name']),
-                'description' => $data['description'] ?? null,
+                'name' => $name,
+                'description' => $description ?: null,
                 // ISO con offset: el modelo Task lo pasa a la hora de pared de la app.
                 'deadline' => $deadline?->toIso8601String(),
                 'priority' => $priority->value,
@@ -144,17 +213,45 @@ class CreateTask implements Approvable, Tool
                 'assigned_to' => $this->user->id,
                 'contact_id' => $contact?->id,
             ],
-            'summary' => implode(' · ', array_filter([
-                'Crear tarea «'.trim($data['name']).'»',
-                $deadlineLabel ? "Vence: {$deadlineLabel}" : 'Sin vencimiento',
-                $contact ? "Contacto: {$contact->name}" : null,
-                'Asignada a vos',
-                "Prioridad: {$priority->value}",
-                "Tipo: {$type->label()}",
-            ])),
+            'summary' => $this->summary($locale, $name, $deadlineLabel, $contact?->name, $priority, $type, $description),
             'deadline_label' => $deadlineLabel,
             'contact_name' => $contact?->name,
         ];
+    }
+
+    /**
+     * Todo lo que se va a guardar aparece en el resumen, detalle completo
+     * incluido: el modelo podría haber escrito ahí algo que el usuario no pidió
+     * (p. ej. siguiendo instrucciones de un mensaje de un contacto).
+     */
+    private function summary(
+        string $locale,
+        string $name,
+        ?string $deadlineLabel,
+        ?string $contactName,
+        TaskPriority $priority,
+        TaskType $type,
+        ?string $description,
+    ): string {
+        $text = self::SUMMARY[$locale];
+        $line = fn (string $key, array $replace = []) => strtr($text[$key], $replace);
+
+        return implode(' · ', array_filter([
+            $line('create', [':name' => $name]),
+            $deadlineLabel ? $line('due', [':date' => $deadlineLabel]) : $line('no_due'),
+            $contactName ? $line('contact', [':name' => $contactName]) : null,
+            $line('assignee'),
+            $line('priority', [':value' => $text['priorities'][$priority->value]]),
+            $line('type', [':value' => $text['types'][$type->value]]),
+            $description ? $line('detail', [':value' => $description]) : null,
+        ]));
+    }
+
+    private function locale(): string
+    {
+        $locale = $this->user->preferencesWithDefaults()['locale'] ?? 'es';
+
+        return array_key_exists($locale, self::SUMMARY) ? $locale : 'es';
     }
 
     /**

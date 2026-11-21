@@ -3862,11 +3862,20 @@
       "tasks": "Which of my tasks are overdue?"
     },
     "configureAi": "Set up AI",
+    "voice": {
+      "start": "Dictate",
+      "send": "Transcribe",
+      "sending": "Transcribing…",
+      "rateLimited": "You dictated too many times in a row. Wait a minute and try again.",
+      "networkError": "Couldn't send the audio. Check your connection and try again."
+    },
     "approval": {
       "title": "Confirm the action",
       "confirm": "Confirm",
       "cancel": "Cancel",
       "running": "Confirmed, running…",
+      "confirmed": "Confirmed. The other action still needs an answer.",
+      "pending": "Confirm or cancel the action to continue.",
       "cancelled": "Action cancelled",
       "taskCreated": "Task created.",
       "viewTasks": "View tasks"

@@ -3862,11 +3862,20 @@
       "tasks": "¿Qué tareas tengo vencidas?"
     },
     "configureAi": "Configurar IA",
+    "voice": {
+      "start": "Dictar",
+      "send": "Transcribir",
+      "sending": "Transcribiendo…",
+      "rateLimited": "Dictaste muchas veces seguidas. Esperá un minuto y volvé a intentar.",
+      "networkError": "No se pudo enviar el audio. Revisá tu conexión e intentá de nuevo."
+    },
     "approval": {
       "title": "Confirmá la acción",
       "confirm": "Confirmar",
       "cancel": "Cancelar",
       "running": "Confirmado, ejecutando…",
+      "confirmed": "Confirmado. Falta resolver la otra acción.",
+      "pending": "Confirmá o cancelá la acción para seguir.",
       "cancelled": "Acción cancelada",
       "taskCreated": "Tarea creada.",
       "viewTasks": "Ver tareas"

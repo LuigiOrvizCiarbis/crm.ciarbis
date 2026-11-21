@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AiWebsiteContextController;
 use App\Http\Controllers\Api\AssistantChatController;
 use App\Http\Controllers\Api\AssistantConversationController;
 use App\Http\Controllers\Api\AssistantFeedbackController;
+use App\Http\Controllers\Api\AssistantTranscriptionController;
 use App\Http\Controllers\Api\AutomationController;
 use App\Http\Controllers\Api\AutomationRunController;
 use App\Http\Controllers\Api\BillingConfigController;
@@ -573,6 +574,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('assistant/conversations/{conversation}/messages', [AssistantConversationController::class, 'messages']);
     Route::post('assistant/chat', AssistantChatController::class)->middleware('throttle:ai-assistant');
     Route::put('assistant/messages/{message}/feedback', AssistantFeedbackController::class);
+    Route::post('assistant/transcriptions', AssistantTranscriptionController::class)->middleware('throttle:ai-assistant-transcription');
 
     // Config de WooCommerce por tenant (credenciales REST API + sync de productos).
     Route::get('woocommerce-config', [WooCommerceConfigController::class, 'show']);
