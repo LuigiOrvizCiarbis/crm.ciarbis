@@ -26,6 +26,7 @@ use App\Models\MessageInteraction;
 use App\Models\PipelineStage;
 use App\Models\Tag;
 use App\Models\Tenant;
+use App\Models\TenantMembership;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
@@ -662,6 +663,45 @@ class BroadcastCampaignTest extends TestCase
         $this->assertSame(BroadcastRecipientStatus::Failed, $recipient->fresh()->status);
         $this->assertSame(BroadcastStatus::Failed, $campaign->fresh()->status);
         $this->assertSame('0.00', $campaign->fresh()->actual_cost_usd);
+    }
+
+    public function test_job_sends_campaign_created_by_member_whose_legacy_workspace_is_another(): void
+    {
+        Http::fake(['graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.multi-workspace']]])]);
+        [$owner, $channel, $template] = $this->createSetup();
+        [$support] = $this->createSetup();
+        TenantMembership::create(['tenant_id' => $owner->tenant_id, 'user_id' => $support->id, 'joined_at' => now()]);
+        $conversation = $this->createConversation($owner, $channel);
+
+        $campaign = BroadcastCampaign::create([
+            'tenant_id' => $owner->tenant_id,
+            'channel_id' => $channel->id,
+            'whatsapp_template_id' => $template->id,
+            'created_by' => $support->id,
+            'name' => 'Campaña de soporte',
+            'audience_filters' => [],
+            'components' => [],
+            'audience_count' => 1,
+            'estimated_cost_usd' => 0.07,
+            'interval_seconds' => 0,
+            'scheduled_at' => now(),
+        ]);
+        $recipient = $campaign->recipients()->create(['contact_id' => $conversation->contact_id]);
+
+        (new SendBroadcastMessageJob(
+            null,
+            $template->id,
+            [],
+            $support->id,
+            $owner->tenant_id,
+            $recipient->id,
+            $conversation->contact_id,
+            $channel->id,
+        ))->handle(app(WhatsAppTemplateService::class), app(BroadcastConversationResolver::class));
+
+        $recipient->refresh();
+        $this->assertSame(BroadcastRecipientStatus::Sent, $recipient->status, (string) $recipient->error);
+        $this->assertSame($support->id, $recipient->message->sender_id);
     }
 
     public function test_results_show_original_meta_failure_detail_without_code(): void

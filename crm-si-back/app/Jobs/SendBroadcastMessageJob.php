@@ -10,6 +10,7 @@ use App\Models\BroadcastRecipient;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
+use App\Models\Scopes\TenantScope;
 use App\Models\User;
 use App\Models\WhatsAppTemplate;
 use App\Services\BroadcastConversationResolver;
@@ -115,9 +116,14 @@ class SendBroadcastMessageJob implements ShouldQueue
             ->where('tenant_id', $this->tenantId)
             ->find($this->templateId);
 
+        // users.tenant_id es el workspace "legacy" del usuario: un miembro de
+        // varios workspaces crea campañas en otro. La pertenencia real vive en
+        // tenant_memberships.
         $sender = $this->senderId === null
             ? null
-            : User::where('tenant_id', $this->tenantId)->find($this->senderId);
+            : User::withoutGlobalScope(TenantScope::class)
+                ->whereHas('activeMemberships', fn ($query) => $query->where('tenant_id', $this->tenantId))
+                ->find($this->senderId);
 
         if (! $conversation || ! $template || ($this->senderId !== null && ! $sender)) {
             Log::warning('SendBroadcastMessageJob: recurso no encontrado en el tenant', [
