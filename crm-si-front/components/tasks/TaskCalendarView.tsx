@@ -6,11 +6,13 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ChevronLeft, ChevronRight, CalendarIcon, CalendarOff } from "lucide-react"
 import type { Task } from "@/lib/types/task"
-import { CalendarSyncBadge } from "./CalendarSyncBadge"
+import { CalendarSyncBadge, showsCalendarSync } from "./CalendarSyncBadge"
 import { useTranslation } from "@/hooks/useTranslation"
 import { AiBookingApprovalBadge } from "./AiBookingApprovalBadge"
 import { typeLabels } from "./task-labels"
-import { GoogleCalendarEventDialog } from "@/components/calendar/GoogleCalendarEventDialog"
+import { GoogleCalendarEventPopover } from "@/components/calendar/GoogleCalendarEventPopover"
+import { TaskEventPopover } from "./TaskEventPopover"
+import { TaskDetailSheet } from "./TaskDetailSheet"
 import { CalendarBlockApiError } from "@/lib/api/calendar-availability-blocks"
 import { listGoogleCalendarEvents, type GoogleCalendarEvent } from "@/lib/api/google-calendar-events"
 import { useAuthStore } from "@/store/useAuthStore"
@@ -35,6 +37,7 @@ import { es } from "date-fns/locale"
 
 type CalendarView = "month" | "week" | "day"
 type GoogleStatus = "loading" | "ready" | "not_connected" | "error"
+type EventSelection = { kind: "task"; taskId: string } | { kind: "google"; event: GoogleCalendarEvent }
 
 // RFC 3339 with a numeric offset; the API rejects the "Z" shorthand formatISO emits in UTC.
 const RFC3339 = "yyyy-MM-dd'T'HH:mm:ssxxx"
@@ -69,13 +72,25 @@ export function TaskCalendarView({
     status: Exclude<GoogleStatus, "loading">
     events: GoogleCalendarEvent[]
   } | null>(null)
-  const [selected, setSelected] = useState<{ event: GoogleCalendarEvent; workspaceId: typeof activeWorkspaceId } | null>(null)
+  // The popover keeps its selection while closing so the exit animation has content.
+  const [popover, setPopover] = useState<{
+    selection: EventSelection
+    anchor: HTMLElement
+    open: boolean
+    workspaceId: typeof activeWorkspaceId
+  } | null>(null)
+  const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
   const [retryKey, setRetryKey] = useState(0)
   const loadGeneration = useRef(0)
   // Events and the open detail of another workspace are never shown, even while the new one loads.
   const googleEvents = googleLoad?.workspaceId === activeWorkspaceId ? googleLoad.events : []
-  const selectedEvent = selected?.workspaceId === activeWorkspaceId ? selected.event : null
-  const setSelectedEvent = (event: GoogleCalendarEvent | null) => setSelected(event && { event, workspaceId: activeWorkspaceId })
+  const popoverOpen = popover?.open === true && popover.workspaceId === activeWorkspaceId
+  const selection = popover?.selection
+  const popoverTask = selection?.kind === "task" ? tasks.find((task) => task.id === selection.taskId) : undefined
+  const detailTask = detailTaskId ? tasks.find((task) => task.id === detailTaskId) ?? null : null
+  const openPopover = (next: EventSelection, anchor: HTMLElement) =>
+    setPopover({ selection: next, anchor, open: true, workspaceId: activeWorkspaceId })
+  const closePopover = () => setPopover((prev) => prev && { ...prev, open: false })
 
   const handlePrevious = () => {
     if (view === "month") setCurrentDate(subMonths(currentDate, 1))
@@ -149,9 +164,9 @@ export function TaskCalendarView({
       <button
         key={event.id}
         type="button"
-        onClick={() => setSelectedEvent(event)}
+        onClick={(e) => openPopover({ kind: "google", event }, e.currentTarget)}
         title={label}
-        className={`flex w-full items-center gap-1 truncate border text-left border-sky-500/40 bg-sky-500/15 text-sky-800 hover:bg-sky-500/25 dark:bg-sky-500/25 dark:text-sky-200 dark:hover:bg-sky-500/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${box}`}
+        className={`flex w-full cursor-pointer items-center gap-1 truncate border text-left border-sky-500/40 bg-sky-500/15 text-sky-800 hover:bg-sky-500/25 dark:bg-sky-500/25 dark:text-sky-200 dark:hover:bg-sky-500/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${box}`}
       >
         <Icon className="size-3 shrink-0" aria-hidden="true" />
         <span className="truncate">{label}</span>
@@ -263,19 +278,21 @@ export function TaskCalendarView({
 
                     <div className="space-y-1">
                       {dayTasks.slice(0, 3).map((task) => (
-                        <div
+                        <button
                           key={task.id}
-                          className={`text-xs p-1 rounded ${priorityColors[task.priority]} truncate`}
+                          type="button"
+                          onClick={(e) => openPopover({ kind: "task", taskId: task.id }, e.currentTarget)}
+                          className={`block w-full cursor-pointer truncate rounded p-1 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${priorityColors[task.priority]}`}
                           title={`${format(new Date(task.deadline!), "HH:mm")} hs · ${task.name}`}
                         >
                           <span className="mr-1 font-semibold tabular-nums">{format(new Date(task.deadline!), "HH:mm")}</span>
                           {task.name}
-                        </div>
+                        </button>
                       ))}
                       {dayTasks.length > 3 && (
                         <button
                           type="button"
-                          className="rounded-sm text-xs text-muted-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                          className="cursor-pointer rounded-sm text-xs text-muted-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
                           onClick={() => { setView("day"); setCurrentDate(day) }}
                         >
                           +{dayTasks.length - 3} más
@@ -285,7 +302,7 @@ export function TaskCalendarView({
                       {dayEvents.length > 2 && (
                         <button
                           type="button"
-                          className="text-xs text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                          className="cursor-pointer text-xs text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
                           onClick={() => { setView("day"); setCurrentDate(day) }}
                         >
                           {tr("more", { count: dayEvents.length - 2 })}
@@ -322,16 +339,18 @@ export function TaskCalendarView({
 
                     <div className="p-2 space-y-2 min-h-[400px]">
                       {dayTasks.map((task) => (
-                        <div
+                        <button
                           key={task.id}
-                          className={`p-2 rounded ${priorityColors[task.priority]}`}
+                          type="button"
+                          onClick={(e) => openPopover({ kind: "task", taskId: task.id }, e.currentTarget)}
+                          className={`block w-full cursor-pointer rounded p-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${priorityColors[task.priority]}`}
                         >
-                          <div className="mb-1 text-xs font-medium">
+                          <span className="mb-1 block text-xs font-medium">
                             <span className="mr-1 tabular-nums">{format(new Date(task.deadline!), "HH:mm")} hs</span>
                             {task.name}
-                          </div>
-                          <div className="text-xs opacity-90">{task.assignee}</div>
-                        </div>
+                          </span>
+                          <span className="block text-xs opacity-90">{task.assignee}</span>
+                        </button>
                       ))}
                       {getGoogleEventsForDay(day).map((event) => renderGoogleEvent(event, "week"))}
                     </div>
@@ -348,16 +367,20 @@ export function TaskCalendarView({
               {getTasksForDay(currentDate).map((task) => (
                 <div key={task.id} className={`p-4 rounded-lg ${priorityColors[task.priority]}`}>
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <h4 className="font-semibold mb-1">{task.name}</h4>
-                      <p className="text-sm font-medium tabular-nums opacity-90">
+                    <button
+                      type="button"
+                      onClick={(e) => openPopover({ kind: "task", taskId: task.id }, e.currentTarget)}
+                      className="-m-1 flex-1 cursor-pointer rounded-md p-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <span className="mb-1 block font-semibold">{task.name}</span>
+                      <span className="block text-sm font-medium tabular-nums opacity-90">
                         {format(new Date(task.deadline!), "HH:mm")} hs
-                      </p>
-                      <p className="text-sm opacity-90">Responsable: {task.assignee}</p>
-                      <p className="text-sm opacity-90">Tipo: {typeLabels[task.type]}</p>
-                      {task.description && <p className="text-sm mt-2 opacity-90">{task.description}</p>}
-                    </div>
-                    {task.type === "reunion" && (
+                      </span>
+                      <span className="block text-sm opacity-90">Responsable: {task.assignee}</span>
+                      <span className="block text-sm opacity-90">Tipo: {typeLabels[task.type]}</span>
+                      {task.description && <span className="mt-2 block text-sm opacity-90">{task.description}</span>}
+                    </button>
+                    {showsCalendarSync(task) && (
                       <div className="shrink-0 space-y-1.5 rounded-md bg-background/90 p-1.5">
                         <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />
                         <AiBookingApprovalBadge task={task} />
@@ -380,11 +403,25 @@ export function TaskCalendarView({
         )}
       </div>
 
-      <GoogleCalendarEventDialog
-        event={selectedEvent}
-        onOpenChange={(open) => { if (!open) setSelectedEvent(null) }}
-        onDeleted={(id) => setGoogleLoad((prev) => prev && { ...prev, events: prev.events.filter((e) => e.id !== id) })}
-      />
+      {popover?.selection.kind === "google" && (
+        <GoogleCalendarEventPopover
+          event={popover.selection.event}
+          anchor={popover.anchor}
+          open={popoverOpen}
+          onOpenChange={(open) => { if (!open) closePopover() }}
+          onDeleted={(id) => setGoogleLoad((prev) => prev && { ...prev, events: prev.events.filter((e) => e.id !== id) })}
+        />
+      )}
+      {popover && popoverTask && (
+        <TaskEventPopover
+          task={popoverTask}
+          anchor={popover.anchor}
+          open={popoverOpen}
+          onOpenChange={(open) => { if (!open) closePopover() }}
+          onEdit={(task) => { closePopover(); setDetailTaskId(task.id) }}
+        />
+      )}
+      <TaskDetailSheet task={detailTask} onOpenChange={(open) => { if (!open) setDetailTaskId(null) }} />
     </div>
   )
 }

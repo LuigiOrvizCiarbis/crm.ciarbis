@@ -72,23 +72,28 @@ class Task extends Model
     }
 
     /**
-     * `starts_at` y `ends_at` son columnas timestamp sin zona horaria. Los ISO
-     * enviados por el frontend representan instantes UTC, por lo que antes de
-     * persistirlos hay que convertirlos a la hora de pared de la aplicación.
-     * De lo contrario, 20:00Z se guarda como 20:00 local y al enviarlo a
-     * Google Calendar termina convertido nuevamente, sumando tres horas.
+     * `starts_at`, `ends_at` y `deadline` son columnas timestamp sin zona
+     * horaria. Los ISO enviados por el frontend representan instantes UTC, por
+     * lo que antes de persistirlos hay que convertirlos a la hora de pared de
+     * la aplicación. De lo contrario, 20:00Z se guarda como 20:00 local: el CRM
+     * lo muestra tres horas después y Google Calendar lo recibe corrido.
      */
     public function setStartsAtAttribute(mixed $value): void
     {
-        $this->attributes['starts_at'] = $this->meetingDateForDatabase($value);
+        $this->attributes['starts_at'] = $this->appWallClock($value);
     }
 
     public function setEndsAtAttribute(mixed $value): void
     {
-        $this->attributes['ends_at'] = $this->meetingDateForDatabase($value);
+        $this->attributes['ends_at'] = $this->appWallClock($value);
     }
 
-    private function meetingDateForDatabase(mixed $value): ?string
+    public function setDeadlineAttribute(mixed $value): void
+    {
+        $this->attributes['deadline'] = $this->appWallClock($value);
+    }
+
+    private function appWallClock(mixed $value): ?string
     {
         if ($value === null || $value === '') {
             return null;
@@ -97,6 +102,22 @@ class Task extends Model
         return Carbon::parse($value)
             ->setTimezone((string) config('app.timezone'))
             ->format($this->getDateFormat());
+    }
+
+    /**
+     * Si la tarea tiene un horario para publicar en el Google Calendar del
+     * responsable: las reuniones como evento (inicio/fin), el resto de los
+     * tipos como recordatorio en su `deadline`.
+     */
+    public function hasCalendarSlot(): bool
+    {
+        if (! $this->assigned_to) {
+            return false;
+        }
+
+        return $this->type === TaskType::MEETING
+            ? $this->starts_at !== null && $this->ends_at !== null
+            : $this->deadline !== null;
     }
 
     public function contact(): BelongsTo

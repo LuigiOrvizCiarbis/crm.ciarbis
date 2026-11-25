@@ -12,6 +12,7 @@ enum MessageType: string
     case Video = 'video';
     case Contacts = 'contacts';
     case Flow = 'flow';
+    case Order = 'order';
     case FlowResponse = 'flow_response';
 
     public static function values(): array
@@ -30,6 +31,7 @@ enum MessageType: string
             self::Video => 'Video',
             self::Contacts => 'Contactos',
             self::Flow => 'Formulario',
+            self::Order => 'Carrito',
             self::FlowResponse => 'Respuesta de formulario',
         };
     }

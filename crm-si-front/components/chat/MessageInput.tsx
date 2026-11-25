@@ -8,7 +8,7 @@ import { EmojiPicker } from "./EmojiPicker"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useToast } from "@/components/Toast"
-import { Paperclip, Smile, Send, X, Pencil, Check, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound, CalendarClock, ClipboardList, Reply } from "lucide-react"
+import { Paperclip, Smile, Send, X, Pencil, Check, Languages, Loader2, RotateCcw, Plus, FileText, Image as ImageIcon, Sparkles, UserRound, CalendarClock, ClipboardList, Reply, ShoppingCart } from "lucide-react"
 import { KeyboardEvent, SyntheticEvent, useMemo, useRef, useState, useEffect } from "react"
 import dynamic from "next/dynamic"
 import Image from "next/image"
@@ -28,7 +28,7 @@ import { ScheduleMessagePicker } from "./ScheduleMessagePicker"
 import { MessagingWindowBanner } from "./MessagingWindowBanner"
 import { useComposerStore } from "@/store/useComposerStore"
 import type { MessagingWindowStatus } from "@/hooks/useMessagingWindowStatus"
-import type { ChannelType } from "@/data/enums"
+import { ChannelType } from "@/data/enums"
 
 const TemplatePicker = dynamic(
   () => import("./TemplatePicker").then(m => m.TemplatePicker),
@@ -63,6 +63,8 @@ interface MessageInputProps {
   onShareContacts?: (ids: number[]) => void | Promise<void>
   supportsFlows?: boolean
   onSendFlow?: (input: SendFlowInput) => Promise<void>
+  /** Envía el catálogo de WhatsApp; la página agrega el mensaje y apaga la IA como con los formularios. */
+  onSendCatalog?: () => Promise<void>
   /** Devuelve true si se programó, para limpiar el composer sólo en ese caso. */
   onSchedule?: (content: string, scheduledFor: Date, media?: File) => Promise<boolean>
   windowExpiresAt?: string | null
@@ -104,6 +106,7 @@ export function MessageInput({
   onShareContacts,
   supportsFlows = false,
   onSendFlow,
+  onSendCatalog,
   onSchedule,
   windowExpiresAt,
   windowStatus,
@@ -144,6 +147,19 @@ export function MessageInput({
   const composerDisabled = disabled || windowStatus === "closed"
   const canOpenTemplates = !!(supportsTemplates && channelId && conversationId && onSendTemplate)
   const canSendFlows = !!(supportsFlows && channelId && onSendFlow) && hasFlowSendPermission
+  const canSendCatalog = !!(conversationId && onSendCatalog) && channelType === ChannelType.WHATSAPP && hasFlowSendPermission
+  const [isSendingCatalog, setIsSendingCatalog] = useState(false)
+  const handleSendCatalog = async () => {
+    if (!onSendCatalog || isSendingCatalog) return
+    setIsSendingCatalog(true)
+    try {
+      await onSendCatalog()
+    } catch (error) {
+      addToast({ type: "error", title: t("chats.catalog.sendError"), description: error instanceof Error ? error.message : undefined })
+    } finally {
+      setIsSendingCatalog(false)
+    }
+  }
   const isAudio = !!selectedMedia?.type.startsWith("audio/")
 
   useEffect(() => {
@@ -509,6 +525,14 @@ export function MessageInput({
       disabled,
       onClick: () => { setIsActionsOpen(false); setIsFlowDialogOpen(true) },
     }] : []),
+    ...(canSendCatalog ? [{
+      key: "catalog",
+      label: t("chats.catalog.send"),
+      Icon: ShoppingCart,
+      tone: "bg-primary/10 text-primary",
+      disabled: composerDisabled || isSendingCatalog,
+      onClick: () => { setIsActionsOpen(false); void handleSendCatalog() },
+    }] : []),
     {
       key: "emoji",
       label: t("chats.emojiPickerTitle"),
@@ -792,6 +816,25 @@ export function MessageInput({
                 >
                   <ClipboardList className="w-4 h-4" />
                 </Button>
+              )}
+              {canSendCatalog && (
+                // El title va en el span: un botón deshabilitado no recibe el hover.
+                <span
+                  className="hidden shrink-0 sm:inline-flex"
+                  title={windowStatus === "closed" ? t("chats.catalog.windowClosed") : t("chats.catalog.send")}
+                >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="sm:h-8 sm:w-auto sm:px-2.5"
+                    disabled={composerDisabled || isSendingCatalog}
+                    onClick={() => void handleSendCatalog()}
+                    aria-label={t("chats.catalog.send")}
+                  >
+                    {isSendingCatalog ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingCart className="w-4 h-4" />}
+                  </Button>
+                </span>
               )}
               {supportsContactSharing && onShareContacts && (
                 <Button

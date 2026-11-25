@@ -5,6 +5,7 @@ namespace App\Services\Flows;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppFlow;
 use App\Models\WhatsAppFlowSession;
+use App\Services\Commerce\CheckoutFlowProvider;
 use App\Services\Flows\Builder\FlowDefinitionCompiler;
 use App\Services\Flows\Builder\FlowDefinitionRoutes;
 use Illuminate\Support\Arr;
@@ -25,6 +26,7 @@ class FlowEndpointHandler
         private readonly WhatsAppFlowSessionService $sessions,
         private readonly FlowAppointmentProvider $appointments,
         private readonly FlowContactUpdater $contactUpdater,
+        private readonly CheckoutFlowProvider $checkout,
     ) {}
 
     public function handle(WhatsAppConfig $config, array $request): FlowEndpointResult
@@ -66,11 +68,19 @@ class FlowEndpointHandler
         $entry = $flow->liveVersion()->entryScreen() ?? self::FALLBACK_SCREEN;
 
         return FlowEndpointResult::payload(match ($action) {
-            'INIT' => $this->screenResponse($flow, $entry, $this->sessions->screenData($session, $entry)),
-            'BACK' => $this->screenResponse($flow, $screen ?? $entry, $this->sessions->screenData($session, $screen ?? $entry)),
+            'INIT' => $this->screenResponse($flow, $entry, $this->initialData($session, $entry)),
+            'BACK' => $this->screenResponse($flow, $screen ?? $entry, $this->initialData($session, $screen ?? $entry)),
             'data_exchange' => $this->dataExchange($session, $screen ?? $entry, $data),
             default => $this->errorResponse($session, $screen ?? $entry, 'Acción no soportada.'),
         });
+    }
+
+    /** Datos de una pantalla al abrirla o al volver a ella. */
+    private function initialData(WhatsAppFlowSession $session, string $screen): array
+    {
+        return $this->checkout->owns($session)
+            ? $this->checkout->screenData($session, $screen)
+            : $this->sessions->screenData($session, $screen);
     }
 
     private function dataExchange(WhatsAppFlowSession $session, string $screen, array $data): array
@@ -78,6 +88,18 @@ class FlowEndpointHandler
         $conversation = $session->conversation;
         $next = is_string($data['next_screen'] ?? null) && $data['next_screen'] !== '' ? $data['next_screen'] : null;
         $action = $data['crm_action'] ?? null;
+
+        if ($this->checkout->owns($session)) {
+            try {
+                $result = $this->checkout->handle($session, (string) $action, Arr::except($data, self::ROUTING_KEYS));
+            } catch (FlowProviderException $e) {
+                return $this->errorResponse($session, $screen, $e->getMessage());
+            }
+
+            return isset($result['complete'])
+                ? $this->complete($session, $result['complete'])
+                : $this->screenResponse($session->flow, $result['screen'], $result['data']);
+        }
 
         if (in_array($action, [null, 'prefill', 'appointment_dates', 'appointment_slots'], true) && $next === null) {
             Log::warning('Flow endpoint: data_exchange sin next_screen', [
@@ -213,11 +235,11 @@ class FlowEndpointHandler
 
     private function errorResponse(WhatsAppFlowSession $session, string $screen, string $message): array
     {
-        return $this->screenResponse(
-            $session->flow,
-            $screen,
-            ['error_message' => $message] + $this->appointmentOptions($session, $screen) + $this->sessions->screenData($session, $screen),
-        );
+        $data = $this->checkout->owns($session)
+            ? ['has_error' => true] + $this->checkout->screenData($session, $screen)
+            : $this->appointmentOptions($session, $screen) + $this->sessions->screenData($session, $screen);
+
+        return $this->screenResponse($session->flow, $screen, ['error_message' => $message] + $data);
     }
 
     /**

@@ -14,6 +14,7 @@ use Google\Service\Exception as GoogleServiceException;
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -40,16 +41,148 @@ class SyncTaskCalendarEventJobTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_non_meeting_task_is_ignored(): void
+    public function test_reminder_without_google_connection_creates_no_sync_row(): void
     {
         $tenant = Tenant::create(['name' => 'Acme']);
-        $task = Task::create(['tenant_id' => $tenant->id, 'name' => 'Seguimiento', 'type' => 'seguimiento']);
+        $user = User::factory()->create(['tenant_id' => $tenant->id]);
+        $task = Task::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Seguimiento',
+            'type' => 'seguimiento',
+            'assigned_to' => $user->id,
+            'deadline' => now()->addDay(),
+        ]);
 
         // Sin mock HTTP: si el job intentara llamar a Google, fallaría por
         // falta de conexión de red y el test no pasaría igual.
         (new SyncTaskCalendarEventJob($task->id, 'upsert'))->handle();
 
         $this->assertSame(0, TaskCalendarSync::count());
+    }
+
+    public function test_reminder_is_a_private_free_event_at_its_deadline(): void
+    {
+        [$tenant, $user] = $this->makeConnectedUser();
+        $contact = Contact::create(['tenant_id' => $tenant->id, 'name' => 'Matilde', 'email' => 'matilde@example.com', 'source' => 'manual']);
+        $task = Task::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Llamar a Matilde',
+            'type' => 'seguimiento',
+            'assigned_to' => $user->id,
+            'contact_id' => $contact->id,
+            // El navegador convierte 10:30 de Buenos Aires a este instante.
+            'deadline' => '2026-11-13T13:30:00.000Z',
+        ]);
+
+        $history = [];
+        $stack = HandlerStack::create(new MockHandler([
+            new Response(200, [], json_encode(['id' => 'evt123', 'htmlLink' => 'https://calendar.google.com/event?eid=evt123'])),
+        ]));
+        $stack->push(Middleware::history($history));
+        GoogleCalendarClient::$testHttpClient = new GuzzleClient(['handler' => $stack]);
+        Queue::fake();
+
+        (new SyncTaskCalendarEventJob($task->id, 'upsert'))->handle();
+
+        $body = json_decode((string) $history[0]['request']->getBody(), true);
+        $this->assertSame('[Seguimiento] Llamar a Matilde', $body['summary']);
+        $this->assertSame('2026-11-13T10:30:00-03:00', $body['start']['dateTime']);
+        $this->assertSame('2026-11-13T11:00:00-03:00', $body['end']['dateTime']);
+        $this->assertSame('transparent', $body['transparency']);
+        $this->assertSame('private', $body['visibility']);
+        $this->assertSame([['method' => 'popup', 'minutes' => 10]], $body['reminders']['overrides']);
+        // El contacto no recibe invitación ni se crea un Meet por un seguimiento.
+        $this->assertArrayNotHasKey('attendees', $body);
+        $this->assertArrayNotHasKey('conferenceData', $body);
+
+        $sync = TaskCalendarSync::where('task_id', $task->id)->first();
+        $this->assertSame('synced', $sync->status);
+        $this->assertNull($sync->last_error);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_removing_reminder_deadline_deletes_its_event(): void
+    {
+        [$tenant, $user] = $this->makeConnectedUser();
+        $task = Task::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Seguimiento',
+            'type' => 'seguimiento',
+            'assigned_to' => $user->id,
+        ]);
+        $sync = TaskCalendarSync::create([
+            'tenant_id' => $tenant->id,
+            'task_id' => $task->id,
+            'owner_user_id' => $user->id,
+            'external_event_id' => 'evt123',
+            'status' => 'synced',
+        ]);
+
+        $mock = $this->mockGoogleResponses([new Response(204)]);
+
+        (new SyncTaskCalendarEventJob($task->id, 'upsert'))->handle();
+
+        $this->assertCount(0, $mock, 'El job no borró el recordatorio en Google');
+        $this->assertSame('paused', $sync->fresh()->status);
+    }
+
+    public function test_editing_a_task_whose_event_was_already_removed_does_not_call_google(): void
+    {
+        [$tenant, $user] = $this->makeConnectedUser();
+        $task = Task::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Seguimiento',
+            'type' => 'seguimiento',
+            'assigned_to' => $user->id,
+        ]);
+        TaskCalendarSync::create([
+            'tenant_id' => $tenant->id,
+            'task_id' => $task->id,
+            'owner_user_id' => $user->id,
+            'external_event_id' => 'evt123',
+            'status' => 'paused',
+        ]);
+
+        // Cola vacía: cualquier request a Google tira OutOfBoundsException.
+        $this->mockGoogleResponses([]);
+
+        (new SyncTaskCalendarEventJob($task->id, 'upsert'))->handle();
+
+        $this->assertSame('paused', TaskCalendarSync::where('task_id', $task->id)->value('status'));
+    }
+
+    public function test_pending_dispatch_republishes_paused_tasks_that_have_a_schedule_again(): void
+    {
+        [$tenant, $user] = $this->makeConnectedUser();
+        // Reunión pasada a seguimiento antes de los recordatorios: quedó pausada.
+        $converted = Task::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Ex reunión',
+            'type' => 'seguimiento',
+            'assigned_to' => $user->id,
+            'deadline' => now()->addDay(),
+        ]);
+        TaskCalendarSync::create([
+            'tenant_id' => $tenant->id,
+            'task_id' => $converted->id,
+            'owner_user_id' => $user->id,
+            'external_event_id' => 'evt123',
+            'status' => 'paused',
+        ]);
+        $overdue = Task::create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Vencido',
+            'type' => 'seguimiento',
+            'assigned_to' => $user->id,
+            'deadline' => now()->subDay(),
+        ]);
+        Queue::fake();
+
+        $queued = SyncTaskCalendarEventJob::dispatchPendingFor($tenant->id, $user->id);
+
+        $this->assertSame(1, $queued);
+        Queue::assertPushed(SyncTaskCalendarEventJob::class, fn ($job) => $job->taskId === $converted->id && $job->action === 'upsert');
+        Queue::assertNotPushed(SyncTaskCalendarEventJob::class, fn ($job) => $job->taskId === $overdue->id);
     }
 
     public function test_upsert_skips_ai_booking_pending_approval(): void
@@ -202,6 +335,44 @@ class SyncTaskCalendarEventJobTest extends TestCase
         $sync = TaskCalendarSync::where('task_id', $task->id)->first();
         $this->assertSame('pending', $sync->status);
         $this->assertSame('not_connected', $sync->last_error);
+    }
+
+    public function test_upsert_uses_the_connection_of_the_task_workspace_for_multi_workspace_users(): void
+    {
+        // Conexión vieja del usuario en otro workspace, creada antes (id menor)
+        // y sin autorización vigente: el worker no tiene usuario autenticado,
+        // así que nada filtra por tenant salvo el propio job.
+        [, $user, $otherConnection] = $this->makeConnectedUser();
+        $otherConnection->update(['status' => 'needs_reauth']);
+
+        $workspace = Tenant::create(['name' => 'Workspace '.uniqid()]);
+        $this->connect($workspace, $user);
+
+        $task = Task::create([
+            'tenant_id' => $workspace->id,
+            'name' => 'Reunión',
+            'type' => 'reunion',
+            'assigned_to' => $user->id,
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDay()->addMinutes(30),
+            'meeting_timezone' => 'America/Argentina/Buenos_Aires',
+        ]);
+
+        $mock = $this->mockGoogleResponses([
+            new Response(200, [], json_encode([
+                'id' => 'evt123',
+                'htmlLink' => 'https://calendar.google.com/event?eid=evt123',
+                'conferenceData' => [
+                    'entryPoints' => [['entryPointType' => 'video', 'uri' => 'https://meet.google.com/abc-defg-hij']],
+                ],
+            ])),
+        ]);
+
+        (new SyncTaskCalendarEventJob($task->id, 'upsert'))->handle();
+
+        $this->assertCount(0, $mock, 'El job no publicó la reunión en Google');
+        $this->assertSame('synced', TaskCalendarSync::where('task_id', $task->id)->value('status'));
+        $this->assertSame('needs_reauth', $otherConnection->fresh()->status);
     }
 
     public function test_upsert_marks_connection_for_reauth_when_google_rejects_scope(): void
@@ -487,7 +658,7 @@ class SyncTaskCalendarEventJobTest extends TestCase
 
         $this->expectException(GoogleServiceException::class);
 
-        (new SyncTaskCalendarEventJob(1, 'cancel_previous', $user->id, 'primary', 'evt123'))->handle();
+        (new SyncTaskCalendarEventJob(1, 'cancel_previous', $user->id, 'primary', 'evt123', cancelTenantId: $tenant->id))->handle();
     }
 
     public function test_cancel_previous_deletes_event_after_task_was_deleted(): void
@@ -513,7 +684,7 @@ class SyncTaskCalendarEventJobTest extends TestCase
 
         // La tarea ya no existe: el job debe borrar el evento igual, apoyado
         // sólo en el snapshot, o el evento queda huérfano en el calendario.
-        (new SyncTaskCalendarEventJob($taskId, 'cancel_previous', $user->id, 'primary', 'evt123'))->handle();
+        (new SyncTaskCalendarEventJob($taskId, 'cancel_previous', $user->id, 'primary', 'evt123', cancelTenantId: $tenant->id))->handle();
 
         // El mock consumió su respuesta ⇒ el DELETE llegó a Google.
         $this->assertCount(0, $mock, 'El job no llamó a Google para borrar el evento');
@@ -527,6 +698,11 @@ class SyncTaskCalendarEventJobTest extends TestCase
         $tenant = Tenant::create(['name' => 'Acme '.uniqid()]);
         $user = User::factory()->create(['tenant_id' => $tenant->id]);
 
+        return [$tenant, $user, $this->connect($tenant, $user)];
+    }
+
+    private function connect(Tenant $tenant, User $user): GoogleCalendarConnection
+    {
         $connection = GoogleCalendarConnection::create([
             'tenant_id' => $tenant->id,
             'user_id' => $user->id,
@@ -541,7 +717,7 @@ class SyncTaskCalendarEventJobTest extends TestCase
         $connection->setEncryptedRefreshToken('refresh-token');
         $connection->save();
 
-        return [$tenant, $user, $connection];
+        return $connection;
     }
 
     private function mockGoogleResponses(array $responses): MockHandler

@@ -114,6 +114,9 @@ class PermissionCatalog
                 'ai_config.view',
                 'ai_config.manage',
             ],
+            'assistant' => [
+                'assistant.use',
+            ],
             'woocommerce' => [
                 'woocommerce.view',
                 'woocommerce.manage',
@@ -254,6 +257,7 @@ class PermissionCatalog
             'contact_fields.view',
             'billing.view',
             'document_extraction.use',
+            'assistant.use',
             'opportunities.view_assigned',
             'opportunities.view',
             'opportunities.create',

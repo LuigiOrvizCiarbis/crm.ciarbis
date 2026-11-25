@@ -74,7 +74,9 @@ class TaskController extends Controller
         $task = Task::create($this->payload($validated));
         app(DomainNotifier::class)->taskAssigned($task, $request->user());
 
-        if ($task->type === TaskType::MEETING && $task->status !== TaskStatus::CANCELED) {
+        // Una tarea nueva sin responsable u horario no tiene evento que crear
+        // ni que retirar: no vale el viaje a la cola.
+        if ($task->status !== TaskStatus::CANCELED && $task->hasCalendarSlot()) {
             DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatch($task->id, 'upsert'));
         }
 
@@ -142,21 +144,16 @@ class TaskController extends Controller
             throw ValidationException::withMessages(['starts_at' => 'Elegí un horario futuro.']);
         }
 
-        $reassigned = $wasMeeting && array_key_exists('assigned_to', $validated) && $validated['assigned_to'] !== $previousAssignee;
+        $reassigned = array_key_exists('assigned_to', $validated) && $validated['assigned_to'] !== $previousAssignee;
 
-        // Si deja de ser reunión, el job ya no puede cancelar por sí solo (su
-        // guard de tipo la descarta), así que el evento se captura antes.
-        $droppedMeeting = $wasMeeting && $task->type !== TaskType::MEETING;
-        $snapshot = $droppedMeeting ? $this->cancelableSnapshot($task) : null;
-
-        $persist = function () use ($task, $request, $previousAssignee, $wasMeeting, $previousStatus, $reassigned, $snapshot): void {
+        $persist = function () use ($task, $request, $previousAssignee, $previousStatus, $reassigned): void {
             $task->save();
 
             if ($task->assigned_to !== null && (int) $task->assigned_to !== (int) $previousAssignee) {
                 app(DomainNotifier::class)->taskAssigned($task, $request->user());
             }
 
-            $this->syncCalendarAfterUpdate($task, $wasMeeting, $previousStatus, $reassigned, $snapshot);
+            $this->syncCalendarAfterUpdate($task, $previousStatus, $reassigned);
         };
 
         if (! $checkAgenda) {
@@ -237,19 +234,20 @@ class TaskController extends Controller
     {
         $this->authorize('delete', $task);
 
-        $isMeeting = $task->type === TaskType::MEETING;
         $taskId = $task->id;
+        $tenantId = $task->tenant_id;
 
         // El sync cae por cascade junto con la tarea, así que el snapshot del
         // evento tiene que tomarse antes del delete: después no hay de dónde
         // leerlo y el evento quedaría huérfano en el calendario.
-        $snapshot = $isMeeting ? $this->cancelableSnapshot($task) : null;
+        $snapshot = $this->cancelableSnapshot($task);
 
         $task->delete();
 
         if ($snapshot) {
             DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatchCancelExisting(
                 $taskId,
+                $tenantId,
                 $snapshot['owner_user_id'],
                 $snapshot['google_calendar_id'],
                 $snapshot['external_event_id'],
@@ -263,8 +261,8 @@ class TaskController extends Controller
     {
         $this->authorize('update', $task);
 
-        if ($task->type !== TaskType::MEETING) {
-            return response()->json(['message' => 'La tarea no es una reunión'], 422);
+        if (! $task->hasCalendarSlot()) {
+            return response()->json(['message' => 'La tarea no tiene responsable u horario para Google Calendar'], 422);
         }
 
         // Reflejamos el reintento en la API antes de que el worker procese el
@@ -290,41 +288,17 @@ class TaskController extends Controller
      * Reasignar cancela el evento del responsable anterior (calendario ajeno
      * al nuevo dueño) e incrementa `event_generation` para no reusar un ID de
      * evento cancelado en el nuevo insert (Google rechaza esa reinserción con
-     * 409). Cancelado/eliminación cancela el evento; "hecho" lo conserva.
+     * 409). Cancelado/eliminación cancela el evento; "hecho" lo conserva. Un
+     * cambio de tipo lo resuelve el upsert, que reescribe el mismo evento
+     * como reunión o recordatorio.
      */
-    private function syncCalendarAfterUpdate(Task $task, bool $wasMeeting, TaskStatus $previousStatus, bool $reassigned, ?array $droppedMeetingSnapshot = null): void
+    private function syncCalendarAfterUpdate(Task $task, TaskStatus $previousStatus, bool $reassigned): void
     {
-        $isMeetingNow = $task->type === TaskType::MEETING;
-
-        if (! $wasMeeting && ! $isMeetingNow) {
-            return;
-        }
-
-        if ($isMeetingNow && $task->status === TaskStatus::CANCELED && $previousStatus !== TaskStatus::CANCELED) {
-            DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatch($task->id, 'cancel'));
-
-            return;
-        }
-
-        if (! $isMeetingNow) {
-            if ($droppedMeetingSnapshot) {
-                DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatchCancelExisting(
-                    $task->id,
-                    $droppedMeetingSnapshot['owner_user_id'],
-                    $droppedMeetingSnapshot['google_calendar_id'],
-                    $droppedMeetingSnapshot['external_event_id'],
-                ));
-
-                TaskCalendarSync::where('task_id', $task->id)->update([
-                    'status' => 'paused',
-                    'synced_at' => now(),
-                ]);
+        if ($task->status === TaskStatus::CANCELED) {
+            if ($previousStatus !== TaskStatus::CANCELED) {
+                DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatch($task->id, 'cancel'));
             }
 
-            return;
-        }
-
-        if ($task->status === TaskStatus::CANCELED) {
             return;
         }
 
@@ -341,6 +315,7 @@ class TaskController extends Controller
 
                 DB::afterCommit(fn () => SyncTaskCalendarEventJob::dispatchCancelExisting(
                     $task->id,
+                    $task->tenant_id,
                     $previousOwnerId,
                     $previousCalendarId,
                     $previousEventId,

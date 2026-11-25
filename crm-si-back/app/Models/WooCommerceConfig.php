@@ -23,6 +23,14 @@ use Illuminate\Support\Facades\Log;
  * @property ?Carbon $sync_finished_at
  * @property ?array<string, mixed> $sync_result
  * @property ?string $sync_error
+ * @property bool $whatsapp_checkout_enabled
+ * @property ?string $meta_catalog_id
+ * @property string $catalog_retailer_id_format
+ * @property ?string $tracking_meta_key
+ * @property ?string $webhook_token
+ * @property ?list<int> $webhook_ids
+ * @property ?int $paid_template_id
+ * @property ?int $shipped_template_id
  */
 class WooCommerceConfig extends Model
 {
@@ -33,6 +41,10 @@ class WooCommerceConfig extends Model
     public const SYNC_COMPLETED = 'completed';
 
     public const SYNC_FAILED = 'failed';
+
+    public const RETAILER_ID_PRODUCT_ID = 'product_id';
+
+    public const RETAILER_ID_SKU = 'sku';
 
     protected $table = 'woocommerce_configs';
 
@@ -51,11 +63,20 @@ class WooCommerceConfig extends Model
         'sync_finished_at',
         'sync_result',
         'sync_error',
+        'whatsapp_checkout_enabled',
+        'meta_catalog_id',
+        'catalog_retailer_id_format',
+        'tracking_meta_key',
+        'webhook_token',
+        'webhook_ids',
+        'paid_template_id',
+        'shipped_template_id',
     ];
 
     protected $hidden = [
         'consumer_key',
         'consumer_secret',
+        'webhook_secret',
     ];
 
     protected function casts(): array
@@ -67,6 +88,8 @@ class WooCommerceConfig extends Model
             'sync_heartbeat_at' => 'datetime',
             'sync_finished_at' => 'datetime',
             'sync_result' => 'array',
+            'whatsapp_checkout_enabled' => 'boolean',
+            'webhook_ids' => 'array',
         ];
     }
 
@@ -88,6 +111,30 @@ class WooCommerceConfig extends Model
     public function setEncryptedConsumerSecret(string $value): void
     {
         $this->consumer_secret = Crypt::encryptString($value);
+    }
+
+    public function getDecryptedWebhookSecret(): ?string
+    {
+        return $this->decrypt($this->webhook_secret);
+    }
+
+    public function setEncryptedWebhookSecret(string $value): void
+    {
+        $this->webhook_secret = Crypt::encryptString($value);
+    }
+
+    /**
+     * Lista para vender por WhatsApp: activada, con credenciales de Woo, ID del
+     * catálogo de Meta y Mercado Pago configurado en el tenant.
+     */
+    public function checkoutReady(): bool
+    {
+        return $this->whatsapp_checkout_enabled
+            && $this->hasCredentials()
+            && ! empty($this->meta_catalog_id)
+            && (bool) MercadoPagoConfig::withoutGlobalScopes()
+                ->where('tenant_id', $this->tenant_id)
+                ->first()?->hasCredentials();
     }
 
     public function hasCredentials(): bool

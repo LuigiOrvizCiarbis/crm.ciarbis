@@ -39,9 +39,10 @@ import { useToast } from "@/components/Toast"
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table"
 import { useRouter } from "next/navigation"
 import { useTaskStore } from "@/store/useTaskStore"
-import { CalendarSyncBadge } from "./CalendarSyncBadge"
+import { CalendarSyncBadge, showsCalendarSync } from "./CalendarSyncBadge"
 import { AiBookingApprovalBadge } from "./AiBookingApprovalBadge"
 import { TaskDetailSheet } from "./TaskDetailSheet"
+import { useDeleteTaskWithUndo } from "./useDeleteTaskWithUndo"
 import { priorityLabels, statusLabels, typeLabels } from "./task-labels"
 import { useTranslation } from "@/hooks/useTranslation"
 
@@ -168,11 +169,9 @@ const getInitialColumnWidths = () => {
 
 export function TaskListView({ tasks }: { tasks: Task[] }) {
   const updateTask = useTaskStore((state) => state.updateTask)
-  const deleteTask = useTaskStore((state) => state.deleteTask)
-  const undoDelete = useTaskStore((state) => state.undoDelete)
-  const commitDelete = useTaskStore((state) => state.commitDelete)
   const fetchTasks = useTaskStore((state) => state.fetchTasks)
-  const { addToast, removeToast } = useToast()
+  const { addToast } = useToast()
+  const handleDelete = useDeleteTaskWithUndo()
   const [editingCell, setEditingCell] = useState<{ taskId: string; field: string } | null>(null)
   const [editValue, setEditValue] = useState("")
   const [localTasks, setLocalTasks] = useState(tasks)
@@ -397,26 +396,6 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
     setSelectedTasks(new Set())
   }
 
-  const handleDelete = (taskId: string) => {
-    const toastId = `task-delete-${taskId}`
-    // El borrado real ocurre cuando el toast vence sin "Deshacer" (o al salir de la página).
-    deleteTask(taskId).then(
-      () => removeToast(toastId),
-      (error) => {
-        removeToast(toastId)
-        addToast({ type: "error", title: error instanceof Error ? error.message : "No se pudo eliminar la tarea" })
-      },
-    )
-    addToast({
-      id: toastId,
-      type: "success",
-      title: "Tarea eliminada",
-      duration: 6000,
-      action: { label: "Deshacer", onClick: () => undoDelete(taskId) },
-      onExpire: () => void commitDelete(taskId),
-    })
-  }
-
   // "selection" sigue en el orden guardado (formato histórico), pero la columna la dibuja DataTable.
   const visibleColumns = columns.filter(
     (column): column is TaskColumn & { key: DataColumnKey } => column.key !== "selection",
@@ -498,7 +477,7 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
                 <Edit2 className="h-3 w-3" aria-hidden="true" />
               </Button>
             </div>
-            {task.type === "reunion" && <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />}
+            {showsCalendarSync(task) && <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />}
             <AiBookingApprovalBadge task={task} />
           </div>
         )
@@ -635,9 +614,9 @@ export function TaskListView({ tasks }: { tasks: Task[] }) {
                 </Badge>
               </div>
 
-              {(task.type === "reunion" || task.relatedTo) && (
+              {(showsCalendarSync(task) || task.relatedTo) && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 pl-11">
-                  {task.type === "reunion" && <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />}
+                  {showsCalendarSync(task) && <CalendarSyncBadge taskId={task.id} sync={task.calendarSync} />}
                   {task.relatedTo && (
                     <Button
                       variant="ghost"

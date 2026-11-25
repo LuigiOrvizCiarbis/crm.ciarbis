@@ -4,10 +4,11 @@ namespace App\Jobs;
 
 use App\Enums\AiBookingStatus;
 use App\Enums\TaskStatus;
+use App\Enums\TaskType;
+use App\Models\GoogleCalendarConnection;
 use App\Models\Scopes\TenantScope;
 use App\Models\Task;
 use App\Models\TaskCalendarSync;
-use App\Models\User;
 use App\Support\GoogleCalendarClient;
 use Google\Service\Calendar as GoogleCalendarService;
 use Google\Service\Calendar\ConferenceData;
@@ -17,6 +18,8 @@ use Google\Service\Calendar\Event;
 use Google\Service\Calendar\EventAttendee;
 use Google\Service\Calendar\EventDateTime;
 use Google\Service\Calendar\EventExtendedProperties;
+use Google\Service\Calendar\EventReminder;
+use Google\Service\Calendar\EventReminders;
 use Google\Service\Exception as GoogleServiceException;
 use GuzzleHttp\Exception\TransferException;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -25,23 +28,31 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
- * Inserta, actualiza o cancela el evento de Google Calendar de una tarea
- * `reunion`. Idempotente: usa un ID determinístico por tenant+tarea+generación,
- * y ante un 409 (evento cancelado que Google no permite reinsertar — ver
+ * Inserta, actualiza o cancela el evento de Google Calendar de una tarea en el
+ * calendario de su responsable. Las reuniones son eventos con invitado y Meet;
+ * el resto de los tipos son recordatorios privados en su `deadline`, que no
+ * ocupan la agenda (la disponibilidad de la IA ignora los eventos
+ * `transparent`). Idempotente: usa un ID determinístico por
+ * tenant+tarea+generación, y ante un 409 (evento cancelado que Google no
+ * permite reinsertar — ver
  * https://developers.google.com/calendar/api/guides/errors) reintenta con
- * `update` en vez de `insert`.
+ * `update` en vez de `insert`. Por eso cambiar el tipo de una tarea reescribe
+ * el mismo evento en lugar de crear otro.
  *
- * "Generación": al reasignar una tarea reunion, el evento del responsable
- * anterior se cancela y se crea uno nuevo para el nuevo responsable. Si la
- * tarea vuelve a reasignarse al responsable original, el ID determinístico de
- * la generación previa ya está cancelado en Google (no se puede reusar), por
- * eso cada reasignación incrementa `event_generation` y el ID lo incorpora.
+ * "Generación": al reasignar una tarea, el evento del responsable anterior se
+ * cancela y se crea uno nuevo para el nuevo responsable. Si la tarea vuelve a
+ * reasignarse al responsable original, el ID determinístico de la generación
+ * previa ya está cancelado en Google (no se puede reusar), por eso cada
+ * reasignación incrementa `event_generation` y el ID lo incorpora.
  */
 class SyncTaskCalendarEventJob implements ShouldQueue
 {
     use Queueable;
 
     public int $tries = 5;
+
+    /** Duración fija del evento de un recordatorio (tareas que no son reunión). */
+    public const REMINDER_MINUTES = 30;
 
     public function backoff(): int
     {
@@ -58,6 +69,7 @@ class SyncTaskCalendarEventJob implements ShouldQueue
         public ?string $cancelCalendarId = null,
         public ?string $cancelEventId = null,
         public int $conferencePoll = 0,
+        public ?int $cancelTenantId = null,
     ) {}
 
     /**
@@ -65,16 +77,58 @@ class SyncTaskCalendarEventJob implements ShouldQueue
      * tocar el `task_calendar_syncs` actual, que ya representa la nueva
      * generación creada para el nuevo responsable.
      */
-    public static function dispatchCancelExisting(int $taskId, int $ownerUserId, string $calendarId, string $eventId): void
+    public static function dispatchCancelExisting(int $taskId, int $tenantId, int $ownerUserId, string $calendarId, string $eventId): void
     {
-        self::dispatch($taskId, 'cancel_previous', $ownerUserId, $calendarId, $eventId);
+        self::dispatch($taskId, 'cancel_previous', $ownerUserId, $calendarId, $eventId, cancelTenantId: $tenantId);
+    }
+
+    /**
+     * Encola las tareas del usuario que todavía no llegaron a su Google
+     * Calendar en ese workspace: sin fila de sync, con un intento pendiente o
+     * fallido, o pausadas (p. ej. una reunión que se pasó a seguimiento antes
+     * de que existieran los recordatorios). Las reuniones van todas; los
+     * recordatorios solo si siguen abiertos y vencen a futuro, para no llenar
+     * el calendario de pasado. Todo lo que entra tiene horario, así que una
+     * fila pausada vuelve a publicarse en vez de repetir el borrado.
+     *
+     * @return int tareas encoladas
+     */
+    public static function dispatchPendingFor(int $tenantId, int $userId): int
+    {
+        $taskIds = Task::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $tenantId)
+            ->where('assigned_to', $userId)
+            ->where('status', '!=', TaskStatus::CANCELED)
+            ->where(fn ($query) => $query
+                ->where('type', TaskType::MEETING)
+                ->orWhere(fn ($reminder) => $reminder
+                    ->where('deadline', '>=', now())
+                    ->where('status', '!=', TaskStatus::DONE)))
+            ->pluck('id');
+
+        if ($taskIds->isEmpty()) {
+            return 0;
+        }
+
+        $syncs = TaskCalendarSync::withoutGlobalScope(TenantScope::class)
+            ->whereIn('task_id', $taskIds)
+            ->get(['task_id', 'status']);
+
+        $pending = $taskIds
+            ->diff($syncs->pluck('task_id'))
+            ->merge($syncs->whereIn('status', ['pending', 'error', 'paused'])->pluck('task_id'))
+            ->unique();
+
+        $pending->each(fn (int $taskId) => self::dispatch($taskId, 'upsert'));
+
+        return $pending->count();
     }
 
     public function handle(): void
     {
         // `cancel_previous` se resuelve con el snapshot del constructor: corre
-        // igual si la tarea fue eliminada o dejó de ser reunión, que es
-        // justamente cuando hay que borrar el evento que quedó en Google.
+        // igual si la tarea fue eliminada, que es justamente cuando hay que
+        // borrar el evento que quedó en Google.
         if ($this->action === 'cancel_previous') {
             $this->cancelPrevious();
 
@@ -83,7 +137,7 @@ class SyncTaskCalendarEventJob implements ShouldQueue
 
         $task = Task::withoutGlobalScope(TenantScope::class)->find($this->taskId);
 
-        if (! $task || $task->type?->value !== 'reunion') {
+        if (! $task) {
             return;
         }
 
@@ -97,7 +151,9 @@ class SyncTaskCalendarEventJob implements ShouldQueue
         }
 
         if ($this->action === 'refresh_conference') {
-            $this->refreshConference($task);
+            if ($task->type === TaskType::MEETING) {
+                $this->refreshConference($task);
+            }
 
             return;
         }
@@ -139,8 +195,7 @@ class SyncTaskCalendarEventJob implements ShouldQueue
 
     private function cancelPrevious(): void
     {
-        $owner = User::withoutGlobalScope(TenantScope::class)->find($this->cancelOwnerUserId);
-        $connection = $owner?->googleCalendarConnection;
+        $connection = $this->connectionFor($this->cancelTenantId, $this->cancelOwnerUserId);
 
         if (! $connection) {
             return;
@@ -196,7 +251,21 @@ class SyncTaskCalendarEventJob implements ShouldQueue
 
     private function upsert(Task $task, TaskCalendarSync $sync): void
     {
-        if (! $task->assigned_to || ! $task->starts_at || ! $task->ends_at) {
+        // Sin responsable u horario no hay dónde publicarla; si ya tenía un
+        // evento (p. ej. se le quitó el vencimiento), se retira.
+        if (! $task->hasCalendarSlot()) {
+            $this->cancel($task, $sync);
+
+            return;
+        }
+
+        $connection = $this->connectionFor($task->tenant_id, $task->assigned_to);
+
+        // Los recordatorios son un extra de quien conectó Google: sin conexión
+        // no se crea la fila de sync, así los workspaces que no usan Google
+        // Calendar no ven cada tarea como "pendiente de sincronizar". Las
+        // reuniones sí la crean, porque ese aviso le sirve a quien las agenda.
+        if (! $connection && $task->type !== TaskType::MEETING && ! $sync->exists) {
             return;
         }
 
@@ -210,8 +279,6 @@ class SyncTaskCalendarEventJob implements ShouldQueue
         if (! $sync->external_event_id) {
             $sync->external_event_id = $this->deterministicEventId($task, $sync->event_generation);
         }
-
-        $connection = $task->assignedUser?->googleCalendarConnection;
 
         if (! $connection || $connection->status === 'needs_reauth') {
             $this->markPending($sync, $connection ? 'needs_reauth' : 'not_connected');
@@ -235,7 +302,7 @@ class SyncTaskCalendarEventJob implements ShouldQueue
                 'conferenceDataVersion' => 1,
             ]);
 
-            $this->markSynced($sync, $created);
+            $this->markSynced($sync, $created, $task->type === TaskType::MEETING);
         } catch (GoogleServiceException $e) {
             if ($e->getCode() === 409) {
                 $this->retryAsUpdate($service, $task, $sync, $event);
@@ -271,9 +338,10 @@ class SyncTaskCalendarEventJob implements ShouldQueue
         try {
             $calendarId = $sync->google_calendar_id ?: 'primary';
             // Reuse the current conference data on updates. Google requires a
-            // new requestId for every new conference creation request.
+            // new requestId for every new conference creation request. A
+            // reminder drops it: a meeting turned into a follow-up has no call.
             $existing = $service->events->get($calendarId, $sync->external_event_id);
-            if ($existing->getConferenceData()) {
+            if ($task->type === TaskType::MEETING && $existing->getConferenceData()) {
                 $event->setConferenceData($existing->getConferenceData());
             }
 
@@ -283,7 +351,7 @@ class SyncTaskCalendarEventJob implements ShouldQueue
                 'conferenceDataVersion' => 1,
             ]);
 
-            $this->markSynced($sync, $updated);
+            $this->markSynced($sync, $updated, $task->type === TaskType::MEETING);
         } catch (GoogleServiceException $e) {
             if ($this->isRetryable($e)) {
                 $this->markPending($sync, 'retrying');
@@ -311,7 +379,7 @@ class SyncTaskCalendarEventJob implements ShouldQueue
             return;
         }
 
-        $connection = $task->assignedUser?->googleCalendarConnection;
+        $connection = $this->connectionFor($task->tenant_id, $task->assigned_to);
         $service = $connection ? GoogleCalendarClient::serviceFor($connection) : null;
 
         if (! $service) {
@@ -325,7 +393,7 @@ class SyncTaskCalendarEventJob implements ShouldQueue
             $meetLink = $this->extractMeetLink($event);
 
             if ($meetLink) {
-                $this->markSynced($sync, $event);
+                $this->markSynced($sync, $event, true);
 
                 return;
             }
@@ -361,22 +429,50 @@ class SyncTaskCalendarEventJob implements ShouldQueue
         }
     }
 
+    /**
+     * La conexión es por usuario *y* workspace. `$user->googleCalendarConnection`
+     * no sirve acá: en el worker no hay usuario autenticado, así que el
+     * TenantScope no filtra y un usuario que pertenece a varios workspaces
+     * puede resolver la conexión de otro tenant (otra cuenta de Google o una
+     * conexión en `needs_reauth`), dejando la reunión sin llegar a su calendario.
+     */
+    private function connectionFor(?int $tenantId, ?int $userId): ?GoogleCalendarConnection
+    {
+        if (! $tenantId || ! $userId) {
+            return null;
+        }
+
+        return GoogleCalendarConnection::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $tenantId)
+            ->where('user_id', $userId)
+            ->first();
+    }
+
     private function cancel(Task $task, TaskCalendarSync $sync): void
     {
-        if (! $sync->exists || ! $sync->external_event_id) {
+        // Pausada = el evento ya se retiró: cada edición de una tarea sin
+        // horario vuelve a pasar por acá y no tiene que repetir el DELETE.
+        if (! $sync->exists || $sync->status === 'paused') {
             return;
         }
 
-        $connection = $sync->ownerUser?->googleCalendarConnection;
-
-        if (! $connection) {
+        if ($sync->external_event_id && ! $this->deleteEvent($task, $sync)) {
             return;
         }
 
-        $service = GoogleCalendarClient::serviceFor($connection);
+        $sync->status = 'paused';
+        $sync->synced_at = now();
+        $sync->save();
+    }
+
+    /** False si no hay conexión utilizable para borrarlo: el sync queda como estaba. */
+    private function deleteEvent(Task $task, TaskCalendarSync $sync): bool
+    {
+        $connection = $this->connectionFor($sync->tenant_id, $sync->owner_user_id);
+        $service = $connection ? GoogleCalendarClient::serviceFor($connection) : null;
 
         if (! $service) {
-            return;
+            return false;
         }
 
         try {
@@ -397,17 +493,39 @@ class SyncTaskCalendarEventJob implements ShouldQueue
             }
         }
 
-        $sync->status = 'paused';
-        $sync->synced_at = now();
-        $sync->save();
+        return true;
     }
 
     private function buildEvent(Task $task, TaskCalendarSync $sync): Event
     {
+        $event = $task->type === TaskType::MEETING
+            ? $this->meetingEvent($task)
+            : $this->reminderEvent($task);
+
+        $event->setId($sync->external_event_id);
+
+        if ($task->recurrence) {
+            $recurrence = str_starts_with($task->recurrence, 'RRULE:')
+                ? $task->recurrence
+                : 'RRULE:'.$task->recurrence;
+            $event->setRecurrence([$recurrence]);
+        }
+
+        $event->setExtendedProperties(new EventExtendedProperties([
+            'private' => [
+                'crm_task_id' => (string) $task->id,
+                'crm_tenant_id' => (string) $task->tenant_id,
+            ],
+        ]));
+
+        return $event;
+    }
+
+    private function meetingEvent(Task $task): Event
+    {
         $timezone = $task->meeting_timezone ?: 'America/Argentina/Buenos_Aires';
 
         $event = new Event([
-            'id' => $sync->external_event_id,
             'summary' => $task->name,
             'description' => $task->description,
             'start' => new EventDateTime([
@@ -419,13 +537,6 @@ class SyncTaskCalendarEventJob implements ShouldQueue
                 'timeZone' => $timezone,
             ]),
         ]);
-
-        if ($task->recurrence) {
-            $recurrence = str_starts_with($task->recurrence, 'RRULE:')
-                ? $task->recurrence
-                : 'RRULE:'.$task->recurrence;
-            $event->setRecurrence([$recurrence]);
-        }
 
         $guestEmail = $task->meeting_guest_email ?: $task->contact?->email;
 
@@ -440,14 +551,38 @@ class SyncTaskCalendarEventJob implements ShouldQueue
             ]),
         ]));
 
-        $event->setExtendedProperties(new EventExtendedProperties([
-            'private' => [
-                'crm_task_id' => (string) $task->id,
-                'crm_tenant_id' => (string) $task->tenant_id,
-            ],
-        ]));
-
         return $event;
+    }
+
+    /**
+     * Recordatorio privado del responsable: sin invitados (el contacto no debe
+     * recibir nada por un seguimiento interno), sin Meet y `transparent` para
+     * no bloquear los turnos que ofrece la IA.
+     */
+    private function reminderEvent(Task $task): Event
+    {
+        $timezone = (string) config('app.timezone');
+
+        return new Event([
+            'summary' => "[{$task->type->label()}] {$task->name}",
+            'description' => $task->description,
+            'start' => new EventDateTime([
+                'dateTime' => $task->deadline->toRfc3339String(),
+                'timeZone' => $timezone,
+            ]),
+            'end' => new EventDateTime([
+                'dateTime' => $task->deadline->copy()->addMinutes(self::REMINDER_MINUTES)->toRfc3339String(),
+                'timeZone' => $timezone,
+            ]),
+            'transparency' => 'transparent',
+            // Quien tenga acceso al calendario compartido no ve el nombre de la
+            // tarea ni los datos del contacto que pueda tener la descripción.
+            'visibility' => 'private',
+            'reminders' => new EventReminders([
+                'useDefault' => false,
+                'overrides' => [new EventReminder(['method' => 'popup', 'minutes' => 10])],
+            ]),
+        ]);
     }
 
     /**
@@ -463,11 +598,11 @@ class SyncTaskCalendarEventJob implements ShouldQueue
         return 'crm'.substr($hex, 0, 26);
     }
 
-    private function markSynced(TaskCalendarSync $sync, Event $event): void
+    private function markSynced(TaskCalendarSync $sync, Event $event, bool $expectsConference): void
     {
         $sync->html_link = $event->getHtmlLink();
         $sync->meet_link = $this->extractMeetLink($event);
-        $sync->status = $sync->meet_link ? 'synced' : 'pending';
+        $sync->status = ! $expectsConference || $sync->meet_link ? 'synced' : 'pending';
         $sync->last_error = $sync->status === 'pending' ? 'conference_pending' : null;
         $sync->synced_at = now();
         $sync->save();

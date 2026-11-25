@@ -8,11 +8,16 @@ use App\Models\AiConfig;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\Product;
+use App\Models\ProductVariant;
+use App\Models\WhatsAppCheckout;
 use App\Services\Ai\AiProviderFactory;
 use App\Services\Ai\AiReplyDecision;
+use App\Services\Ai\AiToolset;
+use App\Services\Ai\AiToolsetGroup;
 use App\Services\Ai\CatalogProductSearch;
-use App\Services\Scheduling\AppointmentToolset;
+use App\Services\Commerce\CommerceToolsetFactory;
 use App\Services\Scheduling\AppointmentToolsetFactory;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -28,6 +33,7 @@ class AiReplyService
     public function __construct(
         private readonly CatalogProductSearch $catalogSearch,
         private readonly AppointmentToolsetFactory $appointmentToolsets,
+        private readonly CommerceToolsetFactory $commerceToolsets,
     ) {}
 
     public const DEFAULT_SYSTEM_PROMPT = 'Sos un asistente de atención al cliente que responde mensajes de WhatsApp '
@@ -108,7 +114,7 @@ class AiReplyService
             return null;
         }
 
-        $toolset = $this->appointmentToolsets->forConversation($conversation);
+        $toolset = $this->toolsetFor($conversation);
 
         $reply = $provider->generate(
             $messages,
@@ -117,7 +123,18 @@ class AiReplyService
             $toolset,
         );
 
-        return $reply ?? $toolset?->bookingFallbackMessage();
+        return $reply ?? $toolset?->fallbackMessage();
+    }
+
+    /** Herramientas de agenda y de venta disponibles en la conversación, o null si no hay ninguna. */
+    private function toolsetFor(Conversation $conversation): ?AiToolsetGroup
+    {
+        $toolsets = array_filter([
+            $this->appointmentToolsets->forConversation($conversation),
+            $this->commerceToolsets->forConversation($conversation),
+        ]);
+
+        return $toolsets === [] ? null : new AiToolsetGroup(...$toolsets);
     }
 
     public function decide(Conversation $conversation, AiConfig $config): AiReplyDecision
@@ -135,7 +152,7 @@ class AiReplyService
         if (method_exists($provider, 'decide')) {
             // La decisión de derivar conoce la agenda: "quiero cambiar mi
             // turno" lo resuelve el bot con sus herramientas, no un humano.
-            $toolset = $this->appointmentToolsets->forConversation($conversation);
+            $toolset = $this->toolsetFor($conversation);
             // Con la derivación apagada para el tenant, la tool no se ofrece:
             // el modelo sólo puede contestar.
             $decision = $provider->decide(
@@ -365,7 +382,7 @@ class AiReplyService
         return $content;
     }
 
-    private function systemPrompt(AiConfig $config, int $tenantId, array $messages, ?AppointmentToolset $toolset = null, bool $offersHandoff = false): string
+    private function systemPrompt(AiConfig $config, int $tenantId, array $messages, ?AiToolset $toolset = null, bool $offersHandoff = false): string
     {
         $base = trim($config->system_prompt ?: self::DEFAULT_SYSTEM_PROMPT);
 
@@ -427,6 +444,8 @@ class AiReplyService
         $budget = max(0, $maxChars - mb_strlen($header) - $reserveMore);
         $lines = [];
         $used = 0;
+        // Los talles van en el contexto para que el modelo elija variantes reales.
+        (new EloquentCollection($result['products']))->load(['variants' => fn ($query) => $query->withoutGlobalScopes()]);
 
         foreach ($result['products'] as $product) {
             $line = $this->formatCatalogLine($product, $maxDescription, $result['fields']);
@@ -461,10 +480,11 @@ class AiReplyService
     /**
      * Cada producto es una línea "- ..." del catálogo: saltos de línea en
      * nombre o descripción romperían el formato de lista, se colapsan a espacio.
+     * Lleva el ID y, si tiene variantes, los talles con y sin stock.
      */
     private function formatCatalogLine(Product $product, int $maxDescription, array $fields): string
     {
-        $parts = [preg_replace('/\s+/u', ' ', trim($product->name))];
+        $parts = [preg_replace('/\s+/u', ' ', trim($product->name)), "ID {$product->id}"];
 
         if ($product->price !== null) {
             $parts[] = '$'.number_format((float) $product->price, 2);
@@ -491,6 +511,20 @@ class AiReplyService
             $clean = preg_replace('/\s+/u', ' ', trim((string) $value));
             $cleanLabel = preg_replace('/\s+/u', ' ', trim($label));
             $parts[] = $cleanLabel.': '.mb_strimwidth($clean, 0, 120, '…');
+        }
+
+        if ($product->relationLoaded('variants') && $product->variants->isNotEmpty()) {
+            [$inStock, $outOfStock] = $product->variants->partition(
+                fn (ProductVariant $variant) => in_array($variant->stock_status, ['instock', 'onbackorder'], true),
+            );
+            if ($inStock->isNotEmpty()) {
+                $parts[] = 'Talles con stock: '.$inStock
+                    ->map(fn (ProductVariant $variant) => WhatsAppCheckout::variantLabel($variant)." (variante {$variant->id})")
+                    ->implode(', ');
+            }
+            if ($outOfStock->isNotEmpty()) {
+                $parts[] = 'Sin stock: '.$outOfStock->map(fn (ProductVariant $variant) => WhatsAppCheckout::variantLabel($variant))->implode(', ');
+            }
         }
 
         return '- '.implode(' — ', $parts);

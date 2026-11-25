@@ -91,6 +91,29 @@
     "unblocked": "Agenda desbloqueada",
     "notDeletable": "Solo podés eliminar desde el CRM los eventos que organizás vos. Gestionalo desde Google Calendar.",
     "managedElsewhere": "Este evento lo gestiona el CRM en otro workspace. Gestionalo desde ahí.",
+    "editTask": "Editar tarea",
+    "deleteTask": "Eliminar tarea",
+    "openGoogle": "Abrir en Google Calendar",
+    "joinMeet": "Unirse con Google Meet",
+    "copyMeet": "Copiar enlace de Meet",
+    "meetCopied": "Enlace de Meet copiado",
+    "copyFailed": "No se pudo copiar el enlace",
+    "reminderBefore": "{{minutes}} minutos antes",
+    "unassigned": "Sin responsable",
+    "rows": {
+      "meet": "Videollamada",
+      "guest": "Invitado",
+      "reminder": "Aviso",
+      "related": "Relacionado con",
+      "description": "Descripción",
+      "assignee": "Responsable",
+      "sync": "Google Calendar"
+    },
+    "related": {
+      "contact": "Contacto",
+      "pipeline": "Oportunidad",
+      "chat": "Chat"
+    },
     "errors": {
       "notConnected": "Conectá o reconectá tu Google Calendar para eliminar eventos.",
       "busy": "La agenda está siendo actualizada. Volvé a intentar.",
@@ -1350,6 +1373,28 @@
     "facebookLoadingTitle": "Preparando Facebook",
     "facebookLoadingDesc": "La conexión con Facebook se está cargando. Intentá de nuevo en unos segundos.",
     "contactsSent": "Contactos enviados",
+    "catalog": {
+      "send": "Enviar catálogo",
+      "sent": "Catálogo enviado",
+      "sendError": "No se pudo enviar el catálogo",
+      "windowClosed": "La ventana de 24 h está cerrada: no se puede enviar el catálogo"
+    },
+    "checkout": {
+      "order": "Pedido #{{number}}",
+      "cart": "Carrito",
+      "status": {
+        "cart": "Carrito sin completar",
+        "placing": "Confirmando pedido…",
+        "awaitingPayment": "Esperando pago · vence {{time}}",
+        "paid": "Pagado",
+        "shipped": "Despachado",
+        "expired": "Vencido",
+        "cancelled": "Cancelado"
+      },
+      "copyPaymentLink": "Copiar link de pago",
+      "linkCopied": "Link de pago copiado",
+      "openInWooCommerce": "Ver en WooCommerce"
+    },
     "flows": {
       "send": "Enviar formulario",
       "windowClosed": "Fuera de la ventana de 24 h se envía con una plantilla del formulario",
@@ -1943,7 +1988,57 @@
       "syncFailed": "La sincronización falló",
       "syncSkippedFields": "No se completaron estos campos porque ya existen en el catálogo con otro tipo: {{fields}}.",
       "syncStale": "La sincronización no avanza hace más de 20 minutos. Podés volver a iniciarla.",
-      "lastSynced": "Última sincronización: {{date}}"
+      "lastSynced": "Última sincronización: {{date}}",
+      "checkout": {
+        "title": "Compra por WhatsApp",
+        "hint": "Tus clientes arman el carrito en el catálogo de WhatsApp, cargan el envío en un formulario y pagan con Mercado Pago.",
+        "metaCatalogId": "ID del catálogo de Meta",
+        "retailerIdFormat": "ID de producto en el catálogo",
+        "retailerIdProductId": "ID de WooCommerce (Facebook for WooCommerce)",
+        "retailerIdSku": "SKU",
+        "trackingMetaKey": "Campo de número de seguimiento (opcional)",
+        "paidTemplate": "Plantilla de pago confirmado",
+        "shippedTemplate": "Plantilla de pedido despachado",
+        "templateVariables": "Variables: {{vars}}",
+        "noTemplate": "Sin plantilla",
+        "templateUnavailable": "Plantilla no disponible (ya no está aprobada)",
+        "missingTitle": "Falta para vender por WhatsApp:",
+        "ready": "Todo listo para vender por WhatsApp.",
+        "disabled": "La compra por WhatsApp está desactivada.",
+        "missing": {
+          "wooCredentials": "Credenciales de WooCommerce",
+          "mercadoPago": "Mercado Pago",
+          "metaCatalogId": "ID del catálogo",
+          "flowInstalled": "Formulario instalado"
+        },
+        "install": "Instalar compra por WhatsApp",
+        "installed": "Compra por WhatsApp instalada",
+        "installedWithWarnings": "Formulario instalado, pero el carrito no quedó activo",
+        "commerceErrorHint": "Activá \"Mostrar catálogo\" y \"Carrito\" a mano en WhatsApp Manager para los números marcados.",
+        "commerceError": "No se pudo activar el catálogo y el carrito: {{error}}",
+        "installNoNumbers": "No hay números de WhatsApp conectados.",
+        "installRow": "{{phone}}: {{status}}",
+        "webhooks": "Activar actualizaciones automáticas",
+        "webhooksActivated": "Actualizaciones automáticas activadas",
+        "webhooksActive": "Actualizaciones automáticas activas",
+        "webhooksInactive": "Sin actualizaciones automáticas: el catálogo y los pedidos sólo se actualizan al sincronizar."
+      }
+    },
+    "mercadopago": {
+      "title": "Mercado Pago",
+      "description": "Cobrá los pedidos de WhatsApp con un link de pago de Mercado Pago.",
+      "accessToken": "Access token",
+      "accessTokenHint": "El access token de producción de tu cuenta de Mercado Pago (Tus integraciones → Credenciales). Se guarda encriptado.",
+      "credentialSet": "•••••••••••• (sin cambios)",
+      "statementDescriptor": "Nombre en el resumen de tarjeta",
+      "statementDescriptorHint": "Hasta 22 caracteres. Es lo que ve el cliente en el resumen de su tarjeta.",
+      "test": "Probar",
+      "testing": "Probando…",
+      "testOk": "Credencial válida",
+      "testOkAccount": "Credencial válida: cuenta {{nickname}}",
+      "testError": "La credencial de Mercado Pago no es válida.",
+      "saved": "Configuración de Mercado Pago guardada",
+      "lastVerified": "Última verificación: {{date}}"
     },
     "webhooks": {
       "title": "Webhooks entrantes",
@@ -2223,6 +2318,7 @@
       "contacts": "Contactos",
       "contact_fields": "Campos de contacto",
       "document_extraction": "Extracción de documentos",
+      "assistant": "Asistente IA",
       "opportunities": "Oportunidades",
       "pipeline_stages": "Etapas del embudo",
       "products": "Productos",
@@ -2281,6 +2377,7 @@
       "contact_fields.view": "Ver campos de contacto",
       "contact_fields.manage": "Gestionar campos de contacto",
       "document_extraction.use": "Extraer datos de documentos",
+      "assistant.use": "Usar el asistente interno",
       "opportunities.view_any": "Ver todas las oportunidades",
       "opportunities.view_assigned": "Ver oportunidades asignadas",
       "opportunities.view": "Abrir una oportunidad",
@@ -3745,5 +3842,36 @@
         "createAndActivate": "Crear y activar"
       }
     }
+  },
+  "assistant": {
+    "open": "Abrir asistente",
+    "title": "Asistente",
+    "conversations": "Conversaciones",
+    "noConversations": "Todavía no hay conversaciones",
+    "newConversation": "Nueva conversación",
+    "placeholder": "Preguntá algo sobre tu workspace…",
+    "send": "Enviar",
+    "stop": "Detener",
+    "toolRunning": "Consultando datos…",
+    "feedbackUp": "Respuesta útil",
+    "feedbackDown": "Respuesta no útil",
+    "empty": "Preguntame por tus contactos, embudos, tareas o actividad del workspace.",
+    "suggestions": {
+      "summary": "Dame un resumen del workspace",
+      "pipeline": "¿Cómo viene el embudo este mes?",
+      "tasks": "¿Qué tareas tengo vencidas?"
+    },
+    "configureAi": "Configurar IA",
+    "errors": {
+      "generic": "No se pudo enviar. Intentá de nuevo.",
+      "rateLimited": "Enviaste muchas preguntas seguidas. Esperá un minuto y volvé a intentar."
+    }
+  },
+  "whatsappPurchase": {
+    "approved": "¡Listo, recibimos tu pago! Te confirmamos el pedido #{{pedido}} por WhatsApp.",
+    "approvedNoOrder": "¡Listo, recibimos tu pago! Te confirmamos el pedido por WhatsApp.",
+    "pending": "Tu pago está en proceso.",
+    "failed": "El pago no se completó. Podés reintentar desde el botón que te mandamos por WhatsApp.",
+    "backToWhatsApp": "Volver a WhatsApp"
   }
 }

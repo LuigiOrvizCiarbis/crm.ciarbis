@@ -11,6 +11,7 @@ export const publicRoutes = [
   "/terms",
   "/data-deletion",
   "/invitation",
+  "/compra-whatsapp",
 ]
 
 export const authOnlyRoutes = ["/login", "/register", "/forgot-password", "/reset-password"]

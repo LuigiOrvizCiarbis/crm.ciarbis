@@ -79,6 +79,8 @@ import { sendMessage, sendContactsMessage, saveSharedContact, sendMailMessage, e
 import { sendFlowMessage, type SendFlowInput } from "@/lib/api/whatsapp-flows"
 import { ConversationHeader } from "@/components/chat/ConversationHeader"
 import { PendingAiBookingsBanner } from "@/components/chat/PendingAiBookingsBanner"
+import { WhatsAppCheckoutCard } from "@/components/chat/WhatsAppCheckoutCard"
+import { sendWhatsAppCatalog } from "@/lib/api/whatsapp-checkouts"
 import { HumanHandoffBanner } from "@/components/chat/HumanHandoffBanner"
 import { MessageList } from "@/components/chat/MessageList"
 import { applyReactionToggle } from "@/components/chat/messageThreadUtils"
@@ -389,8 +391,8 @@ export default function ChatsPage() {
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null)
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(chatIdNumber)
   // Se incrementa con cada mensaje de sistema de la conversación abierta para
-  // que el banner de turnos de la IA vuelva a consultar los pendientes.
-  const [aiBookingsRefreshKey, setAiBookingsRefreshKey] = useState(0)
+  // que el banner de turnos de la IA y la tarjeta del pedido vuelvan a consultar.
+  const [systemEventsRefreshKey, setSystemEventsRefreshKey] = useState(0)
 
   // Un deep link puede apuntar a una conversación que todavía no llegó en la paginación:
   // mientras tanto el hilo usa la conversación cargada por id.
@@ -399,6 +401,8 @@ export default function ChatsPage() {
       ?? (currentConversation?.id === selectedConversationId ? currentConversation : undefined),
     [conversations, currentConversation, selectedConversationId],
   )
+  // Detalle (con mensajes) del chat abierto; null mientras se carga, para no mostrar el hilo anterior.
+  const loadedConversation = currentConversation?.id === selectedConversationId ? currentConversation : null
 
   const hotkeyExpansionContext = useMemo(() => ({
     contactName: (currentConversation ?? activeConversation)?.contact?.name ?? null,
@@ -737,7 +741,7 @@ export default function ChatsPage() {
       });
 
       if (newMessage.sender_type === "system") {
-        setAiBookingsRefreshKey((k) => k + 1);
+        setSystemEventsRefreshKey((k) => k + 1);
       }
     }
 
@@ -833,6 +837,8 @@ export default function ChatsPage() {
     onReaction: handleRealTimeReaction,
     onScheduledMessage: scheduledMessages.upsert,
     onHumanHandoff: handleRealTimeHumanHandoff,
+    // Cambios del pedido sin mensaje de sistema (cancelado en Woo, vencido con la ventana cerrada).
+    onCheckoutUpdated: () => setSystemEventsRefreshKey((k) => k + 1),
   });
 
   const selectedChannelIdRef = useRef(selectedChannelId);
@@ -1295,7 +1301,7 @@ export default function ChatsPage() {
     router.replace("/chats")
   }
 
-  const handleConversationClick = (conversationId: number) => {
+  const handleConversationClick = useCallback((conversationId: number) => {
     setSelectedConversationId(conversationId)
     router.push(`/chats?chat=${conversationId}`)
 
@@ -1315,7 +1321,7 @@ export default function ChatsPage() {
           console.warn("markConversationAsRead failed", err)
         })
     }
-  }
+  }, [router])
 
   const handleToggleReadStatus = useCallback((conversationId: number) => {
     const target = conversationsRef.current.find((c) => c.id === conversationId)
@@ -1931,6 +1937,23 @@ export default function ChatsPage() {
       return [{ ...current, last_message: savedMessage.content, updated_at: savedMessage.created_at, aiAutoreplyEnabled: false }, ...next]
     })
     addToast({ type: "success", title: t("chats.flows.sent") })
+  }
+
+  const handleSendCatalog = async () => {
+    if (!selectedConversationId) return
+    const conversationId = selectedConversationId
+    const savedMessage = await sendWhatsAppCatalog(conversationId)
+    // El back apaga la IA al mandar el catálogo, igual que con los formularios.
+    setCurrentConversation((prev) => prev && prev.id === conversationId ? { ...prev, aiAutoreplyEnabled: false, messages: [...(prev.messages || []), savedMessage] } : prev)
+    setConversations((prev) => {
+      const index = prev.findIndex((conversation) => conversation.id === conversationId)
+      if (index < 0) return prev
+      const next = [...prev]
+      const current = next[index]
+      next.splice(index, 1)
+      return [{ ...current, last_message: savedMessage.content, updated_at: savedMessage.created_at, aiAutoreplyEnabled: false }, ...next]
+    })
+    addToast({ type: "success", title: t("chats.catalog.sent") })
   }
 
   const handleSaveSharedContact = useCallback(async (message: Message, index: number) => {
@@ -2669,10 +2692,12 @@ export default function ChatsPage() {
             </>
           )}
 
-          {selectedConversationId && currentConversation && activeConversation && selectedConversationId && (
+          {/* El encabezado y el composer quedan montados al cambiar de chat: sólo el hilo espera al detalle. */}
+          {selectedConversationId && activeConversation && !conversationLoadError && (
 
             <>
               <ConversationHeader
+                key={`header-${selectedConversationId}`}
                 conversation={activeConversation}
                 isContactInfoOpen={isContactInfoOpen}
                 onBack={handleBackToConversations}
@@ -2686,11 +2711,11 @@ export default function ChatsPage() {
                 onSearchMessages={() => handleThreadSearchOpenChange(true)}
                 // El detalle es más reciente que la tarjeta: si el contacto vuelve a entrar por otro anuncio,
                 // la lista no se entera hasta recargar.
-                adReferral={currentConversation.id === activeConversation.id ? currentConversation.adReferral ?? null : null}
+                adReferral={loadedConversation?.adReferral ?? null}
               />
-              {currentConversation?.id === selectedConversationId && (
+              {loadedConversation && (
                 <HumanHandoffBanner
-                  conversation={currentConversation}
+                  conversation={loadedConversation}
                   onUpdated={(updated) => {
                     setCurrentConversation(updated)
                     setConversations((prev) => prev.map((c) => (
@@ -2702,8 +2727,15 @@ export default function ChatsPage() {
               <PendingAiBookingsBanner
                 key={`ai-bookings-${selectedConversationId}`}
                 conversationId={selectedConversationId}
-                refreshKey={aiBookingsRefreshKey}
+                refreshKey={systemEventsRefreshKey}
               />
+              {activeConversation?.channel?.type === ChannelType.WHATSAPP && (
+                <WhatsAppCheckoutCard
+                  key={`checkout-${selectedConversationId}`}
+                  conversationId={selectedConversationId}
+                  refreshKey={systemEventsRefreshKey}
+                />
+              )}
               {/* Quick Bar */}
               <ChatQuickBar
                 chatId={selectedConversationId}
@@ -2712,10 +2744,10 @@ export default function ChatsPage() {
                   return contactId ? { id: contactId, name: activeConversation.contact?.name ?? t("chats.contactFallback") } : null
                 })()}
                 value={{
-                  stageId: currentConversation?.pipeline_stage_id,
-                  priority: currentConversation?.priority,
-                  assigneeId: currentConversation?.assigneeId,
-                  archived: currentConversation?.archived,
+                  stageId: (loadedConversation ?? activeConversation).pipeline_stage_id,
+                  priority: (loadedConversation ?? activeConversation).priority,
+                  assigneeId: (loadedConversation ?? activeConversation).assigneeId,
+                  archived: (loadedConversation ?? activeConversation).archived,
                 }}
                 team={[]}
                 onChangeStage={(stage) => {
@@ -2739,41 +2771,48 @@ export default function ChatsPage() {
                 onToggleArchive={handleToggleArchive}
                 isUnread={Boolean(activeConversation.unread || (activeConversation.unread_count ?? 0) > 0 || activeConversation.manual_unread)}
                 onToggleReadStatus={() => handleToggleReadStatus(activeConversation.id)}
-                tags={currentConversation?.tags || activeConversation?.tags || []}
+                tags={loadedConversation?.tags || activeConversation.tags || []}
                 onTagsChange={handleConversationTagsChange}
               />
-              <MessageList
-                key={`thread-${selectedConversationId}`}
-                messages={currentConversation?.messages ?? EMPTY_MESSAGES}
-                onLoadMore={handleLoadMoreMessages}
-                hasMore={hasMore}
-                isLoadingMore={isLoadingMoreMessages}
-                loadMoreFailed={loadMoreMessagesFailed}
-                onEditMessage={handleEditMessage}
-                onDeleteMessage={handleDeleteMessage}
-                onReactMessage={handleReactToMessage}
-                onReplyMessage={handleReplyMessage}
-                contactName={activeConversation?.contact?.name}
-                onSaveContact={handleSaveSharedContact}
-                currentUserId={currentUserId}
-                isAdmin={isAdmin}
-                canSendMessage={canSendMessage}
-                translationLanguage={language}
-                onTranslateMessage={handleTranslateMessage}
-                channelType={activeConversation?.channel?.type}
-                isGroupConversation={activeConversation?.kind === "group"}
-                searchOpen={threadSearchFor === selectedConversationId}
-                onSearchOpenChange={handleThreadSearchOpenChange}
-              />
+              {loadedConversation ? (
+                <MessageList
+                  key={`thread-${selectedConversationId}`}
+                  messages={loadedConversation.messages ?? EMPTY_MESSAGES}
+                  onLoadMore={handleLoadMoreMessages}
+                  hasMore={hasMore}
+                  isLoadingMore={isLoadingMoreMessages}
+                  loadMoreFailed={loadMoreMessagesFailed}
+                  onEditMessage={handleEditMessage}
+                  onDeleteMessage={handleDeleteMessage}
+                  onReactMessage={handleReactToMessage}
+                  onReplyMessage={handleReplyMessage}
+                  contactName={activeConversation.contact?.name}
+                  onSaveContact={handleSaveSharedContact}
+                  currentUserId={currentUserId}
+                  isAdmin={isAdmin}
+                  canSendMessage={canSendMessage}
+                  translationLanguage={language}
+                  onTranslateMessage={handleTranslateMessage}
+                  channelType={activeConversation.channel?.type}
+                  isGroupConversation={activeConversation.kind === "group"}
+                  searchOpen={threadSearchFor === selectedConversationId}
+                  onSearchOpenChange={handleThreadSearchOpenChange}
+                />
+              ) : (
+                <div role="status" aria-label={t("chats.loading")} className="flex-1 overflow-y-auto p-4">
+                  <SkeletonList count={4} />
+                </div>
+              )}
               {activeConversation?.channel?.type === ChannelType.MAIL ? (
                 <MailMessageInput
+                  key={`composer-${selectedConversationId}`}
                   onSend={handleSendMail}
-                  disabled={isLoading}
-                  subject={[...(currentConversation?.messages ?? [])]
+                  disabled={isLoading || !loadedConversation}
+                  subject={[...(loadedConversation?.messages ?? [])]
                     .reverse()
                     .find((item) => item.mail_details?.subject)
                     ?.mail_details?.subject}
-                  aiDraft={aiDraft}
+                  aiDraft={loadedConversation ? aiDraft : null}
                   onRequestAiDraft={latestInboundMessage ? handleRequestAiDraft : undefined}
                   onCancelAiDraft={handleCancelAiDraft}
                   onUseAiDraft={handleUseAiDraft}
@@ -2788,8 +2827,9 @@ export default function ChatsPage() {
                   onRemoved={scheduledMessages.remove}
                 />
                 <MessageInput
+                  key={`composer-${selectedConversationId}`}
                   onSend={editingMessage ? handleSaveEdit : handleSendMessage}
-                  disabled={isLoading}
+                  disabled={isLoading || !loadedConversation}
                   channelId={activeConversation?.channel?.id ?? activeConversation?.channelId}
                   conversationId={selectedConversationId}
                   onSendTemplate={handleSendTemplate}
@@ -2799,6 +2839,7 @@ export default function ChatsPage() {
                   onShareContacts={handleShareContacts}
                   supportsFlows={activeConversation?.channel?.type === ChannelType.WHATSAPP}
                   onSendFlow={handleSendFlow}
+                  onSendCatalog={handleSendCatalog}
                   onSchedule={supportsScheduledMessages(activeConversation?.channel?.type) ? handleScheduleMessage : undefined}
                   windowExpiresAt={scheduledMessages.window?.expiresAt ?? null}
                   windowStatus={windowStatus}
@@ -2810,10 +2851,10 @@ export default function ChatsPage() {
                   onCancelReply={handleCancelReply}
                   contactName={activeConversation?.contact?.name}
                   expansionContext={hotkeyExpansionContext}
-                  contactLanguage={(currentConversation ?? activeConversation)?.contactLanguage ?? "es"}
+                  contactLanguage={(loadedConversation ?? activeConversation).contactLanguage ?? "es"}
                   onContactLanguageChange={handleTranslationLanguageChange}
                   onTranslateDraft={handleTranslateDraft}
-                  aiDraft={aiDraft}
+                  aiDraft={loadedConversation ? aiDraft : null}
                   onRequestAiDraft={latestInboundMessage ? handleRequestAiDraft : undefined}
                   onCancelAiDraft={handleCancelAiDraft}
                   onUseAiDraft={handleUseAiDraft}
@@ -2826,7 +2867,7 @@ export default function ChatsPage() {
           )}
 
           {/* Mientras carga o si falla el hilo, el panel no queda en blanco. */}
-          {selectedConversationId && !currentConversation && (
+          {selectedConversationId && !loadedConversation && (conversationLoadError || !activeConversation) && (
             conversationLoadError === "unavailable" ? (
               <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto p-4">
                 <EmptyState

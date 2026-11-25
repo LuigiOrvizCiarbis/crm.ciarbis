@@ -445,11 +445,29 @@ export interface LinkPreview {
   failure_reason?: string | null
 }
 
+export type WhatsAppCheckoutStatus = "cart" | "placing" | "awaiting_payment" | "paid" | "cancelled" | "expired"
+
+/** `GET /api/conversations/{id}/whatsapp-checkout` (WhatsAppCheckoutResource). */
+export interface WhatsAppCheckoutSummary {
+  id: number
+  status: WhatsAppCheckoutStatus
+  order_number: string | null
+  total: number | null
+  currency: string | null
+  items: { name: string; variant_label: string | null; quantity: number }[]
+  payment_url: string | null
+  payment_expires_at: string | null
+  paid_at: string | null
+  shipped_notified_at: string | null
+  tracking_number: string | null
+  order_admin_url: string | null
+}
+
 export interface Message {
   id: number
   conversation_id: number
   content: string
-  message_type?: "text" | "image" | "sticker" | "document" | "audio" | "video" | "contacts" | "flow" | "flow_response"
+  message_type?: "text" | "image" | "sticker" | "document" | "audio" | "video" | "contacts" | "flow" | "flow_response" | "order"
   contacts?: SharedContact[] | null
   interactive?: MessageInteractive | null
   media_url?: string | null

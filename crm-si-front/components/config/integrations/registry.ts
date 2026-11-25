@@ -1,13 +1,15 @@
 import type { ComponentType } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Bot, CalendarClock, ShoppingBag, Webhook } from "lucide-react"
+import { Bot, CalendarClock, CreditCard, ShoppingBag, Webhook } from "lucide-react"
 
 import { AiAssistantSettings } from "@/components/config/AiAssistantSettings"
 import { GoogleCalendarConnectionCard } from "@/components/config/GoogleCalendarConnectionCard"
+import { MercadoPagoSettings } from "@/components/config/MercadoPagoSettings"
 import { WebhooksSettings } from "@/components/config/WebhooksSettings"
 import { WooCommerceSettings } from "@/components/config/WooCommerceSettings"
 import { getAiConfig } from "@/lib/api/ai-config"
 import { getGoogleCalendarConnection } from "@/lib/api/google-calendar"
+import { getMercadoPagoConfig } from "@/lib/api/mercadopago"
 import { listWebhookEndpoints } from "@/lib/api/webhooks"
 import { getWooConfig } from "@/lib/api/woocommerce"
 
@@ -71,6 +73,19 @@ export const INTEGRATIONS: IntegrationDefinition[] = [
     Detail: WooCommerceSettings,
     fetchStatus: async () => {
       const config = await getWooConfig()
+      return config?.has_credentials ? "connected" : "available"
+    },
+  },
+  {
+    id: "mercadopago",
+    icon: CreditCard,
+    nameKey: "settings.mercadopago.title",
+    descriptionKey: "settings.mercadopago.description",
+    category: "ecommerce",
+    adminOnly: true,
+    Detail: MercadoPagoSettings,
+    fetchStatus: async () => {
+      const config = await getMercadoPagoConfig()
       return config?.has_credentials ? "connected" : "available"
     },
   },
