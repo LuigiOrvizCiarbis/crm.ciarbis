@@ -18,7 +18,6 @@ class CommerceToolsetFactory
         private readonly WhatsAppProductMessageSender $products,
         private readonly WhatsAppCheckoutService $checkouts,
         private readonly WhatsAppCheckoutPaymentMessage $paymentMessage,
-        private readonly WhatsAppCatalogAvailability $catalogAvailability,
     ) {}
 
     public function forConversation(Conversation $conversation): ?CommerceToolset
@@ -40,7 +39,6 @@ class CommerceToolsetFactory
             $this->products,
             $this->checkouts,
             $this->paymentMessage,
-            $this->catalogAvailability->isAvailable($conversation->tenant_id),
         );
     }
 }

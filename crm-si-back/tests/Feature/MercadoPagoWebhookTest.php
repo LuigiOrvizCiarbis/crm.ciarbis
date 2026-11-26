@@ -3,11 +3,15 @@
 namespace Tests\Feature;
 
 use App\Enums\SenderType;
+use App\Enums\TemplateCategory;
+use App\Enums\TemplateStatus;
 use App\Jobs\ProcessMercadoPagoPaymentJob;
 use App\Models\HumanHandoff;
 use App\Models\Message;
 use App\Models\Opportunity;
 use App\Models\WhatsAppCheckout;
+use App\Models\WhatsAppTemplate;
+use App\Services\Commerce\WhatsAppCheckoutTemplates;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -55,6 +59,34 @@ class MercadoPagoWebhookTest extends TestCase
 
         $this->assertCount(1, $this->sentTo('PUT', '#/wc/v3/orders/501$#'));
         $this->assertSame(1, $this->paidMessages());
+    }
+
+    public function test_with_the_window_closed_the_installed_paid_template_is_used_without_choosing_it(): void
+    {
+        $checkout = $this->awaitingPaymentCheckout();
+        Message::withTrashed()->forceDelete();
+        WhatsAppTemplate::create([
+            'tenant_id' => $this->tenant->id,
+            'whatsapp_config_id' => $this->waConfig->id,
+            'external_id' => 'tpl-pagado',
+            'name' => WhatsAppCheckoutTemplates::PAID,
+            'language' => WhatsAppCheckoutTemplates::LANGUAGE,
+            'category' => TemplateCategory::Utility,
+            'status' => TemplateStatus::Approved,
+            'parameter_format' => 'NAMED',
+            'components' => [['type' => 'BODY', 'text' => '¡Recibimos tu pago! Tu pedido #{{pedido}} por {{total}} está confirmado.']],
+        ]);
+        $this->mpPayment = ['id' => 777, 'status' => 'approved', 'external_reference' => "CRM-{$checkout->id}"];
+
+        $this->notify(self::MP_WEBHOOK_TOKEN)->assertOk();
+
+        $sent = $this->sentTo('POST', '#graph\.facebook\.com/.+/messages$#')->filter(fn ($request) => ($request['type'] ?? null) === 'template')->values();
+        $this->assertCount(1, $sent);
+        $this->assertSame(WhatsAppCheckoutTemplates::PAID, $sent[0]['template']['name']);
+        $this->assertSame(
+            ['1001', '$34.696'],
+            array_column($sent[0]['template']['components'][0]['parameters'], 'text'),
+        );
     }
 
     public function test_payments_from_other_sales_are_ignored(): void
