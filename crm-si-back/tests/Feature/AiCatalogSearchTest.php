@@ -142,6 +142,7 @@ class AiCatalogSearchTest extends TestCase
     {
         $tenant = Tenant::create(['name' => 'Taquito']);
         $product = Product::create(['tenant_id' => $tenant->id, 'name' => 'Conjunto bebé boca', 'price' => 24300]);
+        $zero = ProductVariant::create(['tenant_id' => $tenant->id, 'product_id' => $product->id, 'external_id' => '3987', 'attribute_values' => ['Talle' => '0'], 'stock_status' => 'instock']);
         $two = ProductVariant::create(['tenant_id' => $tenant->id, 'product_id' => $product->id, 'external_id' => '3983', 'attribute_values' => ['Talle' => '2'], 'stock_status' => 'instock']);
         $four = ProductVariant::create(['tenant_id' => $tenant->id, 'product_id' => $product->id, 'external_id' => '3984', 'attribute_values' => ['Talle' => '4', 'Color' => 'Azul'], 'stock_status' => 'onbackorder']);
         ProductVariant::create(['tenant_id' => $tenant->id, 'product_id' => $product->id, 'external_id' => '3985', 'attribute_values' => ['Talle' => '6'], 'stock_status' => 'outofstock']);
@@ -149,7 +150,7 @@ class AiCatalogSearchTest extends TestCase
         $prompt = $this->prompt($tenant->id, $this->messages('¿Tienen el conjunto bebé boca?'));
 
         $this->assertStringContainsString("ID {$product->id}", $prompt);
-        $this->assertStringContainsString("Talles con stock: 2 (variante {$two->id}), 4 / Azul (variante {$four->id})", $prompt);
+        $this->assertStringContainsString("Talles con stock: 0 (variante {$zero->id}), 2 (variante {$two->id}), 4 / Azul (variante {$four->id})", $prompt);
         $this->assertStringContainsString('Sin stock: 6', $prompt);
     }
 
