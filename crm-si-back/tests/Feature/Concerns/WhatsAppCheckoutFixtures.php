@@ -257,6 +257,9 @@ trait WhatsAppCheckoutFixtures
     /** Resultados de GET /v1/payments/search. */
     protected array $mpSearch = [];
 
+    /** Si es true, Meta responde a los mensajes de catálogo/productos que no los encuentra (131009). */
+    protected bool $catalogProductsMissing = false;
+
     /** WhatsApp Cloud API, Woo REST y Mercado Pago simulados. */
     protected function fakeCommerce(): void
     {
@@ -265,6 +268,11 @@ trait WhatsAppCheckoutFixtures
             $method = $request->method();
 
             return match (true) {
+                $this->catalogProductsMissing && str_contains($url, 'graph.facebook.com') && in_array($request['interactive']['type'] ?? null, ['catalog_message', 'product', 'product_list'], true) => Http::response(['error' => [
+                    'message' => '(#131009) Parameter value is not valid',
+                    'code' => 131009,
+                    'error_data' => ['messaging_product' => 'whatsapp', 'details' => 'Products not found in FB catalog'],
+                ]], 400),
                 str_contains($url, 'graph.facebook.com') => Http::response(['messages' => [['id' => 'wamid.'.uniqid()]]]),
                 $method === 'POST' && str_ends_with($url, '/wc/v3/orders') => Http::response(['id' => 501, 'number' => '1001', 'total' => $this->wooOrderTotal, 'status' => 'on-hold'], 201),
                 $method === 'GET' && (bool) preg_match('#/wc/v3/orders/\d+$#', $url) => Http::response(['id' => 501, 'number' => '1001', 'status' => $this->wooOrderStatus]),

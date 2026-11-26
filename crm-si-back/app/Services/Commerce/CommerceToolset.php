@@ -35,8 +35,18 @@ class CommerceToolset implements AiToolset
         self::RESEND_PAYMENT_LINK => 'Te reenvié el link de pago.',
     ];
 
+    /**
+     * Resultado para el modelo cuando las fichas no salen. No incluye el error de
+     * Meta: el modelo lo leía como falta de stock y se lo decía al cliente.
+     */
+    private const CARDS_UNAVAILABLE = 'No se pudieron enviar las fichas por un problema técnico de WhatsApp; no tiene que ver con el stock ni con los precios. '
+        .'No se lo menciones al cliente: contale los productos, talles y precios con los datos del catálogo y, cuando elija, usá enviar_formulario_compra.';
+
     private ?string $lastSuccess = null;
 
+    /**
+     * @param  bool  $catalogAvailable  false si Meta no encontró los productos del catálogo hace poco: no se ofrecen fichas
+     */
     public function __construct(
         private readonly Conversation $conversation,
         private readonly WooCommerceConfig $config,
@@ -44,12 +54,13 @@ class CommerceToolset implements AiToolset
         private readonly WhatsAppProductMessageSender $products,
         private readonly WhatsAppCheckoutService $checkouts,
         private readonly WhatsAppCheckoutPaymentMessage $paymentMessage,
+        private readonly bool $catalogAvailable = true,
     ) {}
 
     public function definitions(): array
     {
-        return [
-            new AiTool(
+        return array_values(array_filter([
+            $this->catalogAvailable ? new AiTool(
                 self::SHOW_PRODUCTS,
                 'Envía al cliente fichas de productos del catálogo de WhatsApp para que vea fotos y talles y los agregue al carrito. '
                     .'Usala cuando el cliente pregunta por productos o quiere ver opciones.',
@@ -71,7 +82,7 @@ class CommerceToolset implements AiToolset
                     ],
                     'required' => ['product_ids'],
                 ],
-            ),
+            ) : null,
             new AiTool(
                 self::SEND_CHECKOUT,
                 'Envía el formulario para completar la compra (envío y pago con Mercado Pago) con los productos y talles '
@@ -100,7 +111,7 @@ class CommerceToolset implements AiToolset
                 'Reenvía al cliente el botón de pago de Mercado Pago de su pedido pendiente. Usala si pide el link o dice que no lo encuentra.',
                 ['type' => 'object', 'properties' => new \stdClass],
             ),
-        ];
+        ]));
     }
 
     public function call(string $name, array $input): string
@@ -116,7 +127,9 @@ class CommerceToolset implements AiToolset
     public function promptSection(): string
     {
         $section = "## Ventas por WhatsApp\n"
-            .'Mostrá productos con mostrar_productos; el cliente arma el carrito en WhatsApp y lo envía. '
+            .($this->catalogAvailable
+                ? 'Mostrá productos con mostrar_productos; el cliente arma el carrito en WhatsApp y lo envía. '
+                : 'Las fichas del catálogo de WhatsApp no están disponibles por ahora: describí los productos, talles y precios con los datos del catálogo de este prompt. ')
             .'Si ya eligió productos y talles en la charla, usá enviar_formulario_compra. '
             .'No pidas dirección ni datos de pago por chat. No prometas costos de envío: se calculan en el formulario. '
             .'Usá los ID del catálogo.';
@@ -138,6 +151,10 @@ class CommerceToolset implements AiToolset
 
     private function showProducts(array $input): string
     {
+        if (! $this->catalogAvailable) {
+            return self::CARDS_UNAVAILABLE;
+        }
+
         try {
             $productIds = array_slice(array_values(array_unique(array_map('intval', (array) ($input['product_ids'] ?? [])))), 0, WhatsAppProductMessageSender::MAX_PRODUCTS);
             $variantIds = array_map('intval', (array) ($input['variant_ids'] ?? []));
@@ -185,10 +202,12 @@ class CommerceToolset implements AiToolset
                 $ids,
                 null,
             );
+        } catch (CatalogUnavailableException) {
+            return self::CARDS_UNAVAILABLE;
         } catch (Throwable $e) {
             $this->logFailure(self::SHOW_PRODUCTS, $e);
 
-            return 'No se pudo enviar: '.$e->getMessage();
+            return self::CARDS_UNAVAILABLE;
         }
 
         $this->lastSuccess = self::SHOW_PRODUCTS;

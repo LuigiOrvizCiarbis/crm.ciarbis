@@ -98,6 +98,16 @@ class WhatsAppCheckoutCardTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_catalog_without_products_in_meta_explains_the_cause(): void
+    {
+        $this->catalogProductsMissing = true;
+        Sanctum::actingAs($this->user);
+
+        $this->postJson("/api/conversations/{$this->conversation->id}/whatsapp-catalog")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'WhatsApp no encuentra los productos del catálogo conectado a este número. Revisá en Commerce Manager que el catálogo esté habilitado para WhatsApp.');
+    }
+
     public function test_an_abandoned_cart_expiring_without_a_message_still_refreshes_the_card(): void
     {
         $checkout = $this->makeCheckout();
