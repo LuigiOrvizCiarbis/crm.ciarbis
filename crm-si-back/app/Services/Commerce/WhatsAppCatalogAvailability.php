@@ -46,7 +46,9 @@ class WhatsAppCatalogAvailability
 
     private function key(int $tenantId): string
     {
-        return "whatsapp-catalog-unavailable:{$tenantId}";
+        // Clave nueva: la anterior ("whatsapp-catalog-unavailable") también se
+        // ponía por un solo producto rechazado y no debe seguir bloqueando.
+        return "whatsapp-catalog-blocked:{$tenantId}";
     }
 
     private function productKey(int $tenantId, string $retailerId): string
