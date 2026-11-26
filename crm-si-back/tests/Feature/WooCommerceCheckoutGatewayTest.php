@@ -142,9 +142,26 @@ class WooCommerceCheckoutGatewayTest extends TestCase
                 && $request['shipping_lines'][0]['total'] === '10396.00'
                 && $request['shipping_lines'][0]['meta_data'] === [['key' => 'Artículos', 'value' => 'Conjunto × 1']]
                 && $request['billing']['address_1'] === 'Corrientes 1234'
+                && ! array_key_exists('email', $request['billing'])
                 && $meta['crm_checkout_id'] === (string) $checkout->id
                 && $meta['sales_channel'] === 'whatsapp';
         });
+    }
+
+    public function test_create_order_sends_the_email_the_customer_gave(): void
+    {
+        $product = Product::create(['tenant_id' => $this->config->tenant_id, 'name' => 'Llavero', 'source' => 'woocommerce', 'external_id' => '2816']);
+        $checkout = $this->checkout([['product_id' => $product->id, 'variant_id' => null, 'quantity' => 1]]);
+        $checkout->update(['email' => 'cliente@example.com']);
+
+        Http::fake([
+            self::STORE_URL.'/wp-json/wc/v3/orders' => Http::response(['id' => 502, 'number' => '502', 'total' => '34696.00'], 201),
+        ]);
+
+        $this->gateway->createOrder($this->config, $checkout->fresh());
+
+        Http::assertSent(fn (Request $request) => $request['billing']['email'] === 'cliente@example.com'
+            && ! array_key_exists('email', $request['shipping']));
     }
 
     public function test_cancel_if_unpaid_cancels_on_hold_order(): void
