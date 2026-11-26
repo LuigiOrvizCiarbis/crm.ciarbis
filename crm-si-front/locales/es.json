@@ -3035,6 +3035,14 @@
     "cancel": "Cancelar",
     "submit": "Enviar a revisión",
     "created": "Plantilla enviada a revisión de Meta.",
+    "edit": {
+      "title": "Editar {{name}}",
+      "description": "Meta vuelve a revisar la plantilla y queda en revisión hasta que la apruebe. El nombre y el idioma no se pueden cambiar.",
+      "approvedHint": "Una plantilla aprobada se puede editar una vez cada 24 h y hasta 10 veces en 30 días, sin cambiar la categoría.",
+      "mediaHint": "Meta pide el archivo de ejemplo de nuevo: volvé a elegirlo.",
+      "submit": "Guardar y enviar a revisión",
+      "saved": "Cambios enviados a revisión de Meta."
+    },
     "discard": {
       "title": "¿Descartar esta plantilla?",
       "description": "Perdés el contenido cargado. No se envió nada a revisión todavía.",
@@ -3049,7 +3057,8 @@
       "flowButton": "Elegí un formulario publicado para el botón de formulario.",
       "fileTooLarge": "El archivo supera {{mb}} MB.",
       "flows": "No se pudieron cargar los formularios",
-      "create": "No se pudo crear la plantilla"
+      "create": "No se pudo crear la plantilla",
+      "edit": "No se pudo editar la plantilla"
     }
   },
   "flows": {

@@ -194,7 +194,7 @@ export interface TemplateComponent {
   format?: string
   parameters?: { type: string; text?: string }[]
   /** Ejemplos enviados a revisión; en encabezados con media, `header_handle` trae la URL del ejemplo. */
-  example?: { header_handle?: string[] }
+  example?: { header_handle?: string[]; body_text_named_params?: { param_name: string; example: string }[] }
   buttons?: {
     /** QUICK_REPLY | URL | PHONE_NUMBER | COPY_CODE | FLOW */
     type: string

@@ -49,4 +49,10 @@ enum TemplateStatus: string
     {
         return $this === self::Approved;
     }
+
+    /** Meta sólo deja editar plantillas aprobadas, rechazadas o pausadas. */
+    public function isEditable(): bool
+    {
+        return in_array($this, [self::Approved, self::Rejected, self::Paused], true);
+    }
 }

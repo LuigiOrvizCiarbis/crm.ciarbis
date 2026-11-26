@@ -3035,6 +3035,14 @@
     "cancel": "Cancel",
     "submit": "Submit for review",
     "created": "Template submitted to Meta for review.",
+    "edit": {
+      "title": "Edit {{name}}",
+      "description": "Meta reviews the template again and it stays in review until approved. The name and language can't be changed.",
+      "approvedHint": "An approved template can be edited once every 24 hours and up to 10 times in 30 days, without changing its category.",
+      "mediaHint": "Meta needs the sample file again: choose it again.",
+      "submit": "Save and submit for review",
+      "saved": "Changes submitted to Meta for review."
+    },
     "discard": {
       "title": "Discard this template?",
       "description": "You'll lose what you entered. Nothing has been submitted for review yet.",
@@ -3049,7 +3057,8 @@
       "flowButton": "Choose a published flow for the flow button.",
       "fileTooLarge": "The file is larger than {{mb}} MB.",
       "flows": "Couldn't load the flows",
-      "create": "Couldn't create the template"
+      "create": "Couldn't create the template",
+      "edit": "Couldn't edit the template"
     }
   },
   "flows": {

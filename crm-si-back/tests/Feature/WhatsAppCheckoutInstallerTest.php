@@ -61,7 +61,10 @@ class WhatsAppCheckoutInstallerTest extends TestCase
                 ? Http::response(['error' => ['message' => 'Permission denied']], 403)
                 : Http::response(['success' => true]),
             'https://graph.facebook.com/*/123456789/whatsapp_business_encryption' => Http::response(['success' => true]),
-            'https://graph.facebook.com/*/waba-test/message_templates' => fn (Request $request) => Http::response(['id' => 'tpl-'.$request['name'], 'status' => 'PENDING', 'category' => 'UTILITY']),
+            // Como Meta: una variable no puede abrir ni cerrar el texto.
+            'https://graph.facebook.com/*/waba-test/message_templates' => fn (Request $request) => preg_match('/^\s*\{\{|\}\}\s*$/', (string) $request['components'][0]['text']) === 1
+                ? Http::response(['error' => ['message' => 'Variables can’t be at the start or end of the template.']], 400)
+                : Http::response(['id' => 'tpl-'.$request['name'], 'status' => 'PENDING', 'category' => 'UTILITY']),
             // Como Meta: no admite dos formularios con el mismo nombre en la cuenta.
             'https://graph.facebook.com/*/waba-test/flows' => fn (Request $request) => isset($request['clone_flow_id']) && $request['name'] === WhatsAppCheckoutInstaller::FLOW_NAME
                 ? Http::response(['error' => ['code' => 100, 'message' => 'Flow name must be unique within the WhatsApp Business Account.']], 400)

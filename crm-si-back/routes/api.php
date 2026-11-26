@@ -754,6 +754,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('channels/{channel}/templates', [WhatsAppTemplateController::class, 'index']);
     Route::post('channels/{channel}/templates', [WhatsAppTemplateController::class, 'create']);
+    Route::put('channels/{channel}/templates/{template}', [WhatsAppTemplateController::class, 'update']);
     Route::delete('channels/{channel}/templates/{template}', [WhatsAppTemplateController::class, 'destroy']);
     Route::post('channels/{channel}/templates/sync', [WhatsAppTemplateController::class, 'sync']);
     Route::post('channels/{channel}/templates/media', [WhatsAppTemplateController::class, 'uploadTemplateMedia']);
