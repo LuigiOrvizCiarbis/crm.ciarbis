@@ -191,3 +191,14 @@ const CATEGORY_CLASS: Record<string, string> = {
 export function templateCategoryClass(category: string | null | undefined): string {
   return (category && CATEGORY_CLASS[category]) || ""
 }
+
+const CATEGORY_LABEL: Record<string, string> = {
+  MARKETING: "Marketing",
+  UTILITY: "Utilidad",
+  AUTHENTICATION: "Autenticación",
+}
+
+/** Nombre visible de la categoría de Meta; una desconocida se muestra tal como llega. */
+export function templateCategoryLabel(category: string | null | undefined): string {
+  return (category && CATEGORY_LABEL[category]) || category || ""
+}

@@ -14,9 +14,7 @@ import {
   MessageCircle,
   Plus,
   Send,
-  Sparkles,
   Trash2,
-  Users,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -26,12 +24,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { StatStrip } from "@/components/ui/stat-strip"
 import { Channel, WhatsAppTemplate } from "@/data/types"
 import { PipelineStage } from "@/lib/api/pipeline"
 import { Tag } from "@/lib/api/tags"
 import { ContactField } from "@/lib/api/contact-fields"
 import { BroadcastConfirmationRequiredError, BroadcastEstimate, BroadcastFilter, BroadcastPayload, createBroadcast, estimateBroadcast } from "@/lib/api/broadcasts"
 import { uploadTemplateMedia } from "@/lib/api/templates"
+import { formatCurrency } from "@/lib/currency"
 import {
   buildSendComponents,
   buildTemplatePreview,
@@ -42,6 +42,7 @@ import {
   hasUnsupportedParams,
   resolveParamValue,
   ParamSource,
+  templateCategoryLabel,
 } from "@/lib/whatsapp-templates"
 import { useToast } from "@/components/Toast"
 import { cn } from "@/lib/utils"
@@ -68,8 +69,6 @@ const intervals: Array<{ value: BroadcastPayload["interval_seconds"]; label: str
   { value: 60, label: "Cada 1 minuto" },
   { value: 120, label: "Cada 2 minutos" },
 ]
-
-const currency = new Intl.NumberFormat("es-AR", { style: "currency", currency: "USD", minimumFractionDigits: 2 })
 
 export function NewBroadcastDialog({ open, onOpenChange, channel, templates, initialTemplateId, stages, tags, fields, onCreated }: NewBroadcastDialogProps) {
   const { addToast } = useToast()
@@ -212,7 +211,7 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
       addToast({
         type: "success",
         title: launch === "now" ? "Difusión encolada" : "Difusión programada",
-        description: `${estimate.audience_count.toLocaleString("es-AR")} contactos · ${currency.format(estimate.estimated_cost_usd)}`,
+        description: `${estimate.audience_count.toLocaleString("es-AR")} contactos · ${formatCurrency(estimate.estimated_cost_usd, "USD")}`,
       })
       await onCreated()
     } catch (error) {
@@ -294,7 +293,7 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
       <DialogContent className="flex max-h-[92vh] max-w-4xl flex-col overflow-hidden p-0 sm:max-w-4xl">
         <div className="border-b bg-card px-6 py-5">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl"><MegaphoneIcon /> Nueva difusión</DialogTitle>
+            <DialogTitle>Nueva difusión</DialogTitle>
             <DialogDescription>Emisor: {channel.name} · configurá el envío en tres pasos</DialogDescription>
           </DialogHeader>
           <div className="mt-5 grid grid-cols-3 gap-2">
@@ -314,16 +313,16 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
                 <div><h3 className="font-semibold">Elegí una plantilla aprobada</h3><p className="text-sm text-muted-foreground">Solo se muestran las que Meta habilitó para enviar.</p></div>
                 <div className="space-y-2">
                   {approvedTemplates.map((template) => (
-                    <button key={template.id} type="button" aria-pressed={template.id === templateId} onClick={() => setTemplateId(template.id)} className={cn("w-full rounded-2xl border p-4 text-left outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50", template.id === templateId ? "border-primary bg-accent" : "hover:bg-muted/50")}>
-                      <div className="flex items-start justify-between gap-3"><div><p className="font-medium">{template.name}</p><p className="mt-1 text-xs text-muted-foreground">{template.language} · {template.category}</p></div>{template.id === templateId && <Check className="h-4 w-4 text-primary" />}</div>
+                    <button key={template.id} type="button" aria-pressed={template.id === templateId} onClick={() => setTemplateId(template.id)} className={cn("w-full rounded-xl border p-4 text-left outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50", template.id === templateId ? "border-primary bg-accent" : "hover:bg-muted/50")}>
+                      <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-medium [overflow-wrap:anywhere]">{template.name}</p><p className="mt-1 text-xs text-muted-foreground">{templateCategoryLabel(template.category)} · {template.language}</p></div>{template.id === templateId && <Check className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}</div>
                     </button>
                   ))}
-                  {approvedTemplates.length === 0 && <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">No hay plantillas aprobadas para enviar en este canal. Creá una en Plantillas de Meta y esperá la aprobación.</div>}
+                  {approvedTemplates.length === 0 && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">No hay plantillas aprobadas para enviar en este canal. Creá una en Plantillas de Meta y esperá la aprobación.</div>}
                 </div>
               </div>
 
               {selectedTemplate && (
-                <div className="space-y-4 rounded-3xl border bg-muted/25 p-5">
+                <div className="space-y-4 rounded-xl border bg-muted/25 p-5">
                   <div className="flex items-center gap-2"><MessageCircle className="h-4 w-4 text-muted-foreground" /><p className="text-sm font-semibold">Vista previa y variables</p></div>
                   <div className="rounded-2xl rounded-tl-sm border bg-card p-4 text-sm leading-6 text-card-foreground shadow-xs">
                     {buildTemplatePreview(selectedTemplate.components, paramValues.map((value, index) => paramSources[index] === "contact_name" ? "María" : paramSources[index] === "contact_phone" ? "+54 9 11…" : value)) || "Plantilla sin texto de cuerpo"}
@@ -378,7 +377,7 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
                   <Label>Etiquetas del CRM</Label>
                   <p className="text-xs text-muted-foreground">Incluí segmentos relevantes y excluí los que no deben recibir esta difusión.</p>
                 </div>
-                <div className="grid gap-4 rounded-2xl border p-4 sm:grid-cols-2">
+                <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -414,7 +413,7 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
                 </div>
               </div>
 
-              <div className="space-y-3 rounded-2xl border p-4">
+              <div className="space-y-3 rounded-lg border p-4">
                 <div className="flex items-center justify-between"><div><Label>Campos del contacto</Label><p className="text-xs text-muted-foreground">Filtrá por ciudad, empresa u otro dato guardado.</p></div><Button type="button" size="sm" variant="outline" onClick={() => setCustomFilters((current) => [...current, { field: "name", operator: "contains", value: "" }])}><Plus className="mr-1 h-3.5 w-3.5" />Agregar filtro</Button></div>
                 {customFilters.map((filter, index) => {
                   const fieldType = rangeableFieldType(filter.field)
@@ -508,7 +507,7 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
               </div>
 
               {selectedTemplate?.category === "MARKETING" && (
-                <div className="flex items-start gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4">
+                <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/10 p-4">
                   <Checkbox id="include-without-consent" checked={includeWithoutConsent} onCheckedChange={(checked) => toggleIncludeWithoutConsent(checked === true)} className="mt-0.5" />
                   <div className="space-y-1">
                     <Label htmlFor="include-without-consent" className="cursor-pointer font-medium text-warning">Incluir contactos sin consentimiento registrado</Label>
@@ -527,18 +526,24 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
               <div className="space-y-5">
                 <div><h3 className="font-semibold">¿Cuándo querés lanzarla?</h3><p className="text-sm text-muted-foreground">Podés enviarla ahora o dejarla lista para otro momento.</p></div>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <button type="button" aria-pressed={launch === "now"} onClick={() => setLaunch("now")} className={cn("rounded-2xl border p-4 text-left outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50", launch === "now" ? "border-primary bg-accent" : "hover:bg-muted/50")}><Send className="mb-3 h-5 w-5 text-muted-foreground" /><p className="font-medium">Enviar ahora</p><p className="mt-1 text-xs text-muted-foreground">Se encola al confirmar.</p></button>
-                  <button type="button" aria-pressed={launch === "scheduled"} onClick={() => setLaunch("scheduled")} className={cn("rounded-2xl border p-4 text-left outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50", launch === "scheduled" ? "border-primary bg-accent" : "hover:bg-muted/50")}><CalendarDays className="mb-3 h-5 w-5 text-muted-foreground" /><p className="font-medium">Programar</p><p className="mt-1 text-xs text-muted-foreground">Elegí fecha y hora.</p></button>
+                  <button type="button" aria-pressed={launch === "now"} onClick={() => setLaunch("now")} className={cn("rounded-xl border p-4 text-left outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50", launch === "now" ? "border-primary bg-accent" : "hover:bg-muted/50")}><Send className="mb-3 h-5 w-5 text-muted-foreground" aria-hidden="true" /><p className="font-medium">Enviar ahora</p><p className="mt-1 text-xs text-muted-foreground">Se encola al confirmar.</p></button>
+                  <button type="button" aria-pressed={launch === "scheduled"} onClick={() => setLaunch("scheduled")} className={cn("rounded-xl border p-4 text-left outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50", launch === "scheduled" ? "border-primary bg-accent" : "hover:bg-muted/50")}><CalendarDays className="mb-3 h-5 w-5 text-muted-foreground" aria-hidden="true" /><p className="font-medium">Programar</p><p className="mt-1 text-xs text-muted-foreground">Elegí fecha y hora.</p></button>
                 </div>
                 {launch === "scheduled" && <div className="space-y-2"><Label htmlFor="scheduled-at">Fecha y hora de lanzamiento</Label><Input id="scheduled-at" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} /></div>}
                 <div className="space-y-2"><Label>Intervalo entre mensajes</Label><Select value={String(intervalSeconds)} onValueChange={(value) => setIntervalSeconds(Number(value) as BroadcastPayload["interval_seconds"])}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{intervals.map((interval) => <SelectItem key={interval.value} value={String(interval.value)}>{interval.label}</SelectItem>)}</SelectContent></Select><p className="flex items-center gap-1 text-xs text-muted-foreground"><Clock3 className="h-3.5 w-3.5" />{durationLabel}. Elegí un ritmo cómodo para responder.</p></div>
               </div>
 
               <div className="rounded-xl border bg-muted/40 p-6">
-                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground"><Sparkles className="h-4 w-4" />Resumen</div>
-                <h3 className="mt-4 text-xl font-semibold">{name}</h3><p className="mt-1 text-sm text-muted-foreground">{selectedTemplate?.name} · se envía desde {channel.name}</p>
-                <div className="mt-6 grid grid-cols-2 gap-3"><div className="rounded-lg border bg-card p-4"><Users className="mb-2 h-4 w-4 text-muted-foreground" /><p className="text-2xl font-semibold tabular-nums">{estimate.audience_count.toLocaleString("es-AR")}</p><p className="text-xs text-muted-foreground">contactos estimados</p></div><div className="rounded-lg border bg-card p-4"><span className="mb-2 block text-sm font-bold text-muted-foreground">USD</span><p className="text-2xl font-semibold tabular-nums">{currency.format(estimate.estimated_cost_usd).replace("US$", "")}</p><p className="text-xs text-muted-foreground">costo estimado</p></div></div>
-                <div className="mt-4 rounded-lg border p-4 text-xs leading-5 text-muted-foreground">Estimación calculada a USD {estimate.cost_per_message_usd.toLocaleString("es-AR", { maximumFractionDigits: 4 })} por mensaje. El gasto final refleja los envíos procesados.</div>
+                <p className="text-sm font-semibold text-muted-foreground">Resumen</p>
+                <h3 className="mt-3 text-xl font-semibold [overflow-wrap:anywhere]">{name}</h3><p className="mt-1 text-sm text-muted-foreground">{selectedTemplate?.name} · se envía desde {channel.name}</p>
+                <StatStrip
+                  className="mt-6"
+                  stats={[
+                    { label: "Contactos estimados", value: estimate.audience_count.toLocaleString("es-AR") },
+                    { label: "Costo estimado", value: formatCurrency(estimate.estimated_cost_usd, "USD") },
+                  ]}
+                />
+                <p className="mt-3 text-xs leading-5 text-muted-foreground">Estimación calculada a USD {estimate.cost_per_message_usd.toLocaleString("es-AR", { maximumFractionDigits: 4 })} por mensaje. El gasto final refleja los envíos procesados.</p>
 
                 {estimate.audience_count === 0 && (
                   <div role="alert" className="mt-3 rounded-lg border border-warning/30 bg-warning/10 p-4 text-xs leading-5 text-foreground">
@@ -609,7 +614,7 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
                       Confirmá el volumen de esta difusión
                     </p>
                     <p className="mt-1.5 text-xs leading-5 text-foreground">
-                      Vas a enviar {estimate.audience_count.toLocaleString("es-AR")} mensajes por un total estimado de {currency.format(estimate.estimated_cost_usd)}.
+                      Vas a enviar {estimate.audience_count.toLocaleString("es-AR")} mensajes por un total estimado de {formatCurrency(estimate.estimated_cost_usd, "USD")}.
                     </p>
                     <label className="mt-3 flex items-start gap-2 text-xs font-medium text-foreground">
                       <Checkbox checked={acknowledgeAudienceSize} onCheckedChange={(checked) => setAcknowledgeAudienceSize(checked === true)} className="mt-0.5" />
@@ -699,8 +704,4 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
       </DialogContent>
     </Dialog>
   )
-}
-
-function MegaphoneIcon() {
-  return <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary/10 text-primary"><Send className="h-4 w-4" /></span>
 }
