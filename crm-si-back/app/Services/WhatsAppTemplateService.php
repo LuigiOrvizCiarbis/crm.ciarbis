@@ -224,6 +224,59 @@ class WhatsAppTemplateService
     }
 
     /**
+     * Reemplaza los componentes (y la categoría, si no está aprobada) de una
+     * plantilla existente. Meta la vuelve a revisar: queda pendiente hasta que
+     * el webhook informe el resultado.
+     *
+     * @param  array{components: list<array<string, mixed>>, category?: ?string}  $payload
+     */
+    public function editTemplate(WhatsAppConfig $config, WhatsAppTemplate $template, array $payload): WhatsAppTemplate
+    {
+        if (! $template->status?->isEditable()) {
+            throw new \RuntimeException('Meta sólo deja editar plantillas aprobadas, rechazadas o pausadas.');
+        }
+
+        $category = $payload['category'] ?? null;
+        $changesCategory = $category !== null && $category !== $template->category?->value;
+        if ($changesCategory && $template->status === TemplateStatus::Approved) {
+            throw new \RuntimeException('Meta no deja cambiar la categoría de una plantilla aprobada.');
+        }
+
+        $token = $config->getDecryptedToken();
+        if (! $token) {
+            throw new \RuntimeException('No se pudo desencriptar el token de WhatsApp');
+        }
+
+        $response = Http::withToken($token)
+            ->timeout(30)
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$template->external_id}", [
+                'components' => $payload['components'],
+                ...($changesCategory ? ['category' => $category] : []),
+            ]);
+
+        if (! $response->successful() || $response->json('success') !== true) {
+            Log::warning('Error editando template de WhatsApp', [
+                'template_id' => $template->external_id,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            $detail = $response->json('error.error_user_msg')
+                ?: $response->json('error.message', $response->body());
+            throw new \RuntimeException('Meta rechazó la edición de la plantilla: '.$detail);
+        }
+
+        $template->forceFill([
+            'components' => $payload['components'],
+            'category' => $changesCategory ? $category : $template->category,
+            'status' => TemplateStatus::Pending,
+            'rejected_reason' => null,
+            'synced_at' => now(),
+        ])->save();
+
+        return $template;
+    }
+
+    /**
      * Permanently delete one template translation from Meta and its local mirror.
      */
     public function deleteTemplate(WhatsAppConfig $config, WhatsAppTemplate $template): void

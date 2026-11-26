@@ -27,6 +27,12 @@ class WhatsAppTemplatePolicy
         return $user->can('templates.create');
     }
 
+    /** Editar es volver a someter la plantilla a Meta: el mismo permiso que crearla. */
+    public function update(User $user, WhatsAppTemplate $template): bool
+    {
+        return $user->can('templates.create');
+    }
+
     public function delete(User $user, WhatsAppTemplate $template): bool
     {
         return $user->can('templates.delete');

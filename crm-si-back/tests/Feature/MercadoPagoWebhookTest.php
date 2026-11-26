@@ -73,7 +73,6 @@ class MercadoPagoWebhookTest extends TestCase
             'language' => WhatsAppCheckoutTemplates::LANGUAGE,
             'category' => TemplateCategory::Utility,
             'status' => TemplateStatus::Approved,
-            'parameter_format' => 'NAMED',
             'components' => [['type' => 'BODY', 'text' => '¡Recibimos tu pago! Tu pedido #{{pedido}} por {{total}} está confirmado.']],
         ]);
         $this->mpPayment = ['id' => 777, 'status' => 'approved', 'external_reference' => "CRM-{$checkout->id}"];

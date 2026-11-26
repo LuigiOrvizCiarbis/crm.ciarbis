@@ -26,14 +26,17 @@ class WhatsAppCheckoutTemplates
 
     public const LANGUAGE = 'es_AR';
 
-    /** Texto y ejemplos de cada plantilla; las variables son las que manda el ciclo de vida. */
+    /**
+     * Texto y ejemplos de cada plantilla; las variables son las que manda el
+     * ciclo de vida. Meta rechaza textos que empiezan o terminan con una variable.
+     */
     private const DEFINITIONS = [
         self::PAID => [
             'text' => '¡Recibimos tu pago! Tu pedido #{{pedido}} por {{total}} está confirmado. Te avisamos por acá cuando lo despachemos.',
             'examples' => ['pedido' => '1001', 'total' => '$34.696'],
         ],
         self::SHIPPED => [
-            'text' => 'Tu pedido #{{pedido}} ya está en camino 🚚 Número de seguimiento: {{seguimiento}}',
+            'text' => 'Tu pedido #{{pedido}} ya está en camino 🚚 Número de seguimiento: {{seguimiento}}. ¡Gracias por tu compra!',
             'examples' => ['pedido' => '1001', 'seguimiento' => 'CP123456789AR'],
         ],
     ];
