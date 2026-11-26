@@ -56,6 +56,18 @@ class CommerceToolsetTest extends TestCase
         $this->assertSame('Te mandé las opciones.', $toolset->fallbackMessage());
     }
 
+    public function test_show_catalog_sends_the_whatsapp_catalog(): void
+    {
+        $toolset = $this->toolset();
+
+        $this->assertSame('Catálogo enviado.', $toolset->call(CommerceToolset::SHOW_CATALOG, []));
+
+        $sent = $this->graphMessages();
+        $this->assertCount(1, $sent);
+        $this->assertSame('catalog_message', $sent[0]['interactive']['type']);
+        $this->assertSame('Te mandé el catálogo.', $toolset->fallbackMessage());
+    }
+
     public function test_a_product_not_yet_enabled_in_whatsapp_is_left_out_without_blocking_the_catalog(): void
     {
         ProductVariant::create(['tenant_id' => $this->tenant->id, 'product_id' => $this->product->id, 'external_id' => '3984', 'attribute_values' => ['Talle' => '4'], 'stock_status' => 'instock']);
