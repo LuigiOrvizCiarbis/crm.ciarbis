@@ -10,7 +10,6 @@ use App\Models\BroadcastCampaign;
 use App\Models\Contact;
 use App\Models\Conversation;
 use App\Models\Tag;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -126,7 +125,10 @@ class TagController extends Controller
     {
         $this->authorizeTenant($request, $contact->tenant_id);
 
-        return $this->attachTags($request, $contact);
+        $contact->addTags($this->validatedPivotData($request));
+        $contact->load('tags');
+
+        return response()->json(['data' => $contact]);
     }
 
     public function detachFromContact(Request $request, Contact $contact, Tag $tag): JsonResponse
@@ -134,7 +136,7 @@ class TagController extends Controller
         $this->authorizeTenant($request, $contact->tenant_id);
         $this->authorizeTenant($request, $tag->tenant_id);
 
-        $contact->tags()->detach($tag->id);
+        $contact->removeTags([$tag->id]);
         $contact->load('tags');
 
         return response()->json(['data' => $contact]);
@@ -144,23 +146,17 @@ class TagController extends Controller
     {
         $this->authorizeTenant($request, $conversation->tenant_id);
 
-        $response = $this->attachTags($request, $conversation);
+        $pivotData = $this->validatedPivotData($request);
+        $conversation->tags()->syncWithoutDetaching($pivotData);
 
         $contact = $conversation->contact;
         if ($contact && $contact->tenant_id === $request->user()->tenant_id) {
-            $tagIds = (array) $request->input('tag_ids', []);
-            $pivotData = collect($tagIds)
-                ->mapWithKeys(fn (int $tagId) => [
-                    $tagId => [
-                        'tenant_id' => $request->user()->tenant_id,
-                        'assigned_by' => $request->user()->id,
-                    ],
-                ])
-                ->all();
             $contact->tags()->syncWithoutDetaching($pivotData);
         }
 
-        return $response;
+        $conversation->load('tags');
+
+        return response()->json(['data' => $conversation]);
     }
 
     public function detachFromConversation(Request $request, Conversation $conversation, Tag $tag): JsonResponse
@@ -174,7 +170,10 @@ class TagController extends Controller
         return response()->json(['data' => $conversation]);
     }
 
-    private function attachTags(Request $request, Model $taggable): JsonResponse
+    /**
+     * @return array<int, array{tenant_id: int, assigned_by: int}> keyed by tag id
+     */
+    private function validatedPivotData(Request $request): array
     {
         $validated = $request->validate([
             'tag_ids' => ['required', 'array', 'min:1'],
@@ -184,7 +183,7 @@ class TagController extends Controller
             ],
         ]);
 
-        $pivotData = collect($validated['tag_ids'])
+        return collect($validated['tag_ids'])
             ->mapWithKeys(fn (int $tagId) => [
                 $tagId => [
                     'tenant_id' => $request->user()->tenant_id,
@@ -192,11 +191,6 @@ class TagController extends Controller
                 ],
             ])
             ->all();
-
-        $taggable->tags()->syncWithoutDetaching($pivotData);
-        $taggable->load('tags');
-
-        return response()->json(['data' => $taggable]);
     }
 
     /**
