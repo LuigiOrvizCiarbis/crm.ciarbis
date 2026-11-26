@@ -732,6 +732,16 @@
       "newColorAria": "New stage color",
       "probabilityAria": "Win probability for {{name}}"
     },
+    "delete": {
+      "action": "Delete opportunity",
+      "actionFor": "Delete {{name}}'s opportunity",
+      "title": "Delete this opportunity?",
+      "description": "{{name}}'s opportunity in {{summary}} leaves the pipeline. Linked tasks stay without an opportunity. This can't be undone.",
+      "wonWarning": "If the sale was already reported to Meta, the record of that report is deleted too.",
+      "confirm": "Delete",
+      "deleted": "Opportunity deleted",
+      "error": "Couldn't delete the opportunity"
+    },
     "saleValue": {
       "title": "What was the sale amount?",
       "description": "{{name}} is moving to a Won stage with no amount. If the chat came from a WhatsApp ad, this is the amount reported to Meta, and it can't be corrected later.",

@@ -732,6 +732,16 @@
       "newColorAria": "Color de la nueva etapa",
       "probabilityAria": "Probabilidad de cierre de {{name}}"
     },
+    "delete": {
+      "action": "Eliminar oportunidad",
+      "actionFor": "Eliminar la oportunidad de {{name}}",
+      "title": "¿Eliminar esta oportunidad?",
+      "description": "La oportunidad de {{name}} en {{summary}} sale del embudo. Las tareas vinculadas quedan sin oportunidad. No se puede deshacer.",
+      "wonWarning": "Si la venta ya se informó a Meta, también se borra el registro de ese envío.",
+      "confirm": "Eliminar",
+      "deleted": "Oportunidad eliminada",
+      "error": "No se pudo eliminar la oportunidad"
+    },
     "saleValue": {
       "title": "¿Cuál fue el valor de la venta?",
       "description": "{{name}} pasa a una etapa Ganado sin valor cargado. Si el chat vino de un anuncio de WhatsApp, este monto es el que se le informa a Meta y no se puede corregir después.",

@@ -28,7 +28,8 @@ import { fetchPipelineStages } from "@/lib/api/pipeline"
 import { getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
 import { needsSaleValue, useSaleValueGuard } from "@/components/sale-value-guard"
 import { EMPTY_PIPELINE_FILTERS, hasActiveFilters, type PipelineFilters } from "@/components/pipeline-compact-header"
-import { Phone, Mail, Calendar, GripVertical, Clock, Loader2, TrendingUp, MessageSquare, ArrowRightLeft, Check, Columns3, CheckCircle2, AlertCircle } from "lucide-react"
+import { Phone, Mail, Calendar, GripVertical, Clock, Loader2, TrendingUp, MessageSquare, ArrowRightLeft, Check, Columns3, CheckCircle2, AlertCircle, Trash2 } from "lucide-react"
+import { useDeleteOpportunity } from "@/components/opportunities/useDeleteOpportunity"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   DndContext,
@@ -255,12 +256,15 @@ function OpportunityCard({
   isDragging = false,
   isOverlay = false,
   onScheduleMeeting,
+  onDelete,
 }: {
   opportunity: Opportunity
   dragHandleProps?: Record<string, unknown>
   isDragging?: boolean
   isOverlay?: boolean
   onScheduleMeeting?: (opportunity: Opportunity) => void
+  /** Ausente sin permiso para borrar. */
+  onDelete?: (opportunity: Opportunity) => void
 }) {
   const router = useRouter()
   const lastActivityText = opportunity.last_activity_at
@@ -402,6 +406,18 @@ function OpportunityCard({
               <Calendar className="w-3 h-3" aria-hidden="true" />
             </Button>
             <MoveToStageButton opportunity={opportunity} />
+            {onDelete && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`${iconActionClassName} ml-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive`}
+                onClick={() => onDelete(opportunity)}
+                title="Eliminar oportunidad"
+                aria-label={`Eliminar la oportunidad de ${opportunity.contact.name}`}
+              >
+                <Trash2 className="w-3 h-3" aria-hidden="true" />
+              </Button>
+            )}
           </div>
         </div>
       </CardContent>
@@ -473,9 +489,11 @@ function MoveToStageButton({ opportunity }: { opportunity: Opportunity }) {
 function SortableOpportunityCard({
   opportunity,
   onScheduleMeeting,
+  onDelete,
 }: {
   opportunity: Opportunity
   onScheduleMeeting: (opportunity: Opportunity) => void
+  onDelete?: (opportunity: Opportunity) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: opportunity.id.toString(),
@@ -494,6 +512,7 @@ function SortableOpportunityCard({
         isDragging={isDragging}
         dragHandleProps={{ ...attributes, ...listeners }}
         onScheduleMeeting={onScheduleMeeting}
+        onDelete={onDelete}
       />
     </div>
   )
@@ -530,10 +549,12 @@ function KanbanColumn({
   column,
   opportunities,
   onScheduleMeeting,
+  onDelete,
 }: {
   column: Column
   opportunities: Opportunity[]
   onScheduleMeeting: (opportunity: Opportunity) => void
+  onDelete?: (opportunity: Opportunity) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: getColumnDropId(column.id),
@@ -582,7 +603,7 @@ function KanbanColumn({
               }`}
             >
               {opportunities.map((opportunity) => (
-                <SortableOpportunityCard key={opportunity.id} opportunity={opportunity} onScheduleMeeting={onScheduleMeeting} />
+                <SortableOpportunityCard key={opportunity.id} opportunity={opportunity} onScheduleMeeting={onScheduleMeeting} onDelete={onDelete} />
               ))}
 
               {opportunities.length === 0 && (
@@ -704,6 +725,18 @@ export function KanbanBoard({
   const isMobile = useIsMobile()
   // Oportunidad cuyo destino se elige en la hoja inferior (sólo teléfono).
   const [movingOpportunity, setMovingOpportunity] = useState<Opportunity | null>(null)
+  const deletion = useDeleteOpportunity((opportunityId) => {
+    setColumns((prev) => prev.map((col) => ({ ...col, opportunities: col.opportunities.filter((item) => item.id !== opportunityId) })))
+  })
+  const requestDelete = (opportunity: Opportunity) => {
+    const column = columns.find((col) => col.opportunities.some((item) => item.id === opportunity.id))
+    deletion.requestDelete({
+      id: opportunity.id,
+      contactName: opportunity.contact.name,
+      summary: column?.title ?? opportunity.title,
+      won: opportunity.status === "won",
+    })
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -1036,6 +1069,7 @@ export function KanbanBoard({
                 column={column}
                 opportunities={column.opportunities}
                 onScheduleMeeting={setMeetingOpportunity}
+                onDelete={deletion.canDelete ? requestDelete : undefined}
               />
             ))}
           </div>
@@ -1094,6 +1128,7 @@ export function KanbanBoard({
       </Sheet>
 
       {saleValueDialog}
+      {deletion.dialog}
 
       {meetingOpportunity && (
         <NewTaskModal
