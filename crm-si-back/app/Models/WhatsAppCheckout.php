@@ -185,7 +185,9 @@ class WhatsAppCheckout extends Model
 
     public static function variantLabel(ProductVariant $variant): string
     {
-        $label = implode(' / ', array_filter(array_map('strval', (array) $variant->attribute_values)));
+        // Sólo se descartan los vacíos: un talle "0" es un valor válido.
+        $values = array_filter(array_map('strval', (array) $variant->attribute_values), fn (string $value) => trim($value) !== '');
+        $label = implode(' / ', $values);
 
         return $label !== '' ? $label : 'Único';
     }
