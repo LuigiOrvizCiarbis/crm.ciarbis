@@ -117,11 +117,14 @@ class WhatsAppCheckoutInstaller
     /**
      * Un formulario publicado no se edita: se clona, se publica la copia y se
      * depreca el viejo. La copia recién toma la marca de sistema ya publicada:
-     * si Meta rechaza el JSON nuevo, el formulario viejo sigue atendiendo.
+     * si Meta rechaza el JSON nuevo, el formulario viejo sigue atendiendo. Meta
+     * no admite dos formularios con el mismo nombre en la cuenta (tampoco
+     * deprecados), así que cada copia lleva la fecha de publicación.
      */
     private function replacePublished(WhatsAppFlow $old, string $json): WhatsAppFlow
     {
-        $copy = $this->flows->publish($this->flows->updateJson($this->flows->clone($old, self::FLOW_NAME), $json));
+        $name = self::FLOW_NAME.' ('.now()->format('Y-m-d H:i:s').')';
+        $copy = $this->flows->publish($this->flows->updateJson($this->flows->clone($old, $name), $json));
 
         DB::transaction(function () use ($old, $copy) {
             $old->forceFill(['system_key' => null])->save();

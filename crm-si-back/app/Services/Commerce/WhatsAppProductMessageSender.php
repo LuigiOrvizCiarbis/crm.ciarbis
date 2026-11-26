@@ -5,10 +5,12 @@ namespace App\Services\Commerce;
 use App\Exceptions\WhatsAppMessageRejectedException;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\Product;
 use App\Models\User;
 use App\Models\WooCommerceConfig;
 use App\Services\MessagingWindowService;
 use App\Services\WhatsAppInteractiveSender;
+use App\Services\WooCommerceCatalogWriter;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -26,30 +28,82 @@ class WhatsAppProductMessageSender
     /** Reintentos sacando productos rechazados; Meta informa uno por respuesta. */
     private const MAX_MISSING_RETRIES = 5;
 
+    /** Productos a probar como miniatura del catálogo antes de darlo por no disponible. */
+    private const MAX_THUMBNAIL_CANDIDATES = 5;
+
     public function __construct(
         private readonly WhatsAppInteractiveSender $sender,
         private readonly MessagingWindowService $window,
         private readonly WhatsAppCatalogAvailability $availability,
+        private readonly CatalogRetailerIds $retailerIds,
     ) {}
 
+    /**
+     * Sin miniatura, Meta usa el primer producto del catálogo y rechaza el
+     * mensaje entero si ese producto no está habilitado para WhatsApp. Se
+     * indica uno que funcione y, si Meta lo rechaza, se prueba con otro.
+     */
     public function sendCatalog(Conversation $conversation, string $body, ?User $sender): Message
     {
         $this->catalogId($conversation);
         $this->window->assertOpen($conversation);
+        $candidates = $this->thumbnailCandidates($conversation->tenant_id);
 
-        try {
-            $message = $this->deliver($conversation, [
-                'type' => 'catalog_message',
-                'body' => ['text' => $body],
-                'action' => ['name' => 'catalog_message'],
-            ], $body, ['kind' => 'catalog', 'retailer_ids' => []], $sender);
-        } catch (WhatsAppMessageRejectedException $e) {
-            throw $this->catalogError($conversation, $e);
+        foreach ($candidates === [] ? [null] : $candidates as $thumbnail) {
+            try {
+                $message = $this->deliver($conversation, [
+                    'type' => 'catalog_message',
+                    'body' => ['text' => $body],
+                    'action' => ['name' => 'catalog_message', ...($thumbnail !== null ? ['parameters' => ['thumbnail_product_retailer_id' => $thumbnail]] : [])],
+                ], $body, ['kind' => 'catalog', 'retailer_ids' => []], $sender);
+            } catch (WhatsAppMessageRejectedException $e) {
+                if ($thumbnail === null || $e->metaCode !== self::META_INVALID_PARAMETER) {
+                    throw $this->catalogError($conversation, $e);
+                }
+
+                $this->availability->markProductMissing($conversation->tenant_id, $thumbnail);
+
+                continue;
+            }
+
+            $this->availability->markAvailable($conversation->tenant_id);
+            if ($thumbnail !== null) {
+                $this->availability->rememberWorkingProduct($conversation->tenant_id, $thumbnail);
+            }
+
+            return $message;
         }
 
-        $this->availability->markAvailable($conversation->tenant_id);
+        $this->availability->markUnavailable($conversation->tenant_id);
 
-        return $message;
+        throw new CatalogUnavailableException;
+    }
+
+    /**
+     * El último producto que Meta aceptó y, después, productos simples sin
+     * "Sin stock", los más nuevos primero; sin los que Meta ya rechazó.
+     *
+     * @return list<string>
+     */
+    private function thumbnailCandidates(int $tenantId): array
+    {
+        $config = WooCommerceConfig::withoutGlobalScopes()->where('tenant_id', $tenantId)->first();
+        $local = $config === null ? [] : Product::withoutGlobalScopes()
+            ->where('tenant_id', $tenantId)
+            ->where('source', WooCommerceCatalogWriter::SOURCE)
+            ->where('is_active', true)
+            ->whereDoesntHave('variants', fn ($query) => $query->withoutGlobalScopes())
+            ->where(fn ($query) => $query->whereNull('custom_data->stock_status')->orWhere('custom_data->stock_status', '!=', 'Sin stock'))
+            ->latest('id')
+            ->limit(self::MAX_THUMBNAIL_CANDIDATES * 2)
+            ->get()
+            ->map(fn (Product $product) => $this->retailerIds->forProduct($product, null, $config))
+            ->filter()
+            ->all();
+
+        $ids = array_values(array_unique(array_filter([$this->availability->workingProduct($tenantId), ...$local])));
+
+        return array_slice($this->availability->withoutMissingProducts($tenantId, $ids), 0, self::MAX_THUMBNAIL_CANDIDATES);
     }
 
     /**
@@ -93,6 +147,7 @@ class WhatsAppProductMessageSender
             }
 
             $this->availability->markAvailable($conversation->tenant_id);
+            $this->availability->rememberWorkingProduct($conversation->tenant_id, $ids[0]);
 
             return $message;
         }
