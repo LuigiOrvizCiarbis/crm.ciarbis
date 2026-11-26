@@ -7,6 +7,7 @@ use App\Models\ProductVariant;
 use App\Models\WhatsAppCheckout;
 use App\Services\Commerce\CommerceToolset;
 use App\Services\Commerce\CommerceToolsetFactory;
+use App\Services\Commerce\WhatsAppProductMessageSender;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -111,5 +112,35 @@ class CommerceToolsetTest extends TestCase
         $this->assertSame('No hay un pedido esperando pago.', $toolset->call(CommerceToolset::RESEND_PAYMENT_LINK, []));
         $this->assertSame([], $this->graphMessages());
         $this->assertNull($toolset->fallbackMessage());
+    }
+
+    public function test_unavailable_catalog_is_not_reported_as_out_of_stock_and_stops_offering_cards(): void
+    {
+        $this->catalogProductsMissing = true;
+
+        $result = $this->toolset()->call(CommerceToolset::SHOW_PRODUCTS, ['product_ids' => [$this->product->id]]);
+
+        $this->assertStringContainsString('no tiene que ver con el stock', $result);
+        $this->assertStringContainsString('enviar_formulario_compra', $result);
+        $this->assertStringNotContainsString('131009', $result);
+
+        $next = $this->toolset();
+        $names = array_map(fn ($tool) => $tool->name, $next->definitions());
+        $this->assertNotContains(CommerceToolset::SHOW_PRODUCTS, $names);
+        $this->assertContains(CommerceToolset::SEND_CHECKOUT, $names);
+        $this->assertStringContainsString('no están disponibles', $next->promptSection());
+        $this->assertCount(1, $this->graphMessages());
+    }
+
+    public function test_a_successful_catalog_send_from_the_chat_offers_cards_again(): void
+    {
+        $this->catalogProductsMissing = true;
+        $this->toolset()->call(CommerceToolset::SHOW_PRODUCTS, ['product_ids' => [$this->product->id]]);
+
+        $this->catalogProductsMissing = false;
+        app(WhatsAppProductMessageSender::class)->sendCatalog($this->conversation->fresh(), 'Mirá nuestro catálogo', $this->user);
+
+        $names = array_map(fn ($tool) => $tool->name, $this->toolset()->definitions());
+        $this->assertContains(CommerceToolset::SHOW_PRODUCTS, $names);
     }
 }
