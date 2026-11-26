@@ -6,6 +6,7 @@ use App\Enums\ChannelType;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\CreateWhatsAppTemplateRequest;
 use App\Http\Requests\SendTemplateRequest;
+use App\Http\Requests\UpdateWhatsAppTemplateRequest;
 use App\Models\Channel;
 use App\Models\Conversation;
 use App\Models\MediaAsset;
@@ -91,6 +92,23 @@ class WhatsAppTemplateController extends Controller
             );
 
             return response()->json($template, 201);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function update(UpdateWhatsAppTemplateRequest $request, Channel $channel, WhatsAppTemplate $template): JsonResponse
+    {
+        $this->authorizeTemplateChannel($request, $channel);
+        $this->authorize('update', $template);
+
+        $waConfig = $channel->whatsappConfig;
+        if (! $waConfig || $template->whatsapp_config_id !== $waConfig->id) {
+            abort(404);
+        }
+
+        try {
+            return response()->json($this->templateService->editTemplate($waConfig, $template, $request->validated()));
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }

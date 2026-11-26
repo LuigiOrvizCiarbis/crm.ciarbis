@@ -45,6 +45,23 @@ export async function createTemplate(channelId: number, payload: CreateTemplateP
   return data.data ?? data;
 }
 
+/** Meta no deja cambiar nombre ni idioma; la categoría sólo si la plantilla no está aprobada. */
+export interface UpdateTemplatePayload {
+  category?: CreateTemplatePayload["category"];
+  components: unknown[];
+}
+
+export async function updateTemplate(channelId: number, templateId: number, payload: UpdateTemplatePayload): Promise<WhatsAppTemplate> {
+  const res = await fetch(`/api/channels/${channelId}/templates/${templateId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...workspaceHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throwApiError(res.status, data, "Error al editar la plantilla");
+  return data.data ?? data;
+}
+
 export async function uploadTemplateHeader(channelId: number, file: File): Promise<{ header_handle: string }> {
   const body = new FormData();
   body.append("file", file);
