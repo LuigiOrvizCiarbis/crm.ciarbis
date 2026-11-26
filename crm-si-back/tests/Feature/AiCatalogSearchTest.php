@@ -71,6 +71,21 @@ class AiCatalogSearchTest extends TestCase
         $this->assertSame('Acana Gato', $result['products'][0]->name);
     }
 
+    public function test_asking_for_photos_keeps_searching_the_previous_product(): void
+    {
+        $tenant = Tenant::create(['name' => 'Taquito']);
+        Product::create(['tenant_id' => $tenant->id, 'name' => 'Body River Plate Papá', 'price' => 23140]);
+        Product::create(['tenant_id' => $tenant->id, 'name' => 'Portarretrato Boca', 'description' => 'Para tu foto favorita', 'price' => 9000]);
+
+        $result = app(CatalogProductSearch::class)->search(
+            $tenant->id,
+            $this->messages('¿Podés pasarme alguna foto? ¿Tenés en el catálogo?', '¿Qué producto tenés de River?'),
+            12,
+        );
+
+        $this->assertSame(['Body River Plate Papá'], array_map(fn (Product $product) => $product->name, $result['products']));
+    }
+
     public function test_searches_and_displays_configured_fields_and_excludes_inactive_or_other_tenant(): void
     {
         $tenant = Tenant::create(['name' => 'Petplus']);

@@ -58,6 +58,36 @@ class CommerceToolsetTest extends TestCase
         $this->assertSame('Te mandé las opciones.', $toolset->fallbackMessage());
     }
 
+    public function test_a_product_not_yet_enabled_in_whatsapp_is_left_out_without_blocking_the_catalog(): void
+    {
+        ProductVariant::create(['tenant_id' => $this->tenant->id, 'product_id' => $this->product->id, 'external_id' => '3984', 'attribute_values' => ['Talle' => '4'], 'stock_status' => 'instock']);
+        $this->missingRetailerIds = ['3983'];
+
+        $result = $this->toolset()->call(CommerceToolset::SHOW_PRODUCTS, ['product_ids' => [$this->product->id]]);
+
+        $this->assertSame('Productos enviados.', $result);
+        $sent = $this->graphMessages();
+        $this->assertCount(2, $sent);
+        $this->assertSame('product', $sent[1]['interactive']['type']);
+        $this->assertSame('3984', $sent[1]['interactive']['action']['product_retailer_id']);
+
+        // El rechazado no se vuelve a pedir y el catálogo sigue ofreciendo fichas.
+        $this->assertSame('Productos enviados.', $this->toolset()->call(CommerceToolset::SHOW_PRODUCTS, ['product_ids' => [$this->product->id]]));
+        $this->assertCount(3, $this->graphMessages());
+        $this->assertSame('3984', $this->graphMessages()[2]['interactive']['action']['product_retailer_id']);
+        $this->assertContains(CommerceToolset::SHOW_PRODUCTS, array_map(fn ($tool) => $tool->name, $this->toolset()->definitions()));
+    }
+
+    public function test_when_none_of_the_products_is_enabled_the_model_is_told_it_is_not_about_stock(): void
+    {
+        $this->missingRetailerIds = ['3983'];
+
+        $result = $this->toolset()->call(CommerceToolset::SHOW_PRODUCTS, ['product_ids' => [$this->product->id]]);
+
+        $this->assertStringContainsString('no tiene que ver con el stock', $result);
+        $this->assertContains(CommerceToolset::SHOW_PRODUCTS, array_map(fn ($tool) => $tool->name, $this->toolset()->definitions()));
+    }
+
     public function test_send_checkout_opens_a_cart_and_sends_the_flow(): void
     {
         $toolset = $this->toolset();

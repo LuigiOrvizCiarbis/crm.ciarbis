@@ -25,6 +25,17 @@ class CatalogProductSearch
     ];
 
     /**
+     * Palabras de un pedido sobre lo que ya se habló ("¿me pasás fotos?",
+     * "¿está en el catálogo?"), ya normalizadas como las deja terms(). Un
+     * mensaje hecho sólo de estas sigue buscando lo del mensaje anterior.
+     */
+    private const REQUEST_WORDS = [
+        'alguna', 'alguno', 'algun', 'catalogo', 'color', 'colore', 'disponible', 'enviar', 'enviame',
+        'enviarme', 'foto', 'imagen', 'imagene', 'link', 'mandame', 'mandar', 'mandarme', 'mostrame',
+        'mostrar', 'mostrarme', 'pasame', 'pasar', 'pasarme', 'pode', 'podria', 'stock', 'ver',
+    ];
+
+    /**
      * @param  array<int, array{role: string, content: string|array<int, array<string, mixed>>}>  $messages
      * @return array{products: list<Product>, matches: int, active: int, fields: array<string, string>, catalog_question: bool, broad: bool}
      */
@@ -33,11 +44,18 @@ class CatalogProductSearch
         $customerTexts = $this->customerTexts($messages);
         $latest = $customerTexts[0] ?? '';
         $latestTerms = $this->terms($latest);
+        $productTerms = array_values(array_diff($latestTerms, self::REQUEST_WORDS));
         $normalizedLatest = $this->normalize($latest);
         $catalogQuestion = (bool) preg_match('/\b(catalogo|productos?|articulos?|precios?|venden|tenes|tienen|busco|comprar|marca|cuanto cuesta)\b/u', $normalizedLatest);
+        $requestOnly = $latestTerms !== [] && $productTerms === [];
         $isFollowUp = (bool) preg_match('/\b(ese|esa|esos|esas|el de|la de|y el|y la|mismo|misma|tambien)\b/u', $normalizedLatest)
             || (count($latestTerms) <= 2 && (bool) preg_match('/\b\d+\b|\b(kg|gr|ml|litro|talle)\b/u', $normalizedLatest))
-            || ($latestTerms === [] && $catalogQuestion);
+            || ($latestTerms === [] && $catalogQuestion)
+            || $requestOnly;
+        // Un pedido de fotos o del catálogo no nombra productos: sus palabras no se buscan.
+        if ($requestOnly) {
+            $latestTerms = [];
+        }
         $previousTerms = $isFollowUp ? $this->terms($customerTexts[1] ?? '') : [];
         $terms = array_values(array_unique([...$latestTerms, ...$previousTerms]));
 

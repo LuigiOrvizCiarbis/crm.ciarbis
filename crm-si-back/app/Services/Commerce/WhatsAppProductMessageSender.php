@@ -10,6 +10,7 @@ use App\Models\WooCommerceConfig;
 use App\Services\MessagingWindowService;
 use App\Services\WhatsAppInteractiveSender;
 use InvalidArgumentException;
+use RuntimeException;
 
 /**
  * Mensajes del catálogo nativo de WhatsApp: el catálogo completo o fichas de
@@ -22,6 +23,9 @@ class WhatsAppProductMessageSender
     /** Código de Meta para un parámetro inválido; con "catalog" en el detalle, el producto no está en el catálogo. */
     private const META_INVALID_PARAMETER = 131009;
 
+    /** Reintentos sacando productos rechazados; Meta informa uno por respuesta. */
+    private const MAX_MISSING_RETRIES = 5;
+
     public function __construct(
         private readonly WhatsAppInteractiveSender $sender,
         private readonly MessagingWindowService $window,
@@ -33,14 +37,30 @@ class WhatsAppProductMessageSender
         $this->catalogId($conversation);
         $this->window->assertOpen($conversation);
 
-        return $this->deliver($conversation, [
-            'type' => 'catalog_message',
-            'body' => ['text' => $body],
-            'action' => ['name' => 'catalog_message'],
-        ], $body, ['kind' => 'catalog', 'retailer_ids' => []], $sender);
+        try {
+            $message = $this->deliver($conversation, [
+                'type' => 'catalog_message',
+                'body' => ['text' => $body],
+                'action' => ['name' => 'catalog_message'],
+            ], $body, ['kind' => 'catalog', 'retailer_ids' => []], $sender);
+        } catch (WhatsAppMessageRejectedException $e) {
+            throw $this->catalogError($conversation, $e);
+        }
+
+        $this->availability->markAvailable($conversation->tenant_id);
+
+        return $message;
     }
 
-    /** @param  list<string>  $retailerIds */
+    /**
+     * Manda las fichas que Meta tenga habilitadas. Si rechaza un producto
+     * puntual, se recuerda, se saca de la lista y se reintenta con el resto.
+     *
+     * @param  list<string>  $retailerIds
+     *
+     * @throws CatalogItemsUnavailableException si ninguno de los productos está habilitado
+     * @throws CatalogUnavailableException si Meta no encuentra el catálogo
+     */
     public function sendProducts(Conversation $conversation, string $body, array $retailerIds, ?User $sender): Message
     {
         $catalogId = $this->catalogId($conversation);
@@ -51,8 +71,37 @@ class WhatsAppProductMessageSender
         }
 
         $this->window->assertOpen($conversation);
+        $ids = $this->availability->withoutMissingProducts($conversation->tenant_id, $ids);
 
-        $interactive = count($ids) === 1
+        for ($retries = 0; ; $retries++) {
+            if ($ids === []) {
+                throw new CatalogItemsUnavailableException;
+            }
+
+            try {
+                $message = $this->deliver($conversation, $this->productsMessage($catalogId, $body, $ids), $body, ['kind' => 'products', 'retailer_ids' => $ids], $sender);
+            } catch (WhatsAppMessageRejectedException $e) {
+                $missing = $this->missingRetailerId($e);
+                if ($missing === null || ! in_array($missing, $ids, true) || $retries >= self::MAX_MISSING_RETRIES) {
+                    throw $this->catalogError($conversation, $e);
+                }
+
+                $this->availability->markProductMissing($conversation->tenant_id, $missing);
+                $ids = array_values(array_diff($ids, [$missing]));
+
+                continue;
+            }
+
+            $this->availability->markAvailable($conversation->tenant_id);
+
+            return $message;
+        }
+    }
+
+    /** @param  list<string>  $ids */
+    private function productsMessage(string $catalogId, string $body, array $ids): array
+    {
+        return count($ids) === 1
             ? [
                 'type' => 'product',
                 'body' => ['text' => $body],
@@ -67,30 +116,40 @@ class WhatsAppProductMessageSender
                     'product_items' => array_map(fn (string $id) => ['product_retailer_id' => $id], $ids),
                 ]]],
             ];
+    }
 
-        return $this->deliver($conversation, $interactive, $body, ['kind' => 'products', 'retailer_ids' => $ids], $sender);
+    private function deliver(Conversation $conversation, array $interactive, string $body, array $stored, ?User $sender): Message
+    {
+        return $this->sender->deliver($conversation, ['type' => 'interactive', 'interactive' => $interactive], $body, $stored, null, $sender);
+    }
+
+    /** Retailer id que Meta no encontró ("product not found for product_retailer_id, X, in catalog_id, …"). */
+    private function missingRetailerId(WhatsAppMessageRejectedException $e): ?string
+    {
+        return $e->metaCode === self::META_INVALID_PARAMETER
+            && preg_match('/product_retailer_id,\s*([^,\s]+),\s*in catalog_id/i', (string) $e->details, $match)
+            ? $match[1]
+            : null;
     }
 
     /**
-     * @throws CatalogUnavailableException si Meta no encuentra los productos en el catálogo conectado
+     * Traduce el rechazo de Meta: un producto puntual no habilitado no invalida
+     * el catálogo; un 131009 sobre el catálogo sin producto puntual sí, y se
+     * dejan de ofrecer fichas por un tiempo.
      */
-    private function deliver(Conversation $conversation, array $interactive, string $body, array $stored, ?User $sender): Message
+    private function catalogError(Conversation $conversation, WhatsAppMessageRejectedException $e): RuntimeException
     {
-        try {
-            $message = $this->sender->deliver($conversation, ['type' => 'interactive', 'interactive' => $interactive], $body, $stored, null, $sender);
-        } catch (WhatsAppMessageRejectedException $e) {
-            if ($e->metaCode === self::META_INVALID_PARAMETER && str_contains(strtolower((string) $e->details), 'catalog')) {
-                $this->availability->markUnavailable($conversation->tenant_id);
-
-                throw new CatalogUnavailableException;
-            }
-
-            throw $e;
+        if ($this->missingRetailerId($e) !== null) {
+            return new CatalogItemsUnavailableException;
         }
 
-        $this->availability->markAvailable($conversation->tenant_id);
+        if ($e->metaCode === self::META_INVALID_PARAMETER && str_contains(strtolower((string) $e->details), 'catalog')) {
+            $this->availability->markUnavailable($conversation->tenant_id);
 
-        return $message;
+            return new CatalogUnavailableException;
+        }
+
+        return $e;
     }
 
     private function catalogId(Conversation $conversation): string
