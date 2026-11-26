@@ -43,6 +43,8 @@ interface ChatOpportunityRailProps {
   contactName?: string
   onMove: (opportunity: ChatOpportunity, stageId: number) => void
   onNew: () => void
+  /** El perfil del contacto apila las fichas en vez de desplazarlas en horizontal. */
+  className?: string
 }
 
 /**
@@ -57,6 +59,7 @@ export function ChatOpportunityRail({
   contactName,
   onMove,
   onNew,
+  className,
 }: ChatOpportunityRailProps) {
   const { t } = useTranslation()
   // Dos oportunidades del mismo embudo sin título propio ni monto se veían idénticas.
@@ -67,7 +70,7 @@ export function ChatOpportunityRail({
 
   return (
     <div
-      className="flex min-w-0 flex-1 snap-x items-stretch gap-1.5 overflow-x-auto [scrollbar-width:none]"
+      className={cn("flex min-w-0 flex-1 snap-x items-stretch gap-1.5 overflow-x-auto [scrollbar-width:none]", className)}
       aria-label={t("chats.opportunitiesOfChat")}
       role="list"
     >

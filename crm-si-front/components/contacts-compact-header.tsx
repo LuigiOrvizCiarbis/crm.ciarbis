@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { TagFilterMenu } from "@/components/tags/TagFilterMenu"
+import { StageFilterMenu } from "@/components/chat/StageFilterMenu"
 import { CustomFieldFilterMenu } from "@/components/contacts/CustomFieldFilterMenu"
 import type { ContactsAudience, CustomFieldFilters } from "@/components/contacts/contactFilters"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -34,6 +35,11 @@ interface ContactsCompactHeaderProps {
   onSourceFilter?: (source: string) => void
   tagFilterSlugs?: string[]
   onTagFilter?: (slugs: string[]) => void
+  stageFilterKeys?: string[]
+  onStageFilter?: (keys: string[]) => void
+  stageCounts?: Map<string, number>
+  stageCountsLoading?: boolean
+  onStageMenuOpenChange?: (open: boolean) => void
   customFilters?: CustomFieldFilters
   onCustomFilters?: (value: CustomFieldFilters) => void
   audience?: ContactsAudience
@@ -52,6 +58,11 @@ export function ContactsCompactHeader({
   onSourceFilter,
   tagFilterSlugs = [],
   onTagFilter,
+  stageFilterKeys = [],
+  onStageFilter,
+  stageCounts,
+  stageCountsLoading = false,
+  onStageMenuOpenChange,
   customFilters = {},
   onCustomFilters,
   audience = "all",
@@ -146,6 +157,20 @@ export function ContactsCompactHeader({
             selectedSlugs={tagFilterSlugs}
             onChange={(slugs) => onTagFilter?.(slugs)}
           />
+
+          {/* En teléfono va en la fila del buscador (ver /contactos), como "Campos". */}
+          {!isMobile && (
+            <StageFilterMenu
+              selected={stageFilterKeys}
+              onChange={(keys) => onStageFilter?.(keys)}
+              counts={stageCounts}
+              countsLoading={stageCountsLoading}
+              onOpenChange={onStageMenuOpenChange}
+              noneLabel={t("contactsPage.stage.filterNone")}
+              showSelection={false}
+              triggerClassName="h-9 md:max-xl:h-10"
+            />
+          )}
 
           {/* En teléfono "Campos" va junto al buscador (ver /contactos): acá desbordaba la fila del título. */}
           {!isMobile && (
