@@ -7,12 +7,12 @@ use App\Enums\MessageType;
 use App\Enums\SenderType;
 use App\Events\MessageSent;
 use App\Events\TenantMessageReceived;
+use App\Exceptions\WhatsAppMessageRejectedException;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use RuntimeException;
 
 /**
  * Mensaje de sistema con botón de link (`cta_url`), imagen o texto, según lo
@@ -86,7 +86,7 @@ class WhatsAppInteractiveSender
         if (! $response->successful()) {
             $this->messages->throwIfWindowClosed($response);
 
-            throw new RuntimeException('Meta rechazó el mensaje: '.$response->body());
+            throw WhatsAppMessageRejectedException::fromResponse($response);
         }
 
         $message = Message::create([
