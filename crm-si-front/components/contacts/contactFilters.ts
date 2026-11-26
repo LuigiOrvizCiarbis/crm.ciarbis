@@ -18,6 +18,8 @@ export interface ContactFilters {
   /** "all" = sin filtro de origen. */
   source: string
   tags: string[]
+  /** Ids de etapa como string, más "none" para los contactos sin oportunidades. */
+  stages: string[]
   audience: ContactsAudience
   custom: CustomFieldFilters
 }
@@ -26,6 +28,7 @@ export const EMPTY_CONTACT_FILTERS: ContactFilters = {
   search: "",
   source: "all",
   tags: [],
+  stages: [],
   audience: "all",
   custom: {},
 }
@@ -92,12 +95,13 @@ export function hasActiveContactFilters(filters: ContactFilters): boolean {
     filters.search !== "" ||
     filters.source !== "all" ||
     filters.tags.length > 0 ||
+    filters.stages.length > 0 ||
     filters.audience === "clients" ||
     Object.values(filters.custom).some(isCustomFilterActive)
   )
 }
 
-const FILTER_PARAM_NAMES: Record<string, true> = { search: true, source: true, tags: true, billing: true }
+const FILTER_PARAM_NAMES: Record<string, true> = { search: true, source: true, tags: true, stages: true, billing: true }
 const CUSTOM_PARAM = /^(custom|custom_any|custom_contains|custom_range)\[([^\]]+)\](?:\[(\w*)\])?$/
 
 /** True para los parámetros que maneja este módulo; el resto de la URL se respeta. */
@@ -114,6 +118,7 @@ export function contactFiltersToParams(filters: ContactFilters): URLSearchParams
   if (filters.search) params.set("search", filters.search)
   if (filters.source !== "all") params.set("source", filters.source)
   if (filters.tags.length > 0) params.set("tags", filters.tags.join(","))
+  if (filters.stages.length > 0) params.set("stages", filters.stages.join(","))
   if (filters.audience === "clients") params.set("billing", "clients")
 
   for (const [key, filter] of Object.entries(filters.custom)) {
@@ -162,6 +167,7 @@ export function contactFiltersFromParams(params: Pick<URLSearchParams, "get" | "
     search: params.get("search") ?? "",
     source: params.get("source") || "all",
     tags: (params.get("tags") ?? "").split(",").map((slug) => slug.trim()).filter(Boolean),
+    stages: (params.get("stages") ?? "").split(",").map((key) => key.trim()).filter(Boolean),
     audience: params.get("billing") === "clients" ? "clients" : "all",
     custom,
   }

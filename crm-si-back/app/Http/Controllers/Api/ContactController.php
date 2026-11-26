@@ -9,12 +9,14 @@ use App\Http\Resources\ContactResource;
 use App\Models\BillingConfig;
 use App\Models\Contact;
 use App\Models\ContactField;
+use App\Models\Opportunity;
 use App\Models\User;
 use App\Rules\ValidContactCustomData;
 use App\Services\ContactImportService;
 use App\Support\BranchRuleResolver;
 use App\Support\ContactCustomDataNormalizer;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -28,55 +30,18 @@ class ContactController extends Controller
         $this->authorize('viewAny', Contact::class);
 
         $user = $request->user();
-        $search = trim($request->query('search', ''));
 
-        $q = Contact::query()
-            ->visibleTo($user)
+        $q = $this->filteredContacts($request)
             ->with([
                 'tags',
                 'conversations' => fn ($c) => $c->latest('last_message_at')->limit(1),
+                'opportunities' => fn ($o) => $this->scopeListedOpportunities($o, $user)
+                    ->with(['pipelineStage:id,name,color,outcome', 'pipeline:id,name'])
+                    ->orderByDesc('updated_at')
+                    ->orderByDesc('id'),
             ]);
 
-        if ($search !== '') {
-            $q->where(function ($w) use ($search) {
-                $w->whereLike('name', "%$search%", caseSensitive: false)
-                    ->orWhereLike('phone', "%$search%", caseSensitive: false);
-            });
-        }
-
-        if ($request->filled('source')) {
-            $q->where('source', $request->query('source'));
-        }
-
-        if ($request->filled('branch_id') && ($user->isTenantOwner() || $user->can('branches.view_all'))) {
-            $q->where('branch_id', (int) $request->query('branch_id'));
-        }
-
-        if ($request->filled('tags')) {
-            $q->withTagSlugs($this->parseTagSlugs((string) $request->query('tags')));
-        }
-
-        $this->applyCustomFieldFilters($q, $request);
-
-        // Un contacto cuenta como cliente con ciclo de cobranza activo cuando
-        // tiene el campo de estado cargado con alguno de los valores que el
-        // motor entiende (BillingConfig::STATUSES). No hay flag ni tabla
-        // aparte: la "calificación" ocurre al cargarle ese campo, sea a mano
-        // o por webhook. Sin config habilitada el filtro no aplica — el front
-        // tampoco ofrece el control en ese caso.
-        if ($request->query('billing') === 'clients') {
-            $billingConfig = BillingConfig::where('tenant_id', $user->tenant_id)
-                ->where('enabled', true)
-                ->first();
-
-            if ($billingConfig) {
-                $q->where(function ($w) use ($billingConfig) {
-                    foreach (BillingConfig::STATUSES as $status) {
-                        $w->orWhereRaw('custom_data ->> ? = ?', [$billingConfig->status_field_key, $status]);
-                    }
-                });
-            }
-        }
+        $this->applyStageFilter($q, $request);
 
         $sortBy = (string) $request->query('sort_by', 'updated_at');
         $sortDir = strtolower((string) $request->query('sort_dir', 'desc')) === 'asc' ? 'asc' : 'desc';
@@ -119,6 +84,123 @@ class ContactController extends Controller
                 'to' => $contacts->lastItem(),
             ],
         ]);
+    }
+
+    /**
+     * Contactos distintos por etapa (más `none`: sin oportunidad listada) sobre
+     * el mismo universo filtrado que index, ignorando el propio filtro `stages`.
+     */
+    public function stageCounts(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Contact::class);
+
+        $user = $request->user();
+
+        $counts = $this->scopeListedOpportunities(Opportunity::query(), $user)
+            ->whereNotNull('pipeline_stage_id')
+            ->whereIn('contact_id', $this->filteredContacts($request)->select('contacts.id'))
+            ->groupBy('pipeline_stage_id')
+            ->selectRaw('pipeline_stage_id, COUNT(DISTINCT contact_id) AS total')
+            ->pluck('total', 'pipeline_stage_id')
+            ->map(fn ($total) => (int) $total)
+            ->all();
+
+        $counts['none'] = $this->filteredContacts($request)
+            ->whereDoesntHave('opportunities', fn ($o) => $this->scopeListedOpportunities($o, $user))
+            ->count();
+
+        return response()->json(['data' => $counts]);
+    }
+
+    /**
+     * Contactos visibles para el usuario con los filtros del listado aplicados
+     * (todos salvo `stages` y el orden), compartido por index y stageCounts.
+     */
+    private function filteredContacts(Request $request): Builder
+    {
+        $user = $request->user();
+        $search = trim($request->query('search', ''));
+
+        $q = Contact::query()->visibleTo($user);
+
+        if ($search !== '') {
+            $q->where(function ($w) use ($search) {
+                $w->whereLike('name', "%$search%", caseSensitive: false)
+                    ->orWhereLike('phone', "%$search%", caseSensitive: false);
+            });
+        }
+
+        if ($request->filled('source')) {
+            $q->where('source', $request->query('source'));
+        }
+
+        if ($request->filled('branch_id') && ($user->isTenantOwner() || $user->can('branches.view_all'))) {
+            $q->where('branch_id', (int) $request->query('branch_id'));
+        }
+
+        if ($request->filled('tags')) {
+            $q->withTagSlugs($this->parseTagSlugs((string) $request->query('tags')));
+        }
+
+        $this->applyCustomFieldFilters($q, $request);
+
+        // Un contacto cuenta como cliente con ciclo de cobranza activo cuando
+        // tiene el campo de estado cargado con alguno de los valores que el
+        // motor entiende (BillingConfig::STATUSES). No hay flag ni tabla
+        // aparte: la "calificación" ocurre al cargarle ese campo, sea a mano
+        // o por webhook. Sin config habilitada el filtro no aplica — el front
+        // tampoco ofrece el control en ese caso.
+        if ($request->query('billing') === 'clients') {
+            $billingConfig = BillingConfig::where('tenant_id', $user->tenant_id)
+                ->where('enabled', true)
+                ->first();
+
+            if ($billingConfig) {
+                $q->where(function ($w) use ($billingConfig) {
+                    foreach (BillingConfig::STATUSES as $status) {
+                        $w->orWhereRaw('custom_data ->> ? = ?', [$billingConfig->status_field_key, $status]);
+                    }
+                });
+            }
+        }
+
+        return $q;
+    }
+
+    /** Oportunidades que el listado de contactos muestra: visibles para el usuario y no archivadas. */
+    private function scopeListedOpportunities(Builder|Relation $query, User $user): Builder|Relation
+    {
+        return $query->visibleTo($user)->where('status', '!=', 'archived');
+    }
+
+    /**
+     * `stages=<id>,<id>,none`: el contacto tiene alguna oportunidad listada en
+     * esas etapas, o (con `none`) no tiene ninguna. Ids ajenos no matchean nada.
+     */
+    private function applyStageFilter(Builder $q, Request $request): void
+    {
+        $tokens = array_filter(
+            array_map('trim', explode(',', (string) $request->query('stages', ''))),
+            fn (string $token) => $token !== '',
+        );
+        if ($tokens === []) {
+            return;
+        }
+
+        $user = $request->user();
+        $includeNone = in_array('none', $tokens, true);
+        $stageIds = array_values(array_map('intval', array_filter($tokens, 'ctype_digit')));
+
+        $q->where(function (Builder $w) use ($stageIds, $includeNone, $user) {
+            $w->whereRaw('1 = 0');
+            if ($stageIds !== []) {
+                $w->orWhereHas('opportunities', fn ($o) => $this->scopeListedOpportunities($o, $user)
+                    ->whereIn('pipeline_stage_id', $stageIds));
+            }
+            if ($includeNone) {
+                $w->orWhereDoesntHave('opportunities', fn ($o) => $this->scopeListedOpportunities($o, $user));
+            }
+        });
     }
 
     public function summary(Request $request): JsonResponse
@@ -241,11 +323,17 @@ class ContactController extends Controller
     {
         $this->authorize('view', $contact);
 
+        $user = $request->user();
+
         $contact->load([
             'tags',
             'conversations' => fn ($c) => $c->latest('last_message_at')
                 ->with(['pipelineStage:id,name', 'assignedUser:id,name,email'])
                 ->limit(5),
+            'opportunities' => fn ($o) => $this->scopeListedOpportunities($o, $user)
+                ->with(['pipelineStage:id,name,color,outcome', 'pipeline:id,name'])
+                ->orderByDesc('updated_at')
+                ->orderByDesc('id'),
             // whereHas aplica el BranchScope de Conversation; los huérfanos (conversación borrada) quedan visibles.
             'adReferrals' => fn ($q) => $q
                 ->where(fn ($q) => $q->whereNull('conversation_id')->orWhereHas('conversation'))
