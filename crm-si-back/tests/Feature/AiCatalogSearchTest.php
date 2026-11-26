@@ -178,4 +178,38 @@ class AiCatalogSearchTest extends TestCase
 
         $this->assertSame(0, $result['matches']);
     }
+
+    public function test_products_from_earlier_messages_stay_in_context_when_the_latest_names_none(): void
+    {
+        $tenant = Tenant::create(['name' => 'Taquito']);
+        $headphones = Product::create(['tenant_id' => $tenant->id, 'name' => 'Auriculares Boca Juniors - Edición Exclusiva', 'price' => 9100]);
+        Product::create(['tenant_id' => $tenant->id, 'name' => 'Campana Racing Club coleccionable', 'price' => 5000]);
+
+        $prompt = $this->prompt($tenant->id, [
+            ['role' => 'user', 'content' => '¿Seguro no tenés auriculares?'],
+            ['role' => 'assistant', 'content' => 'Sí: Auriculares Boca Juniors - Edición Exclusiva, $9.100.'],
+            ['role' => 'user', 'content' => '¿Tenés acceso al catálogo de WhatsApp?'],
+        ]);
+
+        // La IA sigue viendo los auriculares que ya ofreció, con su ID para mandar la ficha.
+        $earlier = explode('## Productos de mensajes anteriores', $prompt)[1] ?? '';
+        $this->assertStringContainsString("Auriculares Boca Juniors - Edición Exclusiva — ID {$headphones->id}", $earlier);
+        $this->assertStringNotContainsString('Campana Racing', $earlier);
+    }
+
+    public function test_earlier_products_only_reach_back_three_customer_messages(): void
+    {
+        $tenant = Tenant::create(['name' => 'Taquito']);
+        Product::create(['tenant_id' => $tenant->id, 'name' => 'Mate Boca', 'price' => 100]);
+
+        $prompt = $this->prompt($tenant->id, [
+            ['role' => 'user', 'content' => '¿Tenés mates?'],
+            ['role' => 'user', 'content' => 'Hola'],
+            ['role' => 'user', 'content' => 'Buen día'],
+            ['role' => 'user', 'content' => 'Gracias'],
+            ['role' => 'user', 'content' => '¿Hacen envíos?'],
+        ]);
+
+        $this->assertStringNotContainsString('Mate Boca', $prompt);
+    }
 }

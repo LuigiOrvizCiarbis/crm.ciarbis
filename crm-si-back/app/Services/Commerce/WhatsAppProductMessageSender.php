@@ -22,6 +22,8 @@ class WhatsAppProductMessageSender
 {
     public const MAX_PRODUCTS = 30;
 
+    public const CATALOG_BODY = 'Mirá nuestro catálogo y armá tu carrito acá mismo.';
+
     /** Código de Meta para un parámetro inválido; con "catalog" en el detalle, el producto no está en el catálogo. */
     private const META_INVALID_PARAMETER = 131009;
 
