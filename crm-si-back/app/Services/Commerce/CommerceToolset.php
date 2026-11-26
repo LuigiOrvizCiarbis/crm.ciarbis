@@ -205,7 +205,7 @@ class CommerceToolset implements AiToolset
                 $ids,
                 null,
             );
-        } catch (CatalogUnavailableException) {
+        } catch (CatalogUnavailableException|CatalogItemsUnavailableException) {
             return self::CARDS_UNAVAILABLE;
         } catch (Throwable $e) {
             $this->logFailure(self::SHOW_PRODUCTS, $e);

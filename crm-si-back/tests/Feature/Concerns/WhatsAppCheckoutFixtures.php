@@ -260,6 +260,20 @@ trait WhatsAppCheckoutFixtures
     /** Si es true, Meta responde a los mensajes de catálogo/productos que no los encuentra (131009). */
     protected bool $catalogProductsMissing = false;
 
+    /** @var list<string> Retailer ids que Meta todavía no habilitó: los rechaza de a uno, como en producción. */
+    protected array $missingRetailerIds = [];
+
+    /** Primer retailer id del mensaje que Meta no tiene habilitado. */
+    private function firstMissingRetailerId(Request $request): ?string
+    {
+        $interactive = $request['interactive'] ?? [];
+        $ids = ($interactive['type'] ?? null) === 'product'
+            ? [$interactive['action']['product_retailer_id'] ?? null]
+            : array_column($interactive['action']['sections'][0]['product_items'] ?? [], 'product_retailer_id');
+
+        return array_values(array_intersect($ids, $this->missingRetailerIds))[0] ?? null;
+    }
+
     /** WhatsApp Cloud API, Woo REST y Mercado Pago simulados. */
     protected function fakeCommerce(): void
     {
@@ -272,6 +286,11 @@ trait WhatsAppCheckoutFixtures
                     'message' => '(#131009) Parameter value is not valid',
                     'code' => 131009,
                     'error_data' => ['messaging_product' => 'whatsapp', 'details' => 'Products not found in FB catalog'],
+                ]], 400),
+                str_contains($url, 'graph.facebook.com') && ($missing = $this->firstMissingRetailerId($request)) !== null => Http::response(['error' => [
+                    'message' => '(#131009) Parameter value is not valid',
+                    'code' => 131009,
+                    'error_data' => ['messaging_product' => 'whatsapp', 'details' => "product not found for product_retailer_id, {$missing}, in catalog_id, catalog-1"],
                 ]], 400),
                 str_contains($url, 'graph.facebook.com') => Http::response(['messages' => [['id' => 'wamid.'.uniqid()]]]),
                 $method === 'POST' && str_ends_with($url, '/wc/v3/orders') => Http::response(['id' => 501, 'number' => '1001', 'total' => $this->wooOrderTotal, 'status' => 'on-hold'], 201),

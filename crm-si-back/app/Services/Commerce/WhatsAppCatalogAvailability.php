@@ -5,9 +5,10 @@ namespace App\Services\Commerce;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * Recuerda por unas horas que Meta no encontró los productos del catálogo de
- * un tenant, para que la IA no siga ofreciendo fichas que no se pueden enviar.
- * Un envío exitoso (por ejemplo, desde el botón del chat) lo vuelve a habilitar.
+ * Recuerda por unas horas lo que Meta no pudo enviar del catálogo de un
+ * tenant: productos puntuales todavía no habilitados en WhatsApp, o el
+ * catálogo entero. Así la IA no sigue ofreciendo fichas que van a fallar. Un
+ * envío exitoso del catálogo o de fichas vuelve a habilitar el catálogo.
  */
 class WhatsAppCatalogAvailability
 {
@@ -28,8 +29,30 @@ class WhatsAppCatalogAvailability
         Cache::forget($this->key($tenantId));
     }
 
+    /** Meta no tiene habilitado ese producto en WhatsApp: no se vuelve a ofrecer por unas horas. */
+    public function markProductMissing(int $tenantId, string $retailerId): void
+    {
+        Cache::put($this->productKey($tenantId, $retailerId), true, now()->addHours(self::TTL_HOURS));
+    }
+
+    /**
+     * @param  list<string>  $retailerIds
+     * @return list<string>
+     */
+    public function withoutMissingProducts(int $tenantId, array $retailerIds): array
+    {
+        return array_values(array_filter($retailerIds, fn (string $id) => ! Cache::has($this->productKey($tenantId, $id))));
+    }
+
     private function key(int $tenantId): string
     {
-        return "whatsapp-catalog-unavailable:{$tenantId}";
+        // Clave nueva: la anterior ("whatsapp-catalog-unavailable") también se
+        // ponía por un solo producto rechazado y no debe seguir bloqueando.
+        return "whatsapp-catalog-blocked:{$tenantId}";
+    }
+
+    private function productKey(int $tenantId, string $retailerId): string
+    {
+        return "whatsapp-catalog-missing:{$tenantId}:{$retailerId}";
     }
 }
