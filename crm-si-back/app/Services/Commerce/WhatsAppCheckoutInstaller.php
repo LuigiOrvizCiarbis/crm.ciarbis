@@ -25,14 +25,16 @@ class WhatsAppCheckoutInstaller
     public function __construct(
         private readonly WhatsAppFlowService $flows,
         private readonly WhatsAppCommerceSettings $commerceSettings,
+        private readonly WhatsAppCheckoutTemplates $templates,
     ) {}
 
     /**
      * Un error del formulario corta la instalación (lo muestra el controller);
-     * uno de la configuración del catálogo sólo se informa, porque el cliente
-     * puede activarlo a mano en WhatsApp Manager.
+     * uno de la configuración del catálogo o de las plantillas sólo se informa:
+     * el catálogo se puede activar a mano y sin plantilla sólo se pierde el
+     * aviso con la ventana cerrada.
      *
-     * @return list<array{whatsapp_config_id: int, flow_id: int, status: string, commerce_error: ?string}>
+     * @return list<array{whatsapp_config_id: int, flow_id: int, status: string, commerce_error: ?string, templates: array<string, ?string>, template_error: ?string}>
      */
     public function install(int $tenantId): array
     {
@@ -53,12 +55,15 @@ class WhatsAppCheckoutInstaller
             }
 
             $flow = $this->installFlow($config, $tenantId, $json);
+            $templates = $this->templates->ensure($config, $tenantId);
 
             $results[] = [
                 'whatsapp_config_id' => $config->id,
                 'flow_id' => $flow->id,
                 'status' => $flow->status->value,
                 'commerce_error' => $commerceError,
+                'templates' => $templates['statuses'],
+                'template_error' => $templates['error'],
             ];
         }
 

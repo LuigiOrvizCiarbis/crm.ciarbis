@@ -44,6 +44,9 @@ export interface WhatsAppCheckoutInstallResult {
   status: string
   // Meta no activó el carrito/catálogo en ese número: el formulario quedó instalado pero no llegan carritos.
   commerce_error: string | null
+  // Estado en Meta de las plantillas de aviso creadas por la instalación (null = no se pudo crear).
+  templates: Record<"pedido_pagado" | "pedido_despachado", string | null>
+  template_error: string | null
 }
 
 export type WooTestErrorCode =
