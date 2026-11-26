@@ -9,6 +9,7 @@ use App\Models\Scopes\TenantScope;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppFlow;
 use App\Services\Flows\WhatsAppFlowService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
@@ -113,14 +114,19 @@ class WhatsAppCheckoutInstaller
         return $flow;
     }
 
-    /** Un formulario publicado no se edita: se clona, se publica la copia y se depreca el viejo. */
+    /**
+     * Un formulario publicado no se edita: se clona, se publica la copia y se
+     * depreca el viejo. La copia recién toma la marca de sistema ya publicada:
+     * si Meta rechaza el JSON nuevo, el formulario viejo sigue atendiendo.
+     */
     private function replacePublished(WhatsAppFlow $old, string $json): WhatsAppFlow
     {
-        $copy = $this->flows->clone($old, self::FLOW_NAME);
-        $old->forceFill(['system_key' => null])->save();
-        $copy->forceFill(['system_key' => WhatsAppFlow::SYSTEM_CHECKOUT])->save();
+        $copy = $this->flows->publish($this->flows->updateJson($this->flows->clone($old, self::FLOW_NAME), $json));
 
-        $copy = $this->flows->publish($this->flows->updateJson($copy, $json));
+        DB::transaction(function () use ($old, $copy) {
+            $old->forceFill(['system_key' => null])->save();
+            $copy->forceFill(['system_key' => WhatsAppFlow::SYSTEM_CHECKOUT])->save();
+        });
         $this->flows->deprecate($old);
 
         return $copy;
