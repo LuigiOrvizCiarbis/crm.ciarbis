@@ -1,15 +1,16 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import Link from "next/link"
 import {
-  ArrowUpRight,
+  ArrowRight,
   Instagram,
   Loader2,
   MessageCircle,
   Plus,
   RefreshCw,
   Search,
+  Send,
   Trash2,
   Users,
 } from "lucide-react"
@@ -25,12 +26,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { StatStrip } from "@/components/ui/stat-strip"
+import { StatStrip, type Stat } from "@/components/ui/stat-strip"
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table"
 import { useToast } from "@/components/Toast"
 import { Channel, WhatsAppTemplate } from "@/data/types"
@@ -41,6 +42,8 @@ import { BroadcastCampaign, getBroadcasts } from "@/lib/api/broadcasts"
 import { getPipelineStages, PipelineStage } from "@/lib/api/pipeline"
 import { getTags, Tag } from "@/lib/api/tags"
 import { ContactField, getContactFields } from "@/lib/api/contact-fields"
+import { formatCurrency } from "@/lib/currency"
+import { templateCategoryLabel } from "@/lib/whatsapp-templates"
 import { cn } from "@/lib/utils"
 import { usePermission } from "@/hooks/usePermission"
 import { NewBroadcastDialog } from "./NewBroadcastDialog"
@@ -49,10 +52,13 @@ import { NewTemplateDialog } from "./NewTemplateDialog"
 const templateStateLabel: Record<string, string> = {
   ALL: "Todos los estados",
   APPROVED: "Aprobadas",
-  PENDING: "Pendientes",
+  PENDING: "En revisión",
+  PAUSED: "Pausadas",
   REJECTED: "Rechazadas",
   DISABLED: "Deshabilitadas",
 }
+
+const neutralChip = "border-border bg-muted text-muted-foreground"
 
 /**
  * Estados de plantilla de Meta. Solo APPROVED se puede enviar: PAUSED y
@@ -87,22 +93,24 @@ const templateStatus: Record<string, { label: string; className: string; hint?: 
     className: "border-info/30 bg-info/10 text-info",
     hint: "Meta está revisando la apelación.",
   },
-  PENDING_DELETION: { label: "Eliminación pendiente", className: "bg-muted text-muted-foreground" },
-  DELETED: { label: "Eliminada", className: "bg-muted text-muted-foreground" },
-  UNKNOWN: { label: "Estado desconocido", className: "bg-muted text-muted-foreground" },
+  PENDING_DELETION: { label: "Eliminación pendiente", className: neutralChip },
+  DELETED: { label: "Eliminada", className: neutralChip },
+  UNKNOWN: { label: "Estado desconocido", className: neutralChip },
 }
 
 const campaignStatus: Record<string, { label: string; className: string }> = {
-  scheduled: { label: "Programada", className: "bg-info/10 text-info" },
-  processing: { label: "En curso", className: "bg-warning/10 text-warning" },
-  completed: { label: "Completada", className: "bg-success/10 text-success" },
-  partial: { label: "Parcial", className: "bg-warning/10 text-warning" },
-  failed: { label: "Con errores", className: "bg-destructive/10 text-destructive" },
-  cancelled: { label: "Cancelada", className: "bg-muted text-muted-foreground" },
+  scheduled: { label: "Programada", className: "border-info/30 bg-info/10 text-info" },
+  processing: { label: "En curso", className: "border-warning/30 bg-warning/10 text-warning" },
+  completed: { label: "Completada", className: "border-success/30 bg-success/10 text-success" },
+  partial: { label: "Parcial", className: "border-warning/30 bg-warning/10 text-warning" },
+  failed: { label: "Con errores", className: "border-destructive/30 bg-destructive/10 text-destructive" },
+  cancelled: { label: "Cancelada", className: neutralChip },
 }
 
-const currency = new Intl.NumberFormat("es-AR", { style: "currency", currency: "USD", minimumFractionDigits: 2 })
+const STAT_LABELS = ["Programadas", "En curso", "Mensajes enviados", "Inversión registrada"] as const
+
 const dateTime = new Intl.DateTimeFormat("es-AR", { dateStyle: "medium", timeStyle: "short" })
+const formatCount = (value: number) => value.toLocaleString("es-AR")
 
 const isConnectedBroadcastChannel = (channel: Channel) =>
   channel.status === "active"
@@ -121,7 +129,18 @@ const campaignProgress = (campaign: BroadcastCampaign) =>
 
 // Mientras la campaña no terminó se muestra el costo estimado; después, el real.
 const campaignCost = (campaign: BroadcastCampaign) =>
-  currency.format(["scheduled", "processing"].includes(campaign.status) ? campaign.estimated_cost_usd : campaign.actual_cost_usd)
+  formatCurrency(["scheduled", "processing"].includes(campaign.status) ? campaign.estimated_cost_usd : campaign.actual_cost_usd, "USD")
+
+// Un cero no es un logro ni un problema: el color aparece solo cuando hay envíos o errores.
+const sentClass = (campaign: BroadcastCampaign) =>
+  cn("tabular-nums", campaign.sent_count ? "font-medium text-success" : "text-muted-foreground")
+const errorClass = (campaign: BroadcastCampaign) =>
+  cn("tabular-nums", campaign.error_count ? "font-medium text-destructive" : "text-muted-foreground")
+
+function CampaignStatusBadge({ campaign, className }: { campaign: BroadcastCampaign; className?: string }) {
+  const state = campaignStatus[campaign.status] ?? { label: campaign.status, className: neutralChip }
+  return <Badge variant="outline" className={cn(state.className, className)}>{state.label}</Badge>
+}
 
 const historyColumns: DataTableColumn<BroadcastCampaign>[] = [
   {
@@ -147,10 +166,7 @@ const historyColumns: DataTableColumn<BroadcastCampaign>[] = [
   {
     id: "status",
     header: "Estado",
-    cell: (campaign) => {
-      const state = campaignStatus[campaign.status]
-      return <Badge className={cn("border-0", state.className)}>{state.label}</Badge>
-    },
+    cell: (campaign) => <CampaignStatusBadge campaign={campaign} />,
   },
   {
     id: "audience",
@@ -158,33 +174,57 @@ const historyColumns: DataTableColumn<BroadcastCampaign>[] = [
     cell: (campaign) => (
       <div className="flex min-w-28 items-center gap-2">
         <Users className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-        <span className="tabular-nums">{campaign.audience_count.toLocaleString("es-AR")}</span>
+        <span className="tabular-nums">{formatCount(campaign.audience_count)}</span>
         <Progress value={campaignProgress(campaign)} className="h-1.5 w-12" aria-label="Avance del envío" />
       </div>
     ),
   },
-  {
-    id: "sent",
-    header: "Enviado",
-    align: "right",
-    className: "font-medium tabular-nums text-success",
-    cell: (campaign) => campaign.sent_count.toLocaleString("es-AR"),
-  },
-  {
-    id: "errors",
-    header: "Error",
-    align: "right",
-    className: (campaign) => cn("tabular-nums", campaign.error_count ? "font-medium text-destructive" : "text-muted-foreground"),
-    cell: (campaign) => campaign.error_count.toLocaleString("es-AR"),
-  },
+  { id: "sent", header: "Enviado", align: "right", className: sentClass, cell: (campaign) => formatCount(campaign.sent_count) },
+  { id: "errors", header: "Error", align: "right", className: errorClass, cell: (campaign) => formatCount(campaign.error_count) },
   { id: "cost", header: "Gasto", align: "right", className: "tabular-nums", cell: campaignCost },
   {
     id: "scheduled_at",
     header: "Fecha y hora",
+    align: "right",
     className: "text-sm tabular-nums text-muted-foreground",
     cell: (campaign) => dateTime.format(new Date(campaign.scheduled_at)),
   },
 ]
+
+function PageHeader({ children }: { children?: ReactNode }) {
+  return (
+    <header className="sticky top-0 z-40 flex h-[75px] shrink-0 items-center gap-3 border-b border-border bg-background px-4 md:px-6 lg:px-8">
+      <h1 className="shrink-0 text-xl font-bold tracking-tight md:text-2xl">Difusiones</h1>
+      {children}
+    </header>
+  )
+}
+
+function SectionHeading({ title, description, children }: { title: string; description: string; children?: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+        <h2 className="text-base font-semibold">{title}</h2>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+const HISTORY_TITLE = "Historial de difusiones"
+const HISTORY_DESCRIPTION = "Campañas enviadas y programadas desde el CRM."
+
+/** Filas fantasma de la lista de teléfonos, con la misma altura que una fila real. */
+function MobileSkeletonRows() {
+  return Array.from({ length: 3 }, (_, index) => (
+    <li key={index} className="space-y-2 px-4 py-3" aria-hidden="true">
+      <Skeleton className="h-4 w-2/3" />
+      <Skeleton className="h-3 w-1/3" />
+      <Skeleton className="h-3 w-1/2" />
+    </li>
+  ))
+}
 
 export function BroadcastsDashboard() {
   const { addToast } = useToast()
@@ -275,6 +315,8 @@ export function BroadcastsDashboard() {
     })
   }, [query, stateFilter, templates])
 
+  const hasApprovedTemplate = templates.some((template) => template.status === "APPROVED")
+
   const totals = useMemo(() => ({
     scheduled: campaigns.filter((campaign) => campaign.status === "scheduled").length,
     active: campaigns.filter((campaign) => campaign.status === "processing").length,
@@ -320,14 +362,17 @@ export function BroadcastsDashboard() {
   // Mismas acciones en la tabla (desktop) y en la lista de teléfonos; en táctil crecen a 40px.
   const renderTemplateActions = (template: WhatsAppTemplate) => (
     <div className="flex items-center justify-end gap-1">
-      <Button size="sm" variant="ghost" disabled={!canSend || template.status !== "APPROVED"} onClick={() => openDialog(template.id)}>
-        Usar <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
-      </Button>
+      {canSend && (
+        <Button size="sm" variant="ghost" disabled={template.status !== "APPROVED"} onClick={() => openDialog(template.id)}>
+          <Send className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+          Usar
+        </Button>
+      )}
       {canDeleteTemplate && (
         <Button
           variant="ghost"
           size="icon"
-          className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive pointer-coarse:size-10"
+          className="size-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive pointer-coarse:size-10"
           onClick={() => setDeleteTarget(template)}
           disabled={deletingTemplateId === template.id}
           aria-label={`Eliminar plantilla ${template.name} (${template.language})`}
@@ -341,19 +386,13 @@ export function BroadcastsDashboard() {
 
   const templateColumns: DataTableColumn<WhatsAppTemplate>[] = [
     {
-      id: "reference",
-      header: "Referencia",
-      className: "font-mono text-xs text-muted-foreground",
-      cell: (template) => `#${template.external_id || template.id}`,
-    },
-    {
       id: "name",
       header: "Nombre",
       rowHeader: true,
       cell: (template) => (
         <>
           <p className="font-medium">{template.name}</p>
-          <p className="text-xs text-muted-foreground">{template.category} · {template.language}</p>
+          <p className="text-xs text-muted-foreground">{templateCategoryLabel(template.category)} · {template.language}</p>
         </>
       ),
     },
@@ -361,7 +400,7 @@ export function BroadcastsDashboard() {
       id: "status",
       header: "Estado",
       cell: (template) => {
-        const state = templateStatus[template.status] ?? { label: template.status, className: "bg-muted text-muted-foreground" }
+        const state = templateStatus[template.status] ?? { label: template.status, className: neutralChip }
         return (
           <>
             <Badge variant="outline" className={state.className}>{state.label}</Badge>
@@ -371,8 +410,15 @@ export function BroadcastsDashboard() {
       },
     },
     {
+      id: "reference",
+      header: "Referencia",
+      className: "font-mono text-xs text-muted-foreground",
+      cell: (template) => `#${template.external_id || template.id}`,
+    },
+    {
       id: "created_at",
       header: "Creación",
+      align: "right",
       className: "text-sm tabular-nums text-muted-foreground",
       cell: (template) => dateTime.format(new Date(template.created_at)),
     },
@@ -382,14 +428,16 @@ export function BroadcastsDashboard() {
   if (loading) {
     return (
       <>
-        <div className="sticky top-0 z-40 flex h-[75px] shrink-0 items-center gap-4 border-b border-border bg-background px-4 md:px-6 lg:px-8">
-          <Skeleton className="h-6 w-32" />
-          <Skeleton className="h-9 w-56" />
-          <Skeleton className="ml-auto h-9 w-40" />
-        </div>
-        <div className="px-4 py-6 md:px-6 lg:px-8">
-          <Skeleton className="h-14 w-full max-w-2xl" />
-          <Skeleton className="mt-8 h-72 w-full" />
+        <PageHeader>
+          <Skeleton className="h-10 min-w-0 flex-1 md:h-9 md:w-64 md:flex-initial" />
+        </PageHeader>
+        <div className="flex-1 px-4 py-6 md:px-6 lg:px-8" aria-busy="true">
+          <StatStrip loading stats={STAT_LABELS.map((label) => ({ label, value: null }))} />
+          <section className="mt-10">
+            <SectionHeading title={HISTORY_TITLE} description={HISTORY_DESCRIPTION} />
+            <ul className="mt-3 divide-y divide-border rounded-lg border border-border md:hidden"><MobileSkeletonRows /></ul>
+            <DataTable className="mt-3 hidden md:block" loading columns={historyColumns} data={[]} getRowId={(campaign) => campaign.id} />
+          </section>
         </div>
       </>
     )
@@ -398,9 +446,7 @@ export function BroadcastsDashboard() {
   if (loadError) {
     return (
       <>
-        <header className="sticky top-0 z-40 flex h-[75px] shrink-0 items-center border-b border-border bg-background px-4 md:px-6 lg:px-8">
-          <h1 className="text-xl font-semibold tracking-tight">Difusiones</h1>
-        </header>
+        <PageHeader />
         <div role="alert" className="flex flex-col items-center gap-3 px-4 py-20 text-center">
           <p className="font-medium text-destructive">No se pudieron cargar las difusiones.</p>
           <p className="max-w-md text-sm text-muted-foreground">{loadError}</p>
@@ -413,12 +459,17 @@ export function BroadcastsDashboard() {
     )
   }
 
-  const stats = [
-    { label: "Programadas", value: totals.scheduled.toLocaleString("es-AR") },
-    { label: "En curso", value: totals.active.toLocaleString("es-AR") },
-    { label: "Mensajes enviados", value: totals.sent.toLocaleString("es-AR") },
-    { label: "Inversión registrada", value: currency.format(totals.spent) },
+  const stats: Stat[] = [
+    { label: STAT_LABELS[0], value: formatCount(totals.scheduled) },
+    { label: STAT_LABELS[1], value: formatCount(totals.active) },
+    { label: STAT_LABELS[2], value: formatCount(totals.sent) },
+    { label: STAT_LABELS[3], value: formatCurrency(totals.spent, "USD") },
   ]
+
+  // Sin plantilla aprobada el botón de nueva difusión queda deshabilitado; el vacío explica por qué.
+  const historyEmptyMessage = hasApprovedTemplate || selectedChannel?.type !== ChannelType.WHATSAPP
+    ? "Todavía no hay difusiones. La primera puede salir hoy."
+    : "Todavía no hay difusiones. Para enviar la primera necesitás una plantilla aprobada por Meta."
 
   const templatesEmptyMessage = query.trim() || stateFilter !== "ALL"
     ? "Ninguna plantilla coincide con los filtros."
@@ -426,17 +477,17 @@ export function BroadcastsDashboard() {
       ? "Todavía no hay plantillas en este canal. Creá una o sincronizá las de Meta."
       : "Todavía no hay plantillas en este canal."
 
+  const isWhatsAppChannel = selectedChannel?.type === ChannelType.WHATSAPP
+
   return (
     <>
-      <header className="sticky top-0 z-40 flex h-[75px] shrink-0 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:px-6 lg:px-8">
-        <h1 className="shrink-0 text-xl font-semibold tracking-tight">Difusiones</h1>
-
+      <PageHeader>
         {connectedChannels.length > 0 && (
           <Select
             value={channelId ? String(channelId) : undefined}
             onValueChange={(value) => setChannelId(Number(value))}
           >
-            <SelectTrigger className="h-10 min-w-0 flex-1 md:h-9 md:w-[210px] md:flex-initial" aria-label="Canal de difusión">
+            <SelectTrigger className="h-10 min-w-0 flex-1 md:h-9 md:w-auto md:max-w-80 md:flex-initial" aria-label="Canal de difusión">
               <SelectValue placeholder="Elegí un canal" />
             </SelectTrigger>
             <SelectContent>
@@ -455,34 +506,29 @@ export function BroadcastsDashboard() {
           </Select>
         )}
 
-        <div className="ml-auto flex shrink-0 items-center gap-2">
-          {/* En teléfonos el botón queda en ícono para que el selector de canal no se corte. */}
+        {canSend && (
+          // En teléfonos el botón queda en ícono para que el selector de canal no se corte.
           <Button
-            size="sm"
-            className="h-9 max-sm:size-10 max-sm:p-0"
+            className="ml-auto shrink-0 max-sm:size-10 max-sm:p-0"
             onClick={() => openDialog()}
-            disabled={!canSend || !templates.some((template) => template.status === "APPROVED")}
+            disabled={!hasApprovedTemplate}
             aria-label="Nueva difusión"
           >
             <Plus className="h-4 w-4 sm:mr-2" />
             <span className="hidden sm:inline">Nueva difusión</span>
           </Button>
-        </div>
-      </header>
+        )}
+      </PageHeader>
 
       <div className="flex-1 px-4 py-6 md:px-6 lg:px-8">
         <StatStrip stats={stats} />
 
         <section className="mt-10">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-base font-semibold">Historial de difusiones</h2>
-            <p className="text-sm text-muted-foreground">Campañas enviadas y programadas desde el CRM.</p>
-          </div>
+          <SectionHeading title={HISTORY_TITLE} description={HISTORY_DESCRIPTION} />
 
-          {/* Teléfonos: lista de tarjetas; la tabla de siete columnas no entra en 390px. */}
+          {/* Teléfonos: lista de filas; la tabla de siete columnas no entra en 390px. */}
           <ul className="mt-3 divide-y divide-border rounded-lg border border-border md:hidden">
             {campaigns.map((campaign) => {
-              const state = campaignStatus[campaign.status]
               const body = (
                 <>
                   <div className="flex items-start justify-between gap-3">
@@ -490,21 +536,21 @@ export function BroadcastsDashboard() {
                       <p className="font-medium [overflow-wrap:anywhere]">{campaign.name}</p>
                       <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{campaign.template.name} · {campaign.channel.name}</p>
                     </div>
-                    <Badge className={cn("shrink-0 border-0", state.className)}>{state.label}</Badge>
+                    <CampaignStatusBadge campaign={campaign} className="shrink-0" />
                   </div>
                   <div className="mt-3 flex items-center gap-2 text-sm">
                     <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    <span className="tabular-nums">{campaign.audience_count.toLocaleString("es-AR")} contactos</span>
+                    <span className="tabular-nums">{formatCount(campaign.audience_count)} contactos</span>
                     <Progress value={campaignProgress(campaign)} className="ml-auto h-1.5 w-20" aria-label="Avance del envío" />
                   </div>
                   <dl className="mt-3 grid grid-cols-3 gap-2 text-sm">
                     <div>
                       <dt className="text-xs text-muted-foreground">Enviado</dt>
-                      <dd className="font-medium tabular-nums text-success">{campaign.sent_count.toLocaleString("es-AR")}</dd>
+                      <dd className={sentClass(campaign)}>{formatCount(campaign.sent_count)}</dd>
                     </div>
                     <div>
                       <dt className="text-xs text-muted-foreground">Error</dt>
-                      <dd className={cn("tabular-nums", campaign.error_count ? "font-medium text-destructive" : "text-muted-foreground")}>{campaign.error_count.toLocaleString("es-AR")}</dd>
+                      <dd className={errorClass(campaign)}>{formatCount(campaign.error_count)}</dd>
                     </div>
                     <div>
                       <dt className="text-xs text-muted-foreground">Gasto</dt>
@@ -530,9 +576,7 @@ export function BroadcastsDashboard() {
               )
             })}
             {campaigns.length === 0 && (
-              <li className="px-4 py-10 text-center text-sm text-muted-foreground">
-                Todavía no hay difusiones. La primera puede salir hoy.
-              </li>
+              <li className="px-4 py-10 text-center text-sm text-muted-foreground">{historyEmptyMessage}</li>
             )}
           </ul>
 
@@ -541,45 +585,41 @@ export function BroadcastsDashboard() {
             columns={historyColumns}
             data={campaigns}
             getRowId={(campaign) => String(campaign.id)}
-            emptyLabel="Todavía no hay difusiones. La primera puede salir hoy."
+            emptyLabel={historyEmptyMessage}
           />
         </section>
 
         <section className="mt-12">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-baseline gap-x-3">
-              <h2 className="text-base font-semibold">Plantillas de Meta</h2>
-              <p className="text-sm text-muted-foreground">Estado de aprobación para este canal.</p>
-            </div>
+          <SectionHeading title="Plantillas de Meta" description="Estado de aprobación para este canal.">
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative min-w-52 flex-1 max-md:basis-full">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar plantilla" aria-label="Buscar plantilla" className="h-9 pl-9 max-md:h-11" />
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar plantilla" aria-label="Buscar plantilla" className="h-9 pl-9 max-md:h-10" />
               </div>
-              <select
-                value={stateFilter}
-                onChange={(event) => setStateFilter(event.target.value)}
-                aria-label="Estado de la plantilla"
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring max-md:h-10 max-md:flex-1 max-md:text-base"
-              >
-                {Object.entries(templateStateLabel).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
+              <Select value={stateFilter} onValueChange={setStateFilter}>
+                <SelectTrigger className="h-9 max-md:h-10 max-md:flex-1 md:w-44" aria-label="Estado de la plantilla">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(templateStateLabel).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {canSyncTemplate && (
-                <Button variant="outline" size="sm" className="h-9 max-md:h-10" onClick={handleSync} disabled={syncing || selectedChannel?.type !== ChannelType.WHATSAPP}>
+                <Button variant="outline" className="max-md:h-10" onClick={handleSync} disabled={syncing || !isWhatsAppChannel}>
                   <RefreshCw className={cn("mr-2 h-4 w-4", syncing && "animate-spin")} />
                   Sincronizar
                 </Button>
               )}
               {canCreateTemplate && (
-                <Button size="sm" className="h-9 max-md:h-10" onClick={() => setNewTemplateOpen(true)} disabled={selectedChannel?.type !== ChannelType.WHATSAPP}>
+                <Button className="max-md:h-10" onClick={() => setNewTemplateOpen(true)} disabled={!isWhatsAppChannel}>
                   <Plus className="mr-2 h-4 w-4" />
                   Crear plantilla
                 </Button>
               )}
             </div>
-          </div>
+          </SectionHeading>
 
           <div className="mt-3 overflow-hidden rounded-lg border border-border">
             {connectedChannels.length === 0 ? (
@@ -588,25 +628,20 @@ export function BroadcastsDashboard() {
                 <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
                   Conectá WhatsApp o Instagram desde Configuración para empezar a difundir.
                 </p>
-                <Button variant="outline" size="sm" className="mt-4 h-9" asChild>
+                <Button variant="outline" size="sm" className="mt-4" asChild>
                   <Link href="/configuracion/canales">
                     Conectar un canal
-                    <ArrowUpRight className="ml-2 h-4 w-4" />
+                    <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
               </div>
             ) : selectedChannel?.type === ChannelType.INSTAGRAM ? (
               <div className="px-6 py-14 text-center">
-                <Instagram className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+                <Instagram className="mx-auto mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
                 <h3 className="font-semibold">Difusiones de Instagram en preparación</h3>
                 <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
                   El canal ya está visible; el envío masivo se habilita cuando Meta lo admita en este flujo.
                 </p>
-              </div>
-            ) : templatesLoading ? (
-              <div className="flex items-center justify-center gap-2 py-14 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Cargando plantillas…
               </div>
             ) : templatesError ? (
               <div role="alert" className="flex flex-col items-center gap-3 px-6 py-14 text-center">
@@ -619,42 +654,43 @@ export function BroadcastsDashboard() {
               </div>
             ) : (
               <>
-              <ul className="divide-y divide-border md:hidden">
-                {visibleTemplates.map((template) => {
-                  const state = templateStatus[template.status] ?? { label: template.status, className: "bg-muted text-muted-foreground" }
-                  return (
-                    <li key={template.id} className="px-4 py-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="font-medium [overflow-wrap:anywhere]">{template.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {template.category} · {template.language} · <span className="font-mono">#{template.external_id || template.id}</span>
-                          </p>
+                <ul className="divide-y divide-border md:hidden" aria-busy={templatesLoading || undefined}>
+                  {templatesLoading ? <MobileSkeletonRows /> : visibleTemplates.map((template) => {
+                    const state = templateStatus[template.status] ?? { label: template.status, className: neutralChip }
+                    return (
+                      <li key={template.id} className="px-4 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-medium [overflow-wrap:anywhere]">{template.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {templateCategoryLabel(template.category)} · {template.language} · <span className="font-mono">#{template.external_id || template.id}</span>
+                            </p>
+                          </div>
+                          <Badge variant="outline" className={cn("shrink-0", state.className)}>{state.label}</Badge>
                         </div>
-                        <Badge variant="outline" className={cn("shrink-0", state.className)}>{state.label}</Badge>
-                      </div>
-                      {state.hint && <p className="mt-1 text-xs leading-4 text-muted-foreground">{state.hint}</p>}
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        <span className="text-xs tabular-nums text-muted-foreground">{dateTime.format(new Date(template.created_at))}</span>
-                        {renderTemplateActions(template)}
-                      </div>
+                        {state.hint && <p className="mt-1 text-xs leading-4 text-muted-foreground">{state.hint}</p>}
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <span className="text-xs tabular-nums text-muted-foreground">{dateTime.format(new Date(template.created_at))}</span>
+                          {renderTemplateActions(template)}
+                        </div>
+                      </li>
+                    )
+                  })}
+                  {!templatesLoading && visibleTemplates.length === 0 && (
+                    <li className="px-4 py-10 text-center text-sm text-muted-foreground">
+                      {templatesEmptyMessage}
                     </li>
-                  )
-                })}
-                {visibleTemplates.length === 0 && (
-                  <li className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    {templatesEmptyMessage}
-                  </li>
-                )}
-              </ul>
-              <DataTable
-                className="hidden md:block"
-                variant="plain"
-                columns={templateColumns}
-                data={visibleTemplates}
-                getRowId={(template) => String(template.id)}
-                emptyLabel={templatesEmptyMessage}
-              />
+                  )}
+                </ul>
+                <DataTable
+                  className="hidden md:block"
+                  variant="plain"
+                  loading={templatesLoading}
+                  columns={templateColumns}
+                  data={visibleTemplates}
+                  getRowId={(template) => String(template.id)}
+                  emptyLabel={templatesEmptyMessage}
+                />
               </>
             )}
           </div>
@@ -680,7 +716,7 @@ export function BroadcastsDashboard() {
                 void handleDeleteTemplate()
               }}
               disabled={deletingTemplateId !== null}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className={buttonVariants({ variant: "destructive" })}
             >
               {deletingTemplateId !== null && <Loader2 className="mr-2 size-4 animate-spin" />}
               Eliminar de Meta y del CRM
@@ -689,7 +725,7 @@ export function BroadcastsDashboard() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {canCreateTemplate && selectedChannel?.type === ChannelType.WHATSAPP && (
+      {canCreateTemplate && isWhatsAppChannel && selectedChannel && (
         <NewTemplateDialog
           open={newTemplateOpen}
           onOpenChange={setNewTemplateOpen}
@@ -699,7 +735,7 @@ export function BroadcastsDashboard() {
         />
       )}
 
-      {canSend && selectedChannel?.type === ChannelType.WHATSAPP && (
+      {canSend && isWhatsAppChannel && selectedChannel && (
         <NewBroadcastDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}

@@ -6,6 +6,7 @@ import { Check, FileImage, FileText, Image as ImageIcon, Loader2, Plus, Type, Vi
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/Toast"
 import { useTranslation } from "@/hooks/useTranslation"
@@ -279,19 +280,25 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                   </label>
                   <label className="block space-y-1.5 text-sm font-medium">
                     {t("templateDialog.language")}
-                    <select value={language} onChange={(event) => setLanguage(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
-                      {TEMPLATE_LANGUAGES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                    </select>
+                    <Select value={language} onValueChange={setLanguage}>
+                      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {TEMPLATE_LANGUAGES.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </label>
                 </div>
 
                 {editingTexts ? (<>
                 <label className="block space-y-1.5 text-sm font-medium">
                   {t("templateDialog.category")}
-                  <select value={category} onChange={(event) => setCategory(event.target.value as "MARKETING" | "UTILITY")} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
-                    <option value="UTILITY">{t("templateDialog.categories.utility")}</option>
-                    <option value="MARKETING">{t("templateDialog.categories.marketing")}</option>
-                  </select>
+                  <Select value={category} onValueChange={(value) => setCategory(value as "MARKETING" | "UTILITY")}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="UTILITY">{t("templateDialog.categories.utility")}</SelectItem>
+                      <SelectItem value="MARKETING">{t("templateDialog.categories.marketing")}</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </label>
 
                 <div className="space-y-3 rounded-lg border border-border p-4">
@@ -382,20 +389,18 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                     const otherFlowButton = buttons.some((item, itemIndex) => itemIndex !== index && item.type === "FLOW")
                     return (
                     <div key={index} className="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-[140px_1fr_auto]">
-                      <select
-                        value={button.type}
-                        onChange={(event) => changeButtonType(index, event.target.value as ButtonDraft["type"])}
-                        aria-label={t("templateDialog.buttonType")}
-                        className="h-10 rounded-md border border-input bg-background px-2 text-sm"
-                      >
-                        <option value="QUICK_REPLY">{t("templateDialog.buttonTypes.quickReply")}</option>
-                        <option value="URL">URL</option>
-                        <option value="PHONE_NUMBER">{t("templateDialog.buttonTypes.phone")}</option>
-                        {/* Un cierre con botón de formulario abriría otro formulario con cada respuesta: el backend lo rechaza. */}
-                        {draft ? null : (
-                          <option value="FLOW" disabled={otherFlowButton}>{t("templateDialog.buttonTypes.flow")}</option>
-                        )}
-                      </select>
+                      <Select value={button.type} onValueChange={(value) => changeButtonType(index, value as ButtonDraft["type"])}>
+                        <SelectTrigger className="w-full" aria-label={t("templateDialog.buttonType")}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="QUICK_REPLY">{t("templateDialog.buttonTypes.quickReply")}</SelectItem>
+                          <SelectItem value="URL">URL</SelectItem>
+                          <SelectItem value="PHONE_NUMBER">{t("templateDialog.buttonTypes.phone")}</SelectItem>
+                          {/* Un cierre con botón de formulario abriría otro formulario con cada respuesta: el backend lo rechaza. */}
+                          {draft ? null : (
+                            <SelectItem value="FLOW" disabled={otherFlowButton}>{t("templateDialog.buttonTypes.flow")}</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
                       <Input
                         value={button.text}
                         onChange={(event) => updateButton(index, { text: event.target.value })}
@@ -422,21 +427,24 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                         <div className="sm:col-span-3">
                           <label className="block space-y-1 text-xs font-medium text-muted-foreground">
                             {t("templateDialog.publishedFlow")}
-                            <select
-                              value={button.flow_id || ""}
-                              disabled={flowsLoading}
-                              onChange={(event) => selectFlow(index, event.target.value)}
-                              className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                            <Select
+                              value={button.flow_id || undefined}
+                              disabled={flowsLoading || publishedFlows?.length === 0}
+                              onValueChange={(value) => selectFlow(index, value)}
                             >
-                              <option value="">
-                                {flowsLoading
-                                  ? t("templateDialog.flowsLoading")
-                                  : publishedFlows?.length === 0
-                                    ? t("templateDialog.noFlows")
-                                    : t("templateDialog.chooseFlow")}
-                              </option>
-                              {(publishedFlows ?? []).map((flow) => <option key={flow.id} value={flow.meta_flow_id}>{flow.name}</option>)}
-                            </select>
+                              <SelectTrigger className="w-full text-foreground">
+                                <SelectValue
+                                  placeholder={flowsLoading
+                                    ? t("templateDialog.flowsLoading")
+                                    : publishedFlows?.length === 0
+                                      ? t("templateDialog.noFlows")
+                                      : t("templateDialog.chooseFlow")}
+                                />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(publishedFlows ?? []).map((flow) => <SelectItem key={flow.id} value={flow.meta_flow_id}>{flow.name}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
                           </label>
                         </div>
                       ) : null}
@@ -453,7 +461,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
               </div>
 
               <div className="rounded-lg border border-border bg-muted/30 p-4">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t("templateDialog.preview")}</p>
+                <p className="mb-3 text-sm font-semibold">{t("templateDialog.preview")}</p>
                 <div className="overflow-hidden rounded-lg rounded-tl-sm border border-border bg-card text-sm text-card-foreground shadow-xs">
                   {headerFormat === "IMAGE" && (headerPreviewUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
