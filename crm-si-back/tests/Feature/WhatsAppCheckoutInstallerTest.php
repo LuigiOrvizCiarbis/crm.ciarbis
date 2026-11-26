@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppFlow;
 use App\Services\Commerce\WhatsAppCheckoutInstaller;
+use App\Services\Commerce\WhatsAppCheckoutTemplates;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -60,6 +61,7 @@ class WhatsAppCheckoutInstallerTest extends TestCase
                 ? Http::response(['error' => ['message' => 'Permission denied']], 403)
                 : Http::response(['success' => true]),
             'https://graph.facebook.com/*/123456789/whatsapp_business_encryption' => Http::response(['success' => true]),
+            'https://graph.facebook.com/*/waba-test/message_templates' => fn (Request $request) => Http::response(['id' => 'tpl-'.$request['name'], 'status' => 'PENDING', 'category' => 'UTILITY']),
             // Como Meta: no admite dos formularios con el mismo nombre en la cuenta.
             'https://graph.facebook.com/*/waba-test/flows' => fn (Request $request) => isset($request['clone_flow_id']) && $request['name'] === WhatsAppCheckoutInstaller::FLOW_NAME
                 ? Http::response(['error' => ['code' => 100, 'message' => 'Flow name must be unique within the WhatsApp Business Account.']], 400)
@@ -129,6 +131,25 @@ class WhatsAppCheckoutInstallerTest extends TestCase
         Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/flow-checkout/publish'));
 
         $this->assertTrue(app(WhatsAppCheckoutInstaller::class)->hasPublishedFlow($this->user->tenant_id));
+    }
+
+    public function test_install_creates_the_paid_and_shipped_templates_once(): void
+    {
+        $this->installRequest()
+            ->assertOk()
+            ->assertJsonPath('data.0.templates', [WhatsAppCheckoutTemplates::PAID => 'PENDING', WhatsAppCheckoutTemplates::SHIPPED => 'PENDING'])
+            ->assertJsonPath('data.0.template_error', null);
+
+        $created = Http::recorded(fn (Request $request) => str_ends_with($request->url(), '/waba-test/message_templates'))->map(fn (array $pair) => $pair[0]);
+        $this->assertSame([WhatsAppCheckoutTemplates::PAID, WhatsAppCheckoutTemplates::SHIPPED], $created->map(fn (Request $r) => $r['name'])->values()->all());
+        $paid = $created->first();
+        $this->assertSame('UTILITY', $paid['category']);
+        $this->assertSame('es_AR', $paid['language']);
+        $this->assertSame(['pedido', 'total'], array_column($paid['components'][0]['example']['body_text_named_params'], 'param_name'));
+
+        // Reinstalar no las vuelve a pedir.
+        $this->installRequest()->assertOk();
+        $this->assertCount(2, Http::recorded(fn (Request $request) => str_ends_with($request->url(), '/waba-test/message_templates')));
     }
 
     public function test_second_install_with_the_same_json_does_not_touch_the_flow(): void

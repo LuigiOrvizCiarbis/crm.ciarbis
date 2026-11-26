@@ -58,7 +58,7 @@ class WhatsAppProductMessageSender
                 ], $body, ['kind' => 'catalog', 'retailer_ids' => []], $sender);
             } catch (WhatsAppMessageRejectedException $e) {
                 if ($thumbnail === null || $e->metaCode !== self::META_INVALID_PARAMETER) {
-                    throw $this->catalogError($conversation, $e);
+                    throw $this->catalogError($e);
                 }
 
                 $this->availability->markProductMissing($conversation->tenant_id, $thumbnail);
@@ -66,7 +66,6 @@ class WhatsAppProductMessageSender
                 continue;
             }
 
-            $this->availability->markAvailable($conversation->tenant_id);
             if ($thumbnail !== null) {
                 $this->availability->rememberWorkingProduct($conversation->tenant_id, $thumbnail);
             }
@@ -74,14 +73,19 @@ class WhatsAppProductMessageSender
             return $message;
         }
 
-        $this->availability->markUnavailable($conversation->tenant_id);
-
-        throw new CatalogUnavailableException;
+        // Ninguno de los probados está habilitado todavía (Meta habilita
+        // productos de a tandas): las fichas de otros productos siguen andando.
+        throw new CatalogItemsUnavailableException(
+            'WhatsApp todavía no habilitó ninguno de los productos con los que se probó la portada del catálogo. '
+            .'Meta revisa los productos de a tandas: probá de nuevo más tarde.'
+        );
     }
 
     /**
-     * El último producto que Meta aceptó y, después, productos simples sin
-     * "Sin stock", los más nuevos primero; sin los que Meta ya rechazó.
+     * Productos para la portada del catálogo, primero los que seguro existen en
+     * WhatsApp: el último que Meta aceptó, los que llegaron en carritos de
+     * clientes y los que se mandaron como fichas. Después, productos simples
+     * sin "Sin stock", los más nuevos primero. Sin los que Meta ya rechazó.
      *
      * @return list<string>
      */
@@ -101,9 +105,35 @@ class WhatsAppProductMessageSender
             ->filter()
             ->all();
 
-        $ids = array_values(array_unique(array_filter([$this->availability->workingProduct($tenantId), ...$local])));
+        $ids = array_values(array_unique(array_filter(
+            [$this->availability->workingProduct($tenantId), ...$this->retailerIdsSeenInWhatsApp($tenantId), ...$local],
+            fn ($id) => is_string($id) && $id !== '',
+        )));
 
         return array_slice($this->availability->withoutMissingProducts($tenantId, $ids), 0, self::MAX_THUMBNAIL_CANDIDATES);
+    }
+
+    /**
+     * Retailer ids que aparecieron en carritos recibidos o en fichas enviadas:
+     * WhatsApp los tenía habilitados.
+     *
+     * @return list<string>
+     */
+    private function retailerIdsSeenInWhatsApp(int $tenantId): array
+    {
+        return Message::withoutGlobalScopes()
+            ->where('tenant_id', $tenantId)
+            ->whereIn('interactive->kind', ['order', 'products'])
+            ->where('created_at', '>', now()->subDays(30))
+            ->latest('id')
+            ->limit(20)
+            ->pluck('interactive')
+            ->flatMap(fn ($interactive) => ($interactive['kind'] ?? null) === 'order'
+                ? array_column((array) ($interactive['product_items'] ?? []), 'product_retailer_id')
+                : (array) ($interactive['retailer_ids'] ?? []))
+            ->map(fn ($id) => (string) $id)
+            ->values()
+            ->all();
     }
 
     /**
@@ -137,7 +167,7 @@ class WhatsAppProductMessageSender
             } catch (WhatsAppMessageRejectedException $e) {
                 $missing = $this->missingRetailerId($e);
                 if ($missing === null || ! in_array($missing, $ids, true) || $retries >= self::MAX_MISSING_RETRIES) {
-                    throw $this->catalogError($conversation, $e);
+                    throw $this->catalogError($e);
                 }
 
                 $this->availability->markProductMissing($conversation->tenant_id, $missing);
@@ -146,7 +176,6 @@ class WhatsAppProductMessageSender
                 continue;
             }
 
-            $this->availability->markAvailable($conversation->tenant_id);
             $this->availability->rememberWorkingProduct($conversation->tenant_id, $ids[0]);
 
             return $message;
@@ -188,19 +217,16 @@ class WhatsAppProductMessageSender
     }
 
     /**
-     * Traduce el rechazo de Meta: un producto puntual no habilitado no invalida
-     * el catálogo; un 131009 sobre el catálogo sin producto puntual sí, y se
-     * dejan de ofrecer fichas por un tiempo.
+     * Traduce el rechazo de Meta: un producto puntual no habilitado, o un 131009
+     * sobre el catálogo sin producto puntual (catálogo no conectado al número).
      */
-    private function catalogError(Conversation $conversation, WhatsAppMessageRejectedException $e): RuntimeException
+    private function catalogError(WhatsAppMessageRejectedException $e): RuntimeException
     {
         if ($this->missingRetailerId($e) !== null) {
             return new CatalogItemsUnavailableException;
         }
 
         if ($e->metaCode === self::META_INVALID_PARAMETER && str_contains(strtolower((string) $e->details), 'catalog')) {
-            $this->availability->markUnavailable($conversation->tenant_id);
-
             return new CatalogUnavailableException;
         }
 
