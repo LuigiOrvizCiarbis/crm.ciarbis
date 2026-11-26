@@ -131,6 +131,9 @@ class CommerceToolset implements AiToolset
                 ? 'Mostrá productos con mostrar_productos; el cliente arma el carrito en WhatsApp y lo envía. '
                 : 'Las fichas del catálogo de WhatsApp no están disponibles por ahora: describí los productos, talles y precios con los datos del catálogo de este prompt. ')
             .'Si ya eligió productos y talles en la charla, usá enviar_formulario_compra. '
+            .'La compra se cierra en este chat con ese formulario: aunque otras instrucciones digan que derives las compras a una persona, '
+            .'no lo hagas por querer comprar; derivá sólo si el cliente lo pide o hay un problema que el formulario no resuelve. '
+            .'Si quiere comprar pero no dijo el talle o la cantidad, preguntalo antes de mandar el formulario. '
             .'No pidas dirección ni datos de pago por chat. No prometas costos de envío: se calculan en el formulario. '
             .'Usá los ID del catálogo.';
 
