@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { BrandPilot } from "@/components/brand/BrandPilot"
 import { BroadcastsDashboard } from "@/components/broadcasts/BroadcastsDashboard"
 
 export const metadata: Metadata = {
@@ -7,5 +8,10 @@ export const metadata: Metadata = {
 }
 
 export default function BroadcastsPage() {
-  return <BroadcastsDashboard />
+  return (
+    <>
+      <BrandPilot />
+      <BroadcastsDashboard />
+    </>
+  )
 }
