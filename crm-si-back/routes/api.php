@@ -524,6 +524,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('contacts', [ContactController::class, 'index']);
     Route::get('contacts/summary', [ContactController::class, 'summary']);
+    Route::get('contacts/stage-counts', [ContactController::class, 'stageCounts']);
     Route::post('contacts', [ContactController::class, 'store']);
     Route::post('contacts/import', [ContactController::class, 'import']);
     Route::post('contacts/import/preview', [ContactImportController::class, 'preview']);

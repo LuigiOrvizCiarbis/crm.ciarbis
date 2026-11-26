@@ -38,6 +38,27 @@ export interface ContactAssignedUser {
   email: string | null
 }
 
+export interface ContactOpportunityStage {
+  id: number
+  name: string
+  color: string
+  outcome: "won" | "lost" | null
+}
+
+/** Oportunidad no archivada del contacto, tal como la resume GET /api/contacts. */
+export interface ContactOpportunity {
+  id: number
+  title: string
+  pipeline_id: number
+  pipeline_name: string
+  conversation_id: number | null
+  status: "open" | "won" | "lost"
+  value: number | string | null
+  created_at: string
+  updated_at: string
+  pipeline_stage: ContactOpportunityStage | null
+}
+
 /** `manual` la subió un agente; el resto la trajo el canal y se refresca sola. */
 export type ContactAvatarSource = "manual" | "facebook" | "instagram"
 
@@ -60,6 +81,8 @@ export interface Contact {
   updated_at: string
   tags?: Tag[]
   pipeline_stage?: ContactPipelineStage | null
+  /** Ordenadas de la movida más recientemente a la más vieja. */
+  opportunities?: ContactOpportunity[]
   assigned_user?: ContactAssignedUser | null
   ad_referrals?: AdReferral[]
 }
@@ -98,6 +121,28 @@ export async function getContacts(params: GetContactsParams = {}): Promise<Conta
   }
 
   return (payload.data ?? payload) as Contact[];
+}
+
+/**
+ * Contactos por etapa con los demás filtros aplicados (sin el de etapas), para
+ * que cada número diga cuántos quedarían al tildarla. La clave `none` cuenta
+ * los que no tienen oportunidades.
+ */
+export async function getContactStageCounts(filterParams: URLSearchParams, signal?: AbortSignal): Promise<Map<string, number>> {
+  const query = new URLSearchParams(filterParams)
+  query.delete("stages")
+  const response = await fetch(`/api/contacts/stage-counts?${query.toString()}`, {
+    headers: { Accept: "application/json", ...workspaceHeaders() },
+    cache: "no-store",
+    signal,
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throwApiError(response.status, payload, "Error al contar contactos por etapa")
+  }
+
+  return new Map(Object.entries((payload.data ?? {}) as Record<string, number>))
 }
 
 export async function getContact(contactId: number): Promise<Contact> {
