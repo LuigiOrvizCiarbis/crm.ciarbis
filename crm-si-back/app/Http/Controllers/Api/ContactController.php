@@ -339,9 +339,9 @@ class ContactController extends Controller
 
         foreach ($authorized as $contact) {
             match ($validated['action']) {
-                'add' => $contact->tags()->syncWithoutDetaching($pivotData),
-                'remove' => $contact->tags()->detach($validated['tag_ids']),
-                'replace' => $contact->tags()->sync($pivotData),
+                'add' => $contact->addTags($pivotData),
+                'remove' => $contact->removeTags($validated['tag_ids']),
+                'replace' => $contact->replaceTags($pivotData),
             };
         }
 

@@ -55,6 +55,31 @@ class TagApiTest extends TestCase
             ->assertJsonPath('data.0.tags.0.slug', 'hot-lead');
     }
 
+    public function test_contact_tag_changes_are_mirrored_to_its_conversations(): void
+    {
+        [$user, $contact, $conversation] = $this->createCrmRecords();
+        Sanctum::actingAs($user);
+
+        $tag = Tag::create([
+            'tenant_id' => $user->tenant_id,
+            'created_by' => $user->id,
+            'name' => 'VIP',
+            'slug' => 'vip',
+            'color' => '#64748b',
+        ]);
+
+        $this->postJson("/api/contacts/{$contact->id}/tags", ['tag_ids' => [$tag->id]])->assertOk();
+
+        $this->getJson('/api/conversations?tags=vip')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $conversation->id)
+            ->assertJsonPath('data.0.tags.0.slug', 'vip');
+
+        $this->deleteJson("/api/contacts/{$contact->id}/tags/{$tag->id}")->assertOk();
+
+        $this->assertFalse($conversation->tags()->where('tags.id', $tag->id)->exists());
+    }
+
     public function test_tag_names_are_unique_per_tenant(): void
     {
         [$user] = $this->createCrmRecords();
