@@ -95,13 +95,19 @@ class CommerceToolsetTest extends TestCase
 
     public function test_resend_payment_link_sends_the_cta_url(): void
     {
-        $this->awaitingPaymentCheckout();
+        $checkout = $this->awaitingPaymentCheckout();
         $toolset = $this->toolset();
 
         $this->assertSame('Link reenviado.', $toolset->call(CommerceToolset::RESEND_PAYMENT_LINK, []));
         $sent = $this->graphMessages();
         $this->assertCount(1, $sent);
         $this->assertSame('cta_url', $sent[0]['interactive']['type']);
+        // Límite de WhatsApp para el texto del botón: con más, Meta rechaza el mensaje entero.
+        $this->assertLessThanOrEqual(20, mb_strlen($sent[0]['interactive']['action']['parameters']['display_text']));
+        $this->assertSame($checkout->payment_url, $sent[0]['interactive']['action']['parameters']['url']);
+        // El tenant de la prueba tiene el timezone por defecto ("UTC"): el vencimiento se muestra en hora local.
+        $local = $checkout->payment_expires_at->copy()->setTimezone('America/Argentina/Buenos_Aires')->format('H:i');
+        $this->assertStringContainsString("El link vence a las {$local}.", $sent[0]['interactive']['body']['text']);
         $this->assertSame('Te reenvié el link de pago.', $toolset->fallbackMessage());
     }
 
