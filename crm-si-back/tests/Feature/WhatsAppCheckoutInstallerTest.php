@@ -60,7 +60,10 @@ class WhatsAppCheckoutInstallerTest extends TestCase
                 ? Http::response(['error' => ['message' => 'Permission denied']], 403)
                 : Http::response(['success' => true]),
             'https://graph.facebook.com/*/123456789/whatsapp_business_encryption' => Http::response(['success' => true]),
-            'https://graph.facebook.com/*/waba-test/flows' => fn (Request $request) => Http::response(['id' => isset($request['clone_flow_id']) ? 'flow-copy' : 'flow-checkout', 'success' => true]),
+            // Como Meta: no admite dos formularios con el mismo nombre en la cuenta.
+            'https://graph.facebook.com/*/waba-test/flows' => fn (Request $request) => isset($request['clone_flow_id']) && $request['name'] === WhatsAppCheckoutInstaller::FLOW_NAME
+                ? Http::response(['error' => ['code' => 100, 'message' => 'Flow name must be unique within the WhatsApp Business Account.']], 400)
+                : Http::response(['id' => isset($request['clone_flow_id']) ? 'flow-copy' : 'flow-checkout', 'success' => true]),
             'https://graph.facebook.com/*/flow-copy/publish' => function () {
                 if ($this->copyPublishFails) {
                     return Http::response(['error' => ['message' => 'Invalid Flow JSON']], 400);
@@ -162,6 +165,9 @@ class WhatsAppCheckoutInstallerTest extends TestCase
         $this->assertSame(WhatsAppFlow::SYSTEM_CHECKOUT, $copy->system_key);
         $this->assertSame(WhatsAppFlowStatus::Published, $copy->status);
         $this->assertNull($old->fresh()->system_key);
+        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/waba-test/flows')
+            && isset($request['clone_flow_id'])
+            && str_starts_with($request['name'], WhatsAppCheckoutInstaller::FLOW_NAME.' ('));
     }
 
     public function test_a_rejected_new_form_keeps_the_published_one_selling(): void
