@@ -55,7 +55,7 @@ class WhatsAppCheckoutController extends Controller
         abort_unless($request->user()->can('flows.send'), 403);
 
         $validated = $request->validate(['body' => ['nullable', 'string', 'max:1024']]);
-        $body = filled($validated['body'] ?? null) ? $validated['body'] : 'Mirá nuestro catálogo y armá tu carrito acá mismo.';
+        $body = filled($validated['body'] ?? null) ? $validated['body'] : WhatsAppProductMessageSender::CATALOG_BODY;
 
         try {
             $message = $products->sendCatalog($conversation, $body, $request->user());
