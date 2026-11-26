@@ -1,7 +1,7 @@
 "use client"
 
 import { useId, useState, type CSSProperties } from "react"
-import { ArrowLeft, Check, CheckCircle2, ChevronDown, Loader2, Plus, XCircle } from "lucide-react"
+import { ArrowLeft, Check, CheckCircle2, ChevronDown, Loader2, Plus, Trash2, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
@@ -139,23 +139,27 @@ export function ContactStagePicker({ contact, opportunities, onChange, onSaved, 
             <div className="min-h-0 flex-1 overflow-y-auto pb-4">{open && panel}</div>
           </DrawerContent>
         </Drawer>
+        {actions.deletionDialog}
       </>
     )
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="w-72 p-0"
-        aria-label={t("contactsPage.stage.pickerTitle", { name: contact.name })}
-        // La tabla no debe recibir el clic que abre o cierra el selector.
-        onClick={(event) => event.stopPropagation()}
-      >
-        {panel}
-      </PopoverContent>
-    </Popover>
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="w-72 p-0"
+          aria-label={t("contactsPage.stage.pickerTitle", { name: contact.name })}
+          // La tabla no debe recibir el clic que abre o cierra el selector.
+          onClick={(event) => event.stopPropagation()}
+        >
+          {panel}
+        </PopoverContent>
+      </Popover>
+      {actions.deletionDialog}
+    </>
   )
 }
 
@@ -261,19 +265,38 @@ export function StagePickerPanel({ opportunities, actions, canChange, canCreate,
           touch={touch}
           onSelect={(stage) => choose({ kind: "move", opportunity, stage })}
         />
-        {canCreate && (
+        {(canCreate || actions.requestDelete) && (
           <div className="border-t border-border p-1">
-            <button
-              type="button"
-              onClick={() => setView({ kind: "create", pipelineId: opportunity.pipeline_id })}
-              className={cn(
-                "flex w-full items-center gap-2 rounded-sm px-2 text-left text-sm text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground",
-                touch ? "py-3" : "py-1.5",
-              )}
-            >
-              <Plus className="size-4" aria-hidden="true" />
-              {t("contactsPage.stage.newIn")}
-            </button>
+            {canCreate && (
+              <button
+                type="button"
+                onClick={() => setView({ kind: "create", pipelineId: opportunity.pipeline_id })}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-sm px-2 text-left text-sm text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground",
+                  touch ? "py-3" : "py-1.5",
+                )}
+              >
+                <Plus className="size-4" aria-hidden="true" />
+                {t("contactsPage.stage.newIn")}
+              </button>
+            )}
+            {actions.requestDelete && (
+              <button
+                type="button"
+                onClick={() => {
+                  // El selector se cierra primero: la confirmación vive fuera de él.
+                  onDone()
+                  actions.requestDelete?.(opportunity)
+                }}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-sm px-2 text-left text-sm text-destructive outline-none transition-colors hover:bg-destructive/10 focus-visible:bg-destructive/10",
+                  touch ? "py-3" : "py-1.5",
+                )}
+              >
+                <Trash2 className="size-4" aria-hidden="true" />
+                {t("pipeline.delete.action")}
+              </button>
+            )}
           </div>
         )}
       </div>
