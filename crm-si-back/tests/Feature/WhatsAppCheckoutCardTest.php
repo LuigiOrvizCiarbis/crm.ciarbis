@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\UserRole;
 use App\Events\WhatsAppCheckoutUpdated;
 use App\Models\Message;
+use App\Models\Product;
 use App\Models\User;
 use App\Support\RoleProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -106,6 +107,28 @@ class WhatsAppCheckoutCardTest extends TestCase
         $this->postJson("/api/conversations/{$this->conversation->id}/whatsapp-catalog")
             ->assertStatus(422)
             ->assertJsonPath('message', 'WhatsApp no encuentra los productos del catálogo conectado a este número. Revisá en Commerce Manager que el catálogo esté habilitado para WhatsApp.');
+    }
+
+    public function test_catalog_uses_an_enabled_product_as_thumbnail_skipping_rejected_ones(): void
+    {
+        Product::create(['tenant_id' => $this->tenant->id, 'name' => 'Body River', 'price' => 23140, 'is_active' => true, 'source' => 'woocommerce', 'external_id' => '3798']);
+        Product::create(['tenant_id' => $this->tenant->id, 'name' => 'Llavero', 'price' => 1815, 'is_active' => true, 'source' => 'woocommerce', 'external_id' => '2816']);
+        $this->missingRetailerIds = ['2816'];
+        Sanctum::actingAs($this->user);
+
+        $this->postJson("/api/conversations/{$this->conversation->id}/whatsapp-catalog")->assertCreated();
+
+        $thumbnails = Http::recorded(fn (Request $request) => ($request['interactive']['type'] ?? null) === 'catalog_message')
+            ->map(fn (array $pair) => $pair[0]['interactive']['action']['parameters']['thumbnail_product_retailer_id'] ?? null)
+            ->values()
+            ->all();
+        // El más nuevo (2816) no está habilitado: se prueba con el siguiente.
+        $this->assertSame(['2816', '3798'], $thumbnails);
+
+        // La próxima vez arranca por el que Meta aceptó.
+        $this->postJson("/api/conversations/{$this->conversation->id}/whatsapp-catalog")->assertCreated();
+        $this->assertSame('3798', Http::recorded(fn (Request $request) => ($request['interactive']['type'] ?? null) === 'catalog_message')
+            ->last()[0]['interactive']['action']['parameters']['thumbnail_product_retailer_id']);
     }
 
     public function test_an_abandoned_cart_expiring_without_a_message_still_refreshes_the_card(): void

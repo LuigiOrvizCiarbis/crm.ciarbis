@@ -44,6 +44,20 @@ class WhatsAppCatalogAvailability
         return array_values(array_filter($retailerIds, fn (string $id) => ! Cache::has($this->productKey($tenantId, $id))));
     }
 
+    /** Producto que Meta aceptó hace poco: sirve de miniatura para el mensaje de catálogo. */
+    public function rememberWorkingProduct(int $tenantId, string $retailerId): void
+    {
+        Cache::forget($this->productKey($tenantId, $retailerId));
+        Cache::put("whatsapp-catalog-working:{$tenantId}", $retailerId, now()->addDays(7));
+    }
+
+    public function workingProduct(int $tenantId): ?string
+    {
+        $retailerId = Cache::get("whatsapp-catalog-working:{$tenantId}");
+
+        return is_string($retailerId) ? $retailerId : null;
+    }
+
     private function key(int $tenantId): string
     {
         // Clave nueva: la anterior ("whatsapp-catalog-unavailable") también se
