@@ -207,8 +207,15 @@ class WhatsAppCheckout extends Model
         return implode("\n", $lines);
     }
 
+    /**
+     * Zona horaria para los horarios que ve el cliente. `tenants.timezone` no se
+     * puede configurar y queda en el default "UTC": ese valor cuenta como no
+     * configurado y se usa la zona de la app.
+     */
     public function timezone(): string
     {
-        return Tenant::find($this->tenant_id)?->timezone ?: config('app.timezone');
+        $timezone = Tenant::find($this->tenant_id)?->timezone;
+
+        return filled($timezone) && $timezone !== 'UTC' ? $timezone : (string) config('app.timezone');
     }
 }

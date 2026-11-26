@@ -29,6 +29,10 @@ class WhatsAppCheckoutInstallerTest extends TestCase
 
     private bool $commerceFails = false;
 
+    private bool $copyPublished = false;
+
+    private bool $copyPublishFails = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -56,7 +60,26 @@ class WhatsAppCheckoutInstallerTest extends TestCase
                 ? Http::response(['error' => ['message' => 'Permission denied']], 403)
                 : Http::response(['success' => true]),
             'https://graph.facebook.com/*/123456789/whatsapp_business_encryption' => Http::response(['success' => true]),
-            'https://graph.facebook.com/*/waba-test/flows' => Http::response(['id' => 'flow-checkout', 'success' => true]),
+            'https://graph.facebook.com/*/waba-test/flows' => fn (Request $request) => Http::response(['id' => isset($request['clone_flow_id']) ? 'flow-copy' : 'flow-checkout', 'success' => true]),
+            'https://graph.facebook.com/*/flow-copy/publish' => function () {
+                if ($this->copyPublishFails) {
+                    return Http::response(['error' => ['message' => 'Invalid Flow JSON']], 400);
+                }
+                $this->copyPublished = true;
+
+                return Http::response(['success' => true]);
+            },
+            'https://graph.facebook.com/*/flow-copy*' => fn (Request $request) => $request->method() === 'GET'
+                ? Http::response([
+                    'id' => 'flow-copy',
+                    'name' => WhatsAppCheckoutInstaller::FLOW_NAME,
+                    'status' => $this->copyPublished ? 'PUBLISHED' : 'DRAFT',
+                    'categories' => ['SHOPPING'],
+                    'validation_errors' => [],
+                    'json_version' => '7.3',
+                    'data_api_version' => '3.0',
+                ])
+                : Http::response(['success' => true]),
             'https://graph.facebook.com/*/flow-checkout/publish' => function () {
                 $this->published = true;
 
@@ -127,6 +150,44 @@ class WhatsAppCheckoutInstallerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.status', 'PUBLISHED')
             ->assertJsonPath('data.0.commerce_error', fn (string $error) => str_contains($error, 'Permission denied'));
+    }
+
+    public function test_a_changed_form_is_republished_and_takes_over_only_once_published(): void
+    {
+        $old = $this->installedWithOutdatedJson();
+
+        $this->installRequest()->assertOk()->assertJsonPath('data.0.status', 'PUBLISHED');
+
+        $copy = WhatsAppFlow::withoutGlobalScopes()->where('meta_flow_id', 'flow-copy')->sole();
+        $this->assertSame(WhatsAppFlow::SYSTEM_CHECKOUT, $copy->system_key);
+        $this->assertSame(WhatsAppFlowStatus::Published, $copy->status);
+        $this->assertNull($old->fresh()->system_key);
+    }
+
+    public function test_a_rejected_new_form_keeps_the_published_one_selling(): void
+    {
+        $old = $this->installedWithOutdatedJson();
+        $this->copyPublishFails = true;
+
+        $this->installRequest()->assertStatus(422);
+
+        $this->assertSame(WhatsAppFlow::SYSTEM_CHECKOUT, $old->fresh()->system_key);
+        $this->assertTrue(app(WhatsAppCheckoutInstaller::class)->hasPublishedFlow($this->user->tenant_id));
+        $this->assertNull(WhatsAppFlow::withoutGlobalScopes()->where('meta_flow_id', 'flow-copy')->value('system_key'));
+    }
+
+    /** Formulario instalado y publicado con un JSON anterior al del repo. */
+    private function installedWithOutdatedJson(): WhatsAppFlow
+    {
+        $this->installRequest()->assertOk();
+        $flow = WhatsAppFlow::withoutGlobalScopes()->sole();
+        $version = $flow->published_version;
+        $json = json_decode($version['flow_json'], true);
+        $json['screens'][0]['title'] = 'Versión anterior';
+        $version['flow_json'] = json_encode($json);
+        $flow->forceFill(['published_version' => $version])->save();
+
+        return $flow;
     }
 
     private function installRequest()

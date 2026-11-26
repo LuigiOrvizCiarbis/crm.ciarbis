@@ -8,11 +8,14 @@ use App\Services\WhatsAppInteractiveSender;
 use RuntimeException;
 
 /**
- * Único armador del botón "Pagar con Mercado Pago": lo usan el envío del
+ * Único armador del botón de pago con Mercado Pago: lo usan el envío del
  * link, el recordatorio y el reenvío.
  */
 class WhatsAppCheckoutPaymentMessage
 {
+    /** WhatsApp rechaza el mensaje entero si el texto del botón pasa de 20 caracteres. */
+    public const BUTTON_TEXT = 'Pagar ahora';
+
     public function __construct(private readonly WhatsAppInteractiveSender $sender) {}
 
     public function send(WhatsAppCheckout $checkout, string $kind, ?string $lead = null): Message
@@ -23,7 +26,7 @@ class WhatsAppCheckoutPaymentMessage
         return $this->sender->send($conversation, $this->body($checkout, $lead), [
             'header' => null,
             'footer' => null,
-            'button_text' => 'Pagar con Mercado Pago',
+            'button_text' => self::BUTTON_TEXT,
             'url' => $checkout->payment_url,
         ], null, ['kind' => $kind, 'checkout_id' => $checkout->id]);
     }
@@ -44,6 +47,7 @@ class WhatsAppCheckoutPaymentMessage
         }
 
         $lines[] = 'Total: '.WhatsAppCheckout::money((float) $checkout->total, $minor);
+        $lines[] = 'Pagás con Mercado Pago desde el botón de abajo.';
 
         if ($checkout->payment_expires_at !== null) {
             $lines[] = 'El link vence a las '.$checkout->payment_expires_at->copy()->setTimezone($checkout->timezone())->format('H:i').'.';
