@@ -48,7 +48,7 @@ export const useChatState = () => {
     }))
   }
 
-  const handleChangeStage = (chatId: number) => (stageId: number) => {
+  const handleChangeStage = (chatId: number) => (stageId: number | undefined) => {
     updateChatState(chatId, { pipeline_stage_id: stageId })
   }
 

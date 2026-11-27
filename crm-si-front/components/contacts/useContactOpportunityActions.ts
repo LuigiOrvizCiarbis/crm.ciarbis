@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
+import { useDeleteOpportunity } from "@/components/opportunities/useDeleteOpportunity"
 import { useToast } from "@/components/Toast"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactOpportunity } from "@/lib/api/contacts"
@@ -69,6 +70,10 @@ export interface ContactOpportunityActions {
   create: (pipeline: Pipeline, stage: PipelineStage, value?: number) => Promise<boolean>
   /** Oportunidad que se está guardando, o "new" mientras se crea una. */
   pendingId: number | "new" | null
+  /** Pide confirmación y borra; ausente sin permiso para borrar. */
+  requestDelete?: (opportunity: ContactOpportunity) => void
+  /** Confirmación del borrado; se renderiza fuera del selector, que se cierra antes. */
+  deletionDialog: ReactNode
 }
 
 /**
@@ -88,6 +93,17 @@ export function useContactOpportunityActions({
   const { t } = useTranslation()
   const { addToast } = useToast()
   const [pendingId, setPendingId] = useState<number | "new" | null>(null)
+  const deletion = useDeleteOpportunity((opportunityId) => {
+    onChange((current) => current.filter((item) => item.id !== opportunityId))
+    onSaved?.()
+  })
+
+  const requestDelete = (opportunity: ContactOpportunity) => deletion.requestDelete({
+    id: opportunity.id,
+    contactName: contact.name,
+    summary: [opportunity.pipeline_name, opportunity.pipeline_stage?.name].filter(Boolean).join(" · "),
+    won: opportunity.status === "won",
+  })
 
   const successTitle = (stage: PipelineStage, fallback: string) =>
     stage.outcome === "won"
@@ -145,5 +161,11 @@ export function useContactOpportunityActions({
     }
   }
 
-  return { move, create, pendingId }
+  return {
+    move,
+    create,
+    pendingId,
+    requestDelete: deletion.canDelete ? requestDelete : undefined,
+    deletionDialog: deletion.dialog,
+  }
 }

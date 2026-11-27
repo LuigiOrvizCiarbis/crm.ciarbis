@@ -70,6 +70,12 @@ export function ContactOpportunitiesSection({ contact, opportunities, onChange, 
           contactName={contact.name}
           onMove={(item, stageId) => void handleMove(item, stageId)}
           onNew={() => canCreate && setCreating(true)}
+          onDelete={actions.requestDelete
+            ? (item) => {
+                const opportunity = opportunities.find((candidate) => candidate.id === item.id)
+                if (opportunity) actions.requestDelete?.(opportunity)
+              }
+            : undefined}
           className="flex-col overflow-visible"
         />
       ) : !creating && (
@@ -98,6 +104,7 @@ export function ContactOpportunitiesSection({ contact, opportunities, onChange, 
         </div>
       )}
       {saleValueDialog}
+      {actions.deletionDialog}
     </section>
   )
 }
