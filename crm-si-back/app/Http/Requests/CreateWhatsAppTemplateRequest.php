@@ -12,6 +12,28 @@ use Illuminate\Validation\Rule;
 
 class CreateWhatsAppTemplateRequest extends FormRequest
 {
+    /** Meta rechaza cualquier otro texto en el botón de catálogo. */
+    public const CATALOG_BUTTON_TEXT = 'View catalog';
+
+    /** El texto del botón de catálogo lo fija Meta: se completa acá, no lo elige el usuario. */
+    protected function prepareForValidation(): void
+    {
+        $components = $this->input('components');
+        if (! is_array($components)) {
+            return;
+        }
+
+        foreach ($components as $i => $component) {
+            foreach ((is_array($component) ? ($component['buttons'] ?? []) : []) as $j => $button) {
+                if (is_array($button) && ($button['type'] ?? null) === 'CATALOG') {
+                    $components[$i]['buttons'][$j]['text'] = self::CATALOG_BUTTON_TEXT;
+                }
+            }
+        }
+
+        $this->merge(['components' => $components]);
+    }
+
     public function authorize(): bool
     {
         return (bool) $this->user()?->can('templates.create');
@@ -69,20 +91,19 @@ class CreateWhatsAppTemplateRequest extends FormRequest
     }
 
     /**
-     * Meta publica el catálogo como plantilla de Marketing sin encabezado: la
-     * portada es un producto del catálogo. Si acepta otros botones junto al de
-     * catálogo no está documentado: lo decide Meta al revisarla. Al editar sin
-     * cambiar la categoría, vale la de la plantilla guardada.
+     * Meta publica el catálogo como plantilla de Marketing sin encabezado (la
+     * portada es un producto del catálogo) y con ese único botón: con otro
+     * botón rechaza la creación ("number of buttons exceeded the limit"). Al
+     * editar sin cambiar la categoría, vale la de la plantilla guardada.
      */
     private function validateCatalogButton(Collection $components): void
     {
         $buttons = $components->firstWhere('type', 'BUTTONS')['buttons'] ?? [];
-        $catalogButtons = count(array_keys(array_column($buttons, 'type'), 'CATALOG', true));
-        if ($catalogButtons === 0) {
+        if (! in_array('CATALOG', array_column($buttons, 'type'), true)) {
             return;
         }
 
-        abort_if($catalogButtons > 1, 422, 'Una plantilla admite un solo botón de catálogo.');
+        abort_if(count($buttons) > 1, 422, 'Meta no acepta otros botones junto al de catálogo: dejá solo "View catalog".');
         abort_if($components->contains('type', 'HEADER'), 422, 'Una plantilla de catálogo no lleva encabezado: la portada es un producto del catálogo.');
         $category = $this->validated('category') ?? $this->route('template')?->category?->value;
         abort_if($category !== TemplateCategory::Marketing->value, 422, 'Meta solo acepta el botón de catálogo en plantillas de Marketing.');
