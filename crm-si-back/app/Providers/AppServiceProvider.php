@@ -20,6 +20,8 @@ use App\Models\Message;
 use App\Models\Opportunity;
 use App\Models\Pipeline;
 use App\Models\PipelineStage;
+use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\ScheduledMessage;
 use App\Models\Tag;
 use App\Models\Task;
@@ -29,6 +31,7 @@ use App\Models\WhatsAppGroup;
 use App\Models\WhatsAppTemplate;
 use App\Observers\ContactAutomationObserver;
 use App\Observers\ConversationAutomationObserver;
+use App\Observers\MercadoLibreCatalogObserver;
 use App\Observers\MessageObserver;
 use App\Observers\OpportunityConversionObserver;
 use App\Policies\BranchPolicy;
@@ -104,6 +107,8 @@ class AppServiceProvider extends ServiceProvider
         Contact::observe(ContactAutomationObserver::class);
         Conversation::observe(ConversationAutomationObserver::class);
         Opportunity::observe(OpportunityConversionObserver::class);
+        Product::observe(MercadoLibreCatalogObserver::class);
+        ProductVariant::observe(MercadoLibreCatalogObserver::class);
 
         // Rate limit del endpoint público de webhooks entrantes: por api key
         // (varios tenants pueden compartir IP), con fallback a IP si no vino la key.
