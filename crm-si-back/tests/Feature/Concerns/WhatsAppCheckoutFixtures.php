@@ -263,13 +263,17 @@ trait WhatsAppCheckoutFixtures
     /** @var list<string> Retailer ids que Meta todavía no habilitó: los rechaza de a uno, como en producción. */
     protected array $missingRetailerIds = [];
 
-    /** Primer retailer id del mensaje (fichas o miniatura del catálogo) que Meta no tiene habilitado. */
+    /** Primer retailer id del mensaje (fichas, portada del catálogo o de una plantilla de catálogo) que Meta no tiene habilitado. */
     private function firstMissingRetailerId(Request $request): ?string
     {
         $interactive = $request['interactive'] ?? [];
-        $ids = match ($interactive['type'] ?? null) {
-            'product' => [$interactive['action']['product_retailer_id'] ?? null],
-            'catalog_message' => [$interactive['action']['parameters']['thumbnail_product_retailer_id'] ?? null],
+        $ids = match (true) {
+            ($request['type'] ?? null) === 'template' => collect($request['template']['components'] ?? [])
+                ->where('sub_type', 'CATALOG')
+                ->map(fn (array $component) => $component['parameters'][0]['action']['thumbnail_product_retailer_id'] ?? null)
+                ->all(),
+            ($interactive['type'] ?? null) === 'product' => [$interactive['action']['product_retailer_id'] ?? null],
+            ($interactive['type'] ?? null) === 'catalog_message' => [$interactive['action']['parameters']['thumbnail_product_retailer_id'] ?? null],
             default => array_column($interactive['action']['sections'][0]['product_items'] ?? [], 'product_retailer_id'),
         };
 

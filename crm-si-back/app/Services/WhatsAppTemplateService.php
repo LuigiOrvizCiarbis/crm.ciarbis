@@ -14,6 +14,8 @@ use App\Models\Scopes\TenantScope;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
 use App\Models\WhatsAppTemplate;
+use App\Services\Commerce\CatalogThumbnails;
+use App\Services\Commerce\WhatsAppProductMessageSender;
 use App\Services\Concerns\ResolvesWhatsAppCredentials;
 use App\Services\Flows\WhatsAppFlowSessionService;
 use Illuminate\Http\Client\Response;
@@ -396,6 +398,50 @@ class WhatsAppTemplateService
     }
 
     /**
+     * Una plantilla de catálogo lleva de portada un producto: sin indicarlo,
+     * Meta usa el primero del catálogo y rechaza el envío si ese producto no
+     * está habilitado para WhatsApp. Se prueba con los candidatos de
+     * CatalogThumbnails y se recuerda cuál anduvo.
+     *
+     * @param  callable(array): Response  $send
+     * @return array{0: Response, 1: array} respuesta y componentes enviados
+     */
+    private function sendWithCatalogThumbnail(Conversation $conversation, WhatsAppTemplate $template, array $components, callable $send): array
+    {
+        $index = $template->catalogButtonIndex();
+        if ($index === null || collect($components)->contains(fn ($component) => strtolower($component['sub_type'] ?? '') === 'catalog')) {
+            return [$send($components), $components];
+        }
+
+        $thumbnails = app(CatalogThumbnails::class);
+        $response = null;
+        $sent = $components;
+        foreach ($thumbnails->candidates($conversation->tenant_id) ?: [null] as $thumbnail) {
+            $sent = $thumbnail === null ? $components : [...$components, [
+                'type' => 'button',
+                'sub_type' => 'CATALOG',
+                'index' => (string) $index,
+                'parameters' => [['type' => 'action', 'action' => ['thumbnail_product_retailer_id' => $thumbnail]]],
+            ]];
+            $response = $send($sent);
+
+            if ($thumbnail === null) {
+                break;
+            }
+            if ($response->successful()) {
+                $thumbnails->accepted($conversation->tenant_id, $thumbnail);
+                break;
+            }
+            if ((int) $response->json('error.code') !== WhatsAppProductMessageSender::META_INVALID_PARAMETER) {
+                break;
+            }
+            $thumbnails->rejected($conversation->tenant_id, $thumbnail);
+        }
+
+        return [$response, $sent];
+    }
+
+    /**
      * Enviar un mensaje de template de WhatsApp.
      */
     public function sendTemplateMessage(
@@ -426,22 +472,22 @@ class WhatsAppTemplateService
             $to = '54'.substr($to, 3);
         }
 
-        $payload = [
-            'messaging_product' => 'whatsapp',
-            'to' => $to,
-            'type' => 'template',
-            'template' => [
-                'name' => $template->name,
-                'language' => [
-                    'code' => $template->language,
-                ],
-                'components' => $components,
-            ],
-        ];
-
-        $response = Http::withToken($businessToken)
+        $send = fn (array $components): Response => Http::withToken($businessToken)
             ->timeout(10)
-            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", $payload);
+            ->post('https://graph.facebook.com/'.$this->graphVersion()."/{$businessPhoneId}/messages", [
+                'messaging_product' => 'whatsapp',
+                'to' => $to,
+                'type' => 'template',
+                'template' => [
+                    'name' => $template->name,
+                    'language' => [
+                        'code' => $template->language,
+                    ],
+                    'components' => $components,
+                ],
+            ]);
+
+        [$response, $components] = $this->sendWithCatalogThumbnail($conversation, $template, $components, $send);
 
         if (! $response->successful()) {
             throw new \RuntimeException("Error enviando template de WhatsApp [{$response->status()}]: ".$response->body());

@@ -36,7 +36,7 @@ const HEADER_MEDIA: Record<MediaFormat, { accept: string; maxMb: number; key: st
 
 const isMediaFormat = (format: HeaderFormat): format is MediaFormat => format in HEADER_MEDIA
 type ButtonDraft = {
-  type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER" | "FLOW"
+  type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER" | "FLOW" | "CATALOG"
   text: string
   url?: string
   phone_number?: string
@@ -95,7 +95,7 @@ export function flowButtonTarget(flow: WhatsAppFlow | undefined, flowId: string)
 }
 
 const EDITABLE_STATUSES: WhatsAppTemplate["status"][] = ["APPROVED", "REJECTED", "PAUSED"]
-const EDITABLE_BUTTONS = ["QUICK_REPLY", "URL", "PHONE_NUMBER", "FLOW"]
+const EDITABLE_BUTTONS = ["QUICK_REPLY", "URL", "PHONE_NUMBER", "FLOW", "CATALOG"]
 
 /**
  * Por qué este editor no puede editar la plantilla, o null si puede. Meta sólo
@@ -132,7 +132,7 @@ function fieldsFromTemplate(template: WhatsAppTemplate) {
     footer: find("FOOTER")?.text ?? "",
     examples: Object.fromEntries((body?.example?.body_text_named_params ?? []).map(({ param_name, example }) => [param_name, example])),
     buttons: (find("BUTTONS")?.buttons ?? []).flatMap((button): ButtonDraft[] =>
-      button.type === "QUICK_REPLY" || button.type === "URL" || button.type === "PHONE_NUMBER" || button.type === "FLOW"
+      button.type === "QUICK_REPLY" || button.type === "URL" || button.type === "PHONE_NUMBER" || button.type === "FLOW" || button.type === "CATALOG"
         ? [{ type: button.type, text: button.text, url: button.url, phone_number: button.phone_number, flow_id: button.flow_id, flow_action: button.flow_action, navigate_screen: button.navigate_screen }]
         : []),
   }
@@ -168,6 +168,8 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
   const [publishedFlows, setPublishedFlows] = useState<WhatsAppFlow[] | null>(null)
   const [flowsLoading, setFlowsLoading] = useState(false)
   const hasFlowButton = buttons.some((button) => button.type === "FLOW")
+  // Meta publica el catálogo como plantilla de Marketing, sin encabezado y con ese único botón.
+  const hasCatalogButton = buttons.some((button) => button.type === "CATALOG")
   const [submitting, setSubmitting] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const variables = useMemo(() => [...new Set(Array.from(body.matchAll(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g)).map((match) => match[1]))], [body])
@@ -221,12 +223,19 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
   const updateButton = (index: number, patch: Partial<ButtonDraft>) =>
     setButtons((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item))
 
-  const changeButtonType = (index: number, type: ButtonDraft["type"]) =>
+  const changeButtonType = (index: number, type: ButtonDraft["type"]) => {
+    if (type === "CATALOG") {
+      setButtons([{ type, text: buttons[index]?.text || t("templateDialog.catalogButtonText") }])
+      setCategory("MARKETING")
+      changeHeaderFormat("NONE")
+      return
+    }
     setButtons((current) => current.map((item, itemIndex) => itemIndex === index
       ? type === "FLOW"
         ? { type, text: item.text, flow_action: "navigate" }
         : { type, text: item.text, ...(type === "URL" && item.url ? { url: item.url } : {}), ...(type === "PHONE_NUMBER" && item.phone_number ? { phone_number: item.phone_number } : {}) }
       : item))
+  }
 
   const selectFlow = (index: number, flowId: string) =>
     updateButton(index, flowButtonTarget(publishedFlows?.find((item) => item.meta_flow_id === flowId), flowId))
@@ -350,7 +359,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                 {editingTexts ? (<>
                 <label className="block space-y-1.5 text-sm font-medium">
                   {t("templateDialog.category")}
-                  <Select value={category} onValueChange={(value) => setCategory(value as "MARKETING" | "UTILITY")} disabled={categoryLocked}>
+                  <Select value={category} onValueChange={(value) => setCategory(value as "MARKETING" | "UTILITY")} disabled={categoryLocked || hasCatalogButton}>
                     <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="UTILITY">{t("templateDialog.categories.utility")}</SelectItem>
@@ -359,6 +368,9 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                   </Select>
                 </label>
 
+                {hasCatalogButton ? (
+                  <p className="rounded-lg border border-border p-4 text-xs text-muted-foreground">{t("templateDialog.catalogHint")}</p>
+                ) : (
                 <div className="space-y-3 rounded-lg border border-border p-4">
                   <p className="text-sm font-medium">{t("templateDialog.header")} {optional}</p>
                   <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("templateDialog.headerType")}>
@@ -411,6 +423,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                     </div>
                   )}
                 </div>
+                )}
 
                 <label className="block space-y-1.5 text-sm font-medium">
                   {t("templateDialog.body")}
@@ -438,7 +451,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium">{t("templateDialog.buttons")} <span className="font-normal text-muted-foreground">{t("templateDialog.buttonsHint")}</span></p>
-                    {buttons.length < 3 && (
+                    {buttons.length < 3 && !hasCatalogButton && (
                       <Button type="button" size="sm" variant="outline" onClick={() => setButtons((current) => [...current, { type: "QUICK_REPLY", text: "" }])}>
                         <Plus className="mr-1 size-3" /> {t("templateDialog.addButton")}
                       </Button>
@@ -455,9 +468,10 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                           <SelectItem value="URL">URL</SelectItem>
                           <SelectItem value="PHONE_NUMBER">{t("templateDialog.buttonTypes.phone")}</SelectItem>
                           {/* Un cierre con botón de formulario abriría otro formulario con cada respuesta: el backend lo rechaza. */}
-                          {draft ? null : (
+                          {draft ? null : (<>
                             <SelectItem value="FLOW" disabled={otherFlowButton}>{t("templateDialog.buttonTypes.flow")}</SelectItem>
-                          )}
+                            <SelectItem value="CATALOG">{t("templateDialog.buttonTypes.catalog")}</SelectItem>
+                          </>)}
                         </SelectContent>
                       </Select>
                       <Input

@@ -3017,8 +3017,11 @@
     "buttonTypes": {
       "quickReply": "Respuesta rápida",
       "phone": "Teléfono",
-      "flow": "Formulario"
+      "flow": "Formulario",
+      "catalog": "Catálogo"
     },
+    "catalogButtonText": "Ver catálogo",
+    "catalogHint": "El botón abre el catálogo de WhatsApp para armar el carrito. Meta la publica como plantilla de Marketing (con costo por envío), sin encabezado: la portada es un producto del catálogo que el CRM elige al enviarla.",
     "buttonText": "Texto del botón",
     "removeButton": "Quitar botón {{label}}",
     "publishedFlow": "Formulario publicado",
