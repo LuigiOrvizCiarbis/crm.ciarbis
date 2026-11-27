@@ -69,6 +69,47 @@ class WhatsAppTemplateCreationTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_marketing_template_with_only_a_catalog_button_is_sent_to_meta_with_its_fixed_text(): void
+    {
+        [$user, $channel] = $this->context();
+        Http::fake(['https://graph.facebook.com/*/waba-test/message_templates' => Http::response(['id' => 'meta-catalog', 'status' => 'PENDING', 'category' => 'MARKETING'])]);
+        Sanctum::actingAs($user);
+
+        $this->postJson("/api/channels/{$channel->id}/templates", $this->catalogTemplate('MARKETING'))->assertCreated();
+
+        // Meta rechaza otro texto en el botón de catálogo: se manda siempre el suyo.
+        Http::assertSent(fn ($request) => $request['components'][1]['buttons'] === [['type' => 'CATALOG', 'text' => 'View catalog']]);
+    }
+
+    public function test_catalog_button_must_be_alone_in_a_marketing_template_without_header(): void
+    {
+        [$user, $channel] = $this->context();
+        Http::fake();
+        Sanctum::actingAs($user);
+
+        $utility = $this->catalogTemplate('UTILITY');
+        $withOtherButton = $this->catalogTemplate('MARKETING');
+        $withOtherButton['components'][1]['buttons'][] = ['type' => 'URL', 'text' => 'Ver la web', 'url' => 'https://www.taquitoygambeta.com'];
+        $withHeader = $this->catalogTemplate('MARKETING');
+        array_unshift($withHeader['components'], ['type' => 'HEADER', 'format' => 'TEXT', 'text' => 'Novedades']);
+
+        foreach ([$utility, $withOtherButton, $withHeader] as $payload) {
+            $this->postJson("/api/channels/{$channel->id}/templates", $payload)->assertStatus(422);
+        }
+        Http::assertNothingSent();
+    }
+
+    private function catalogTemplate(string $category): array
+    {
+        return [
+            'name' => 'novedades_catalogo', 'language' => 'es_AR', 'category' => $category,
+            'components' => [
+                ['type' => 'BODY', 'text' => 'Llegaron camisetas nuevas. Mirá el catálogo.'],
+                ['type' => 'BUTTONS', 'buttons' => [['type' => 'CATALOG', 'text' => 'Ver catálogo']]],
+            ],
+        ];
+    }
+
     public function test_header_example_can_come_from_a_workspace_file_but_not_from_another_tenant(): void
     {
         [$user, $channel] = $this->context();

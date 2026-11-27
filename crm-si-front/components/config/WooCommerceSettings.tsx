@@ -359,6 +359,10 @@ export function WooCommerceSettings() {
     addToast({ type: "success", title: t("settings.woocommerce.checkout.webhooksActivated") })
   }
 
+  // Estados de Meta sin traducción (p. ej. IN_APPEAL) se muestran tal cual.
+  const templateStatusLabel = (status: string | null) =>
+    t(`settings.woocommerce.checkout.templateStatus.${status ?? "missing"}`) ?? status
+
   const templateSelect = (
     value: number | null,
     onChange: (value: number | null) => void,
@@ -614,6 +618,7 @@ export function WooCommerceSettings() {
                 {templateSelect(paidTemplateId, setPaidTemplateId)}
                 <p className="text-xs text-muted-foreground">
                   {t("settings.woocommerce.checkout.templateVariables", { vars: "{{pedido}}, {{total}}" })}
+                  {" "}{t("settings.woocommerce.checkout.templateAuto")}
                 </p>
               </div>
 
@@ -622,6 +627,7 @@ export function WooCommerceSettings() {
                 {templateSelect(shippedTemplateId, setShippedTemplateId)}
                 <p className="text-xs text-muted-foreground">
                   {t("settings.woocommerce.checkout.templateVariables", { vars: "{{pedido}}, {{seguimiento}}" })}
+                  {" "}{t("settings.woocommerce.checkout.templateAuto")}
                 </p>
               </div>
 
@@ -665,6 +671,19 @@ export function WooCommerceSettings() {
                       {r.commerce_error && (
                         <span className="block text-warning">
                           {t("settings.woocommerce.checkout.commerceError", { error: r.commerce_error })}
+                        </span>
+                      )}
+                      {r.templates && (
+                        <span className="block">
+                          {t("settings.woocommerce.checkout.templatesRow", {
+                            paid: templateStatusLabel(r.templates.pedido_pagado),
+                            shipped: templateStatusLabel(r.templates.pedido_despachado),
+                          })}
+                        </span>
+                      )}
+                      {r.template_error && (
+                        <span className="block text-warning">
+                          {t("settings.woocommerce.checkout.templateError", { error: r.template_error })}
                         </span>
                       )}
                     </li>

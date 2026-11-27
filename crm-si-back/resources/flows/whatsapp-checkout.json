@@ -177,7 +177,7 @@
                         "type": "Dropdown",
                         "name": "state",
                         "label": "Provincia",
-                        "required": false,
+                        "required": "${data.has_states}",
                         "data-source": "${data.states}",
                         "visible": "${data.has_states}"
                     },
@@ -185,7 +185,7 @@
                         "type": "TextInput",
                         "name": "state_text",
                         "label": "Provincia / Estado",
-                        "required": false,
+                        "required": "${data.has_no_states}",
                         "init-value": "${data.state}",
                         "visible": "${data.has_no_states}"
                     },

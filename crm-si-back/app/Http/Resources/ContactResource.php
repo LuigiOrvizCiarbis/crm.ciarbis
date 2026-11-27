@@ -51,6 +51,23 @@ class ContactResource extends JsonResource
                 'last_message_at' => $conversation->last_message_at?->toIso8601String(),
                 'last_message_content' => $conversation->last_message_content,
             ])),
+            'opportunities' => $this->whenLoaded('opportunities', fn () => $this->opportunities->map(fn ($opportunity) => [
+                'id' => $opportunity->id,
+                'title' => $opportunity->title,
+                'pipeline_id' => $opportunity->pipeline_id,
+                'pipeline_name' => $opportunity->pipeline?->name,
+                'conversation_id' => $opportunity->conversation_id,
+                'status' => $opportunity->status,
+                'value' => $opportunity->value !== null ? (float) $opportunity->value : null,
+                'created_at' => $opportunity->created_at?->toIso8601String(),
+                'updated_at' => $opportunity->updated_at?->toIso8601String(),
+                'pipeline_stage' => $opportunity->pipelineStage ? [
+                    'id' => $opportunity->pipelineStage->id,
+                    'name' => $opportunity->pipelineStage->name,
+                    'color' => $opportunity->pipelineStage->color,
+                    'outcome' => $opportunity->pipelineStage->outcome,
+                ] : null,
+            ])->values()),
             'ad_referrals' => AdReferralResource::collection($this->whenLoaded('adReferrals')),
         ];
     }

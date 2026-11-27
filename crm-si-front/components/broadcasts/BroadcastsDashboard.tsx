@@ -8,6 +8,7 @@ import {
   Instagram,
   Loader2,
   MessageCircle,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -48,7 +49,7 @@ import { templateCategoryLabel } from "@/lib/whatsapp-templates"
 import { cn } from "@/lib/utils"
 import { usePermission } from "@/hooks/usePermission"
 import { NewBroadcastDialog } from "./NewBroadcastDialog"
-import { NewTemplateDialog } from "./NewTemplateDialog"
+import { NewTemplateDialog, templateEditBlocker } from "./NewTemplateDialog"
 
 const templateStateLabel: Record<string, string> = {
   ALL: "Todos los estados",
@@ -312,6 +313,7 @@ export function BroadcastsDashboard() {
   const [initialTemplateId, setInitialTemplateId] = useState<number | null>(null)
   const [newTemplateOpen, setNewTemplateOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<WhatsAppTemplate | null>(null)
+  const [editTarget, setEditTarget] = useState<WhatsAppTemplate | null>(null)
   const [deletingTemplateId, setDeletingTemplateId] = useState<number | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
@@ -426,30 +428,52 @@ export function BroadcastsDashboard() {
     }
   }
 
+  const editTitle = (blocker: ReturnType<typeof templateEditBlocker>) => {
+    if (blocker === "status") return "Meta solo deja editar plantillas aprobadas, rechazadas o pausadas"
+    if (blocker === "unsupported") return "Usa variables numeradas u opciones que el editor no maneja: editala en WhatsApp Manager"
+    return "Editar plantilla"
+  }
+
   // Mismas acciones en la tabla (desktop) y en la lista de teléfonos; en táctil crecen a 40px.
-  const renderTemplateActions = (template: WhatsAppTemplate) => (
-    <div className="flex items-center justify-end gap-1">
-      {canSend && (
-        <Button size="sm" variant="ghost" disabled={template.status !== "APPROVED"} onClick={() => openDialog(template.id)}>
-          <Send className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-          Usar
-        </Button>
-      )}
-      {canDeleteTemplate && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive pointer-coarse:size-10"
-          onClick={() => setDeleteTarget(template)}
-          disabled={deletingTemplateId === template.id}
-          aria-label={`Eliminar plantilla ${template.name} (${template.language})`}
-          title="Eliminar plantilla"
-        >
-          {deletingTemplateId === template.id ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-        </Button>
-      )}
-    </div>
-  )
+  const renderTemplateActions = (template: WhatsAppTemplate) => {
+    const editBlocker = templateEditBlocker(template)
+    return (
+      <div className="flex items-center justify-end gap-1">
+        {canSend && (
+          <Button size="sm" variant="ghost" disabled={template.status !== "APPROVED"} onClick={() => openDialog(template.id)}>
+            <Send className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+            Usar
+          </Button>
+        )}
+        {canCreateTemplate && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground pointer-coarse:size-10"
+            onClick={() => setEditTarget(template)}
+            disabled={editBlocker !== null}
+            aria-label={`Editar plantilla ${template.name} (${template.language})`}
+            title={editTitle(editBlocker)}
+          >
+            <Pencil className="size-4" />
+          </Button>
+        )}
+        {canDeleteTemplate && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive pointer-coarse:size-10"
+            onClick={() => setDeleteTarget(template)}
+            disabled={deletingTemplateId === template.id}
+            aria-label={`Eliminar plantilla ${template.name} (${template.language})`}
+            title="Eliminar plantilla"
+          >
+            {deletingTemplateId === template.id ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+          </Button>
+        )}
+      </div>
+    )
+  }
 
   const templateColumns: DataTableColumn<WhatsAppTemplate>[] = [
     {
@@ -823,6 +847,17 @@ export function BroadcastsDashboard() {
           onOpenChange={setNewTemplateOpen}
           channelId={selectedChannel.id}
           // Recarga con el estado de carga/error de la tabla: un fallo acá no debe leerse como fallo al crear.
+          onCreated={async () => setTemplatesReloadKey((key) => key + 1)}
+        />
+      )}
+
+      {canCreateTemplate && isWhatsAppChannel && selectedChannel && editTarget && (
+        <NewTemplateDialog
+          key={editTarget.id}
+          open
+          onOpenChange={(next) => { if (!next) setEditTarget(null) }}
+          channelId={selectedChannel.id}
+          template={editTarget}
           onCreated={async () => setTemplatesReloadKey((key) => key + 1)}
         />
       )}

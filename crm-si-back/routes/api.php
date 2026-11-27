@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AiWebsiteContextController;
 use App\Http\Controllers\Api\AssistantChatController;
 use App\Http\Controllers\Api\AssistantConversationController;
 use App\Http\Controllers\Api\AssistantFeedbackController;
+use App\Http\Controllers\Api\AssistantTranscriptionController;
 use App\Http\Controllers\Api\AutomationController;
 use App\Http\Controllers\Api\AutomationRunController;
 use App\Http\Controllers\Api\BillingConfigController;
@@ -523,6 +524,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('contacts', [ContactController::class, 'index']);
     Route::get('contacts/summary', [ContactController::class, 'summary']);
+    Route::get('contacts/stage-counts', [ContactController::class, 'stageCounts']);
     Route::post('contacts', [ContactController::class, 'store']);
     Route::post('contacts/import', [ContactController::class, 'import']);
     Route::post('contacts/import/preview', [ContactImportController::class, 'preview']);
@@ -573,6 +575,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('assistant/conversations/{conversation}/messages', [AssistantConversationController::class, 'messages']);
     Route::post('assistant/chat', AssistantChatController::class)->middleware('throttle:ai-assistant');
     Route::put('assistant/messages/{message}/feedback', AssistantFeedbackController::class);
+    Route::post('assistant/transcriptions', AssistantTranscriptionController::class)->middleware('throttle:ai-assistant-transcription');
 
     // Config de WooCommerce por tenant (credenciales REST API + sync de productos).
     Route::get('woocommerce-config', [WooCommerceConfigController::class, 'show']);
@@ -752,6 +755,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('channels/{channel}/templates', [WhatsAppTemplateController::class, 'index']);
     Route::post('channels/{channel}/templates', [WhatsAppTemplateController::class, 'create']);
+    Route::put('channels/{channel}/templates/{template}', [WhatsAppTemplateController::class, 'update']);
     Route::delete('channels/{channel}/templates/{template}', [WhatsAppTemplateController::class, 'destroy']);
     Route::post('channels/{channel}/templates/sync', [WhatsAppTemplateController::class, 'sync']);
     Route::post('channels/{channel}/templates/media', [WhatsAppTemplateController::class, 'uploadTemplateMedia']);

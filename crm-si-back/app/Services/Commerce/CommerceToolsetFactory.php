@@ -32,6 +32,13 @@ class CommerceToolsetFactory
             return null;
         }
 
-        return new CommerceToolset($conversation, $config, $this->retailerIds, $this->products, $this->checkouts, $this->paymentMessage);
+        return new CommerceToolset(
+            $conversation,
+            $config,
+            $this->retailerIds,
+            $this->products,
+            $this->checkouts,
+            $this->paymentMessage,
+        );
     }
 }

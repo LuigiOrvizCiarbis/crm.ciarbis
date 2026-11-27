@@ -32,6 +32,7 @@ class WhatsAppCheckoutLifecycle
         private readonly WhatsAppTemplateService $templates,
         private readonly TemplateParameterRenderer $renderer,
         private readonly HumanHandoffService $handoffs,
+        private readonly WhatsAppCheckoutTemplates $checkoutTemplates,
     ) {}
 
     /**
@@ -123,7 +124,7 @@ class WhatsAppCheckoutLifecycle
             return;
         }
 
-        $this->sendTemplate($conversation, $checkout, $config?->paid_template_id, [
+        $this->sendTemplate($conversation, $checkout, $config?->paid_template_id, WhatsAppCheckoutTemplates::PAID, [
             ['component' => 'body', 'name' => 'pedido', 'source' => 'literal', 'value' => $number],
             ['component' => 'body', 'name' => 'total', 'source' => 'literal', 'value' => $amount],
         ]);
@@ -198,7 +199,7 @@ class WhatsAppCheckoutLifecycle
                 $checkout,
             );
         } else {
-            $this->sendTemplate($conversation, $checkout, $config?->shipped_template_id, [
+            $this->sendTemplate($conversation, $checkout, $config?->shipped_template_id, WhatsAppCheckoutTemplates::SHIPPED, [
                 ['component' => 'body', 'name' => 'pedido', 'source' => 'literal', 'value' => $number],
                 ['component' => 'body', 'name' => 'seguimiento', 'source' => 'literal', 'value' => $tracking ?? '-'],
             ]);
@@ -305,22 +306,22 @@ class WhatsAppCheckoutLifecycle
         return $opportunity;
     }
 
-    /** Fuera de la ventana sólo se avisa con una plantilla aprobada del mismo número. */
-    private function sendTemplate(Conversation $conversation, WhatsAppCheckout $checkout, ?int $templateId, array $parameters): void
+    /**
+     * Fuera de la ventana sólo se avisa con una plantilla aprobada del mismo
+     * número: la elegida en la configuración o, si no hay (o es de otro número),
+     * la que creó la instalación de la compra por WhatsApp.
+     */
+    private function sendTemplate(Conversation $conversation, WhatsAppCheckout $checkout, ?int $templateId, string $systemTemplate, array $parameters): void
     {
-        if ($templateId === null) {
-            return;
-        }
+        $chosen = $templateId === null ? null : WhatsAppTemplate::withoutGlobalScopes()->find($templateId);
+        $template = $chosen !== null && $chosen->whatsapp_config_id === $conversation->channel?->whatsapp_config_id
+            ? $chosen
+            : $this->checkoutTemplates->approvedFor($conversation, $systemTemplate);
 
-        $template = WhatsAppTemplate::withoutGlobalScopes()->find($templateId);
         if ($template === null) {
-            return;
-        }
-
-        if ($template->whatsapp_config_id !== $conversation->channel?->whatsapp_config_id) {
-            Log::warning('Compra por WhatsApp: la plantilla es de otro número', [
+            Log::info('Compra por WhatsApp: ventana cerrada y sin plantilla aprobada, no se avisa', [
                 'checkout_id' => $checkout->id,
-                'template_id' => $template->id,
+                'template' => $systemTemplate,
             ]);
 
             return;

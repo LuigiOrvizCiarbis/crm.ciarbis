@@ -25,6 +25,18 @@ interface StageFilterMenuProps {
   resultCount?: number
   /** Mobile: además de cerrar el drawer, llevar a la lista (p. ej. cerrar el panel de canales). */
   onShowResults?: () => void
+  /** Texto de la opción `NO_STAGE_FILTER`; por defecto "Sin etapa" (chats). */
+  noneLabel?: string
+  /** Texto del botón del drawer en mobile cuando se conoce `resultCount`. */
+  resultsLabel?: string
+  /** Mientras se piden los conteos: un esqueleto en su lugar. */
+  countsLoading?: boolean
+  /** Ocultar los chips de lo elegido cuando la pantalla ya los muestra en otro lado. */
+  showSelection?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** Sólo ícono (fila de filtros de teléfono, donde no entra la etiqueta). */
+  compact?: boolean
+  triggerClassName?: string
 }
 
 /**
@@ -32,10 +44,28 @@ interface StageFilterMenuProps {
  * de alguna de sus oportunidades está elegida. En desktop es un popover; en
  * mobile, un drawer inferior para tocar con el pulgar.
  */
-export function StageFilterMenu({ selected, onChange, counts, resultCount, onShowResults }: StageFilterMenuProps) {
+export function StageFilterMenu({
+  selected,
+  onChange,
+  counts,
+  resultCount,
+  onShowResults,
+  noneLabel,
+  resultsLabel,
+  countsLoading = false,
+  showSelection = true,
+  onOpenChange,
+  compact = false,
+  triggerClassName,
+}: StageFilterMenuProps) {
   const { t } = useTranslation()
   const isMobile = useIsMobile()
-  const [open, setOpen] = useState(false)
+  const [open, setOpenState] = useState(false)
+  const setOpen = (next: boolean) => {
+    setOpenState(next)
+    onOpenChange?.(next)
+  }
+  const noneText = noneLabel ?? t("chats.stageFilter.none")
   const [groups, setGroups] = useState<PipelineGroup[] | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
 
@@ -66,11 +96,28 @@ export function StageFilterMenu({ selected, onChange, counts, resultCount, onSho
     return map
   }, [groups])
 
-  const trigger = (
+  const trigger = compact ? (
+    <Button
+      variant="outline"
+      className={cn("relative size-11 shrink-0 bg-transparent", triggerClassName)}
+      onClick={isMobile ? () => setOpen(true) : undefined}
+      aria-label={selected.length > 0 ? `${t("chats.stageFilter.label")}, ${selected.length}` : t("chats.stageFilter.label")}
+    >
+      <Milestone className="size-4" aria-hidden="true" />
+      {selected.length > 0 && (
+        <span
+          className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-medium tabular-nums text-primary-foreground"
+          aria-hidden="true"
+        >
+          {selected.length}
+        </span>
+      )}
+    </Button>
+  ) : (
     <Button
       variant="outline"
       size="sm"
-      className={cn("gap-2 bg-transparent", selected.length > 0 && "border-primary/40 text-foreground")}
+      className={cn("gap-2 bg-transparent", selected.length > 0 && "border-primary/40 text-foreground", triggerClassName)}
       onClick={isMobile ? () => setOpen(true) : undefined}
     >
       <Milestone className="h-4 w-4" />
@@ -90,6 +137,8 @@ export function StageFilterMenu({ selected, onChange, counts, resultCount, onSho
       onRetry={() => setLoadFailed(false)}
       selectedSet={selectedSet}
       counts={counts}
+      countsLoading={countsLoading}
+      noneLabel={noneText}
       onChange={onChange}
       selected={selected}
       touch={isMobile}
@@ -114,7 +163,7 @@ export function StageFilterMenu({ selected, onChange, counts, resultCount, onSho
                 >
                   {resultCount === undefined
                     ? t("chats.stageFilter.done")
-                    : t("chats.stageFilter.showResults", { count: resultCount })}
+                    : resultsLabel ?? t("chats.stageFilter.showResults", { count: resultCount })}
                 </Button>
               </DrawerFooter>
             </DrawerContent>
@@ -128,11 +177,11 @@ export function StageFilterMenu({ selected, onChange, counts, resultCount, onSho
       )}
 
       {/* Lo elegido queda a la vista: se saca de a una sin abrir el panel. */}
-      {selected.length > 0 && (
+      {showSelection && selected.length > 0 && (
         <ul className="flex w-full flex-wrap gap-1.5" aria-label={t("chats.stageFilter.active")}>
           {selected.map((key) => {
             const entry = stageById.get(key)
-            const label = key === NO_STAGE_FILTER ? t("chats.stageFilter.none") : entry?.stage.name
+            const label = key === NO_STAGE_FILTER ? noneText : entry?.stage.name
             if (!label) return null
             return (
               <li key={key}>
@@ -178,6 +227,8 @@ function StagePanel({
   selected,
   selectedSet,
   counts,
+  countsLoading,
+  noneLabel,
   onChange,
   touch,
 }: {
@@ -187,6 +238,8 @@ function StagePanel({
   selected: string[]
   selectedSet: Set<string>
   counts?: Map<string, number>
+  countsLoading: boolean
+  noneLabel: string
   onChange: (selected: string[]) => void
   touch: boolean
 }) {
@@ -306,7 +359,9 @@ function StagePanel({
                 <CheckBox state={checked ? "on" : "off"} color={stage.color} />
                 <StageDot color={stage.color} />
                 <span className="min-w-0 flex-1 truncate">{stage.name}</span>
-                {counts && (
+                {countsLoading ? (
+                  <span aria-hidden="true" className="h-3 w-5 animate-pulse rounded bg-muted" />
+                ) : counts && (
                   <span className={cn("text-xs tabular-nums", count ? "text-muted-foreground" : "text-muted-foreground/40")}>
                     {count}
                   </span>
@@ -327,8 +382,10 @@ function StagePanel({
         >
           <CheckBox state={selectedSet.has(NO_STAGE_FILTER) ? "on" : "off"} />
           <span className="h-2.5 w-2.5 shrink-0 rounded-full border border-dashed border-muted-foreground" />
-          <span className="flex-1 text-muted-foreground">{t("chats.stageFilter.none")}</span>
-          {counts && (
+          <span className="flex-1 text-muted-foreground">{noneLabel}</span>
+          {countsLoading ? (
+            <span aria-hidden="true" className="h-3 w-5 animate-pulse rounded bg-muted" />
+          ) : counts && (
             <span className="text-xs tabular-nums text-muted-foreground">{counts.get(NO_STAGE_FILTER) ?? 0}</span>
           )}
         </button>

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/Toast"
 import { useTranslation } from "@/hooks/useTranslation"
-import { createTemplate, uploadTemplateHeader, type CreateTemplatePayload } from "@/lib/api/templates"
+import { createTemplate, updateTemplate, uploadTemplateHeader, type CreateTemplatePayload } from "@/lib/api/templates"
 import { getFlows } from "@/lib/api/whatsapp-flows"
 import type { WhatsAppFlow, WhatsAppFlowTextCompletion, WhatsAppTemplate } from "@/data/types"
 import { DEFAULT_CLOSING_BODY } from "@/lib/flow-builder/completion"
@@ -36,7 +36,7 @@ const HEADER_MEDIA: Record<MediaFormat, { accept: string; maxMb: number; key: st
 
 const isMediaFormat = (format: HeaderFormat): format is MediaFormat => format in HEADER_MEDIA
 type ButtonDraft = {
-  type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER" | "FLOW"
+  type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER" | "FLOW" | "CATALOG"
   text: string
   url?: string
   phone_number?: string
@@ -57,6 +57,9 @@ export interface TemplateDraft {
 
 /** Botones de plantilla: Meta admite hasta 25 caracteres (el mensaje interactivo, 30). */
 export const BUTTON_TEXT_MAX = 25
+
+/** Meta rechaza cualquier otro texto en el botón de catálogo. */
+const CATALOG_BUTTON_TEXT = "View catalog"
 
 export const TEMPLATE_LANGUAGES = [
   { value: "es_AR", label: "Español (Argentina)" },
@@ -94,38 +97,94 @@ export function flowButtonTarget(flow: WhatsAppFlow | undefined, flowId: string)
     : { flow_id: flowId || undefined, flow_action: "navigate", navigate_screen: flow?.screens[0] }
 }
 
+const EDITABLE_STATUSES: WhatsAppTemplate["status"][] = ["APPROVED", "REJECTED", "PAUSED"]
+const EDITABLE_BUTTONS = ["QUICK_REPLY", "URL", "PHONE_NUMBER", "FLOW", "CATALOG"]
+
+/**
+ * Por qué este editor no puede editar la plantilla, o null si puede. Meta sólo
+ * deja editar aprobadas, rechazadas o pausadas. El editor arma variables con
+ * nombre y sólo en el cuerpo: las plantillas con {{1}}, con variables en el
+ * encabezado o en links, o de autenticación se editan en WhatsApp Manager.
+ */
+export function templateEditBlocker(template: WhatsAppTemplate): "status" | "unsupported" | null {
+  if (!EDITABLE_STATUSES.includes(template.status)) return "status"
+  if (template.category === "AUTHENTICATION") return "unsupported"
+  const supported = template.components.every((component) => {
+    switch (component.type) {
+      case "BODY": return !/\{\{\s*\d+\s*\}\}/.test(component.text ?? "")
+      case "HEADER":
+      case "FOOTER": return !/\{\{/.test(component.text ?? "")
+      case "BUTTONS": return (component.buttons ?? []).every((button) => EDITABLE_BUTTONS.includes(button.type) && !/\{\{/.test(button.url ?? ""))
+      default: return false
+    }
+  })
+  return supported ? null : "unsupported"
+}
+
+/** Campos del editor a partir de una plantilla guardada; el archivo del encabezado se vuelve a pedir. */
+function fieldsFromTemplate(template: WhatsAppTemplate) {
+  const find = (type: string) => template.components.find((component) => component.type === type)
+  const header = find("HEADER")
+  const body = find("BODY")
+  const format = header?.format?.toUpperCase()
+  const headerFormat: HeaderFormat = !header ? "NONE" : format === "IMAGE" || format === "VIDEO" || format === "DOCUMENT" ? format : "TEXT"
+  return {
+    headerFormat,
+    headerText: headerFormat === "TEXT" ? header?.text ?? "" : "",
+    body: body?.text ?? "",
+    footer: find("FOOTER")?.text ?? "",
+    examples: Object.fromEntries((body?.example?.body_text_named_params ?? []).map(({ param_name, example }) => [param_name, example])),
+    buttons: (find("BUTTONS")?.buttons ?? []).flatMap((button): ButtonDraft[] =>
+      button.type === "QUICK_REPLY" || button.type === "URL" || button.type === "PHONE_NUMBER" || button.type === "FLOW" || button.type === "CATALOG"
+        ? [{ type: button.type, text: button.text, url: button.url, phone_number: button.phone_number, flow_id: button.flow_id, flow_action: button.flow_action, navigate_screen: button.navigate_screen }]
+        : []),
+  }
+}
+
 interface NewTemplateDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   channelId: number
   onCreated: (template: WhatsAppTemplate) => Promise<void>
   draft?: TemplateDraft | null
+  /** Plantilla a editar; el que abre el diálogo lo monta con una `key` por plantilla. */
+  template?: WhatsAppTemplate | null
 }
 
-export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, draft }: NewTemplateDialogProps) {
+export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, draft, template }: NewTemplateDialogProps) {
   const { t } = useTranslation()
   const { addToast } = useToast()
-  const [name, setName] = useState(draft?.name ?? "")
-  const [language, setLanguage] = useState("es_AR")
-  const [category, setCategory] = useState<"MARKETING" | "UTILITY">("UTILITY")
-  const [headerFormat, setHeaderFormat] = useState<HeaderFormat>(draft?.headerText ? "TEXT" : "NONE")
-  const [headerText, setHeaderText] = useState(draft?.headerText ?? "")
+  const [edited] = useState(() => template ? fieldsFromTemplate(template) : null)
+  const [name, setName] = useState(template?.name ?? draft?.name ?? "")
+  const [language, setLanguage] = useState(template?.language ?? "es_AR")
+  const [category, setCategory] = useState<"MARKETING" | "UTILITY">(template?.category === "MARKETING" ? "MARKETING" : "UTILITY")
+  // Meta no deja cambiar la categoría de una plantilla aprobada.
+  const categoryLocked = template?.status === "APPROVED"
+  const [headerFormat, setHeaderFormat] = useState<HeaderFormat>(edited?.headerFormat ?? (draft?.headerText ? "TEXT" : "NONE"))
+  const [headerText, setHeaderText] = useState(edited?.headerText ?? draft?.headerText ?? "")
   const [headerFile, setHeaderFile] = useState<File | null>(null)
   const [headerPreviewUrl, setHeaderPreviewUrl] = useState<string | null>(null)
-  const [body, setBody] = useState(draft?.body ?? "")
-  const [footer, setFooter] = useState(draft?.footer ?? "")
-  const [examples, setExamples] = useState<Record<string, string>>({})
-  const [buttons, setButtons] = useState<ButtonDraft[]>(() => draft?.link ? [{ type: "URL", text: draft.link.text, url: draft.link.url }] : [])
+  const [body, setBody] = useState(edited?.body ?? draft?.body ?? "")
+  const [footer, setFooter] = useState(edited?.footer ?? draft?.footer ?? "")
+  const [examples, setExamples] = useState<Record<string, string>>(edited?.examples ?? {})
+  const [buttons, setButtons] = useState<ButtonDraft[]>(() => edited?.buttons ?? (draft?.link ? [{ type: "URL", text: draft.link.text, url: draft.link.url }] : []))
   const [publishedFlows, setPublishedFlows] = useState<WhatsAppFlow[] | null>(null)
   const [flowsLoading, setFlowsLoading] = useState(false)
   const hasFlowButton = buttons.some((button) => button.type === "FLOW")
+  // Meta publica el catálogo como plantilla de Marketing, sin encabezado y con ese único botón.
+  const hasCatalogButton = buttons.some((button) => button.type === "CATALOG")
   const [submitting, setSubmitting] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const variables = useMemo(() => [...new Set(Array.from(body.matchAll(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g)).map((match) => match[1]))], [body])
-  const hasDraft = Boolean(name || body.trim() || footer.trim() || headerFile || headerText.trim() || buttons.length > 0)
+  // Al editar, sólo hay algo que descartar si cambió respecto de lo guardado.
+  const snapshot = JSON.stringify({ category, headerFormat, headerText, body, footer, examples, buttons, file: headerFile?.name ?? null })
+  const [initialSnapshot] = useState(snapshot)
+  const hasDraft = template
+    ? snapshot !== initialSnapshot
+    : Boolean(name || body.trim() || footer.trim() || headerFile || headerText.trim() || buttons.length > 0)
   // Una plantilla que parte de un mensaje ya escrito no vuelve a pedir sus textos: quedan plegados.
   // Si el texto trae variables, se abre para cargar sus ejemplos.
-  const [editingTexts, setEditingTexts] = useState(() => !draft || /\{\{/.test(draft.body))
+  const [editingTexts, setEditingTexts] = useState(() => Boolean(template) || !draft || /\{\{/.test(draft.body))
 
   useEffect(() => setExamples((current) => Object.fromEntries(variables.map((variable) => [variable, current[variable] || ""]))), [variables])
 
@@ -167,12 +226,19 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
   const updateButton = (index: number, patch: Partial<ButtonDraft>) =>
     setButtons((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item))
 
-  const changeButtonType = (index: number, type: ButtonDraft["type"]) =>
+  const changeButtonType = (index: number, type: ButtonDraft["type"]) => {
+    if (type === "CATALOG") {
+      setButtons([{ type, text: CATALOG_BUTTON_TEXT }])
+      setCategory("MARKETING")
+      changeHeaderFormat("NONE")
+      return
+    }
     setButtons((current) => current.map((item, itemIndex) => itemIndex === index
       ? type === "FLOW"
         ? { type, text: item.text, flow_action: "navigate" }
         : { type, text: item.text, ...(type === "URL" && item.url ? { url: item.url } : {}), ...(type === "PHONE_NUMBER" && item.phone_number ? { phone_number: item.phone_number } : {}) }
       : item))
+  }
 
   const selectFlow = (index: number, flowId: string) =>
     updateButton(index, flowButtonTarget(publishedFlows?.find((item) => item.meta_flow_id === flowId), flowId))
@@ -228,13 +294,15 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
           ...(type === "FLOW" ? { flow_id, flow_action: flow_action ?? "navigate", ...(flow_action !== "data_exchange" && navigate_screen ? { navigate_screen } : {}) } : {}),
         })),
       })
-      const created = await createTemplate(channelId, { name: name.trim(), language, category, parameter_format: "named", components })
-      addToast({ type: "success", title: t("templateDialog.created") })
+      const saved = template
+        ? await updateTemplate(channelId, template.id, { components, ...(categoryLocked ? {} : { category }) })
+        : await createTemplate(channelId, { name: name.trim(), language, category, parameter_format: "named", components })
+      addToast({ type: "success", title: t(template ? "templateDialog.edit.saved" : "templateDialog.created") })
       reset()
       onOpenChange(false)
-      await onCreated(created)
+      await onCreated(saved)
     } catch (error: unknown) {
-      addToast({ type: "error", title: (error instanceof Error && error.message) || t("templateDialog.errors.create") })
+      addToast({ type: "error", title: (error instanceof Error && error.message) || t(template ? "templateDialog.errors.edit" : "templateDialog.errors.create") })
     } finally {
       setSubmitting(false)
     }
@@ -259,9 +327,11 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
         ) : (
           <>
             <DialogHeader className="border-b border-border px-6 py-4">
-              <DialogTitle>{draft ? t("templateDialog.closing.title") : t("templateDialog.title")}</DialogTitle>
-              <DialogDescription>{draft ? t("templateDialog.closing.description") : t("templateDialog.description")}</DialogDescription>
-              {draft ? (
+              <DialogTitle>{template ? t("templateDialog.edit.title", { name: template.name }) : draft ? t("templateDialog.closing.title") : t("templateDialog.title")}</DialogTitle>
+              <DialogDescription>{template ? t("templateDialog.edit.description") : draft ? t("templateDialog.closing.description") : t("templateDialog.description")}</DialogDescription>
+              {template ? (
+                categoryLocked && <p className="pt-1 text-xs text-muted-foreground">{t("templateDialog.edit.approvedHint")}</p>
+              ) : draft ? (
                 <p className="pt-1 text-xs text-muted-foreground">{t("templateDialog.closing.hint")}</p>
               ) : (
                 <div className="flex flex-col items-start gap-1.5 pt-2">
@@ -276,11 +346,11 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="block space-y-1.5 text-sm font-medium">
                     {t("templateDialog.name")}
-                    <Input value={name} onChange={(event) => setName(event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_"))} placeholder={t("templateDialog.namePlaceholder")} />
+                    <Input value={name} disabled={Boolean(template)} onChange={(event) => setName(event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_"))} placeholder={t("templateDialog.namePlaceholder")} />
                   </label>
                   <label className="block space-y-1.5 text-sm font-medium">
                     {t("templateDialog.language")}
-                    <Select value={language} onValueChange={setLanguage}>
+                    <Select value={language} onValueChange={setLanguage} disabled={Boolean(template)}>
                       <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {TEMPLATE_LANGUAGES.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
@@ -292,7 +362,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                 {editingTexts ? (<>
                 <label className="block space-y-1.5 text-sm font-medium">
                   {t("templateDialog.category")}
-                  <Select value={category} onValueChange={(value) => setCategory(value as "MARKETING" | "UTILITY")}>
+                  <Select value={category} onValueChange={(value) => setCategory(value as "MARKETING" | "UTILITY")} disabled={categoryLocked || hasCatalogButton}>
                     <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="UTILITY">{t("templateDialog.categories.utility")}</SelectItem>
@@ -301,6 +371,9 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                   </Select>
                 </label>
 
+                {hasCatalogButton ? (
+                  <p className="rounded-lg border border-border p-4 text-xs text-muted-foreground">{t("templateDialog.catalogHint")}</p>
+                ) : (
                 <div className="space-y-3 rounded-lg border border-border p-4">
                   <p className="text-sm font-medium">{t("templateDialog.header")} {optional}</p>
                   <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("templateDialog.headerType")}>
@@ -349,9 +422,11 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                       <p className="text-xs text-muted-foreground">
                         {t("templateDialog.mediaHint", { limits: t(`templateDialog.mediaLimits.${HEADER_MEDIA[headerFormat].key}`) })}
                       </p>
+                      {template && <p className="text-xs text-muted-foreground">{t("templateDialog.edit.mediaHint")}</p>}
                     </div>
                   )}
                 </div>
+                )}
 
                 <label className="block space-y-1.5 text-sm font-medium">
                   {t("templateDialog.body")}
@@ -379,7 +454,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium">{t("templateDialog.buttons")} <span className="font-normal text-muted-foreground">{t("templateDialog.buttonsHint")}</span></p>
-                    {buttons.length < 3 && (
+                    {buttons.length < 3 && !hasCatalogButton && (
                       <Button type="button" size="sm" variant="outline" onClick={() => setButtons((current) => [...current, { type: "QUICK_REPLY", text: "" }])}>
                         <Plus className="mr-1 size-3" /> {t("templateDialog.addButton")}
                       </Button>
@@ -396,14 +471,17 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                           <SelectItem value="URL">URL</SelectItem>
                           <SelectItem value="PHONE_NUMBER">{t("templateDialog.buttonTypes.phone")}</SelectItem>
                           {/* Un cierre con botón de formulario abriría otro formulario con cada respuesta: el backend lo rechaza. */}
-                          {draft ? null : (
+                          {draft ? null : (<>
                             <SelectItem value="FLOW" disabled={otherFlowButton}>{t("templateDialog.buttonTypes.flow")}</SelectItem>
-                          )}
+                            <SelectItem value="CATALOG">{t("templateDialog.buttonTypes.catalog")}</SelectItem>
+                          </>)}
                         </SelectContent>
                       </Select>
                       <Input
                         value={button.text}
                         onChange={(event) => updateButton(index, { text: event.target.value })}
+                        // Meta fija el texto del botón de catálogo y rechaza cualquier otro.
+                        disabled={button.type === "CATALOG"}
                         maxLength={BUTTON_TEXT_MAX}
                         aria-label={t("templateDialog.buttonText")}
                         placeholder={t("templateDialog.buttonText")}
@@ -501,7 +579,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
             <DialogFooter className="border-t border-border px-6 py-4">
               <Button variant="outline" onClick={requestClose} disabled={submitting}>{t("templateDialog.cancel")}</Button>
               <Button onClick={submit} disabled={submitting}>
-                {submitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Check className="mr-2 size-4" />} {t("templateDialog.submit")}
+                {submitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Check className="mr-2 size-4" />} {t(template ? "templateDialog.edit.submit" : "templateDialog.submit")}
               </Button>
             </DialogFooter>
           </>

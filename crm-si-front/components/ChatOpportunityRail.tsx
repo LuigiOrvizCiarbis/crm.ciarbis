@@ -1,6 +1,6 @@
 "use client"
 
-import { Briefcase, ChevronLeft, ChevronRight, Loader2, Plus } from "lucide-react"
+import { Briefcase, ChevronLeft, ChevronRight, Loader2, Plus, Trash2 } from "lucide-react"
 import type { PipelineStage } from "@/lib/api/pipeline"
 import { useTranslation } from "@/hooks/useTranslation"
 import { cn } from "@/lib/utils"
@@ -12,6 +12,8 @@ export type ChatOpportunity = {
   pipeline_id: number
   pipeline_stage_id: number | null
   created_at?: string | null
+  updated_at?: string | null
+  status?: "open" | "won" | "lost" | "archived"
   pipeline?: { id: number; name: string; is_default?: boolean } | null
 }
 
@@ -43,6 +45,10 @@ interface ChatOpportunityRailProps {
   contactName?: string
   onMove: (opportunity: ChatOpportunity, stageId: number) => void
   onNew: () => void
+  /** Ausente sin permiso para borrar. */
+  onDelete?: (opportunity: ChatOpportunity) => void
+  /** El perfil del contacto apila las fichas en vez de desplazarlas en horizontal. */
+  className?: string
 }
 
 /**
@@ -57,6 +63,8 @@ export function ChatOpportunityRail({
   contactName,
   onMove,
   onNew,
+  onDelete,
+  className,
 }: ChatOpportunityRailProps) {
   const { t } = useTranslation()
   // Dos oportunidades del mismo embudo sin título propio ni monto se veían idénticas.
@@ -67,7 +75,7 @@ export function ChatOpportunityRail({
 
   return (
     <div
-      className="flex min-w-0 flex-1 snap-x items-stretch gap-1.5 overflow-x-auto [scrollbar-width:none]"
+      className={cn("flex min-w-0 flex-1 snap-x items-stretch gap-1.5 overflow-x-auto [scrollbar-width:none]", className)}
       aria-label={t("chats.opportunitiesOfChat")}
       role="list"
     >
@@ -80,6 +88,7 @@ export function ChatOpportunityRail({
           contactName={contactName}
           showSince={pipelineCounts[opportunity.pipeline_id] > 1}
           onMove={(stageId) => onMove(opportunity, stageId)}
+          onDelete={onDelete ? () => onDelete(opportunity) : undefined}
         />
       ))}
       {/* Sólo ícono: el riel ya dice que son oportunidades. */}
@@ -103,6 +112,7 @@ function OpportunityTicket({
   contactName,
   showSince,
   onMove,
+  onDelete,
 }: {
   opportunity: ChatOpportunity
   stages: PipelineStage[]
@@ -110,6 +120,7 @@ function OpportunityTicket({
   contactName?: string
   showSince: boolean
   onMove: (stageId: number) => void
+  onDelete?: () => void
 }) {
   const { t, language } = useTranslation()
   const currentIndex = stages.findIndex((stage) => stage.id === opportunity.pipeline_stage_id)
@@ -195,6 +206,18 @@ function OpportunityTicket({
         emptyLabel={t("chats.lastStage")}
         onMove={onMove}
       />
+      {onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={pending}
+          title={t("pipeline.delete.action")}
+          aria-label={t("pipeline.delete.actionFor", { name: contactName ?? pipelineName })}
+          className="flex h-8 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-30"
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      )}
     </div>
   )
 }

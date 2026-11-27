@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { ContactField } from "@/lib/api/contact-fields"
 import { getTags, type Tag } from "@/lib/api/tags"
+import { useStageNames } from "@/hooks/usePipelineCatalog"
 import { CONTACT_SOURCES } from "@/components/contacts-compact-header"
 import {
   EMPTY_CONTACT_FILTERS,
@@ -153,6 +154,7 @@ export function ActiveFiltersBar({ filters, onChange, fields, total, loading }: 
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const tagNames = useTagNames(filters.tags)
+  const stageNames = useStageNames(filters.stages, t("contactsPage.stage.filterNone"))
   const fieldsByKey = new Map(fields.map((field) => [field.key, field]))
 
   // Tras quitar un chip, el foco pasa al que ocupó su lugar (o al anterior);
@@ -205,6 +207,20 @@ export function ActiveFiltersBar({ filters, onChange, fields, total, loading }: 
         summary={names.length <= 2 ? names.join(", ") : t("contactsPage.filters.custom.summary.more", { first: names[0], count: names.length - 1 })}
         removeLabel={t("contactsPage.filters.active.remove", { field: t("contactsPage.filters.active.tags") })}
         onRemove={() => removeAndRefocus(index, () => onChange({ ...filters, tags: [] }))}
+      />,
+    )
+  }
+
+  if (filters.stages.length > 0) {
+    const index = chips.length
+    const names = filters.stages.map((key) => stageNames[key] ?? "…")
+    chips.push(
+      <StaticChip
+        key="stages"
+        label={t("contactsPage.stage.filterLabel")}
+        summary={names.length <= 2 ? names.join(", ") : t("contactsPage.filters.custom.summary.more", { first: names[0], count: names.length - 1 })}
+        removeLabel={t("contactsPage.filters.active.remove", { field: t("contactsPage.stage.filterLabel") })}
+        onRemove={() => removeAndRefocus(index, () => onChange({ ...filters, stages: [] }))}
       />,
     )
   }

@@ -93,6 +93,49 @@ class Contact extends Model
         return $this->hasMany(Conversation::class);
     }
 
+    /**
+     * Chats list and filter each conversation's own tags, so tag changes made
+     * on the contact are mirrored to all of its conversations.
+     *
+     * @param  array<int, array{tenant_id: int, assigned_by: int|null}>  $pivotData  keyed by tag id
+     */
+    public function addTags(array $pivotData): void
+    {
+        $this->tags()->syncWithoutDetaching($pivotData);
+
+        foreach ($this->conversations as $conversation) {
+            $conversation->tags()->syncWithoutDetaching($pivotData);
+        }
+    }
+
+    /**
+     * @param  list<int>  $tagIds
+     */
+    public function removeTags(array $tagIds): void
+    {
+        $this->tags()->detach($tagIds);
+
+        foreach ($this->conversations as $conversation) {
+            $conversation->tags()->detach($tagIds);
+        }
+    }
+
+    /**
+     * Conversations drop only the tags the contact lost, keeping tags that
+     * were applied to a single conversation.
+     *
+     * @param  array<int, array{tenant_id: int, assigned_by: int|null}>  $pivotData  keyed by tag id
+     */
+    public function replaceTags(array $pivotData): void
+    {
+        $removedTagIds = $this->tags()->sync($pivotData)['detached'];
+
+        foreach ($this->conversations as $conversation) {
+            $conversation->tags()->detach($removedTagIds);
+            $conversation->tags()->syncWithoutDetaching($pivotData);
+        }
+    }
+
     public function adReferrals(): HasMany
     {
         return $this->hasMany(AdReferral::class);

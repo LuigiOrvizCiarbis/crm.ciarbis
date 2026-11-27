@@ -185,7 +185,9 @@ class WhatsAppCheckout extends Model
 
     public static function variantLabel(ProductVariant $variant): string
     {
-        $label = implode(' / ', array_filter(array_map('strval', (array) $variant->attribute_values)));
+        // Sólo se descartan los vacíos: un talle "0" es un valor válido.
+        $values = array_filter(array_map('strval', (array) $variant->attribute_values), fn (string $value) => trim($value) !== '');
+        $label = implode(' / ', $values);
 
         return $label !== '' ? $label : 'Único';
     }
@@ -205,8 +207,15 @@ class WhatsAppCheckout extends Model
         return implode("\n", $lines);
     }
 
+    /**
+     * Zona horaria para los horarios que ve el cliente. `tenants.timezone` no se
+     * puede configurar y queda en el default "UTC": ese valor cuenta como no
+     * configurado y se usa la zona de la app.
+     */
     public function timezone(): string
     {
-        return Tenant::find($this->tenant_id)?->timezone ?: config('app.timezone');
+        $timezone = Tenant::find($this->tenant_id)?->timezone;
+
+        return filled($timezone) && $timezone !== 'UTC' ? $timezone : (string) config('app.timezone');
     }
 }

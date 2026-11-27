@@ -2,6 +2,7 @@
 
 namespace App\Services\Commerce;
 
+use App\Exceptions\WhatsAppMessageRejectedException;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
@@ -9,6 +10,7 @@ use App\Models\WooCommerceConfig;
 use App\Services\MessagingWindowService;
 use App\Services\WhatsAppInteractiveSender;
 use InvalidArgumentException;
+use RuntimeException;
 
 /**
  * Mensajes del catálogo nativo de WhatsApp: el catálogo completo o fichas de
@@ -18,24 +20,69 @@ class WhatsAppProductMessageSender
 {
     public const MAX_PRODUCTS = 30;
 
+    public const CATALOG_BODY = 'Mirá nuestro catálogo y armá tu carrito acá mismo.';
+
+    /** Código de Meta para un parámetro inválido; con "catalog" en el detalle, el producto no está en el catálogo. */
+    public const META_INVALID_PARAMETER = 131009;
+
+    /** Reintentos sacando productos rechazados; Meta informa uno por respuesta. */
+    private const MAX_MISSING_RETRIES = 5;
+
     public function __construct(
         private readonly WhatsAppInteractiveSender $sender,
         private readonly MessagingWindowService $window,
+        private readonly WhatsAppCatalogAvailability $availability,
+        private readonly CatalogThumbnails $thumbnails,
     ) {}
 
+    /** Sin portada que Meta acepte, el envío entero falla: se prueba con varias (ver CatalogThumbnails). */
     public function sendCatalog(Conversation $conversation, string $body, ?User $sender): Message
     {
         $this->catalogId($conversation);
         $this->window->assertOpen($conversation);
+        $candidates = $this->thumbnails->candidates($conversation->tenant_id);
 
-        return $this->sender->deliver($conversation, ['type' => 'interactive', 'interactive' => [
-            'type' => 'catalog_message',
-            'body' => ['text' => $body],
-            'action' => ['name' => 'catalog_message'],
-        ]], $body, ['kind' => 'catalog', 'retailer_ids' => []], null, $sender);
+        foreach ($candidates === [] ? [null] : $candidates as $thumbnail) {
+            try {
+                $message = $this->deliver($conversation, [
+                    'type' => 'catalog_message',
+                    'body' => ['text' => $body],
+                    'action' => ['name' => 'catalog_message', ...($thumbnail !== null ? ['parameters' => ['thumbnail_product_retailer_id' => $thumbnail]] : [])],
+                ], $body, ['kind' => 'catalog', 'retailer_ids' => []], $sender);
+            } catch (WhatsAppMessageRejectedException $e) {
+                if ($thumbnail === null || $e->metaCode !== self::META_INVALID_PARAMETER) {
+                    throw $this->catalogError($e);
+                }
+
+                $this->thumbnails->rejected($conversation->tenant_id, $thumbnail);
+
+                continue;
+            }
+
+            if ($thumbnail !== null) {
+                $this->thumbnails->accepted($conversation->tenant_id, $thumbnail);
+            }
+
+            return $message;
+        }
+
+        // Ninguno de los probados está habilitado todavía (Meta habilita
+        // productos de a tandas): las fichas de otros productos siguen andando.
+        throw new CatalogItemsUnavailableException(
+            'WhatsApp todavía no habilitó ninguno de los productos con los que se probó la portada del catálogo. '
+            .'Meta revisa los productos de a tandas: probá de nuevo más tarde.'
+        );
     }
 
-    /** @param  list<string>  $retailerIds */
+    /**
+     * Manda las fichas que Meta tenga habilitadas. Si rechaza un producto
+     * puntual, se recuerda, se saca de la lista y se reintenta con el resto.
+     *
+     * @param  list<string>  $retailerIds
+     *
+     * @throws CatalogItemsUnavailableException si ninguno de los productos está habilitado
+     * @throws CatalogUnavailableException si Meta no encuentra el catálogo
+     */
     public function sendProducts(Conversation $conversation, string $body, array $retailerIds, ?User $sender): Message
     {
         $catalogId = $this->catalogId($conversation);
@@ -46,8 +93,37 @@ class WhatsAppProductMessageSender
         }
 
         $this->window->assertOpen($conversation);
+        $ids = $this->availability->withoutMissingProducts($conversation->tenant_id, $ids);
 
-        $interactive = count($ids) === 1
+        for ($retries = 0; ; $retries++) {
+            if ($ids === []) {
+                throw new CatalogItemsUnavailableException;
+            }
+
+            try {
+                $message = $this->deliver($conversation, $this->productsMessage($catalogId, $body, $ids), $body, ['kind' => 'products', 'retailer_ids' => $ids], $sender);
+            } catch (WhatsAppMessageRejectedException $e) {
+                $missing = $this->missingRetailerId($e);
+                if ($missing === null || ! in_array($missing, $ids, true) || $retries >= self::MAX_MISSING_RETRIES) {
+                    throw $this->catalogError($e);
+                }
+
+                $this->availability->markProductMissing($conversation->tenant_id, $missing);
+                $ids = array_values(array_diff($ids, [$missing]));
+
+                continue;
+            }
+
+            $this->availability->rememberWorkingProduct($conversation->tenant_id, $ids[0]);
+
+            return $message;
+        }
+    }
+
+    /** @param  list<string>  $ids */
+    private function productsMessage(string $catalogId, string $body, array $ids): array
+    {
+        return count($ids) === 1
             ? [
                 'type' => 'product',
                 'body' => ['text' => $body],
@@ -62,9 +138,37 @@ class WhatsAppProductMessageSender
                     'product_items' => array_map(fn (string $id) => ['product_retailer_id' => $id], $ids),
                 ]]],
             ];
+    }
 
-        return $this->sender->deliver($conversation, ['type' => 'interactive', 'interactive' => $interactive], $body,
-            ['kind' => 'products', 'retailer_ids' => $ids], null, $sender);
+    private function deliver(Conversation $conversation, array $interactive, string $body, array $stored, ?User $sender): Message
+    {
+        return $this->sender->deliver($conversation, ['type' => 'interactive', 'interactive' => $interactive], $body, $stored, null, $sender);
+    }
+
+    /** Retailer id que Meta no encontró ("product not found for product_retailer_id, X, in catalog_id, …"). */
+    private function missingRetailerId(WhatsAppMessageRejectedException $e): ?string
+    {
+        return $e->metaCode === self::META_INVALID_PARAMETER
+            && preg_match('/product_retailer_id,\s*([^,\s]+),\s*in catalog_id/i', (string) $e->details, $match)
+            ? $match[1]
+            : null;
+    }
+
+    /**
+     * Traduce el rechazo de Meta: un producto puntual no habilitado, o un 131009
+     * sobre el catálogo sin producto puntual (catálogo no conectado al número).
+     */
+    private function catalogError(WhatsAppMessageRejectedException $e): RuntimeException
+    {
+        if ($this->missingRetailerId($e) !== null) {
+            return new CatalogItemsUnavailableException;
+        }
+
+        if ($e->metaCode === self::META_INVALID_PARAMETER && str_contains(strtolower((string) $e->details), 'catalog')) {
+            return new CatalogUnavailableException;
+        }
+
+        return $e;
     }
 
     private function catalogId(Conversation $conversation): string

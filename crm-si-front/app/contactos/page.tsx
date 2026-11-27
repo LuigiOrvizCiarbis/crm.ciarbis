@@ -14,6 +14,8 @@ import { useTranslation } from "@/hooks/useTranslation"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
 import { ContactsMobileFilters } from "@/components/contacts/ContactsMobileFilters"
 import { CustomFieldFilterMenu } from "@/components/contacts/CustomFieldFilterMenu"
+import { StageFilterMenu } from "@/components/chat/StageFilterMenu"
+import { useContactStageCounts } from "@/components/contacts/useContactStageCounts"
 import {
   contactFiltersFromParams,
   contactFiltersToParams,
@@ -50,6 +52,8 @@ function ContactosView() {
   const contactFields = useContactFieldsStore((s) => s.fields)
   const contactFieldsLoaded = useContactFieldsStore((s) => s.loaded)
   const isMobile = useIsMobile()
+  const [stageMenuOpen, setStageMenuOpen] = useState(false)
+  const [listTotal, setListTotal] = useState<number | undefined>(undefined)
 
   // Una URL vieja o compartida puede nombrar campos que ya no existen: se
   // ignoran al leer, así ni el fetch ni los chips ni la URL los arrastran.
@@ -58,6 +62,8 @@ function ContactosView() {
     const custom = pruneCustomFilters(storedFilters.custom, contactFields)
     return custom === storedFilters.custom ? storedFilters : { ...storedFilters, custom }
   }, [storedFilters, contactFieldsLoaded, contactFields])
+
+  const stageCounts = useContactStageCounts(filters, stageMenuOpen, refreshKey)
 
   useEffect(() => {
     syncFiltersToUrl(filters)
@@ -102,6 +108,11 @@ function ContactosView() {
         onSourceFilter={(source) => patchFilters({ source })}
         tagFilterSlugs={filters.tags}
         onTagFilter={(tags) => patchFilters({ tags })}
+        stageFilterKeys={filters.stages}
+        onStageFilter={(stages) => patchFilters({ stages })}
+        stageCounts={stageCounts.counts}
+        stageCountsLoading={stageCounts.loading}
+        onStageMenuOpenChange={setStageMenuOpen}
         customFilters={filters.custom}
         onCustomFilters={(custom) => patchFilters({ custom })}
         audience={filters.audience}
@@ -147,12 +158,26 @@ function ContactosView() {
             billingAvailable={billingAvailable}
           />
           {isMobile && (
-            <CustomFieldFilterMenu
-              compact
-              fields={contactFields}
-              value={filters.custom}
-              onChange={(custom) => patchFilters({ custom })}
-            />
+            <>
+              <StageFilterMenu
+                compact
+                selected={filters.stages}
+                onChange={(stages) => patchFilters({ stages })}
+                counts={stageCounts.counts}
+                countsLoading={stageCounts.loading}
+                onOpenChange={setStageMenuOpen}
+                noneLabel={t("contactsPage.stage.filterNone")}
+                showSelection={false}
+                resultCount={listTotal}
+                resultsLabel={listTotal === undefined ? undefined : t(`contactsPage.stage.showResults_${listTotal === 1 ? "one" : "other"}`, { count: listTotal })}
+              />
+              <CustomFieldFilterMenu
+                compact
+                fields={contactFields}
+                value={filters.custom}
+                onChange={(custom) => patchFilters({ custom })}
+              />
+            </>
           )}
         </div>
         <div className="space-y-4 px-4 py-5 md:px-6 lg:px-8">
@@ -161,6 +186,7 @@ function ContactosView() {
             filters={filters}
             onFiltersChange={setFilters}
             onContactsChanged={handleContactsChanged}
+            onTotalChange={setListTotal}
           />
         </div>
       </div>

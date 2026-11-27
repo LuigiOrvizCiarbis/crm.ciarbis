@@ -10,6 +10,7 @@ import { fetchUsers } from "@/lib/api/users"
 import { updateConversationStage, assignConversationUser } from "@/lib/api/conversations"
 import { getOpportunities, updateOpportunityStage } from "@/lib/api/opportunities"
 import { ChatOpportunityRail, type ChatOpportunity } from "@/components/ChatOpportunityRail"
+import { useDeleteOpportunity } from "@/components/opportunities/useDeleteOpportunity"
 import { ContactPipelineDialog } from "@/components/contact-pipeline-dialog"
 import { needsSaleValue, useSaleValueGuard } from "@/components/sale-value-guard"
 import type { Tag } from "@/lib/api/tags"
@@ -67,7 +68,8 @@ interface ChatQuickBarProps {
   contact?: { id: number; name: string } | null
   value: ChatQuickBarValue
   team: TeamUser[]
-  onChangeStage: (stageId: number, stageName: string) => void
+  /** `undefined`: el chat quedó sin etapa (se borró la oportunidad que la definía). */
+  onChangeStage: (stageId: number | undefined, stageName: string) => void
   onChangePriority: (priority: Priority) => void
   onChangeAssignee: (id: number) => void
   onToggleArchive: () => void
@@ -302,6 +304,32 @@ export function ChatQuickBar({
       .finally(() => setPendingOpportunityId(null))
   }
 
+  const deletion = useDeleteOpportunity((opportunityId) => {
+    const originChatId = chatId
+    const deleted = opportunities.find((item) => item.id === opportunityId)
+    setLoadedOpportunities((current) => current?.chatId === originChatId
+      ? { ...current, items: current.items.filter((item) => item.id !== opportunityId) }
+      : current)
+    // El backend ya pasó la etapa del chat a la de otra oportunidad del pipeline
+    // predeterminado (la última movida) o la vació: se refleja igual acá.
+    if (!deleted?.pipeline?.is_default || deleted.pipeline_stage_id !== value.stageId) return
+    const next = opportunities
+      .filter((item) => item.id !== opportunityId && item.pipeline?.is_default && item.pipeline_stage_id)
+      .sort((a, b) => (b.updated_at ?? "").localeCompare(a.updated_at ?? ""))[0]
+    const nextStage = pipelineStages.find((stage) => stage.id === next?.pipeline_stage_id)
+    onChangeStage(nextStage?.id, nextStage?.name ?? "")
+  })
+
+  const requestOpportunityDelete = (opportunity: ChatOpportunity) => {
+    const stageName = stagesByPipeline[opportunity.pipeline_id]?.find((stage) => stage.id === opportunity.pipeline_stage_id)?.name
+    deletion.requestDelete({
+      id: opportunity.id,
+      contactName: contact?.name ?? opportunity.title,
+      summary: [opportunity.pipeline?.name, stageName].filter(Boolean).join(" · "),
+      won: opportunity.status === "won",
+    })
+  }
+
   const openNewOpportunity = () => setIsNewOpportunityOpen(true)
 
   const handleStageChange = async (stageId: number) => {
@@ -527,6 +555,7 @@ export function ChatQuickBar({
             contactName={contact?.name}
             onMove={handleOpportunityStageChange}
             onNew={openNewOpportunity}
+            onDelete={deletion.canDelete ? requestOpportunityDelete : undefined}
           />
         </div>
       )}
@@ -854,6 +883,7 @@ export function ChatQuickBar({
         onSaved={() => void handleOpportunityCreated()}
       />
       {saleValueDialog}
+      {deletion.dialog}
     </div>
       )
     })()

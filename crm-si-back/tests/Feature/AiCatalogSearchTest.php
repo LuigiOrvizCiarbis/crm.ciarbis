@@ -71,6 +71,21 @@ class AiCatalogSearchTest extends TestCase
         $this->assertSame('Acana Gato', $result['products'][0]->name);
     }
 
+    public function test_asking_for_photos_keeps_searching_the_previous_product(): void
+    {
+        $tenant = Tenant::create(['name' => 'Taquito']);
+        Product::create(['tenant_id' => $tenant->id, 'name' => 'Body River Plate Papá', 'price' => 23140]);
+        Product::create(['tenant_id' => $tenant->id, 'name' => 'Portarretrato Boca', 'description' => 'Para tu foto favorita', 'price' => 9000]);
+
+        $result = app(CatalogProductSearch::class)->search(
+            $tenant->id,
+            $this->messages('¿Podés pasarme alguna foto? ¿Tenés en el catálogo?', '¿Qué producto tenés de River?'),
+            12,
+        );
+
+        $this->assertSame(['Body River Plate Papá'], array_map(fn (Product $product) => $product->name, $result['products']));
+    }
+
     public function test_searches_and_displays_configured_fields_and_excludes_inactive_or_other_tenant(): void
     {
         $tenant = Tenant::create(['name' => 'Petplus']);
@@ -142,6 +157,7 @@ class AiCatalogSearchTest extends TestCase
     {
         $tenant = Tenant::create(['name' => 'Taquito']);
         $product = Product::create(['tenant_id' => $tenant->id, 'name' => 'Conjunto bebé boca', 'price' => 24300]);
+        $zero = ProductVariant::create(['tenant_id' => $tenant->id, 'product_id' => $product->id, 'external_id' => '3987', 'attribute_values' => ['Talle' => '0'], 'stock_status' => 'instock']);
         $two = ProductVariant::create(['tenant_id' => $tenant->id, 'product_id' => $product->id, 'external_id' => '3983', 'attribute_values' => ['Talle' => '2'], 'stock_status' => 'instock']);
         $four = ProductVariant::create(['tenant_id' => $tenant->id, 'product_id' => $product->id, 'external_id' => '3984', 'attribute_values' => ['Talle' => '4', 'Color' => 'Azul'], 'stock_status' => 'onbackorder']);
         ProductVariant::create(['tenant_id' => $tenant->id, 'product_id' => $product->id, 'external_id' => '3985', 'attribute_values' => ['Talle' => '6'], 'stock_status' => 'outofstock']);
@@ -149,7 +165,7 @@ class AiCatalogSearchTest extends TestCase
         $prompt = $this->prompt($tenant->id, $this->messages('¿Tienen el conjunto bebé boca?'));
 
         $this->assertStringContainsString("ID {$product->id}", $prompt);
-        $this->assertStringContainsString("Talles con stock: 2 (variante {$two->id}), 4 / Azul (variante {$four->id})", $prompt);
+        $this->assertStringContainsString("Talles con stock: 0 (variante {$zero->id}), 2 (variante {$two->id}), 4 / Azul (variante {$four->id})", $prompt);
         $this->assertStringContainsString('Sin stock: 6', $prompt);
     }
 
@@ -161,5 +177,39 @@ class AiCatalogSearchTest extends TestCase
         $result = app(CatalogProductSearch::class)->search($tenant->id, $this->messages('[El cliente envió una imagen]', 'Fawna Cachorro'), 12);
 
         $this->assertSame(0, $result['matches']);
+    }
+
+    public function test_products_from_earlier_messages_stay_in_context_when_the_latest_names_none(): void
+    {
+        $tenant = Tenant::create(['name' => 'Taquito']);
+        $headphones = Product::create(['tenant_id' => $tenant->id, 'name' => 'Auriculares Boca Juniors - Edición Exclusiva', 'price' => 9100]);
+        Product::create(['tenant_id' => $tenant->id, 'name' => 'Campana Racing Club coleccionable', 'price' => 5000]);
+
+        $prompt = $this->prompt($tenant->id, [
+            ['role' => 'user', 'content' => '¿Seguro no tenés auriculares?'],
+            ['role' => 'assistant', 'content' => 'Sí: Auriculares Boca Juniors - Edición Exclusiva, $9.100.'],
+            ['role' => 'user', 'content' => '¿Tenés acceso al catálogo de WhatsApp?'],
+        ]);
+
+        // La IA sigue viendo los auriculares que ya ofreció, con su ID para mandar la ficha.
+        $earlier = explode('## Productos de mensajes anteriores', $prompt)[1] ?? '';
+        $this->assertStringContainsString("Auriculares Boca Juniors - Edición Exclusiva — ID {$headphones->id}", $earlier);
+        $this->assertStringNotContainsString('Campana Racing', $earlier);
+    }
+
+    public function test_earlier_products_only_reach_back_three_customer_messages(): void
+    {
+        $tenant = Tenant::create(['name' => 'Taquito']);
+        Product::create(['tenant_id' => $tenant->id, 'name' => 'Mate Boca', 'price' => 100]);
+
+        $prompt = $this->prompt($tenant->id, [
+            ['role' => 'user', 'content' => '¿Tenés mates?'],
+            ['role' => 'user', 'content' => 'Hola'],
+            ['role' => 'user', 'content' => 'Buen día'],
+            ['role' => 'user', 'content' => 'Gracias'],
+            ['role' => 'user', 'content' => '¿Hacen envíos?'],
+        ]);
+
+        $this->assertStringNotContainsString('Mate Boca', $prompt);
     }
 }

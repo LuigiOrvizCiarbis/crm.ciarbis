@@ -109,6 +109,36 @@ class Opportunity extends Model
                 $conversation->update(['pipeline_stage_id' => $opportunity->pipeline_stage_id]);
             }
         });
+
+        // Las etiquetas son polimórficas: la base no las borra en cascada.
+        static::deleting(function (Opportunity $opportunity): void {
+            $opportunity->tags()->detach();
+        });
+
+        // Si la etapa del chat venía de esta oportunidad, pasa a la de otra del
+        // pipeline predeterminado (la última movida) o queda sin etapa.
+        static::deleted(function (Opportunity $opportunity): void {
+            if (! $opportunity->conversation_id || ! $opportunity->pipeline_stage_id) {
+                return;
+            }
+            if (! Pipeline::withoutGlobalScopes()->whereKey($opportunity->pipeline_id)->value('is_default')) {
+                return;
+            }
+
+            $conversation = Conversation::withoutGlobalScopes()->find($opportunity->conversation_id);
+            if (! $conversation || (int) $conversation->pipeline_stage_id !== (int) $opportunity->pipeline_stage_id) {
+                return;
+            }
+
+            $nextStageId = static::withoutGlobalScopes()
+                ->where('conversation_id', $conversation->id)
+                ->where('pipeline_id', $opportunity->pipeline_id)
+                ->whereNotNull('pipeline_stage_id')
+                ->latest('updated_at')
+                ->value('pipeline_stage_id');
+
+            $conversation->update(['pipeline_stage_id' => $nextStageId]);
+        });
     }
 
     /**

@@ -200,7 +200,8 @@ class WooCommerceCheckoutGateway
             'set_paid' => false,
             'payment_method' => 'crm-mercadopago',
             'payment_method_title' => 'Mercado Pago (WhatsApp)',
-            'billing' => $person + ['email' => (string) ($checkout->email ?? '')],
+            // Woo rechaza un email vacío ("Dirección de correo electrónico no válida"); sin email, el campo no se manda.
+            'billing' => $person + (filled($checkout->email) ? ['email' => (string) $checkout->email] : []),
             'shipping' => $person,
             'line_items' => $this->lineItems($checkout),
             'shipping_lines' => [[

@@ -177,6 +177,23 @@ class AiReplyService
      */
     private const SUPPORTED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
+    private const CATALOG_HEADER = "## Productos relacionados con la consulta\n"
+        .'Resultados del catálogo actual para el último mensaje. Usá solo datos del catálogo de este prompt; '
+        ."no inventes productos ni precios.\n";
+
+    /**
+     * La búsqueda sigue el último mensaje del cliente: lo hablado antes sale de
+     * esa lista. Sin esta sección, ante "¿me pasás el link?" la IA (que toma
+     * el prompt como única verdad) desmentía precios que había dado bien.
+     */
+    private const EARLIER_CATALOG_HEADER = "## Productos de mensajes anteriores\n"
+        ."También son del catálogo actual: lo que ya dijiste de estos productos sigue valiendo, no lo desmientas.\n";
+
+    private const MORE_MATCHES = "\n- Hay más productos coincidentes; ofrecé precisar nombre, código o categoría.";
+
+    /** Mensajes anteriores del cliente cuyos productos siguen en el contexto. */
+    private const EARLIER_CATALOG_TURNS = 3;
+
     /**
      * Últimos N mensajes en orden cronológico, mapeados a roles de la API.
      * La API exige que el primer mensaje sea "user" y no acepta contenidos vacíos.
@@ -420,40 +437,100 @@ class AiReplyService
             return '';
         }
 
+        $earlier = $this->earlierTurnProducts($tenantId, $messages, $maxProducts, array_map(fn (Product $product) => $product->id, $result['products']));
+        $fields = $result['fields'] ?: $earlier['fields'];
+        // Los talles van en el contexto para que el modelo elija variantes reales.
+        (new EloquentCollection([...$result['products'], ...$earlier['products']]))->load(['variants' => fn ($query) => $query->withoutGlobalScopes()]);
+
+        $sections = [];
+        $remaining = $maxChars;
         if ($result['matches'] === 0) {
-            if (! $result['catalog_question']) {
-                return '';
+            $note = $this->noMatchNote($result);
+            if ($note !== '') {
+                $sections[] = $note;
+                $remaining -= mb_strlen($note) + 2;
             }
-
-            if ($result['broad']) {
-                return "## Catálogo de productos\n"
-                    ."Hay {$result['active']} productos activos. Pedí una categoría, nombre o código para mostrar opciones concretas; "
-                    .'no inventes productos ni precios.';
+        } else {
+            $reserveMore = $result['matches'] > 1 ? mb_strlen(self::MORE_MATCHES) : 0;
+            $lines = $this->catalogLines($result['products'], $maxDescription, $fields, max(0, $remaining - mb_strlen(self::CATALOG_HEADER) - $reserveMore));
+            if ($lines !== []) {
+                $section = self::CATALOG_HEADER.implode("\n", $lines).($result['matches'] > count($lines) ? self::MORE_MATCHES : '');
+                $sections[] = $section;
+                $remaining -= mb_strlen($section) + 2;
             }
-
-            return "## Catálogo de productos\n"
-                ."Hay {$result['active']} productos activos, pero no se encontró una coincidencia para esta consulta. "
-                .'No inventes productos ni precios. Pedí un nombre, código o categoría más específico.';
         }
 
-        $header = "## Productos relacionados con la consulta\n"
-            .'Estos son resultados del catálogo actual; usá solo estos datos para hablar de productos y precios. '
-            ."No inventes productos ni precios.\n";
-        $more = "\n- Hay más productos coincidentes; ofrecé precisar nombre, código o categoría.";
-        $reserveMore = $result['matches'] > 1 ? mb_strlen($more) : 0;
-        $budget = max(0, $maxChars - mb_strlen($header) - $reserveMore);
+        $earlierLines = $this->catalogLines($earlier['products'], $maxDescription, $fields, max(0, $remaining - mb_strlen(self::EARLIER_CATALOG_HEADER)));
+        if ($earlierLines !== []) {
+            $sections[] = self::EARLIER_CATALOG_HEADER.implode("\n", $earlierLines);
+        }
+
+        return implode("\n\n", $sections);
+    }
+
+    /** Aviso cuando la consulta es sobre el catálogo pero no nombra ni encuentra productos. */
+    private function noMatchNote(array $result): string
+    {
+        if (! $result['catalog_question']) {
+            return '';
+        }
+
+        if ($result['broad']) {
+            return "## Catálogo de productos\n"
+                ."Hay {$result['active']} productos activos. Pedí una categoría, nombre o código para mostrar opciones concretas; "
+                .'no inventes productos ni precios.';
+        }
+
+        return "## Catálogo de productos\n"
+            ."Hay {$result['active']} productos activos, pero no se encontró una coincidencia para esta consulta. "
+            .'No inventes productos ni precios. Pedí un nombre, código o categoría más específico.';
+    }
+
+    /**
+     * Productos que la IA tuvo en el contexto en los turnos anteriores: la
+     * búsqueda se repite con la conversación hasta cada mensaje previo del
+     * cliente, los más recientes primero.
+     *
+     * @param  list<int>  $excludeIds  los que ya trae la búsqueda del último mensaje
+     * @return array{products: list<Product>, fields: array<string, string>}
+     */
+    private function earlierTurnProducts(int $tenantId, array $messages, int $limit, array $excludeIds): array
+    {
+        $messages = array_values($messages);
+        $customerIndexes = array_keys(array_filter($messages, fn (array $message) => $message['role'] === 'user'));
+        $products = [];
+        $fields = [];
+
+        foreach (array_slice(array_reverse($customerIndexes), 1, self::EARLIER_CATALOG_TURNS) as $index) {
+            $result = $this->catalogSearch->search($tenantId, array_slice($messages, 0, $index + 1), $limit);
+            $fields = $fields ?: $result['fields'];
+            foreach ($result['products'] as $product) {
+                if (! in_array($product->id, $excludeIds, true)) {
+                    $products[$product->id] ??= $product;
+                }
+            }
+        }
+
+        return ['products' => array_slice(array_values($products), 0, $limit), 'fields' => $fields];
+    }
+
+    /**
+     * Líneas que entran en el presupuesto de caracteres; si ni la primera
+     * entra, se intenta con sólo nombre y precio.
+     *
+     * @param  list<Product>  $products
+     * @return list<string>
+     */
+    private function catalogLines(array $products, int $maxDescription, array $fields, int $budget): array
+    {
         $lines = [];
         $used = 0;
-        // Los talles van en el contexto para que el modelo elija variantes reales.
-        (new EloquentCollection($result['products']))->load(['variants' => fn ($query) => $query->withoutGlobalScopes()]);
 
-        foreach ($result['products'] as $product) {
-            $line = $this->formatCatalogLine($product, $maxDescription, $result['fields']);
+        foreach ($products as $product) {
+            $line = $this->formatCatalogLine($product, $maxDescription, $fields);
             $length = mb_strlen($line) + ($lines === [] ? 0 : 1);
             if ($used + $length > $budget) {
                 if ($lines === []) {
-                    // Mantener al menos nombre y precio cuando una descripción
-                    // o campo personalizado ocupa todo el presupuesto.
                     $line = $this->formatCatalogLine($product, 0, []);
                     if (mb_strlen($line) <= $budget) {
                         $lines[] = $line;
@@ -465,16 +542,7 @@ class AiReplyService
             $used += $length;
         }
 
-        if (empty($lines)) {
-            return '';
-        }
-
-        $body = implode("\n", $lines);
-        if ($result['matches'] > count($lines)) {
-            $body .= $more;
-        }
-
-        return $header.$body;
+        return $lines;
     }
 
     /**

@@ -13,6 +13,8 @@ type Props = {
   canRecord?: boolean
   conversationId?: number | null
   onActiveChange?: (active: boolean) => void
+  /** Textos propios para otros usos (p. ej. dictar al asistente) en vez de "nota de voz". */
+  labels?: { start?: string; send?: string; sending?: string }
 }
 
 /** Píxeles que hay que deslizar a la izquierda para cancelar la grabación. */
@@ -29,6 +31,7 @@ export function VoiceRecorder({
   canRecord = true,
   conversationId,
   onActiveChange,
+  labels,
 }: Props) {
   const { t } = useTranslation()
   const [state, setState] = useState<RecorderState>("idle")
@@ -285,7 +288,12 @@ export function VoiceRecorder({
     cancel()
   }, [conversationId, cancel])
 
-  useEffect(() => () => { releaseResources() }, [releaseResources])
+  useEffect(() => () => {
+    // Al desmontarse (p. ej. se cerró el panel) detener los tracks dispara onstop:
+    // lo grabado se descarta en vez de enviarse o transcribirse.
+    discardRef.current = true
+    releaseResources()
+  }, [releaseResources])
 
   useEffect(() => {
     onActiveChange?.(state === "recording" || state === "locked" || state === "uploading")
@@ -334,15 +342,15 @@ export function VoiceRecorder({
               type="button"
               size="sm"
               onClick={finish}
-              aria-label={t("chats.voiceSend")}
-              title={t("chats.voiceSend")}
+              aria-label={labels?.send ?? t("chats.voiceSend")}
+              title={labels?.send ?? t("chats.voiceSend")}
               className="h-10 w-10 shrink-0 p-0 sm:h-8 sm:w-auto sm:px-3"
             >
               <Send className="h-4 w-4" aria-hidden="true" />
             </Button>
           </>
         ) : state === "uploading" ? (
-          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{t("chats.voiceSending")}</span>
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{labels?.sending ?? t("chats.voiceSending")}</span>
         ) : (
           <>
             <span
@@ -383,8 +391,8 @@ export function VoiceRecorder({
           lockedRef.current = true
           void start()
         }}
-        aria-label={state === "error" ? t("chats.voiceRetry") : t("chats.voiceStart")}
-        title={state === "error" ? t("chats.voiceRetry") : t("chats.voiceStart")}
+        aria-label={state === "error" ? t("chats.voiceRetry") : (labels?.start ?? t("chats.voiceStart"))}
+        title={state === "error" ? t("chats.voiceRetry") : (labels?.start ?? t("chats.voiceStart"))}
         className="shrink-0 touch-none select-none p-2 transition-transform active:scale-125 active:text-destructive"
       >
         <Mic className="h-5 w-5" />

@@ -60,6 +60,7 @@ export interface Channel {
     last_synced_at: string | null
     last_error: string | null
   }
+  /** Puede venir null: el backend no siempre resuelve el usuario que conectó el canal. */
   user: {
     id: number
     tenant_id: number
@@ -68,7 +69,7 @@ export interface Channel {
     role: number
     created_at: string
     updated_at: string
-  }
+  } | null
   conversations_count?: number
   phone?: string
   handoff_responsible_user_id?: number | null
@@ -194,7 +195,7 @@ export interface TemplateComponent {
   format?: string
   parameters?: { type: string; text?: string }[]
   /** Ejemplos enviados a revisión; en encabezados con media, `header_handle` trae la URL del ejemplo. */
-  example?: { header_handle?: string[] }
+  example?: { header_handle?: string[]; body_text_named_params?: { param_name: string; example: string }[] }
   buttons?: {
     /** QUICK_REPLY | URL | PHONE_NUMBER | COPY_CODE | FLOW */
     type: string

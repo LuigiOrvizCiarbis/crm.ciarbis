@@ -15,7 +15,7 @@ export function ChannelHeader({ channel, onBack }: ChannelHeaderProps) {
         <Button variant="ghost" size="sm" onClick={onBack} aria-label="Volver a canales">
           <ArrowLeft className="w-4 h-4" aria-hidden="true" />
         </Button>
-        <h3 className="font-medium">{channel.user.name}</h3>
+        <h3 className="font-medium">{channel.name}</h3>
       </div>
     </div>
   )

@@ -115,3 +115,14 @@ export async function updateOpportunityStage(opportunityId: number, stageId: num
 
   return payload.data;
 }
+
+export async function deleteOpportunity(opportunityId: number): Promise<void> {
+  const response = await fetch(`/api/opportunities/${opportunityId}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    throwApiError(response.status, await response.json().catch(() => ({})), "Error al eliminar la oportunidad");
+  }
+}

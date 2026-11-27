@@ -18,11 +18,15 @@ import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, Tags, FileText, Paperclip, RotateCcw, Trash2, Pencil } from "lucide-react"
 import { contactFiltersToParams, EMPTY_CONTACT_FILTERS, hasActiveContactFilters, type ContactFilters } from "./contacts/contactFilters"
+import { ContactStagePicker } from "./contacts/ContactStagePicker"
+import { ContactOpportunitiesSection } from "./contacts/ContactOpportunitiesSection"
+import { matchesStageKeys, type OpportunitiesUpdate } from "./contacts/useContactOpportunityActions"
+import { useStageNames } from "@/hooks/usePipelineCatalog"
+import { cn } from "@/lib/utils"
 import { ActiveFiltersBar } from "./contacts/ActiveFiltersBar"
 import { BulkFieldsDialog } from "./contacts/bulk-fields-dialog"
 import { getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
-import { ContactPipelineDialog } from "@/components/contact-pipeline-dialog"
-import { updateContact, type ContactAvatar as ContactAvatarPayload, type ContactAvatarSource, type ContactUpdate } from "@/lib/api/contacts"
+import { updateContact, type ContactAvatar as ContactAvatarPayload, type ContactAvatarSource, type ContactOpportunity, type ContactUpdate } from "@/lib/api/contacts"
 import { ContactAvatarActions } from "@/components/contact-avatar-actions"
 import { CustomChoiceBadge, CustomFieldInput, formatCustomChoice } from "@/components/CustomFieldInput"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
@@ -79,6 +83,7 @@ interface Contact {
     last_message_content: string
   }>
   tags?: Tag[]
+  opportunities?: ContactOpportunity[]
 }
 
 const DEFAULT_FORM: { name: string; phone: string; email: string; source: string; custom_data: Record<string, unknown> } = {
@@ -101,7 +106,7 @@ const sourceLabels: Record<string, string> = {
   manual: "Manual",
 }
 
-type ColumnId = "contact" | "phone" | "email" | "source" | "tags" | "lastContact" | "actions" | `custom:${string}`
+type ColumnId = "contact" | "phone" | "email" | "source" | "tags" | "stage" | "lastContact" | "actions" | `custom:${string}`
 type SortField = "name" | "phone" | "email" | "source" | "updated_at" | `custom:${string}`
 type SortDirection = "asc" | "desc"
 
@@ -118,6 +123,7 @@ const DEFAULT_COLUMNS: Column[] = [
   { id: "email", labelKey: "contactsPage.table.email", width: "220px", minWidth: "180px" },
   { id: "source", labelKey: "contactsPage.table.source", width: "140px", minWidth: "120px" },
   { id: "tags", labelKey: "Etiquetas", width: "210px", minWidth: "180px" },
+  { id: "stage", labelKey: "contactsPage.stage.column", width: "200px", minWidth: "160px" },
   { id: "lastContact", labelKey: "contactsPage.table.lastContact", width: "150px", minWidth: "130px" },
   { id: "actions", labelKey: "contactsPage.table.actions", width: "150px", minWidth: "130px" },
 ]
@@ -216,12 +222,15 @@ interface ContactsListProps {
   onFiltersChange: (filters: ContactFilters) => void
   /** Avisa que se crearon, editaron, borraron o importaron contactos (p. ej. para refrescar métricas). */
   onContactsChanged?: () => void
+  /** Total de contactos con los filtros actuales (botón "Ver N contactos" del filtro en teléfono). */
+  onTotalChange?: (total: number) => void
 }
 
 export function ContactsList({
   filters,
   onFiltersChange,
   onContactsChanged,
+  onTotalChange,
 }: ContactsListProps) {
   const { t, language } = useTranslation()
   const router = useRouter()
@@ -274,7 +283,6 @@ export function ContactsList({
 
   const [deleteContact, setDeleteContact] = useState<Contact | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [pipelineContact, setPipelineContact] = useState<Contact | null>(null)
   const [taskContact, setTaskContact] = useState<Contact | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [bulkTagsOpen, setBulkTagsOpen] = useState(false)
@@ -475,6 +483,7 @@ export function ContactsList({
         from: result.meta?.from ?? 0,
         to: result.meta?.to ?? 0,
       })
+      onTotalChange?.(result.meta?.total ?? 0)
     } catch (err) {
       if (controller.signal.aborted) return
       setError(err instanceof Error ? err.message : "No se pudieron cargar los contactos.")
@@ -484,7 +493,7 @@ export function ContactsList({
         setLoading(false)
       }
     }
-  }, [contactsQuery, page])
+  }, [contactsQuery, page, onTotalChange])
 
   const refreshAfterChange = (): void => {
     void fetchContacts()
@@ -674,6 +683,12 @@ export function ContactsList({
     setProfileContact((prev) => (prev?.id === contactId ? { ...prev, tags } : prev))
   }
 
+  const updateContactOpportunities = (contactId: number, update: OpportunitiesUpdate): void => {
+    const apply = <T extends Contact>(contact: T): T => ({ ...contact, opportunities: update(contact.opportunities ?? []) })
+    setContacts((prev) => prev.map((contact) => (contact.id === contactId ? apply(contact) : contact)))
+    setProfileContact((prev) => (prev?.id === contactId ? apply(prev) : prev))
+  }
+
   const updateContactAvatar = (contactId: number, avatar: ContactAvatarPayload): void => {
     setContacts((prev) => prev.map((contact) => (contact.id === contactId ? { ...contact, ...avatar } : contact)))
     setProfileContact((prev) => (prev?.id === contactId ? { ...prev, ...avatar } : prev))
@@ -684,6 +699,7 @@ export function ContactsList({
   // Distingue "no hay resultados para estos filtros" de "todavía no hay contactos".
   const hasActiveFilters = hasActiveContactFilters(filters)
   const onlySearchActive = hasActiveFilters && !hasActiveContactFilters({ ...filters, search: "" })
+  const stageNames = useStageNames(filters.stages, t("contactsPage.stage.filterNone"))
 
   const renderCell = (contact: Contact, columnId: ColumnId): React.ReactNode => {
     switch (columnId) {
@@ -805,6 +821,15 @@ export function ContactsList({
             />
           </div>
         )
+      case "stage":
+        return (
+          <ContactStagePicker
+            contact={contact}
+            opportunities={contact.opportunities ?? []}
+            onChange={(update) => updateContactOpportunities(contact.id, update)}
+            onSaved={onContactsChanged}
+          />
+        )
       case "lastContact":
         return <span className="text-sm text-muted-foreground tabular-nums">{getLastContact(contact)}</span>
       case "actions": {
@@ -859,9 +884,6 @@ export function ContactsList({
                   Extraer datos de un PDF
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setTaskContact(contact)}>Crear tarea</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setPipelineContact(contact)}>
-                  Agregar a un embudo
-                </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
                   onClick={() => setDeleteContact(contact)}
@@ -1046,11 +1068,20 @@ export function ContactsList({
         <>
           <h3 className="text-lg font-medium text-foreground mb-2">{t("contactsPage.filters.active.noResults")}</h3>
           <p className="text-muted-foreground">
-            {filters.search ? "Probá con otros términos de búsqueda o ajustá los filtros." : "Probá ajustando o quitando los filtros."}
+            {filters.stages.length > 0
+              ? t("contactsPage.stage.emptyFiltered", { stages: filters.stages.map((key) => stageNames[key] ?? "…").join(", ") })
+              : filters.search ? "Probá con otros términos de búsqueda o ajustá los filtros." : "Probá ajustando o quitando los filtros."}
           </p>
-          <Button variant="outline" className="mt-4" onClick={() => onFiltersChange(EMPTY_CONTACT_FILTERS)}>
-            {onlySearchActive ? "Limpiar búsqueda" : t("contactsPage.filters.active.clearAll")}
-          </Button>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            {filters.stages.length > 0 && hasActiveContactFilters({ ...filters, stages: [] }) && (
+              <Button variant="outline" onClick={() => onFiltersChange({ ...filters, stages: [] })}>
+                {t("contactsPage.stage.clearFilter")}
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => onFiltersChange(EMPTY_CONTACT_FILTERS)}>
+              {onlySearchActive ? "Limpiar búsqueda" : t("contactsPage.filters.active.clearAll")}
+            </Button>
+          </div>
         </>
       ) : (
         <>
@@ -1228,7 +1259,13 @@ export function ContactsList({
               const mailHref = contact.email ? `mailto:${contact.email}` : undefined
 
               return (
-                <div key={contact.id} className="rounded-lg border bg-card p-4 shadow-sm">
+                <div
+                  key={contact.id}
+                  className={cn(
+                    "rounded-lg border bg-card p-4 shadow-sm transition-opacity duration-200 motion-reduce:transition-none",
+                    !matchesStageKeys(contact.opportunities, filters.stages) && "opacity-50",
+                  )}
+                >
                   <div className="flex items-start gap-3">
                     <button
                       type="button"
@@ -1250,6 +1287,15 @@ export function ContactsList({
                       <p className="mt-1 truncate text-xs text-muted-foreground">
                         {conversation?.last_message_content || "Sin conversación"}
                       </p>
+                      <div className="mt-2 -ml-1">
+                        <ContactStagePicker
+                          contact={contact}
+                          opportunities={contact.opportunities ?? []}
+                          onChange={(update) => updateContactOpportunities(contact.id, update)}
+                          onSaved={onContactsChanged}
+                          variant="card"
+                        />
+                      </div>
                     </div>
                     <Checkbox
                       checked={selectedIds.has(contact.id)}
@@ -1320,6 +1366,11 @@ export function ContactsList({
             selectable
             selectedIds={selectedIds}
             onSelectedIdsChange={(ids) => setSelectedIds(new Set(Array.from(ids, Number)))}
+            // La fila que deja de coincidir con el filtro de etapa queda atenuada hasta el próximo fetch.
+            rowClassName={(contact) => cn(
+              "group/row transition-opacity duration-200 motion-reduce:transition-none",
+              !matchesStageKeys(contact.opportunities, filters.stages) && "opacity-50",
+            )}
             reorderable
             onColumnOrderChange={(orderedIds) => setColumns((current) => orderedIds
               .map((id) => current.find((column) => column.id === id))
@@ -1507,6 +1558,13 @@ export function ContactsList({
                     buttonLabel="Gestionar etiquetas"
                   />
                 </div>
+                <ContactOpportunitiesSection
+                  key={profileContact.id}
+                  contact={profileContact}
+                  opportunities={profileContact.opportunities ?? []}
+                  onChange={(update) => updateContactOpportunities(profileContact.id, update)}
+                  onSaved={onContactsChanged}
+                />
                 <div className="flex items-center gap-3">
                   <Calendar className="w-4 h-4 text-muted-foreground" />
                   <div>
@@ -1551,16 +1609,6 @@ export function ContactsList({
           )}
         </SheetContent>
       </Sheet>
-
-      <ContactPipelineDialog
-        contact={pipelineContact}
-        open={Boolean(pipelineContact)}
-        onOpenChange={(open) => { if (!open) setPipelineContact(null) }}
-        onSaved={() => {
-          addToast({ type: "success", title: "Oportunidad actualizada", description: `${pipelineContact?.name} quedó en el embudo seleccionado.` })
-          setPipelineContact(null)
-        }}
-      />
 
       {taskContact ? (
         <NewTaskModal

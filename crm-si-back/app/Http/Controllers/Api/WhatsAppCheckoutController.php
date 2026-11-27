@@ -7,6 +7,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\WhatsAppCheckoutResource;
 use App\Models\Conversation;
 use App\Models\WhatsAppCheckout;
+use App\Services\Commerce\CatalogItemsUnavailableException;
+use App\Services\Commerce\CatalogUnavailableException;
 use App\Services\Commerce\WhatsAppCheckoutService;
 use App\Services\Commerce\WhatsAppProductMessageSender;
 use Illuminate\Http\JsonResponse;
@@ -53,11 +55,11 @@ class WhatsAppCheckoutController extends Controller
         abort_unless($request->user()->can('flows.send'), 403);
 
         $validated = $request->validate(['body' => ['nullable', 'string', 'max:1024']]);
-        $body = filled($validated['body'] ?? null) ? $validated['body'] : 'Mirá nuestro catálogo y armá tu carrito acá mismo.';
+        $body = filled($validated['body'] ?? null) ? $validated['body'] : WhatsAppProductMessageSender::CATALOG_BODY;
 
         try {
             $message = $products->sendCatalog($conversation, $body, $request->user());
-        } catch (InvalidArgumentException|MetaApiException $e) {
+        } catch (InvalidArgumentException|MetaApiException|CatalogUnavailableException|CatalogItemsUnavailableException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (RuntimeException $e) {
             Log::warning('No se pudo enviar el catálogo', [

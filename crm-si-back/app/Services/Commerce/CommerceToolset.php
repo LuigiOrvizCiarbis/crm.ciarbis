@@ -15,12 +15,14 @@ use InvalidArgumentException;
 use Throwable;
 
 /**
- * Herramientas de venta por WhatsApp: fichas del catálogo, formulario de
- * compra y reenvío del link de pago. También le cuenta al modelo el estado
- * del pedido activo de la conversación.
+ * Herramientas de venta por WhatsApp: catálogo y fichas de productos,
+ * formulario de compra y reenvío del link de pago. También le cuenta al
+ * modelo el estado del pedido activo de la conversación.
  */
 class CommerceToolset implements AiToolset
 {
+    public const SHOW_CATALOG = 'mostrar_catalogo';
+
     public const SHOW_PRODUCTS = 'mostrar_productos';
 
     public const SEND_CHECKOUT = 'enviar_formulario_compra';
@@ -30,10 +32,21 @@ class CommerceToolset implements AiToolset
     private const IN_STOCK = ['instock', 'onbackorder'];
 
     private const FALLBACKS = [
+        self::SHOW_CATALOG => 'Te mandé el catálogo.',
         self::SHOW_PRODUCTS => 'Te mandé las opciones.',
         self::SEND_CHECKOUT => 'Te mandé el formulario para completar la compra.',
         self::RESEND_PAYMENT_LINK => 'Te reenvié el link de pago.',
     ];
+
+    /**
+     * Resultado para el modelo cuando las fichas no salen. No incluye el error de
+     * Meta: el modelo lo leía como falta de stock y se lo decía al cliente.
+     */
+    private const CARDS_UNAVAILABLE = 'No se pudieron enviar las fichas por un problema técnico de WhatsApp; no tiene que ver con el stock ni con los precios. '
+        .'No se lo menciones al cliente: contale los productos, talles y precios con los datos del catálogo y, cuando elija, usá enviar_formulario_compra.';
+
+    private const CATALOG_UNAVAILABLE = 'No se pudo enviar el catálogo por un problema técnico de WhatsApp. '
+        .'No se lo menciones al cliente: preguntale qué busca y mostrale esos productos con mostrar_productos.';
 
     private ?string $lastSuccess = null;
 
@@ -49,6 +62,12 @@ class CommerceToolset implements AiToolset
     public function definitions(): array
     {
         return [
+            new AiTool(
+                self::SHOW_CATALOG,
+                'Envía al cliente el catálogo completo de WhatsApp para que lo recorra y arme el carrito. '
+                    .'Usala cuando pide ver el catálogo o todos los productos, o no sabe qué busca.',
+                ['type' => 'object', 'properties' => new \stdClass],
+            ),
             new AiTool(
                 self::SHOW_PRODUCTS,
                 'Envía al cliente fichas de productos del catálogo de WhatsApp para que vea fotos y talles y los agregue al carrito. '
@@ -106,6 +125,7 @@ class CommerceToolset implements AiToolset
     public function call(string $name, array $input): string
     {
         return match ($name) {
+            self::SHOW_CATALOG => $this->showCatalog(),
             self::SHOW_PRODUCTS => $this->showProducts($input),
             self::SEND_CHECKOUT => $this->sendCheckout($input),
             self::RESEND_PAYMENT_LINK => $this->resendPaymentLink(),
@@ -116,8 +136,12 @@ class CommerceToolset implements AiToolset
     public function promptSection(): string
     {
         $section = "## Ventas por WhatsApp\n"
-            .'Mostrá productos con mostrar_productos; el cliente arma el carrito en WhatsApp y lo envía. '
+            .'Si pide ver el catálogo o no sabe qué busca, mandalo con mostrar_catalogo. '
+            .'Para productos puntuales usá mostrar_productos; el cliente arma el carrito en WhatsApp y lo envía. '
             .'Si ya eligió productos y talles en la charla, usá enviar_formulario_compra. '
+            .'La compra se cierra en este chat con ese formulario: aunque otras instrucciones digan que derives las compras a una persona, '
+            .'no lo hagas por querer comprar; derivá sólo si el cliente lo pide o hay un problema que el formulario no resuelve. '
+            .'Si quiere comprar pero no dijo el talle o la cantidad, preguntalo antes de mandar el formulario. '
             .'No pidas dirección ni datos de pago por chat. No prometas costos de envío: se calculan en el formulario. '
             .'Usá los ID del catálogo.';
 
@@ -134,6 +158,21 @@ class CommerceToolset implements AiToolset
     public function fallbackMessage(): ?string
     {
         return $this->lastSuccess !== null ? self::FALLBACKS[$this->lastSuccess] : null;
+    }
+
+    private function showCatalog(): string
+    {
+        try {
+            $this->products->sendCatalog($this->conversation, WhatsAppProductMessageSender::CATALOG_BODY, null);
+        } catch (Throwable $e) {
+            $this->logFailure(self::SHOW_CATALOG, $e);
+
+            return self::CATALOG_UNAVAILABLE;
+        }
+
+        $this->lastSuccess = self::SHOW_CATALOG;
+
+        return 'Catálogo enviado.';
     }
 
     private function showProducts(array $input): string
@@ -185,10 +224,12 @@ class CommerceToolset implements AiToolset
                 $ids,
                 null,
             );
+        } catch (CatalogUnavailableException|CatalogItemsUnavailableException) {
+            return self::CARDS_UNAVAILABLE;
         } catch (Throwable $e) {
             $this->logFailure(self::SHOW_PRODUCTS, $e);
 
-            return 'No se pudo enviar: '.$e->getMessage();
+            return self::CARDS_UNAVAILABLE;
         }
 
         $this->lastSuccess = self::SHOW_PRODUCTS;
