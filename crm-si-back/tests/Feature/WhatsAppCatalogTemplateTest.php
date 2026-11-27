@@ -59,6 +59,19 @@ class WhatsAppCatalogTemplateTest extends TestCase
         $this->assertSame(['2816', '3798', '3798'], $this->sentThumbnails());
     }
 
+    public function test_catalog_button_after_other_buttons_is_sent_with_its_own_index(): void
+    {
+        $this->template->update(['components' => [
+            ['type' => 'BODY', 'text' => 'Llegaron camisetas nuevas.'],
+            ['type' => 'BUTTONS', 'buttons' => [['type' => 'URL', 'text' => 'Ver la web', 'url' => 'https://www.taquitoygambeta.com'], ['type' => 'CATALOG', 'text' => 'Ver catálogo']]],
+        ]]);
+        Product::create(['tenant_id' => $this->tenant->id, 'name' => 'Body River', 'price' => 23140, 'is_active' => true, 'source' => 'woocommerce', 'external_id' => '3798']);
+
+        app(WhatsAppTemplateService::class)->sendSystemTemplateMessage($this->conversation, $this->template, []);
+
+        $this->assertSame('1', collect($this->sentTemplates()->sole()['template']['components'])->firstWhere('sub_type', 'CATALOG')['index']);
+    }
+
     public function test_template_without_catalog_button_is_sent_untouched(): void
     {
         $this->template->update(['components' => [['type' => 'BODY', 'text' => 'Hola']]]);

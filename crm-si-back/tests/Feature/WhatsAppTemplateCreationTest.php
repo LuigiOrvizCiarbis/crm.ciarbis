@@ -69,30 +69,32 @@ class WhatsAppTemplateCreationTest extends TestCase
         ])->assertStatus(422);
     }
 
-    public function test_marketing_template_with_only_a_catalog_button_is_sent_to_meta(): void
+    public function test_marketing_template_with_a_catalog_button_and_other_buttons_is_sent_to_meta(): void
     {
         [$user, $channel] = $this->context();
         Http::fake(['https://graph.facebook.com/*/waba-test/message_templates' => Http::response(['id' => 'meta-catalog', 'status' => 'PENDING', 'category' => 'MARKETING'])]);
         Sanctum::actingAs($user);
+        $payload = $this->catalogTemplate('MARKETING');
+        $payload['components'][1]['buttons'][] = ['type' => 'URL', 'text' => 'Ver la web', 'url' => 'https://www.taquitoygambeta.com'];
 
-        $this->postJson("/api/channels/{$channel->id}/templates", $this->catalogTemplate('MARKETING'))->assertCreated();
+        $this->postJson("/api/channels/{$channel->id}/templates", $payload)->assertCreated();
 
-        Http::assertSent(fn ($request) => $request['components'][1]['buttons'] === [['type' => 'CATALOG', 'text' => 'Ver catálogo']]);
+        Http::assertSent(fn ($request) => array_column($request['components'][1]['buttons'], 'type') === ['CATALOG', 'URL']);
     }
 
-    public function test_catalog_button_must_be_alone_in_a_marketing_template_without_header(): void
+    public function test_catalog_button_needs_a_marketing_template_without_header_and_only_once(): void
     {
         [$user, $channel] = $this->context();
         Http::fake();
         Sanctum::actingAs($user);
 
         $utility = $this->catalogTemplate('UTILITY');
-        $withOtherButton = $this->catalogTemplate('MARKETING');
-        $withOtherButton['components'][1]['buttons'][] = ['type' => 'QUICK_REPLY', 'text' => 'Más tarde'];
+        $twoCatalogs = $this->catalogTemplate('MARKETING');
+        $twoCatalogs['components'][1]['buttons'][] = ['type' => 'CATALOG', 'text' => 'Otro catálogo'];
         $withHeader = $this->catalogTemplate('MARKETING');
         array_unshift($withHeader['components'], ['type' => 'HEADER', 'format' => 'TEXT', 'text' => 'Novedades']);
 
-        foreach ([$utility, $withOtherButton, $withHeader] as $payload) {
+        foreach ([$utility, $twoCatalogs, $withHeader] as $payload) {
             $this->postJson("/api/channels/{$channel->id}/templates", $payload)->assertStatus(422);
         }
         Http::assertNothingSent();

@@ -69,18 +69,20 @@ class CreateWhatsAppTemplateRequest extends FormRequest
     }
 
     /**
-     * Meta publica el catálogo como plantilla de Marketing con un único botón
-     * y sin encabezado: la portada es un producto del catálogo. Al editar sin
+     * Meta publica el catálogo como plantilla de Marketing sin encabezado: la
+     * portada es un producto del catálogo. Si acepta otros botones junto al de
+     * catálogo no está documentado: lo decide Meta al revisarla. Al editar sin
      * cambiar la categoría, vale la de la plantilla guardada.
      */
     private function validateCatalogButton(Collection $components): void
     {
         $buttons = $components->firstWhere('type', 'BUTTONS')['buttons'] ?? [];
-        if (! in_array('CATALOG', array_column($buttons, 'type'), true)) {
+        $catalogButtons = count(array_keys(array_column($buttons, 'type'), 'CATALOG', true));
+        if ($catalogButtons === 0) {
             return;
         }
 
-        abort_if(count($buttons) > 1, 422, 'El botón de catálogo tiene que ser el único botón de la plantilla.');
+        abort_if($catalogButtons > 1, 422, 'Una plantilla admite un solo botón de catálogo.');
         abort_if($components->contains('type', 'HEADER'), 422, 'Una plantilla de catálogo no lleva encabezado: la portada es un producto del catálogo.');
         $category = $this->validated('category') ?? $this->route('template')?->category?->value;
         abort_if($category !== TemplateCategory::Marketing->value, 422, 'Meta solo acepta el botón de catálogo en plantillas de Marketing.');
