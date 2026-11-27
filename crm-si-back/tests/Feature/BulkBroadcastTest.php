@@ -235,6 +235,27 @@ class BulkBroadcastTest extends TestCase
         });
     }
 
+    public function test_job_flattens_contact_names_with_line_breaks_that_meta_rejects(): void
+    {
+        Http::fake(['graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.FLAT']]])]);
+
+        [$user, $config] = $this->createTenantWithWhatsAppChannel();
+        $conversation = $this->createConversations($user->tenant_id, $config, 1)->first();
+        $conversation->contact->update(['name' => "Cecilia \nEinstein 2257. \nCasa al fondo\t     sin timbre"]);
+        $template = $this->createApprovedTemplate($user->tenant_id, $config);
+
+        (new SendBroadcastMessageJob(
+            $conversation->id,
+            $template->id,
+            [['type' => 'body', 'parameters' => [['type' => 'text', 'text' => '{{nombre}}']]]],
+            $user->id,
+            $user->tenant_id,
+        ))->handle(app(WhatsAppTemplateService::class), app(BroadcastConversationResolver::class));
+
+        Http::assertSent(fn ($request) => ($request->data()['template']['components'][0]['parameters'][0]['text'] ?? null)
+            === 'Cecilia Einstein 2257. Casa al fondo sin timbre');
+    }
+
     /**
      * @return array{0: User, 1: WhatsAppConfig}
      */
