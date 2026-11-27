@@ -42,6 +42,7 @@ import {
   bulkAiAutoreplyConversations,
   bulkDeleteConversations,
   bulkMarkReadConversations,
+  bulkUpdateConversationStage,
   ConversationUnavailableError,
   getConversationMessages,
   getConversationsCursorPage,
@@ -58,6 +59,10 @@ const BulkTagsConversationsDialog = dynamic(
 )
 const BulkAssignConversationsDialog = dynamic(
   () => import("@/components/chat/BulkAssignConversationsDialog").then(m => m.BulkAssignConversationsDialog),
+  { loading: () => null }
+)
+const BulkStageDialog = dynamic(
+  () => import("@/components/opportunities/BulkStageDialog").then(m => m.BulkStageDialog),
   { loading: () => null }
 )
 const BroadcastDialog = dynamic(
@@ -143,6 +148,7 @@ import {
   Tags,
   Trash2,
   UserPlus,
+  Columns3,
   Users,
   X,
   Zap,
@@ -356,6 +362,7 @@ export default function ChatsPage() {
   const canUpdateChannels = (permissions ?? []).includes("channels.update")
   const canDisconnectChannels = (permissions ?? []).includes("channels.disconnect")
   const canCreateGroups = (permissions ?? []).includes("whatsapp_groups.create")
+  const canChangeStage = (permissions ?? []).includes("conversations.change_stage")
 
   const chatIdFromUrl = searchParams.get("chat")
 
@@ -555,6 +562,7 @@ export default function ChatsPage() {
   const [selectedConversationIds, setSelectedConversationIds] = useState<Set<number>>(new Set())
   const [bulkTagsOpen, setBulkTagsOpen] = useState(false)
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false)
+  const [bulkStageOpen, setBulkStageOpen] = useState(false)
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [broadcastOpen, setBroadcastOpen] = useState(false)
   const [bulkSubmitting, setBulkSubmitting] = useState(false)
@@ -2578,6 +2586,12 @@ export default function ChatsPage() {
                         <UserPlus className="h-4 w-4" aria-hidden="true" />
                         {t("chats.bulk.assign")}
                       </Button>
+                      {canChangeStage && (
+                        <Button size="sm" variant="ghost" className="gap-1.5" onClick={() => setBulkStageOpen(true)} disabled={bulkSubmitting}>
+                          <Columns3 className="h-4 w-4" aria-hidden="true" />
+                          {t("chats.bulk.changeStage")}
+                        </Button>
+                      )}
                       <Button size="sm" variant="ghost" className="gap-1.5" onClick={() => handleBulkArchive(viewType !== "archived")} disabled={bulkSubmitting}>
                         {viewType === "archived" ? <ArchiveRestore className="h-4 w-4" aria-hidden="true" /> : <Archive className="h-4 w-4" aria-hidden="true" />}
                         {viewType === "archived" ? t("chats.bulk.unarchive") : t("chats.bulk.archive")}
@@ -2972,6 +2986,21 @@ export default function ChatsPage() {
           handleExitSelectionMode()
         }}
       />
+
+      {bulkStageOpen ? (
+        <BulkStageDialog
+          open
+          onOpenChange={setBulkStageOpen}
+          description={t("chats.bulk.stage.subtitle", { count: selectedConversationIds.size })}
+          hint={t("chats.bulk.stage.hint")}
+          defaultPipelineOnly
+          onApply={(stageId, value) => bulkUpdateConversationStage({ ids: Array.from(selectedConversationIds), pipeline_stage_id: stageId, value })}
+          onSuccess={() => {
+            refreshConversations()
+            handleExitSelectionMode()
+          }}
+        />
+      ) : null}
 
       <BroadcastDialog
         open={broadcastOpen}

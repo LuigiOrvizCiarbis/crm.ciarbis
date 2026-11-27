@@ -646,6 +646,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('conversations/bulk-ai-autoreply', [ConversationController::class, 'bulkAiAutoreply']);
     Route::post('conversations/bulk-delete', [ConversationController::class, 'bulkDelete']);
     Route::post('conversations/bulk-read', [ConversationController::class, 'bulkMarkRead']);
+    Route::post('conversations/bulk-stage', [ConversationController::class, 'bulkStage']);
     Route::post('conversations/bulk-broadcast', [ConversationController::class, 'bulkBroadcast']);
     Route::get('conversations/{conversation}', [ConversationController::class, 'show']);
     Route::get('conversations/{conversation}/ai-draft', [ManualAiDraftController::class, 'show']);

@@ -19,6 +19,20 @@ export interface Pipeline {
   opportunities_count?: number
 }
 
+/** Cambio de etapa en lote (contactos o chats): lo permitido se aplica aunque otros fallen. */
+export interface BulkStageRequest {
+  ids: number[]
+  pipeline_stage_id: number
+  /** Monto de la venta al pasar a Ganado; el backend lo carga sólo donde falta. */
+  value?: number
+}
+
+export interface BulkStageResponse {
+  updated: number
+  failed: number
+  failures: Array<{ id: number; reason: string }>
+}
+
 function authHeaders(): HeadersInit {
   return {
     "Content-Type": "application/json",

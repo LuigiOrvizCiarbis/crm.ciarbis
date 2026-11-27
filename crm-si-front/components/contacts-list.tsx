@@ -27,7 +27,7 @@ import { ActiveFiltersBar } from "./contacts/ActiveFiltersBar"
 import { BulkFieldsDialog } from "./contacts/bulk-fields-dialog"
 import { usePermission } from "@/hooks/usePermission"
 import { getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
-import { updateContact, type ContactAvatar as ContactAvatarPayload, type ContactAvatarSource, type ContactOpportunity, type ContactUpdate } from "@/lib/api/contacts"
+import { bulkUpdateContactStage, updateContact, type ContactAvatar as ContactAvatarPayload, type ContactAvatarSource, type ContactOpportunity, type ContactUpdate } from "@/lib/api/contacts"
 import { ContactAvatarActions } from "@/components/contact-avatar-actions"
 import { CustomChoiceBadge, CustomFieldInput, formatCustomChoice } from "@/components/CustomFieldInput"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
@@ -55,7 +55,7 @@ const BulkTagsDialog = dynamic(
   { ssr: false },
 )
 const BulkStageDialog = dynamic(
-  () => import("./contacts/bulk-stage-dialog").then((module) => module.BulkStageDialog),
+  () => import("./opportunities/BulkStageDialog").then((module) => module.BulkStageDialog),
   { ssr: false },
 )
 const ExtractDocumentDialog = dynamic(
@@ -1258,7 +1258,9 @@ export function ContactsList({
         <BulkStageDialog
           open
           onOpenChange={setBulkStageOpen}
-          selectedIds={Array.from(selectedIds)}
+          description={t("contactsPage.bulk.stage.subtitle", { count: selectedIds.size })}
+          hint={t("contactsPage.bulk.stage.hint")}
+          onApply={(stageId, value) => bulkUpdateContactStage({ ids: Array.from(selectedIds), pipeline_stage_id: stageId, value })}
           onSuccess={(failedIds) => {
             setSelectedIds(new Set(failedIds))
             refreshAfterChange()

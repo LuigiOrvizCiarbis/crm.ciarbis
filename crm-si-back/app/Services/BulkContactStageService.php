@@ -63,9 +63,7 @@ class BulkContactStageService
         $opportunity = $contact->opportunities()
             ->listedFor($user)
             ->where('pipeline_id', $stage->pipeline_id)
-            ->orderByRaw("CASE WHEN status = 'open' THEN 0 ELSE 1 END")
-            ->orderByDesc('updated_at')
-            ->orderByDesc('id')
+            ->primaryFirst()
             ->first();
 
         return $opportunity
@@ -79,12 +77,7 @@ class BulkContactStageService
             return 'No tenés permiso para mover la oportunidad de este contacto.';
         }
 
-        $attributes = ['pipeline_stage_id' => $stage->id];
-        if ($value !== null && ! ((float) $opportunity->value > 0)) {
-            $attributes['value'] = $value;
-        }
-
-        $opportunity->update($attributes);
+        $opportunity->moveToStage($stage, $value);
 
         return null;
     }

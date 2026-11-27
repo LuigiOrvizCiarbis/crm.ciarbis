@@ -3,6 +3,7 @@
 import { useId, useState } from "react"
 import { Loader2 } from "lucide-react"
 
+import { StageMark } from "@/components/contacts/ContactStagePicker"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -22,34 +23,37 @@ import { useToast } from "@/components/Toast"
 import { usePermission } from "@/hooks/usePermission"
 import { usePipelineCatalog } from "@/hooks/usePipelineCatalog"
 import { useTranslation } from "@/hooks/useTranslation"
-import { bulkUpdateContactStage } from "@/lib/api/contacts"
-import { StageMark } from "./ContactStagePicker"
+import type { BulkStageResponse } from "@/lib/api/pipeline"
 
 interface BulkStageDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  selectedIds: number[]
+  description: string
+  /** Qué pasa con cada elemento seleccionado; depende de la pantalla. */
+  hint: string
+  /** Sólo el embudo predeterminado: la etapa de un chat vive ahí. */
+  defaultPipelineOnly?: boolean
+  onApply: (stageId: number, value?: number) => Promise<BulkStageResponse>
   onSuccess: (failedIds: number[]) => void
 }
 
-/**
- * Lleva a los contactos seleccionados a una etapa. Cada contacto mueve su
- * oportunidad en ese embudo o, si no tiene, se agrega con una nueva.
- */
-export function BulkStageDialog({ open, onOpenChange, selectedIds, onSuccess }: BulkStageDialogProps) {
+/** Elegir una etapa (y el monto si cierra la venta) para mover una selección en lote. */
+export function BulkStageDialog({ open, onOpenChange, description, hint, defaultPipelineOnly = false, onApply, onSuccess }: BulkStageDialogProps) {
   const { t } = useTranslation()
   const { addToast } = useToast()
   const canEditValue = usePermission("opportunities.update")
   const { catalog, failed, retry } = usePipelineCatalog(open)
   const amountId = useId()
+  const stageLabelId = useId()
   const [pipelineId, setPipelineId] = useState<number | null>(null)
   const [stageId, setStageId] = useState<number | null>(null)
   const [amount, setAmount] = useState("")
   const [submitting, setSubmitting] = useState(false)
 
-  const entry = catalog?.find((item) => item.pipeline.id === pipelineId)
-    ?? catalog?.find((item) => item.pipeline.is_default)
-    ?? catalog?.[0]
+  const pipelines = defaultPipelineOnly ? catalog?.filter((item) => item.pipeline.is_default) : catalog
+  const entry = pipelines?.find((item) => item.pipeline.id === pipelineId)
+    ?? pipelines?.find((item) => item.pipeline.is_default)
+    ?? pipelines?.[0]
   const stage = entry?.stages.find((item) => item.id === stageId) ?? null
   const parsedAmount = Number(amount)
   const amountEntered = amount.trim() !== ""
@@ -57,29 +61,25 @@ export function BulkStageDialog({ open, onOpenChange, selectedIds, onSuccess }: 
   const askValue = stage?.outcome === "won" && canEditValue
 
   const handleApply = async () => {
-    if (!stage || !amountValid || selectedIds.length === 0 || submitting) return
+    if (!stage || !amountValid || submitting) return
     setSubmitting(true)
     try {
-      const result = await bulkUpdateContactStage({
-        ids: selectedIds,
-        pipeline_stage_id: stage.id,
-        ...(askValue && amountEntered ? { value: parsedAmount } : {}),
-      })
+      const result = await onApply(stage.id, askValue && amountEntered ? parsedAmount : undefined)
       if (result.failed > 0) {
         addToast({
           type: "info",
-          title: t("contactsPage.bulk.stage.result.partial", { updated: result.updated, failed: result.failed }),
+          title: t("pipeline.bulkStage.result.partial", { updated: result.updated, failed: result.failed }),
           description: result.failures.slice(0, 3).map((failure) => failure.reason).join(" "),
         })
       } else {
-        addToast({ type: "success", title: t("contactsPage.bulk.stage.result.success", { updated: result.updated, stage: stage.name }) })
+        addToast({ type: "success", title: t("pipeline.bulkStage.result.success", { updated: result.updated, stage: stage.name }) })
       }
       onOpenChange(false)
       onSuccess(result.failures.map((failure) => failure.id))
     } catch (error) {
       addToast({
         type: "error",
-        title: t("contactsPage.bulk.stage.errors.apply"),
+        title: t("pipeline.bulkStage.error"),
         description: error instanceof Error ? error.message : "",
       })
     } finally {
@@ -97,7 +97,7 @@ export function BulkStageDialog({ open, onOpenChange, selectedIds, onSuccess }: 
       )
     }
 
-    if (!catalog) {
+    if (!pipelines) {
       return (
         <div role="status" aria-label={t("chats.stageFilter.loading")} className="space-y-2 py-1">
           {[0, 1, 2, 3].map((row) => <Skeleton key={row} className="h-9 w-full" />)}
@@ -111,9 +111,9 @@ export function BulkStageDialog({ open, onOpenChange, selectedIds, onSuccess }: 
 
     return (
       <div className="space-y-4">
-        {catalog.length > 1 && (
+        {pipelines.length > 1 && (
           <div className="space-y-1.5">
-            <Label>{t("contactsPage.bulk.stage.pipeline")}</Label>
+            <Label>{t("pipeline.bulkStage.pipeline")}</Label>
             <Select
               value={String(entry.pipeline.id)}
               onValueChange={(value) => {
@@ -126,7 +126,7 @@ export function BulkStageDialog({ open, onOpenChange, selectedIds, onSuccess }: 
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {catalog.map(({ pipeline }) => (
+                {pipelines.map(({ pipeline }) => (
                   <SelectItem key={pipeline.id} value={String(pipeline.id)}>{pipeline.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -135,13 +135,13 @@ export function BulkStageDialog({ open, onOpenChange, selectedIds, onSuccess }: 
         )}
 
         <div className="space-y-1.5">
-          <Label id="bulk-stage-label">{t("contactsPage.bulk.stage.stage")}</Label>
+          <Label id={stageLabelId}>{t("pipeline.bulkStage.stage")}</Label>
           {entry.stages.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">{t("contactsPage.stage.noStages")}</p>
           ) : (
             <ScrollArea className="max-h-[min(40vh,20rem)] pr-3">
               <RadioGroup
-                aria-labelledby="bulk-stage-label"
+                aria-labelledby={stageLabelId}
                 value={stageId !== null ? String(stageId) : ""}
                 onValueChange={(value) => setStageId(Number(value))}
                 disabled={submitting}
@@ -178,7 +178,7 @@ export function BulkStageDialog({ open, onOpenChange, selectedIds, onSuccess }: 
               disabled={submitting}
               className="tabular-nums"
             />
-            <p className="text-xs text-muted-foreground">{t("contactsPage.bulk.stage.valueHint", { stage: stage.name })}</p>
+            <p className="text-xs text-muted-foreground">{t("pipeline.bulkStage.valueHint", { stage: stage.name })}</p>
           </div>
         )}
       </div>
@@ -189,18 +189,18 @@ export function BulkStageDialog({ open, onOpenChange, selectedIds, onSuccess }: 
     <Dialog open={open} onOpenChange={(next) => !submitting && onOpenChange(next)}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t("contactsPage.bulk.stage.title")}</DialogTitle>
-          <DialogDescription>{t("contactsPage.bulk.stage.subtitle", { count: selectedIds.length })}</DialogDescription>
+          <DialogTitle>{t("pipeline.bulkStage.title")}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        <p className="text-sm text-muted-foreground">{t("contactsPage.bulk.stage.hint")}</p>
+        <p className="text-sm text-muted-foreground">{hint}</p>
         {renderBody()}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>{t("contactsPage.bulk.dialog.cancel")}</Button>
           <Button onClick={() => void handleApply()} disabled={submitting || !stage || !amountValid}>
             {submitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
-            {t("contactsPage.bulk.stage.apply")}
+            {t("pipeline.bulkStage.apply")}
           </Button>
         </DialogFooter>
       </DialogContent>
