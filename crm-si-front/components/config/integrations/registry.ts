@@ -1,14 +1,16 @@
 import type { ComponentType } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Bot, CalendarClock, CreditCard, ShoppingBag, Webhook } from "lucide-react"
+import { Bot, CalendarClock, CreditCard, ShoppingBag, Store, Webhook } from "lucide-react"
 
 import { AiAssistantSettings } from "@/components/config/AiAssistantSettings"
 import { GoogleCalendarConnectionCard } from "@/components/config/GoogleCalendarConnectionCard"
+import { MercadoLibreSettings } from "@/components/config/MercadoLibreSettings"
 import { MercadoPagoSettings } from "@/components/config/MercadoPagoSettings"
 import { WebhooksSettings } from "@/components/config/WebhooksSettings"
 import { WooCommerceSettings } from "@/components/config/WooCommerceSettings"
 import { getAiConfig } from "@/lib/api/ai-config"
 import { getGoogleCalendarConnection } from "@/lib/api/google-calendar"
+import { getMercadoLibreConnection } from "@/lib/api/mercadolibre"
 import { getMercadoPagoConfig } from "@/lib/api/mercadopago"
 import { listWebhookEndpoints } from "@/lib/api/webhooks"
 import { getWooConfig } from "@/lib/api/woocommerce"
@@ -87,6 +89,20 @@ export const INTEGRATIONS: IntegrationDefinition[] = [
     fetchStatus: async () => {
       const config = await getMercadoPagoConfig()
       return config?.has_credentials ? "connected" : "available"
+    },
+  },
+  {
+    id: "mercadolibre",
+    icon: Store,
+    nameKey: "settings.mercadolibre.title",
+    descriptionKey: "settings.mercadolibre.description",
+    category: "ecommerce",
+    adminOnly: true,
+    Detail: MercadoLibreSettings,
+    fetchStatus: async () => {
+      const connection = await getMercadoLibreConnection()
+      if (connection?.status === "connected") return "connected"
+      return connection?.status === "needs_reauth" ? "error" : "available"
     },
   },
   {

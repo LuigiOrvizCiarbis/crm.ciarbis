@@ -87,3 +87,6 @@ Schedule::command('invoices:dispatch-due')->everyMinute()->withoutOverlapping(5)
 Schedule::command('workspaces:purge')->dailyAt('04:00')->withoutOverlapping(30);
 // Notificación in-app a owners cuando faltan 3 y 1 día de trial (hora local del server).
 Schedule::command('notifications:trial-reminders')->dailyAt('10:00')->withoutOverlapping(10);
+// Mercado Libre, diario: renueva el token de cada cuenta conectada (aunque no
+// sincronice) y resincroniza las que sí, cubriendo los updates masivos sin eventos.
+Schedule::command('mercadolibre:sync')->dailyAt('05:00')->withoutOverlapping(30);

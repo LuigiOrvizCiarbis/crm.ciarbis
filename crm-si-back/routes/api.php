@@ -37,6 +37,8 @@ use App\Http\Controllers\Api\MailIntakeController;
 use App\Http\Controllers\Api\ManualAiDraftController;
 use App\Http\Controllers\Api\MediaAssetController;
 use App\Http\Controllers\Api\MediaAssetDownloadController;
+use App\Http\Controllers\Api\MercadoLibreCatalogController;
+use App\Http\Controllers\Api\MercadoLibreConnectionController;
 use App\Http\Controllers\Api\MercadoPagoConfigController;
 use App\Http\Controllers\Api\MercadoPagoWebhookController;
 use App\Http\Controllers\Api\MessageController;
@@ -55,6 +57,7 @@ use App\Http\Controllers\Api\PlanController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProductFieldController;
 use App\Http\Controllers\Api\ProductImportController;
+use App\Http\Controllers\Api\ProductMercadoLibreController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\ScheduledMessageController;
@@ -464,6 +467,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('product-fields', [ProductFieldController::class, 'store']);
     Route::put('product-fields/{product_field}', [ProductFieldController::class, 'update']);
     Route::delete('product-fields/{product_field}', [ProductFieldController::class, 'destroy']);
+    Route::get('products/{product}/mercadolibre', [ProductMercadoLibreController::class, 'show']);
+    Route::put('products/{product}/mercadolibre', [ProductMercadoLibreController::class, 'update']);
     Route::apiResource('products', ProductController::class);
 
     Route::apiResource('branches', BranchController::class);
@@ -589,6 +594,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('mercadopago-config', [MercadoPagoConfigController::class, 'show']);
     Route::put('mercadopago-config', [MercadoPagoConfigController::class, 'update']);
     Route::post('mercadopago-config/test', [MercadoPagoConfigController::class, 'test']);
+
+    // Cuenta de Mercado Libre por tenant (OAuth) y publicación del catálogo.
+    Route::get('mercadolibre/connection', [MercadoLibreConnectionController::class, 'show']);
+    Route::put('mercadolibre/connection', [MercadoLibreConnectionController::class, 'update']);
+    Route::delete('mercadolibre/connection', [MercadoLibreConnectionController::class, 'destroy']);
+    Route::post('mercadolibre/authorization-url', [MercadoLibreConnectionController::class, 'authorizationUrl']);
+    Route::post('mercadolibre/sync', [MercadoLibreConnectionController::class, 'sync']);
+    Route::get('mercadolibre/listings', [MercadoLibreCatalogController::class, 'listings']);
+    Route::get('mercadolibre/categories', [MercadoLibreCatalogController::class, 'categories']);
+    Route::get('mercadolibre/categories/{categoryId}/attributes', [MercadoLibreCatalogController::class, 'attributes']);
 
     // Config del módulo de cobranzas por tenant (qué campo custom es el
     // vencimiento/estado/contador de mora, ver Fase 3 del plan SI-27).
@@ -815,6 +830,10 @@ Route::post('facebook/data-deletion', [FacebookDataDeletionController::class, 'h
 // Público: Google redirige acá tras el consentimiento OAuth, sin credenciales
 // Sanctum. El `state` de un solo uso es el único vínculo de identidad.
 Route::get('google-calendar/callback', [GoogleCalendarConnectionController::class, 'callback']);
+
+// Público: Mercado Libre redirige acá tras el consentimiento OAuth, sin
+// credenciales Sanctum. El `state` de un solo uso es el único vínculo de identidad.
+Route::get('mercadolibre/callback', [MercadoLibreConnectionController::class, 'callback']);
 
 // Public: webhooks entrantes configurables por tenant. Se autentican con
 // X-Api-Key por endpoint (no Sanctum). Rate limit por api key (ver AppServiceProvider).
