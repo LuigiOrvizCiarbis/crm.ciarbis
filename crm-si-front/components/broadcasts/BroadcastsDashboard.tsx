@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import Link from "next/link"
 import {
   ArrowRight,
+  ArrowUpDown,
   Instagram,
   Loader2,
   MessageCircle,
@@ -33,7 +34,7 @@ import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatStrip, type Stat } from "@/components/ui/stat-strip"
-import { DataTable, type DataTableColumn } from "@/components/ui/data-table"
+import { DataTable, type DataTableColumn, type DataTableSort } from "@/components/ui/data-table"
 import { useToast } from "@/components/Toast"
 import { Channel, WhatsAppTemplate } from "@/data/types"
 import { ChannelType } from "@/data/enums"
@@ -129,8 +130,9 @@ const campaignProgress = (campaign: BroadcastCampaign) =>
   campaign.audience_count ? ((campaign.sent_count + campaign.error_count) / campaign.audience_count) * 100 : 0
 
 // Mientras la campaña no terminó se muestra el costo estimado; después, el real.
-const campaignCost = (campaign: BroadcastCampaign) =>
-  formatCurrency(["scheduled", "processing"].includes(campaign.status) ? campaign.estimated_cost_usd : campaign.actual_cost_usd, "USD")
+const isCostEstimated = (campaign: BroadcastCampaign) => campaign.status === "scheduled" || campaign.status === "processing"
+const campaignCostUsd = (campaign: BroadcastCampaign) =>
+  isCostEstimated(campaign) ? campaign.estimated_cost_usd : campaign.actual_cost_usd
 
 // Un cero no es un logro ni un problema: el color aparece solo cuando hay envíos o errores.
 const sentClass = (campaign: BroadcastCampaign) =>
@@ -143,11 +145,21 @@ function CampaignStatusBadge({ campaign, className }: { campaign: BroadcastCampa
   return <Badge variant="outline" className={cn(state.className, className)}>{state.label}</Badge>
 }
 
+function CampaignCost({ campaign }: { campaign: BroadcastCampaign }) {
+  return (
+    <>
+      {formatCurrency(campaignCostUsd(campaign), "USD")}
+      {isCostEstimated(campaign) && <span className="block text-xs font-normal text-muted-foreground">estimado</span>}
+    </>
+  )
+}
+
 const historyColumns: DataTableColumn<BroadcastCampaign>[] = [
   {
     id: "name",
     header: "Nombre de la difusión",
     rowHeader: true,
+    sortable: true,
     cell: (campaign) => {
       const summary = (
         <>
@@ -167,30 +179,82 @@ const historyColumns: DataTableColumn<BroadcastCampaign>[] = [
   {
     id: "status",
     header: "Estado",
+    sortable: true,
     cell: (campaign) => <CampaignStatusBadge campaign={campaign} />,
   },
   {
     id: "audience",
     header: "Contactos",
+    sortable: true,
+    defaultSortDirection: "desc",
     cell: (campaign) => (
-      <div className="flex min-w-28 items-center gap-2">
-        <Users className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+      <div className="flex min-w-24 items-center gap-2">
         <span className="tabular-nums">{formatCount(campaign.audience_count)}</span>
         <Progress value={campaignProgress(campaign)} className="h-1.5 w-12" aria-label="Avance del envío" />
       </div>
     ),
   },
-  { id: "sent", header: "Enviado", align: "right", className: sentClass, cell: (campaign) => formatCount(campaign.sent_count) },
-  { id: "errors", header: "Error", align: "right", className: errorClass, cell: (campaign) => formatCount(campaign.error_count) },
-  { id: "cost", header: "Gasto", align: "right", className: "tabular-nums", cell: campaignCost },
+  { id: "sent", header: "Enviados", align: "right", sortable: true, defaultSortDirection: "desc", className: sentClass, cell: (campaign) => formatCount(campaign.sent_count) },
+  { id: "errors", header: "Errores", align: "right", sortable: true, defaultSortDirection: "desc", className: errorClass, cell: (campaign) => formatCount(campaign.error_count) },
+  { id: "cost", header: "Gasto", align: "right", sortable: true, defaultSortDirection: "desc", className: "tabular-nums", cell: (campaign) => <CampaignCost campaign={campaign} /> },
   {
     id: "scheduled_at",
     header: "Fecha y hora",
     align: "right",
-    className: "text-sm tabular-nums text-muted-foreground",
+    sortable: true,
+    defaultSortDirection: "desc",
+    className: "whitespace-nowrap text-sm tabular-nums text-muted-foreground",
     cell: (campaign) => dateTime.format(new Date(campaign.scheduled_at)),
   },
 ]
+
+// El backend ya entrega las más recientes primero; el orden explícito lo muestra en el encabezado.
+const DEFAULT_HISTORY_SORT: DataTableSort = { columnId: "scheduled_at", direction: "desc" }
+
+// Estado en orden de ciclo de vida, no alfabético: agrupa lo programado, lo que corre y lo cerrado.
+const STATUS_ORDER = Object.keys(campaignStatus)
+
+const campaignSortValue: Record<string, (campaign: BroadcastCampaign) => string | number> = {
+  name: (campaign) => campaign.name,
+  status: (campaign) => {
+    const rank = STATUS_ORDER.indexOf(campaign.status)
+    return rank === -1 ? STATUS_ORDER.length : rank
+  },
+  audience: (campaign) => campaign.audience_count,
+  sent: (campaign) => campaign.sent_count,
+  errors: (campaign) => campaign.error_count,
+  cost: campaignCostUsd,
+  scheduled_at: (campaign) => Date.parse(campaign.scheduled_at),
+}
+
+/** Ordena en el cliente (el historial llega completo, hasta 100); los empates quedan con la más reciente primero. */
+function sortCampaigns(campaigns: BroadcastCampaign[], sort: DataTableSort): BroadcastCampaign[] {
+  const value = campaignSortValue[sort.columnId]
+  if (!value) return campaigns
+  const direction = sort.direction === "asc" ? 1 : -1
+  return [...campaigns].sort((a, b) => {
+    const left = value(a)
+    const right = value(b)
+    const order = typeof left === "string" && typeof right === "string"
+      ? left.localeCompare(right, "es", { numeric: true, sensitivity: "base" })
+      : Number(left) - Number(right)
+    return order * direction || Date.parse(b.scheduled_at) - Date.parse(a.scheduled_at)
+  })
+}
+
+// En teléfonos no hay encabezados: el mismo orden se elige en un selector.
+const MOBILE_HISTORY_SORTS: Array<{ label: string; sort: DataTableSort }> = [
+  { label: "Más recientes", sort: DEFAULT_HISTORY_SORT },
+  { label: "Más antiguas", sort: { columnId: "scheduled_at", direction: "asc" } },
+  { label: "Nombre (A a Z)", sort: { columnId: "name", direction: "asc" } },
+  { label: "Estado", sort: { columnId: "status", direction: "asc" } },
+  { label: "Más contactos", sort: { columnId: "audience", direction: "desc" } },
+  { label: "Más enviados", sort: { columnId: "sent", direction: "desc" } },
+  { label: "Más errores", sort: { columnId: "errors", direction: "desc" } },
+  { label: "Mayor gasto", sort: { columnId: "cost", direction: "desc" } },
+]
+
+const sortKey = (sort: DataTableSort) => `${sort.columnId}:${sort.direction}`
 
 function PageHeader({ children }: { children?: ReactNode }) {
   return (
@@ -253,6 +317,7 @@ export function BroadcastsDashboard() {
   const [deletingTemplateId, setDeletingTemplateId] = useState<number | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [historySort, setHistorySort] = useState<DataTableSort>(DEFAULT_HISTORY_SORT)
   const [templatesError, setTemplatesError] = useState<string | null>(null)
   const [templatesReloadKey, setTemplatesReloadKey] = useState(0)
 
@@ -318,6 +383,8 @@ export function BroadcastsDashboard() {
   }, [query, stateFilter, templates])
 
   const hasApprovedTemplate = templates.some((template) => template.status === "APPROVED")
+
+  const sortedCampaigns = useMemo(() => sortCampaigns(campaigns, historySort), [campaigns, historySort])
 
   const totals = useMemo(() => ({
     scheduled: campaigns.filter((campaign) => campaign.status === "scheduled").length,
@@ -460,7 +527,7 @@ export function BroadcastsDashboard() {
           <section className="mt-10">
             <SectionHeading title={HISTORY_TITLE} description={HISTORY_DESCRIPTION} />
             <ul className="mt-3 divide-y divide-border rounded-lg border border-border md:hidden"><MobileSkeletonRows /></ul>
-            <DataTable className="mt-3 hidden md:block" loading columns={historyColumns} data={[]} getRowId={(campaign) => campaign.id} />
+            <DataTable className="mt-3 hidden md:block" loading columns={historyColumns} data={[]} getRowId={(campaign) => campaign.id} sort={historySort} onSortChange={setHistorySort} />
           </section>
         </div>
       </>
@@ -548,11 +615,34 @@ export function BroadcastsDashboard() {
         <StatStrip stats={stats} />
 
         <section className="mt-10">
-          <SectionHeading title={HISTORY_TITLE} description={HISTORY_DESCRIPTION} />
+          <SectionHeading title={HISTORY_TITLE} description={HISTORY_DESCRIPTION}>
+            {campaigns.length > 1 && (
+              <Select
+                value={MOBILE_HISTORY_SORTS.some((item) => sortKey(item.sort) === sortKey(historySort)) ? sortKey(historySort) : ""}
+                onValueChange={(value) => {
+                  const option = MOBILE_HISTORY_SORTS.find((item) => sortKey(item.sort) === value)
+                  if (option) setHistorySort(option.sort)
+                }}
+              >
+                {/* Un orden elegido en desktop que no está en la lista deja el selector en su texto de ayuda. */}
+                <SelectTrigger className="h-10 w-full md:hidden" aria-label="Ordenar historial">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <ArrowUpDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <SelectValue placeholder="Ordenar" />
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  {MOBILE_HISTORY_SORTS.map((option) => (
+                    <SelectItem key={sortKey(option.sort)} value={sortKey(option.sort)}>{option.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </SectionHeading>
 
           {/* Teléfonos: lista de filas; la tabla de siete columnas no entra en 390px. */}
           <ul className="mt-3 divide-y divide-border rounded-lg border border-border md:hidden">
-            {campaigns.map((campaign) => {
+            {sortedCampaigns.map((campaign) => {
               const body = (
                 <>
                   <div className="flex items-start justify-between gap-3">
@@ -569,16 +659,16 @@ export function BroadcastsDashboard() {
                   </div>
                   <dl className="mt-3 grid grid-cols-3 gap-2 text-sm">
                     <div>
-                      <dt className="text-xs text-muted-foreground">Enviado</dt>
+                      <dt className="text-xs text-muted-foreground">Enviados</dt>
                       <dd className={sentClass(campaign)}>{formatCount(campaign.sent_count)}</dd>
                     </div>
                     <div>
-                      <dt className="text-xs text-muted-foreground">Error</dt>
+                      <dt className="text-xs text-muted-foreground">Errores</dt>
                       <dd className={errorClass(campaign)}>{formatCount(campaign.error_count)}</dd>
                     </div>
                     <div>
                       <dt className="text-xs text-muted-foreground">Gasto</dt>
-                      <dd className="tabular-nums">{campaignCost(campaign)}</dd>
+                      <dd className="tabular-nums"><CampaignCost campaign={campaign} /></dd>
                     </div>
                   </dl>
                   <p className="mt-2 text-xs tabular-nums text-muted-foreground">{dateTime.format(new Date(campaign.scheduled_at))}</p>
@@ -607,7 +697,9 @@ export function BroadcastsDashboard() {
           <DataTable
             className="mt-3 hidden md:block"
             columns={historyColumns}
-            data={campaigns}
+            data={sortedCampaigns}
+            sort={historySort}
+            onSortChange={setHistorySort}
             getRowId={(campaign) => String(campaign.id)}
             emptyLabel={historyEmptyMessage}
           />
