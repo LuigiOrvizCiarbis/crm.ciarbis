@@ -13,7 +13,9 @@ function ScrollArea({
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
-      className={cn('relative', className)}
+      // Con sólo max-h en la raíz, la altura del viewport (100% de una altura auto)
+      // no tiene tope y el contenido se desborda sin scroll: hereda el máximo.
+      className={cn('relative [&>[data-slot=scroll-area-viewport]]:max-h-[inherit]', className)}
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
