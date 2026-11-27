@@ -11,6 +11,7 @@ import {
   Plus,
   Search,
   SearchX,
+  Store,
   Trash2,
   Upload,
   X,
@@ -68,6 +69,7 @@ import {
 import { UniversalImportDialog } from "@/components/import/universal-import-dialog"
 import { DEFAULT_CURRENCY, formatCurrency } from "@/lib/currency"
 import { ProductVariantsTable } from "@/components/products/ProductVariantsTable"
+import { MercadoLibreProductDialog } from "@/components/products/MercadoLibreProductDialog"
 
 interface FormState {
   name: string
@@ -179,6 +181,7 @@ export function ProductsList() {
 
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [mercadoLibreTarget, setMercadoLibreTarget] = useState<Product | null>(null)
 
   const [sort, setSort] = useState<DataTableSort | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set())
@@ -494,6 +497,10 @@ export function ProductsList() {
           <DropdownMenuItem onClick={() => openEdit(product)}>
             <Pencil className="mr-2 h-4 w-4" aria-hidden="true" />
             {t("catalog.edit")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setMercadoLibreTarget(product)}>
+            <Store className="mr-2 h-4 w-4" aria-hidden="true" />
+            {t("products.mercadolibre.menuItem")}
           </DropdownMenuItem>
           <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(product)}>
             <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -936,6 +943,14 @@ export function ProductsList() {
         productFields={productFields}
         onImportComplete={() => void reload()}
       />
+
+      {mercadoLibreTarget && (
+        <MercadoLibreProductDialog
+          productId={mercadoLibreTarget.id}
+          open
+          onOpenChange={(open) => !open && setMercadoLibreTarget(null)}
+        />
+      )}
     </div>
   )
 }

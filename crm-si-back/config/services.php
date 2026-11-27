@@ -243,4 +243,15 @@ return [
         'http_timeout' => env('GOOGLE_CALENDAR_HTTP_TIMEOUT', 20),
     ],
 
+    // App de Mercado Libre (developers.mercadolibre.com.ar → Mis aplicaciones).
+    // Cada tenant conecta su cuenta de vendedor por OAuth; redirect_uri tiene que
+    // coincidir exacto con el registrado en la app (GET /api/mercadolibre/callback).
+    'mercadolibre' => [
+        'client_id' => env('MERCADOLIBRE_CLIENT_ID'),
+        'client_secret' => env('MERCADOLIBRE_CLIENT_SECRET'),
+        'redirect_uri' => env('MERCADOLIBRE_REDIRECT_URI'),
+        // Dominio de autorización del país de las cuentas (.com.ar, .com.mx, .com.uy…).
+        'auth_url' => env('MERCADOLIBRE_AUTH_URL', 'https://auth.mercadolibre.com.ar'),
+    ],
+
 ];
