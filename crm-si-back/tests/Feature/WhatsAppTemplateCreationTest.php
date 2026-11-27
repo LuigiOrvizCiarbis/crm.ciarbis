@@ -79,7 +79,11 @@ class WhatsAppTemplateCreationTest extends TestCase
 
         $this->postJson("/api/channels/{$channel->id}/templates", $payload)->assertCreated();
 
-        Http::assertSent(fn ($request) => array_column($request['components'][1]['buttons'], 'type') === ['CATALOG', 'URL']);
+        // Meta rechaza otro texto en el botón de catálogo: se manda siempre el suyo.
+        Http::assertSent(fn ($request) => $request['components'][1]['buttons'] === [
+            ['type' => 'CATALOG', 'text' => 'View catalog'],
+            ['type' => 'URL', 'text' => 'Ver la web', 'url' => 'https://www.taquitoygambeta.com'],
+        ]);
     }
 
     public function test_catalog_button_needs_a_marketing_template_without_header_and_only_once(): void

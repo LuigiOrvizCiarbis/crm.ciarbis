@@ -37,7 +37,7 @@ class WhatsAppCatalogTemplateTest extends TestCase
             'status' => TemplateStatus::Approved,
             'components' => [
                 ['type' => 'BODY', 'text' => 'Llegaron camisetas nuevas. Mirá el catálogo y armá tu pedido.'],
-                ['type' => 'BUTTONS', 'buttons' => [['type' => 'CATALOG', 'text' => 'Ver catálogo']]],
+                ['type' => 'BUTTONS', 'buttons' => [['type' => 'CATALOG', 'text' => 'View catalog']]],
             ],
         ]);
     }
@@ -63,7 +63,7 @@ class WhatsAppCatalogTemplateTest extends TestCase
     {
         $this->template->update(['components' => [
             ['type' => 'BODY', 'text' => 'Llegaron camisetas nuevas.'],
-            ['type' => 'BUTTONS', 'buttons' => [['type' => 'URL', 'text' => 'Ver la web', 'url' => 'https://www.taquitoygambeta.com'], ['type' => 'CATALOG', 'text' => 'Ver catálogo']]],
+            ['type' => 'BUTTONS', 'buttons' => [['type' => 'URL', 'text' => 'Ver la web', 'url' => 'https://www.taquitoygambeta.com'], ['type' => 'CATALOG', 'text' => 'View catalog']]],
         ]]);
         Product::create(['tenant_id' => $this->tenant->id, 'name' => 'Body River', 'price' => 23140, 'is_active' => true, 'source' => 'woocommerce', 'external_id' => '3798']);
 

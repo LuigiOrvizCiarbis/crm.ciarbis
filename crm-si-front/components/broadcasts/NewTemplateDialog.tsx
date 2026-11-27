@@ -58,6 +58,9 @@ export interface TemplateDraft {
 /** Botones de plantilla: Meta admite hasta 25 caracteres (el mensaje interactivo, 30). */
 export const BUTTON_TEXT_MAX = 25
 
+/** Meta rechaza cualquier otro texto en el botón de catálogo. */
+const CATALOG_BUTTON_TEXT = "View catalog"
+
 export const TEMPLATE_LANGUAGES = [
   { value: "es_AR", label: "Español (Argentina)" },
   { value: "es_MX", label: "Español (México)" },
@@ -168,7 +171,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
   const [publishedFlows, setPublishedFlows] = useState<WhatsAppFlow[] | null>(null)
   const [flowsLoading, setFlowsLoading] = useState(false)
   const hasFlowButton = buttons.some((button) => button.type === "FLOW")
-  // Meta publica el catálogo como plantilla de Marketing y sin encabezado; un solo botón de catálogo.
+  // Meta publica el catálogo como plantilla de Marketing, sin encabezado y con ese único botón.
   const hasCatalogButton = buttons.some((button) => button.type === "CATALOG")
   const [submitting, setSubmitting] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
@@ -225,7 +228,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
 
   const changeButtonType = (index: number, type: ButtonDraft["type"]) => {
     if (type === "CATALOG") {
-      setButtons((current) => current.map((item, itemIndex) => itemIndex === index ? { type, text: item.text || t("templateDialog.catalogButtonText") } : item))
+      setButtons([{ type, text: CATALOG_BUTTON_TEXT }])
       setCategory("MARKETING")
       changeHeaderFormat("NONE")
       return
@@ -451,7 +454,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium">{t("templateDialog.buttons")} <span className="font-normal text-muted-foreground">{t("templateDialog.buttonsHint")}</span></p>
-                    {buttons.length < 3 && (
+                    {buttons.length < 3 && !hasCatalogButton && (
                       <Button type="button" size="sm" variant="outline" onClick={() => setButtons((current) => [...current, { type: "QUICK_REPLY", text: "" }])}>
                         <Plus className="mr-1 size-3" /> {t("templateDialog.addButton")}
                       </Button>
@@ -459,7 +462,6 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                   </div>
                   {buttons.map((button, index) => {
                     const otherFlowButton = buttons.some((item, itemIndex) => itemIndex !== index && item.type === "FLOW")
-                    const otherCatalogButton = buttons.some((item, itemIndex) => itemIndex !== index && item.type === "CATALOG")
                     return (
                     <div key={index} className="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-[140px_1fr_auto]">
                       <Select value={button.type} onValueChange={(value) => changeButtonType(index, value as ButtonDraft["type"])}>
@@ -471,13 +473,15 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                           {/* Un cierre con botón de formulario abriría otro formulario con cada respuesta: el backend lo rechaza. */}
                           {draft ? null : (<>
                             <SelectItem value="FLOW" disabled={otherFlowButton}>{t("templateDialog.buttonTypes.flow")}</SelectItem>
-                            <SelectItem value="CATALOG" disabled={otherCatalogButton}>{t("templateDialog.buttonTypes.catalog")}</SelectItem>
+                            <SelectItem value="CATALOG">{t("templateDialog.buttonTypes.catalog")}</SelectItem>
                           </>)}
                         </SelectContent>
                       </Select>
                       <Input
                         value={button.text}
                         onChange={(event) => updateButton(index, { text: event.target.value })}
+                        // Meta fija el texto del botón de catálogo y rechaza cualquier otro.
+                        disabled={button.type === "CATALOG"}
                         maxLength={BUTTON_TEXT_MAX}
                         aria-label={t("templateDialog.buttonText")}
                         placeholder={t("templateDialog.buttonText")}
