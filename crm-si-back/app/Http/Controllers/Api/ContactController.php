@@ -10,13 +10,14 @@ use App\Models\BillingConfig;
 use App\Models\Contact;
 use App\Models\ContactField;
 use App\Models\Opportunity;
+use App\Models\PipelineStage;
 use App\Models\User;
 use App\Rules\ValidContactCustomData;
+use App\Services\BulkContactStageService;
 use App\Services\ContactImportService;
 use App\Support\BranchRuleResolver;
 use App\Support\ContactCustomDataNormalizer;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -35,7 +36,7 @@ class ContactController extends Controller
             ->with([
                 'tags',
                 'conversations' => fn ($c) => $c->latest('last_message_at')->limit(1),
-                'opportunities' => fn ($o) => $this->scopeListedOpportunities($o, $user)
+                'opportunities' => fn ($o) => $o->listedFor($user)
                     ->with(['pipelineStage:id,name,color,outcome', 'pipeline:id,name'])
                     ->orderByDesc('updated_at')
                     ->orderByDesc('id'),
@@ -96,7 +97,7 @@ class ContactController extends Controller
 
         $user = $request->user();
 
-        $counts = $this->scopeListedOpportunities(Opportunity::query(), $user)
+        $counts = Opportunity::query()->listedFor($user)
             ->whereNotNull('pipeline_stage_id')
             ->whereIn('contact_id', $this->filteredContacts($request)->select('contacts.id'))
             ->groupBy('pipeline_stage_id')
@@ -106,7 +107,7 @@ class ContactController extends Controller
             ->all();
 
         $counts['none'] = $this->filteredContacts($request)
-            ->whereDoesntHave('opportunities', fn ($o) => $this->scopeListedOpportunities($o, $user))
+            ->whereDoesntHave('opportunities', fn ($o) => $o->listedFor($user))
             ->count();
 
         return response()->json(['data' => $counts]);
@@ -167,12 +168,6 @@ class ContactController extends Controller
         return $q;
     }
 
-    /** Oportunidades que el listado de contactos muestra: visibles para el usuario y no archivadas. */
-    private function scopeListedOpportunities(Builder|Relation $query, User $user): Builder|Relation
-    {
-        return $query->visibleTo($user)->where('status', '!=', 'archived');
-    }
-
     /**
      * `stages=<id>,<id>,none`: el contacto tiene alguna oportunidad listada en
      * esas etapas, o (con `none`) no tiene ninguna. Ids ajenos no matchean nada.
@@ -194,11 +189,11 @@ class ContactController extends Controller
         $q->where(function (Builder $w) use ($stageIds, $includeNone, $user) {
             $w->whereRaw('1 = 0');
             if ($stageIds !== []) {
-                $w->orWhereHas('opportunities', fn ($o) => $this->scopeListedOpportunities($o, $user)
+                $w->orWhereHas('opportunities', fn ($o) => $o->listedFor($user)
                     ->whereIn('pipeline_stage_id', $stageIds));
             }
             if ($includeNone) {
-                $w->orWhereDoesntHave('opportunities', fn ($o) => $this->scopeListedOpportunities($o, $user));
+                $w->orWhereDoesntHave('opportunities', fn ($o) => $o->listedFor($user));
             }
         });
     }
@@ -330,7 +325,7 @@ class ContactController extends Controller
             'conversations' => fn ($c) => $c->latest('last_message_at')
                 ->with(['pipelineStage:id,name', 'assignedUser:id,name,email'])
                 ->limit(5),
-            'opportunities' => fn ($o) => $this->scopeListedOpportunities($o, $user)
+            'opportunities' => fn ($o) => $o->listedFor($user)
                 ->with(['pipelineStage:id,name,color,outcome', 'pipeline:id,name'])
                 ->orderByDesc('updated_at')
                 ->orderByDesc('id'),
@@ -535,6 +530,36 @@ class ContactController extends Controller
             'failed' => count($failures),
             'failures' => $failures,
         ]);
+    }
+
+    /**
+     * Lleva a los contactos seleccionados a una etapa: cada uno mueve su
+     * oportunidad en ese embudo o, si no tiene, suma una nueva. Igual que
+     * bulkFields, lo permitido se aplica aunque otro contacto falle.
+     */
+    public function bulkStage(Request $request, BulkContactStageService $service): JsonResponse
+    {
+        $user = $request->user();
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:500'],
+            'ids.*' => ['integer', 'distinct'],
+            'pipeline_stage_id' => [
+                'required',
+                'integer',
+                Rule::exists('pipeline_stages', 'id')->where(fn ($q) => $q->where('tenant_id', $user->tenant_id)),
+            ],
+            // Monto de la venta al pasar a Ganado; se carga sólo donde falta.
+            'value' => ['sometimes', 'nullable', 'numeric', 'gt:0'],
+        ]);
+
+        $value = isset($validated['value']) ? (float) $validated['value'] : null;
+        if ($value !== null && ! $user->can('opportunities.update')) {
+            abort(403, 'No tenés permiso para cargar el valor de la oportunidad.');
+        }
+
+        $stage = PipelineStage::findOrFail($validated['pipeline_stage_id']);
+
+        return response()->json($service->apply($user, $validated['ids'], $stage, $value));
     }
 
     /**

@@ -206,4 +206,29 @@ class Opportunity extends Model
 
         return $query->where('assigned_to', $user->id);
     }
+
+    /** Las que el listado de contactos muestra: visibles para el usuario y no archivadas. */
+    public function scopeListedFor(Builder $query, User $user): Builder
+    {
+        return $query->visibleTo($user)->where('status', '!=', 'archived');
+    }
+
+    /** La que representa al contacto o al chat primero: la abierta movida más recientemente; si no hay, la última. */
+    public function scopePrimaryFirst(Builder $query): Builder
+    {
+        return $query->orderByRaw("CASE WHEN status = 'open' THEN 0 ELSE 1 END")
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id');
+    }
+
+    /** Mueve a la etapa; el monto de la venta se carga sólo si todavía no tiene uno. */
+    public function moveToStage(PipelineStage $stage, ?float $saleValue = null): void
+    {
+        $attributes = ['pipeline_stage_id' => $stage->id];
+        if ($saleValue !== null && ! ((float) $this->value > 0)) {
+            $attributes['value'] = $saleValue;
+        }
+
+        $this->update($attributes);
+    }
 }
