@@ -3020,7 +3020,7 @@
       "flow": "Formulario",
       "catalog": "Catálogo"
     },
-    "catalogHint": "El botón abre el catálogo de WhatsApp para armar el carrito. Meta la publica como plantilla de Marketing (con costo por envío), sin encabezado: la portada es un producto del catálogo que el CRM elige al enviarla. El texto del botón lo fija Meta: \"View catalog\".",
+    "catalogHint": "El botón abre el catálogo de WhatsApp para armar el carrito. Meta la publica como plantilla de Marketing (con costo por envío), sin encabezado y con ese único botón: la portada es un producto del catálogo que el CRM elige al enviarla. El texto del botón lo fija Meta: \"View catalog\".",
     "buttonText": "Texto del botón",
     "removeButton": "Quitar botón {{label}}",
     "publishedFlow": "Formulario publicado",

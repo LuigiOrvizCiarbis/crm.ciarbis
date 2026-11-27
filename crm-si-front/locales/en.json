@@ -3020,7 +3020,7 @@
       "flow": "Flow",
       "catalog": "Catalog"
     },
-    "catalogHint": "The button opens the WhatsApp catalog to build a cart. Meta publishes it as a Marketing template (charged per send), without a header: the cover is a catalog product the CRM picks when sending it. Meta sets the button text: \"View catalog\".",
+    "catalogHint": "The button opens the WhatsApp catalog to build a cart. Meta publishes it as a Marketing template (charged per send), without a header and with that single button: the cover is a catalog product the CRM picks when sending it. Meta sets the button text: \"View catalog\".",
     "buttonText": "Button text",
     "removeButton": "Remove button {{label}}",
     "publishedFlow": "Published flow",

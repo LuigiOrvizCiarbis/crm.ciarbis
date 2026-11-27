@@ -69,36 +69,31 @@ class WhatsAppTemplateCreationTest extends TestCase
         ])->assertStatus(422);
     }
 
-    public function test_marketing_template_with_a_catalog_button_and_other_buttons_is_sent_to_meta(): void
+    public function test_marketing_template_with_only_a_catalog_button_is_sent_to_meta_with_its_fixed_text(): void
     {
         [$user, $channel] = $this->context();
         Http::fake(['https://graph.facebook.com/*/waba-test/message_templates' => Http::response(['id' => 'meta-catalog', 'status' => 'PENDING', 'category' => 'MARKETING'])]);
         Sanctum::actingAs($user);
-        $payload = $this->catalogTemplate('MARKETING');
-        $payload['components'][1]['buttons'][] = ['type' => 'URL', 'text' => 'Ver la web', 'url' => 'https://www.taquitoygambeta.com'];
 
-        $this->postJson("/api/channels/{$channel->id}/templates", $payload)->assertCreated();
+        $this->postJson("/api/channels/{$channel->id}/templates", $this->catalogTemplate('MARKETING'))->assertCreated();
 
         // Meta rechaza otro texto en el botón de catálogo: se manda siempre el suyo.
-        Http::assertSent(fn ($request) => $request['components'][1]['buttons'] === [
-            ['type' => 'CATALOG', 'text' => 'View catalog'],
-            ['type' => 'URL', 'text' => 'Ver la web', 'url' => 'https://www.taquitoygambeta.com'],
-        ]);
+        Http::assertSent(fn ($request) => $request['components'][1]['buttons'] === [['type' => 'CATALOG', 'text' => 'View catalog']]);
     }
 
-    public function test_catalog_button_needs_a_marketing_template_without_header_and_only_once(): void
+    public function test_catalog_button_must_be_alone_in_a_marketing_template_without_header(): void
     {
         [$user, $channel] = $this->context();
         Http::fake();
         Sanctum::actingAs($user);
 
         $utility = $this->catalogTemplate('UTILITY');
-        $twoCatalogs = $this->catalogTemplate('MARKETING');
-        $twoCatalogs['components'][1]['buttons'][] = ['type' => 'CATALOG', 'text' => 'Otro catálogo'];
+        $withOtherButton = $this->catalogTemplate('MARKETING');
+        $withOtherButton['components'][1]['buttons'][] = ['type' => 'URL', 'text' => 'Ver la web', 'url' => 'https://www.taquitoygambeta.com'];
         $withHeader = $this->catalogTemplate('MARKETING');
         array_unshift($withHeader['components'], ['type' => 'HEADER', 'format' => 'TEXT', 'text' => 'Novedades']);
 
-        foreach ([$utility, $twoCatalogs, $withHeader] as $payload) {
+        foreach ([$utility, $withOtherButton, $withHeader] as $payload) {
             $this->postJson("/api/channels/{$channel->id}/templates", $payload)->assertStatus(422);
         }
         Http::assertNothingSent();
