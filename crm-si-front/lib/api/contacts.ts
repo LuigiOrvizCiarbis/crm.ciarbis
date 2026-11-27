@@ -276,6 +276,32 @@ export async function bulkUpdateContactFields(req: BulkFieldsRequest): Promise<B
   return payload as BulkFieldsResponse;
 }
 
+export interface BulkStageRequest {
+  ids: number[];
+  pipeline_stage_id: number;
+  /** Monto de la venta al pasar a Ganado; el backend lo carga sólo donde falta. */
+  value?: number;
+}
+
+export async function bulkUpdateContactStage(req: BulkStageRequest): Promise<BulkFieldsResponse> {
+  const response = await fetch("/api/contacts/bulk-stage", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...workspaceHeaders(),
+    },
+    body: JSON.stringify(req),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throwApiError(response.status, payload, "Error al cambiar la etapa en lote");
+  }
+
+  return payload as BulkFieldsResponse;
+}
+
 export async function bulkUpdateContactTags(req: BulkTagsRequest): Promise<BulkTagsResponse> {
   const response = await fetch("/api/contacts/bulk-tags", {
     method: "POST",

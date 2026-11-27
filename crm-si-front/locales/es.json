@@ -539,6 +539,7 @@
     "bulk": {
       "editFields": "Editar campos",
       "editTags": "Editar etiquetas",
+      "editStage": "Cambiar etapa",
       "dialog": {
         "title": "Editar etiquetas en lote",
         "subtitle": "{{count}} contactos seleccionados",
@@ -576,6 +577,22 @@
         },
         "errors": {
           "apply": "No se pudieron actualizar los contactos"
+        }
+      },
+      "stage": {
+        "title": "Cambiar etapa en lote",
+        "subtitle": "{{count}} contactos seleccionados",
+        "hint": "Los contactos que ya tienen una oportunidad en el embudo la mueven a esta etapa; los demás se agregan con una oportunidad nueva.",
+        "pipeline": "Embudo",
+        "stage": "Etapa",
+        "valueHint": "Opcional. {{stage}} cierra la venta: el monto se carga sólo en las oportunidades que todavía no tienen uno.",
+        "apply": "Cambiar etapa",
+        "result": {
+          "success": "{{updated}} contactos movidos a {{stage}}",
+          "partial": "{{updated}} actualizados, {{failed}} sin cambios"
+        },
+        "errors": {
+          "apply": "No se pudo cambiar la etapa"
         }
       },
       "delete": {

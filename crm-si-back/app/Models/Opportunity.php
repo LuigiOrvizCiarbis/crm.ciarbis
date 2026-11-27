@@ -206,4 +206,10 @@ class Opportunity extends Model
 
         return $query->where('assigned_to', $user->id);
     }
+
+    /** Las que el listado de contactos muestra: visibles para el usuario y no archivadas. */
+    public function scopeListedFor(Builder $query, User $user): Builder
+    {
+        return $query->visibleTo($user)->where('status', '!=', 'archived');
+    }
 }

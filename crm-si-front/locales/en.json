@@ -539,6 +539,7 @@
     "bulk": {
       "editFields": "Edit fields",
       "editTags": "Edit tags",
+      "editStage": "Change stage",
       "dialog": {
         "title": "Bulk edit tags",
         "subtitle": "{{count}} selected contacts",
@@ -576,6 +577,22 @@
         },
         "errors": {
           "apply": "Could not update contacts"
+        }
+      },
+      "stage": {
+        "title": "Bulk change stage",
+        "subtitle": "{{count}} selected contacts",
+        "hint": "Contacts that already have an opportunity in the pipeline move it to this stage; the rest get a new opportunity.",
+        "pipeline": "Pipeline",
+        "stage": "Stage",
+        "valueHint": "Optional. {{stage}} closes the sale: the amount is only set on opportunities that don't have one yet.",
+        "apply": "Change stage",
+        "result": {
+          "success": "{{updated}} contacts moved to {{stage}}",
+          "partial": "{{updated}} updated, {{failed}} unchanged"
+        },
+        "errors": {
+          "apply": "Could not change the stage"
         }
       },
       "delete": {
