@@ -129,6 +129,24 @@ class WhatsAppTemplate extends Model
         return null;
     }
 
+    /** Posición (dentro de `buttons`) del botón que abre el catálogo, o null. */
+    public function catalogButtonIndex(): ?int
+    {
+        foreach ($this->components ?? [] as $component) {
+            if (strtoupper($component['type'] ?? '') !== 'BUTTONS') {
+                continue;
+            }
+
+            foreach (array_values($component['buttons'] ?? []) as $index => $button) {
+                if (strtoupper($button['type'] ?? '') === 'CATALOG') {
+                    return $index;
+                }
+            }
+        }
+
+        return null;
+    }
+
     /**
      * Posiciones (dentro de `buttons`) de los botones de respuesta rápida.
      *

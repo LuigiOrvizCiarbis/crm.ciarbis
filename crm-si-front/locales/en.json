@@ -3058,8 +3058,11 @@
     "buttonTypes": {
       "quickReply": "Quick reply",
       "phone": "Phone",
-      "flow": "Flow"
+      "flow": "Flow",
+      "catalog": "Catalog"
     },
+    "catalogButtonText": "View catalog",
+    "catalogHint": "The button opens the WhatsApp catalog to build a cart. Meta publishes it as a Marketing template (charged per send), without a header: the cover is a catalog product the CRM picks when sending it.",
     "buttonText": "Button text",
     "removeButton": "Remove button {{label}}",
     "publishedFlow": "Published flow",

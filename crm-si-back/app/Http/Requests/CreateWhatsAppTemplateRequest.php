@@ -7,6 +7,7 @@ use App\Enums\WhatsAppFlowStatus;
 use App\Models\WhatsAppFlow;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 
 class CreateWhatsAppTemplateRequest extends FormRequest
@@ -34,7 +35,7 @@ class CreateWhatsAppTemplateRequest extends FormRequest
             'components.*.example.body_text_named_params.*.param_name' => ['required_with:components.*.example.body_text_named_params', 'string', 'regex:/^[a-zA-Z][a-zA-Z0-9_]*$/'],
             'components.*.example.body_text_named_params.*.example' => ['required_with:components.*.example.body_text_named_params', 'string', 'max:1024'],
             'components.*.buttons' => ['nullable', 'array', 'max:3'],
-            'components.*.buttons.*.type' => ['required', 'string', Rule::in(['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'FLOW'])],
+            'components.*.buttons.*.type' => ['required', 'string', Rule::in(['QUICK_REPLY', 'URL', 'PHONE_NUMBER', 'FLOW', 'CATALOG'])],
             'components.*.buttons.*.text' => ['required', 'string', 'max:25'],
             'components.*.buttons.*.url' => ['nullable', 'url', 'max:2000'],
             'components.*.buttons.*.phone_number' => ['nullable', 'string', 'max:20'],
@@ -50,6 +51,7 @@ class CreateWhatsAppTemplateRequest extends FormRequest
         $body = $components->firstWhere('type', 'BODY');
         abort_if($body === null || blank($body['text'] ?? null), 422, 'El cuerpo de la plantilla es obligatorio.');
         $this->validateFlowButtons($components->firstWhere('type', 'BUTTONS')['buttons'] ?? []);
+        $this->validateCatalogButton($components);
 
         $bodyText = (string) $body['text'];
         preg_match_all('/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/', $bodyText, $matches);
@@ -64,6 +66,24 @@ class CreateWhatsAppTemplateRequest extends FormRequest
                 abort(422, "Falta el ejemplo para la variable {{$name}}.");
             }
         }
+    }
+
+    /**
+     * Meta publica el catálogo como plantilla de Marketing con un único botón
+     * y sin encabezado: la portada es un producto del catálogo. Al editar sin
+     * cambiar la categoría, vale la de la plantilla guardada.
+     */
+    private function validateCatalogButton(Collection $components): void
+    {
+        $buttons = $components->firstWhere('type', 'BUTTONS')['buttons'] ?? [];
+        if (! in_array('CATALOG', array_column($buttons, 'type'), true)) {
+            return;
+        }
+
+        abort_if(count($buttons) > 1, 422, 'El botón de catálogo tiene que ser el único botón de la plantilla.');
+        abort_if($components->contains('type', 'HEADER'), 422, 'Una plantilla de catálogo no lleva encabezado: la portada es un producto del catálogo.');
+        $category = $this->validated('category') ?? $this->route('template')?->category?->value;
+        abort_if($category !== TemplateCategory::Marketing->value, 422, 'Meta solo acepta el botón de catálogo en plantillas de Marketing.');
     }
 
     /**
