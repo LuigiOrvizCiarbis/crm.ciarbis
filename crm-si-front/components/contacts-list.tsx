@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, Tags, FileText, Paperclip, RotateCcw, Trash2, Pencil } from "lucide-react"
+import { MoreVertical, Phone, Mail, MessageSquare, Users, Loader2, Calendar, Hash, X, Tags, FileText, Paperclip, RotateCcw, Trash2, Pencil, Columns3 } from "lucide-react"
 import { contactFiltersToParams, EMPTY_CONTACT_FILTERS, hasActiveContactFilters, type ContactFilters } from "./contacts/contactFilters"
 import { ContactStagePicker } from "./contacts/ContactStagePicker"
 import { ContactOpportunitiesSection } from "./contacts/ContactOpportunitiesSection"
@@ -25,8 +25,9 @@ import { useStageNames } from "@/hooks/usePipelineCatalog"
 import { cn } from "@/lib/utils"
 import { ActiveFiltersBar } from "./contacts/ActiveFiltersBar"
 import { BulkFieldsDialog } from "./contacts/bulk-fields-dialog"
+import { usePermission } from "@/hooks/usePermission"
 import { getWorkspaceId, workspaceHeaders } from "@/lib/api/auth-token"
-import { updateContact, type ContactAvatar as ContactAvatarPayload, type ContactAvatarSource, type ContactOpportunity, type ContactUpdate } from "@/lib/api/contacts"
+import { bulkUpdateContactStage, updateContact, type ContactAvatar as ContactAvatarPayload, type ContactAvatarSource, type ContactOpportunity, type ContactUpdate } from "@/lib/api/contacts"
 import { ContactAvatarActions } from "@/components/contact-avatar-actions"
 import { CustomChoiceBadge, CustomFieldInput, formatCustomChoice } from "@/components/CustomFieldInput"
 import { useContactFieldsStore } from "@/store/useContactFieldsStore"
@@ -51,6 +52,10 @@ const UniversalImportDialog = dynamic(
 )
 const BulkTagsDialog = dynamic(
   () => import("./contacts/bulk-tags-dialog").then((module) => module.BulkTagsDialog),
+  { ssr: false },
+)
+const BulkStageDialog = dynamic(
+  () => import("./opportunities/BulkStageDialog").then((module) => module.BulkStageDialog),
   { ssr: false },
 )
 const ExtractDocumentDialog = dynamic(
@@ -287,6 +292,10 @@ export function ContactsList({
   const [importOpen, setImportOpen] = useState(false)
   const [bulkTagsOpen, setBulkTagsOpen] = useState(false)
   const [bulkFieldsOpen, setBulkFieldsOpen] = useState(false)
+  const [bulkStageOpen, setBulkStageOpen] = useState(false)
+  const canChangeStage = usePermission("opportunities.change_stage")
+  const canCreateOpportunity = usePermission("opportunities.create")
+  const canBulkStage = canChangeStage || canCreateOpportunity
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [bulkDeleting, setBulkDeleting] = useState(false)
 
@@ -1157,6 +1166,12 @@ export function ContactsList({
             <Tags className="h-4 w-4" aria-hidden="true" />
             {t("contactsPage.bulk.editTags")}
           </Button>
+          {canBulkStage && (
+            <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setBulkStageOpen(true)}>
+              <Columns3 className="h-4 w-4" aria-hidden="true" />
+              {t("contactsPage.bulk.editStage")}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -1238,6 +1253,20 @@ export function ContactsList({
           refreshAfterChange()
         }}
       />
+
+      {bulkStageOpen ? (
+        <BulkStageDialog
+          open
+          onOpenChange={setBulkStageOpen}
+          description={t("contactsPage.bulk.stage.subtitle", { count: selectedIds.size })}
+          hint={t("contactsPage.bulk.stage.hint")}
+          onApply={(stageId, value) => bulkUpdateContactStage({ ids: Array.from(selectedIds), pipeline_stage_id: stageId, value })}
+          onSuccess={(failedIds) => {
+            setSelectedIds(new Set(failedIds))
+            refreshAfterChange()
+          }}
+        />
+      ) : null}
 
 
       {isInitialLoading ? (

@@ -1,5 +1,6 @@
 import type { Conversation, ConversationAd, TranslationLanguage } from "@/data/types";
 import { throwApiError } from "./api-error";
+import type { BulkStageRequest, BulkStageResponse } from "./pipeline";
 
 function mapConversation(c: any): Conversation {
   return {
@@ -415,6 +416,24 @@ export async function bulkAssignConversations(
   }
 
   return payload as BulkAssignConversationsResponse;
+}
+
+export async function bulkUpdateConversationStage(req: BulkStageRequest): Promise<BulkStageResponse> {
+  const response = await fetch("/api/conversations/bulk-stage", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(req),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throwApiError(response.status, payload, "Error al cambiar la etapa en lote");
+  }
+
+  return payload as BulkStageResponse;
 }
 
 export interface BulkBroadcastRequest {

@@ -17,6 +17,7 @@ use App\Models\Opportunity;
 use App\Models\PipelineStage;
 use App\Models\WhatsAppTemplate;
 use App\Services\AiTypingIndicatorService;
+use App\Services\ConversationStageService;
 use App\Services\HumanHandoffService;
 use App\Services\Notifications\DomainNotifier;
 use App\Services\WhatsAppMessageService;
@@ -350,7 +351,7 @@ class ConversationController extends Controller
         return response()->json($messages);
     }
 
-    public function updateStage(Request $request, $id)
+    public function updateStage(Request $request, ConversationStageService $stages, $id)
     {
         $conversation = Conversation::where('id', $id)->firstOrFail();
         $this->authorize('changeStage', $conversation);
@@ -378,30 +379,37 @@ class ConversationController extends Controller
             return response()->json(['message' => 'La etapa de este chat sigue a su oportunidad. Mové la oportunidad.'], 422);
         }
 
-        DB::transaction(function () use ($conversation, $stage, $validated): void {
-            $conversation->update([
-                'pipeline_stage_id' => $stage->id,
-            ]);
-
-            // Sin oportunidad el lead no aparece en el tablero: se crea una en
-            // el pipeline predeterminado, que desde ahí maneja la etapa del chat.
-            // Un grupo no tiene contact_id (NOT NULL en opportunities).
-            if (! $conversation->isGroup()) {
-                Opportunity::create([
-                    'conversation_id' => $conversation->id,
-                    'contact_id' => $conversation->contact_id,
-                    'pipeline_id' => $stage->pipeline_id,
-                    'pipeline_stage_id' => $stage->id,
-                    'title' => 'Oportunidad - '.($conversation->contact?->name ?? 'Sin nombre'),
-                    'status' => 'open',
-                    'source_type' => 'conversation',
-                    'last_activity_at' => now(),
-                    'value' => $validated['value'] ?? null,
-                ]);
-            }
-        });
+        $stages->assign($conversation, $stage, isset($validated['value']) ? (float) $validated['value'] : null);
 
         return response()->json($conversation);
+    }
+
+    public function bulkStage(Request $request, ConversationStageService $stages): JsonResponse
+    {
+        $user = $request->user();
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:5000'],
+            'ids.*' => ['integer', 'distinct'],
+            'pipeline_stage_id' => [
+                'required',
+                'integer',
+                Rule::exists('pipeline_stages', 'id')->where(fn ($q) => $q->where('tenant_id', $user->tenant_id)),
+            ],
+            // Monto de la venta al pasar a Ganado; se carga sólo donde falta.
+            'value' => ['sometimes', 'nullable', 'numeric', 'gt:0'],
+        ]);
+
+        $value = isset($validated['value']) ? (float) $validated['value'] : null;
+        if ($value !== null && ! $user->can('opportunities.update')) {
+            abort(403, 'No tenés permiso para cargar el valor de la oportunidad.');
+        }
+
+        $stage = PipelineStage::findOrFail($validated['pipeline_stage_id']);
+        if (! $stage->pipeline?->is_default) {
+            return response()->json(['message' => 'La etapa del chat tiene que ser del pipeline predeterminado.'], 422);
+        }
+
+        return response()->json($stages->bulkApply($user, $validated['ids'], $stage, $value));
     }
 
     /**

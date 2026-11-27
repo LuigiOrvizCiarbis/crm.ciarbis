@@ -1,6 +1,7 @@
 import type { AdReferral } from "@/data/types";
 import { workspaceHeaders } from "./auth-token";
 import { throwApiError } from "./api-error";
+import type { BulkStageRequest, BulkStageResponse } from "./pipeline";
 import type { Tag } from "./tags";
 
 export interface ContactsSummary {
@@ -274,6 +275,25 @@ export async function bulkUpdateContactFields(req: BulkFieldsRequest): Promise<B
   }
 
   return payload as BulkFieldsResponse;
+}
+
+export async function bulkUpdateContactStage(req: BulkStageRequest): Promise<BulkStageResponse> {
+  const response = await fetch("/api/contacts/bulk-stage", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...workspaceHeaders(),
+    },
+    body: JSON.stringify(req),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throwApiError(response.status, payload, "Error al cambiar la etapa en lote");
+  }
+
+  return payload as BulkStageResponse;
 }
 
 export async function bulkUpdateContactTags(req: BulkTagsRequest): Promise<BulkTagsResponse> {

@@ -539,6 +539,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('contacts/import/{productImport}/errors', [ContactImportController::class, 'errors']);
     Route::post('contacts/bulk-tags', [ContactController::class, 'bulkTags']);
     Route::post('contacts/bulk-fields', [ContactController::class, 'bulkFields']);
+    Route::post('contacts/bulk-stage', [ContactController::class, 'bulkStage']);
     Route::get('contacts/{contact}', [ContactController::class, 'show']);
     Route::put('contacts/{contact}', [ContactController::class, 'update']);
     Route::delete('contacts/{contact}', [ContactController::class, 'destroy']);
@@ -660,6 +661,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('conversations/bulk-ai-autoreply', [ConversationController::class, 'bulkAiAutoreply']);
     Route::post('conversations/bulk-delete', [ConversationController::class, 'bulkDelete']);
     Route::post('conversations/bulk-read', [ConversationController::class, 'bulkMarkRead']);
+    Route::post('conversations/bulk-stage', [ConversationController::class, 'bulkStage']);
     Route::post('conversations/bulk-broadcast', [ConversationController::class, 'bulkBroadcast']);
     Route::get('conversations/{conversation}', [ConversationController::class, 'show']);
     Route::get('conversations/{conversation}/ai-draft', [ManualAiDraftController::class, 'show']);

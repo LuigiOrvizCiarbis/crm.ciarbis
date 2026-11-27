@@ -539,6 +539,7 @@
     "bulk": {
       "editFields": "Edit fields",
       "editTags": "Edit tags",
+      "editStage": "Change stage",
       "dialog": {
         "title": "Bulk edit tags",
         "subtitle": "{{count}} selected contacts",
@@ -577,6 +578,10 @@
         "errors": {
           "apply": "Could not update contacts"
         }
+      },
+      "stage": {
+        "subtitle": "{{count}} selected contacts",
+        "hint": "Contacts that already have an opportunity in the pipeline move it to this stage; the rest get a new opportunity."
       },
       "delete": {
         "action": "Delete",
@@ -749,6 +754,18 @@
       "save": "Save and mark won",
       "skip": "Continue without amount",
       "noPermission": "You don't have permission to set the amount. If you continue, the sale is recorded without one."
+    },
+    "bulkStage": {
+      "title": "Bulk change stage",
+      "pipeline": "Pipeline",
+      "stage": "Stage",
+      "valueHint": "Optional. {{stage}} closes the sale: the amount is only set on opportunities that don't have one yet.",
+      "apply": "Change stage",
+      "result": {
+        "success": "{{updated}} moved to {{stage}}",
+        "partial": "{{updated}} updated, {{failed}} unchanged"
+      },
+      "error": "Could not change the stage"
     },
     "outcomeToast": {
       "won": "Opportunity won",
@@ -1239,6 +1256,7 @@
       "selectAll": "Select all",
       "editTags": "Tags",
       "assign": "Assign",
+      "changeStage": "Stage",
       "archive": "Archive",
       "unarchive": "Unarchive",
       "aiAssistant": "AI assistant",
@@ -1281,6 +1299,10 @@
         "apply": "Apply"
       },
       "broadcast": "Broadcast",
+      "stage": {
+        "subtitle": "{{count}} selected conversation(s)",
+        "hint": "Chats with an opportunity in the default pipeline move it to this stage; the rest take the stage with a new opportunity."
+      },
       "selectedCount_one": "{{count}} selected",
       "selectedCount_other": "{{count}} selected",
       "applying": "Applying",

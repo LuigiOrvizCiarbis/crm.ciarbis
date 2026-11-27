@@ -539,6 +539,7 @@
     "bulk": {
       "editFields": "Editar campos",
       "editTags": "Editar etiquetas",
+      "editStage": "Cambiar etapa",
       "dialog": {
         "title": "Editar etiquetas en lote",
         "subtitle": "{{count}} contactos seleccionados",
@@ -577,6 +578,10 @@
         "errors": {
           "apply": "No se pudieron actualizar los contactos"
         }
+      },
+      "stage": {
+        "subtitle": "{{count}} contactos seleccionados",
+        "hint": "Los contactos que ya tienen una oportunidad en el embudo la mueven a esta etapa; los demás se agregan con una oportunidad nueva."
       },
       "delete": {
         "action": "Eliminar",
@@ -749,6 +754,18 @@
       "save": "Guardar y marcar ganada",
       "skip": "Seguir sin valor",
       "noPermission": "No tenés permiso para cargar el valor. Si seguís, la venta queda sin monto."
+    },
+    "bulkStage": {
+      "title": "Cambiar etapa en lote",
+      "pipeline": "Embudo",
+      "stage": "Etapa",
+      "valueHint": "Opcional. {{stage}} cierra la venta: el monto se carga sólo en las oportunidades que todavía no tienen uno.",
+      "apply": "Cambiar etapa",
+      "result": {
+        "success": "{{updated}} movidos a {{stage}}",
+        "partial": "{{updated}} actualizados, {{failed}} sin cambios"
+      },
+      "error": "No se pudo cambiar la etapa"
     },
     "outcomeToast": {
       "won": "Oportunidad ganada",
@@ -1239,6 +1256,7 @@
       "selectAll": "Seleccionar todas",
       "editTags": "Etiquetas",
       "assign": "Asignar",
+      "changeStage": "Etapa",
       "archive": "Archivar",
       "unarchive": "Desarchivar",
       "aiAssistant": "Asistente IA",
@@ -1281,6 +1299,10 @@
         "apply": "Aplicar"
       },
       "broadcast": "Difusión",
+      "stage": {
+        "subtitle": "{{count}} conversación(es) seleccionadas",
+        "hint": "Los chats con una oportunidad en el embudo predeterminado la mueven a esta etapa; los demás toman la etapa con una oportunidad nueva."
+      },
       "selectedCount_one": "{{count}} seleccionada",
       "selectedCount_other": "{{count}} seleccionadas",
       "applying": "Aplicando",
