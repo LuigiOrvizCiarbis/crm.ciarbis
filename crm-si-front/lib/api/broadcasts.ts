@@ -225,7 +225,10 @@ export async function getBroadcastResults(id: number): Promise<BroadcastResults>
   return result.data
 }
 
-export async function getBroadcastRecipients(id: number, params: { page?: number; status?: string; search?: string; interaction?: boolean } = {}) {
+export async function getBroadcastRecipients(
+  id: number,
+  params: { page?: number; status?: string; search?: string; interaction?: boolean; sort_by?: string; sort_dir?: "asc" | "desc" } = {},
+) {
   const query = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => value !== undefined && query.set(key, String(value)))
   return request<{ data: BroadcastRecipientResult[]; meta: { current_page: number; last_page: number; total: number } }>(`/api/broadcasts/${id}/recipients?${query}`)
