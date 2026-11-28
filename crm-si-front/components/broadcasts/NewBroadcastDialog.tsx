@@ -17,6 +17,7 @@ import {
   Trash2,
 } from "lucide-react"
 
+import { TemplateHeaderPreview } from "@/components/broadcasts/TemplateHeaderPreview"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -40,6 +41,7 @@ import {
   getHeaderMediaFormat,
   getQuickReplyButtons,
   hasUnsupportedParams,
+  normalizeMediaUrl,
   resolveParamValue,
   ParamSource,
   templateCategoryLabel,
@@ -106,6 +108,9 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
   const bodyParams = useMemo(() => selectedTemplate ? extractBodyParams(selectedTemplate.components) : { names: [], named: false }, [selectedTemplate])
   const mediaFormat = selectedTemplate ? getHeaderMediaFormat(selectedTemplate.components) : null
   const quickReplyButtons = useMemo(() => selectedTemplate ? getQuickReplyButtons(selectedTemplate.components) : [], [selectedTemplate])
+  const normalizedMediaUrl = normalizeMediaUrl(mediaUrl)
+  const mediaUrlInvalid = !mediaFile && mediaUrl.trim() !== "" && normalizedMediaUrl === null
+  const hasDefaultHeader = Boolean(selectedTemplate?.default_header_asset_id)
 
   useEffect(() => {
     if (!open) return
@@ -167,7 +172,8 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
 
   const templateReady = selectedTemplate
     && paramValues.every((value, index) => paramSources[index] !== "custom" || value.trim().length > 0)
-    && (!mediaFormat || mediaFile !== null || mediaUrl.trim().length > 0)
+    && (!mediaFormat || mediaFile !== null || normalizedMediaUrl !== null || hasDefaultHeader)
+    && !mediaUrlInvalid
   const audienceReady = name.trim().length > 0 && customFilters.every((filter) =>
     typeof filter.value === "string" ? filter.value.trim().length > 0 : Boolean(filter.value.from || filter.value.to)
   )
@@ -200,8 +206,8 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
       if (mediaFormat && mediaFile) {
         const uploaded = await uploadTemplateMedia(channel.id, mediaFile)
         headerMedia = { id: uploaded.media_id, filename: mediaFile.name }
-      } else if (mediaFormat && mediaUrl.trim()) {
-        headerMedia = { link: mediaUrl.trim() }
+      } else if (mediaFormat && normalizedMediaUrl) {
+        headerMedia = { link: normalizedMediaUrl }
       }
 
       const values = paramValues.map((value, index) => resolveParamValue(paramSources[index], value))
@@ -324,10 +330,11 @@ export function NewBroadcastDialog({ open, onOpenChange, channel, templates, ini
               {selectedTemplate && (
                 <div className="space-y-4 rounded-xl border bg-muted/25 p-5">
                   <div className="flex items-center gap-2"><MessageCircle className="h-4 w-4 text-muted-foreground" /><p className="text-sm font-semibold">Vista previa y variables</p></div>
-                  <div className="rounded-2xl rounded-tl-sm border bg-card p-4 text-sm leading-6 text-card-foreground shadow-xs">
-                    {buildTemplatePreview(selectedTemplate.components, paramValues.map((value, index) => paramSources[index] === "contact_name" ? "María" : paramSources[index] === "contact_phone" ? "+54 9 11…" : value)) || "Plantilla sin texto de cuerpo"}
+                  <div className="space-y-3 rounded-2xl rounded-tl-sm border bg-card p-4 text-sm leading-6 text-card-foreground shadow-xs">
+                    <TemplateHeaderPreview template={selectedTemplate} file={mediaFile} url={normalizedMediaUrl} />
+                    <p>{buildTemplatePreview(selectedTemplate.components, paramValues.map((value, index) => paramSources[index] === "contact_name" ? "María" : paramSources[index] === "contact_phone" ? "+54 9 11…" : value)) || "Plantilla sin texto de cuerpo"}</p>
                   </div>
-                  {mediaFormat && <div className="space-y-2"><Label>Archivo de encabezado ({mediaFormat.toLowerCase()})</Label><div className="flex items-center gap-2"><Input type="file" onChange={(event) => setMediaFile(event.target.files?.[0] ?? null)} /><FileUp className="h-4 w-4 text-muted-foreground" /></div>{!mediaFile && <Input value={mediaUrl} onChange={(event) => setMediaUrl(event.target.value)} placeholder="o pegá una URL pública" />}</div>}
+                  {mediaFormat && <div className="space-y-2"><Label>Archivo de encabezado ({mediaFormat.toLowerCase()})</Label>{hasDefaultHeader && <p className="text-xs text-muted-foreground">Se envía el archivo de la plantilla. Elegí otro solo si querés reemplazarlo.</p>}<div className="flex items-center gap-2"><Input type="file" onChange={(event) => setMediaFile(event.target.files?.[0] ?? null)} /><FileUp className="h-4 w-4 text-muted-foreground" /></div>{!mediaFile && <Input value={mediaUrl} onChange={(event) => setMediaUrl(event.target.value)} placeholder="o pegá una URL pública (https://...)" aria-invalid={mediaUrlInvalid} />}{mediaUrlInvalid && <p className="text-xs text-destructive">Pegá la dirección completa del archivo, empezando con https://</p>}</div>}
                   {bodyParams.names.map((paramName, index) => (
                     <div key={paramName} className="grid gap-2 sm:grid-cols-[150px_1fr]">
                       <div><Label>Variable {`{{${paramName}}}`}</Label><Select value={paramSources[index]} onValueChange={(value: ParamSource) => setParamSources((current) => current.map((source, sourceIndex) => sourceIndex === index ? value : source))}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="contact_name">Nombre del contacto</SelectItem><SelectItem value="contact_phone">Teléfono</SelectItem><SelectItem value="custom">Valor fijo</SelectItem></SelectContent></Select></div>

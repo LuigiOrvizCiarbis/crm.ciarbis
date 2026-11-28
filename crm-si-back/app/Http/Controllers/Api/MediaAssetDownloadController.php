@@ -78,7 +78,8 @@ class MediaAssetDownloadController extends Controller
      *
      * Un asset sin contacto es de la biblioteca (automations y formularios) y
      * se lee con el mismo permiso con que se sube: quien arma la imagen de un
-     * formulario la ve en la vista previa.
+     * formulario la ve en la vista previa. El encabezado de una plantilla lo
+     * ve también quien la crea o la envía, en la vista previa del envío.
      */
     private function authorizeAccess(Request $request, MediaAsset $mediaAsset): void
     {
@@ -89,7 +90,10 @@ class MediaAssetDownloadController extends Controller
         abort_unless($user && $mediaAsset->tenant_id === $user->tenant_id, 404);
 
         if ($mediaAsset->contact_id === null) {
-            abort_unless((bool) $user->canAny(['automations.manage', 'flows.manage']), 403);
+            $permissions = $mediaAsset->purpose === MediaAsset::PURPOSE_TEMPLATE_HEADER
+                ? ['automations.manage', 'flows.manage', 'templates.create', 'templates.send']
+                : ['automations.manage', 'flows.manage'];
+            abort_unless((bool) $user->canAny($permissions), 403);
 
             return;
         }

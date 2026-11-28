@@ -277,11 +277,10 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
     if (buttons.some((button) => button.type === "FLOW" && !button.flow_id)) { setEditingTexts(true); return addToast({ type: "error", title: t("templateDialog.errors.flowButton") }) }
     setSubmitting(true)
     try {
-      let headerHandle: string | undefined
-      if (headerFile) headerHandle = (await uploadTemplateHeader(channelId, headerFile)).header_handle
+      const headerUpload = headerFile ? await uploadTemplateHeader(channelId, headerFile) : null
       const components: CreateTemplatePayload["components"] = []
       if (headerFormat === "TEXT") components.push({ type: "HEADER", format: "TEXT", text: headerText.trim() })
-      if (headerHandle) components.push({ type: "HEADER", format: headerFormat, example: { header_handle: [headerHandle] } })
+      if (headerUpload) components.push({ type: "HEADER", format: headerFormat, example: { header_handle: [headerUpload.header_handle] } })
       components.push({ type: "BODY", text: body.trim(), ...(variables.length ? { example: { body_text_named_params: variables.map((param_name) => ({ param_name, example: examples[param_name].trim() })) } } : {}) })
       if (footer.trim()) components.push({ type: "FOOTER", text: footer.trim() })
       if (buttons.length) components.push({
@@ -294,9 +293,11 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
           ...(type === "FLOW" ? { flow_id, flow_action: flow_action ?? "navigate", ...(flow_action !== "data_exchange" && navigate_screen ? { navigate_screen } : {}) } : {}),
         })),
       })
+      // El archivo del ejemplo queda en la plantilla: Meta lo pide en cada envío y el CRM lo manda por defecto.
+      const headerMediaAssetId = headerUpload?.media_asset_id ?? null
       const saved = template
-        ? await updateTemplate(channelId, template.id, { components, ...(categoryLocked ? {} : { category }) })
-        : await createTemplate(channelId, { name: name.trim(), language, category, parameter_format: "named", components })
+        ? await updateTemplate(channelId, template.id, { components, header_media_asset_id: headerMediaAssetId, ...(categoryLocked ? {} : { category }) })
+        : await createTemplate(channelId, { name: name.trim(), language, category, parameter_format: "named", components, header_media_asset_id: headerMediaAssetId })
       addToast({ type: "success", title: t(template ? "templateDialog.edit.saved" : "templateDialog.created") })
       reset()
       onOpenChange(false)
