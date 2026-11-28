@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatStrip, type Stat } from "@/components/ui/stat-strip"
-import { DataTable, type DataTableColumn } from "@/components/ui/data-table"
+import { DataTable, type DataTableColumn, type DataTableSort } from "@/components/ui/data-table"
 import { DataTablePagination } from "@/components/ui/data-table-pagination"
 import { getBroadcastRecipient, getBroadcastRecipients, getBroadcastResults } from "@/lib/api/broadcasts"
 import type { BroadcastRecipientResult, BroadcastResults } from "@/lib/api/broadcasts"
@@ -34,13 +34,16 @@ function RecipientStatusBadge({ row }: { row: BroadcastRecipientResult }) {
   return <Badge variant="outline" className={statusClass[row.status]}>{row.status_label}</Badge>
 }
 
+// Los ids coinciden con `sort_by` del endpoint: el orden se resuelve en el servidor porque la tabla está paginada.
 const recipientColumns: DataTableColumn<BroadcastRecipientResult>[] = [
-  { id: "contact", header: "Contacto", rowHeader: true, cell: (row) => <><p className="font-medium">{row.contact.name}</p><p className="text-xs tabular-nums text-muted-foreground">{row.contact.phone}</p></> },
-  { id: "status", header: "Estado", cell: (row) => <RecipientStatusBadge row={row} /> },
+  { id: "contact", header: "Contacto", rowHeader: true, sortable: true, cell: (row) => <><p className="font-medium">{row.contact.name}</p><p className="text-xs tabular-nums text-muted-foreground">{row.contact.phone}</p></> },
+  { id: "status", header: "Estado", sortable: true, cell: (row) => <RecipientStatusBadge row={row} /> },
   // En respuestas rápidas `value` es el payload del botón (p. ej. reply_tag:1); el texto visible está en `content`.
-  { id: "interaction", header: "Interacción", cell: (row) => row.interaction ? <span className="text-sm">{(row.interaction.type === "quick_reply" ? row.interaction.content || row.interaction.value : row.interaction.value || row.interaction.content) || "Respondió"}</span> : <span className="text-sm text-muted-foreground">—</span> },
-  { id: "milestone", header: "Último hito", className: "text-sm text-muted-foreground", cell: (row) => row.read_at ? "Leído" : row.delivered_at ? "Entregado" : row.sent_at ? "Aceptado" : "Pendiente" },
-  { id: "failure", header: "Motivo", className: "max-w-xs truncate text-sm text-muted-foreground", cell: (row) => row.failure?.message || "—" },
+  // Ordena por la interacción más reciente; quien no interactuó queda al final.
+  { id: "interaction", header: "Interacción", sortable: true, defaultSortDirection: "desc", cell: (row) => row.interaction ? <span className="text-sm">{(row.interaction.type === "quick_reply" ? row.interaction.content || row.interaction.value : row.interaction.value || row.interaction.content) || "Respondió"}</span> : <span className="text-sm text-muted-foreground">—</span> },
+  { id: "milestone", header: "Último hito", sortable: true, defaultSortDirection: "desc", className: "text-sm text-muted-foreground", cell: (row) => row.read_at ? "Leído" : row.delivered_at ? "Entregado" : row.sent_at ? "Aceptado" : "Pendiente" },
+  // Agrupa los fallidos por código de Meta, con los mismos motivos juntos.
+  { id: "failure", header: "Motivo", sortable: true, className: "max-w-xs truncate text-sm text-muted-foreground", cell: (row) => row.failure?.message || "—" },
 ]
 
 function BackLink() {
@@ -60,6 +63,7 @@ export function BroadcastResults({ id }: { id: number }) {
   const [lastPage, setLastPage] = useState(1)
   const [search, setSearch] = useState("")
   const [status, setStatus] = useState("")
+  const [sort, setSort] = useState<DataTableSort | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -67,7 +71,10 @@ export function BroadcastResults({ id }: { id: number }) {
 
   const load = useCallback(async (targetPage = page) => {
     try {
-      const [summary, recipients] = await Promise.all([getBroadcastResults(id), getBroadcastRecipients(id, { page: targetPage, search, status: status || undefined })])
+      const [summary, recipients] = await Promise.all([
+        getBroadcastResults(id),
+        getBroadcastRecipients(id, { page: targetPage, search, status: status || undefined, sort_by: sort?.columnId, sort_dir: sort?.direction }),
+      ])
       setResults(summary)
       setRows(recipients.data)
       setLastPage(recipients.meta.last_page)
@@ -77,11 +84,12 @@ export function BroadcastResults({ id }: { id: number }) {
     } finally {
       setLoading(false)
     }
-  }, [id, page, search, status])
+  }, [id, page, search, status, sort])
 
+  // Cambiar filtro u orden vuelve a la primera página.
   // Data fetching is the synchronization performed by this effect.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void load(1).then(() => setPage(1)) }, [id, search, status]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(1).then(() => setPage(1)) }, [id, search, status, sort]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const pusher = getPusher()
@@ -179,6 +187,8 @@ export function BroadcastResults({ id }: { id: number }) {
         columns={recipientColumns}
         data={rows}
         getRowId={(row) => String(row.id)}
+        sort={sort}
+        onSortChange={setSort}
         onRowClick={(row) => void openRecipient(row)}
         activeRowId={selected ? String(selected.row.id) : undefined}
         emptyLabel={search || status ? "No hay destinatarios con estos filtros." : "Esta difusión todavía no tiene destinatarios."}

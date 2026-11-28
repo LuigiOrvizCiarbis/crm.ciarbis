@@ -767,6 +767,72 @@ class BroadcastCampaignTest extends TestCase
             ->assertJsonPath('data.failure.message', "Failed to send message because this user's phone number is part of an experiment.");
     }
 
+    public function test_results_recipients_sort_by_derived_columns(): void
+    {
+        [$user, $channel, $template] = $this->createSetup();
+        Sanctum::actingAs($user);
+        $campaign = BroadcastCampaign::create([
+            'tenant_id' => $user->tenant_id,
+            'channel_id' => $channel->id,
+            'whatsapp_template_id' => $template->id,
+            'created_by' => $user->id,
+            'name' => 'Orden de resultados',
+            'status' => BroadcastStatus::Completed,
+            'audience_count' => 4,
+            'scheduled_at' => now(),
+            'results_tracking_version' => 1,
+        ]);
+        $recipient = function (string $name, BroadcastRecipientStatus $status, array $message = []) use ($user, $channel, $campaign): BroadcastRecipient {
+            $conversation = $this->createConversation($user, $channel);
+            $conversation->contact->update(['name' => $name]);
+            $outbound = $message === [] ? null : Message::create([
+                'tenant_id' => $user->tenant_id,
+                'conversation_id' => $conversation->id,
+                'sender_type' => SenderType::USER,
+                'sender_id' => $user->id,
+                'content' => 'Hola',
+                'message_type' => MessageType::Text,
+                'direction' => MessageDirection::OUTBOUND,
+                'external_id' => 'wamid.sort-'.$name,
+                ...$message,
+            ]);
+
+            return BroadcastRecipient::create([
+                'broadcast_campaign_id' => $campaign->id,
+                'conversation_id' => $conversation->id,
+                'contact_id' => $conversation->contact_id,
+                'message_id' => $outbound?->id,
+                'status' => $status,
+                'sent_at' => $status === BroadcastRecipientStatus::Sent ? now() : null,
+            ]);
+        };
+        $interact = fn (BroadcastRecipient $target, string $at) => MessageInteraction::create([
+            'broadcast_recipient_id' => $target->id,
+            'contact_id' => $target->contact_id,
+            'type' => 'text',
+            'content' => 'Gracias',
+            'deduplication_key' => 'sort-'.$target->id,
+            'occurred_at' => $at,
+        ]);
+
+        $recipient('Ana', BroadcastRecipientStatus::Pending);
+        $bruno = $recipient('Bruno', BroadcastRecipientStatus::Sent, ['delivered_at' => now()]);
+        $carla = $recipient('Carla', BroadcastRecipientStatus::Sent, ['delivered_at' => now(), 'read_at' => now()]);
+        $recipient('Diego', BroadcastRecipientStatus::Failed);
+        $interact($bruno, '2026-08-01 10:00:00');
+        $interact($carla, '2026-08-02 10:00:00');
+
+        $names = fn (string $query) => collect($this->getJson("/api/broadcasts/{$campaign->id}/recipients?{$query}")->assertOk()->json('data'))
+            ->pluck('contact.name')->all();
+
+        $this->assertSame(['Ana', 'Bruno', 'Carla', 'Diego'], $names(''));
+        $this->assertSame(['Diego', 'Carla', 'Bruno', 'Ana'], $names('sort_by=status&sort_dir=desc'));
+        $this->assertSame(['Diego', 'Carla', 'Bruno', 'Ana'], $names('sort_by=contact&sort_dir=desc'));
+        // Sin interacción queda al final aunque el orden sea descendente.
+        $this->assertSame(['Carla', 'Bruno', 'Ana', 'Diego'], $names('sort_by=interaction&sort_dir=desc'));
+        $this->assertSame(['Diego', 'Ana', 'Bruno', 'Carla'], $names('sort_by=failure'));
+    }
+
     public function test_text_reply_matches_recent_broadcast_across_local_and_utc_timestamps(): void
     {
         $this->travelTo(CarbonImmutable::parse('2026-08-28 21:38:34', 'America/Argentina/Buenos_Aires'));

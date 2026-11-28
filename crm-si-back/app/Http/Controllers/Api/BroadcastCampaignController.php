@@ -92,8 +92,9 @@ class BroadcastCampaignController extends Controller
         if ($request->query('interaction') === 'true') {
             $query->whereHas('interactions');
         }
+        $this->applyRecipientSort($query, $request);
 
-        return BroadcastRecipientResultResource::collection($query->orderBy('id')->paginate(min((int) $request->query('per_page', 25), 100)));
+        return BroadcastRecipientResultResource::collection($query->paginate(min((int) $request->query('per_page', 25), 100)));
     }
 
     public function recipient(Request $request, int $id, int $recipientId): JsonResponse
@@ -118,6 +119,50 @@ class BroadcastCampaignController extends Controller
             'read' => $query->whereHas('message', fn ($q) => $q->whereNotNull('read_at')),
             default => $query,
         };
+    }
+
+    /**
+     * Orden de la tabla de destinatarios. Estado, hito e interacción son columnas
+     * derivadas, así que se ordena con la misma regla que usa el resource, en
+     * subconsultas correlacionadas: un join con `messages` volvería ambigua la
+     * columna `status` de los filtros. Sin `sort_by` válido queda el orden de
+     * envío, y el id desempata siempre para que la paginación sea estable.
+     */
+    private function applyRecipientSort($query, Request $request): void
+    {
+        $direction = strtolower((string) $request->query('sort_dir', 'asc')) === 'desc' ? 'desc' : 'asc';
+        $read = 'EXISTS (SELECT 1 FROM messages WHERE messages.id = broadcast_recipients.message_id AND messages.read_at IS NOT NULL)';
+        $delivered = 'EXISTS (SELECT 1 FROM messages WHERE messages.id = broadcast_recipients.message_id AND messages.delivered_at IS NOT NULL)';
+        $failed = BroadcastRecipientStatus::Failed->value;
+        $lastInteraction = DB::table('message_interactions')
+            ->selectRaw('MAX(occurred_at)')
+            ->whereColumn('message_interactions.broadcast_recipient_id', 'broadcast_recipients.id');
+
+        match ((string) $request->query('sort_by')) {
+            'contact' => $query->orderBy(
+                DB::table('contacts')->select('name')->whereColumn('contacts.id', 'broadcast_recipients.contact_id'),
+                $direction,
+            ),
+            // Mismo orden que el filtro de estado: pendiente, sin confirmación, entregado, leído, fallido.
+            'status' => $query->orderByRaw(
+                "CASE WHEN {$read} THEN 3 WHEN {$delivered} THEN 2 WHEN broadcast_recipients.status = ? THEN 4 WHEN broadcast_recipients.sent_at IS NOT NULL THEN 1 ELSE 0 END {$direction}",
+                [$failed],
+            ),
+            'milestone' => $query->orderByRaw(
+                "CASE WHEN {$read} THEN 3 WHEN {$delivered} THEN 2 WHEN broadcast_recipients.sent_at IS NOT NULL THEN 1 ELSE 0 END {$direction}",
+            ),
+            // Quien no interactuó queda al final en ambas direcciones.
+            'interaction' => $query
+                ->orderByRaw("({$lastInteraction->toSql()}) IS NULL")
+                ->orderBy($lastInteraction, $direction),
+            // El texto visible sale del JSON de Meta; ordenar por código agrupa los fallos con el mismo motivo.
+            'failure' => $query
+                ->orderByRaw('CASE WHEN broadcast_recipients.status = ? THEN 0 ELSE 1 END', [$failed])
+                ->orderByRaw("COALESCE(broadcast_recipients.failure_code, broadcast_recipients.error, '') {$direction}"),
+            default => null,
+        };
+
+        $query->orderBy('broadcast_recipients.id');
     }
 
     public function estimate(StoreBroadcastRequest $request): JsonResponse
