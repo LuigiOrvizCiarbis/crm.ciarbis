@@ -172,6 +172,31 @@ class WhatsAppTemplateCreationTest extends TestCase
             ->assertJsonMissingPath('0.header_media_asset_id');
     }
 
+    public function test_header_example_from_a_url_is_kept_as_the_template_default_header(): void
+    {
+        [$user, $channel] = $this->context();
+        config(['services.facebook.app_id' => 'app-1']);
+        Storage::fake('public');
+        // IP pública literal: PublicUrlGuard no necesita DNS real.
+        Http::fake([
+            'https://93.184.216.34/promo.png' => Http::response('png-bytes', 200, ['Content-Type' => 'image/png']),
+            'https://93.184.216.34/pagina' => Http::response('<html>', 200, ['Content-Type' => 'text/html']),
+            'https://graph.facebook.com/*/app-1/uploads' => Http::response(['id' => 'upload:1']),
+            'https://graph.facebook.com/*/upload:1' => Http::response(['h' => '4::handle']),
+        ]);
+        Sanctum::actingAs($user);
+
+        $this->postJson("/api/channels/{$channel->id}/templates/media", ['url' => 'https://93.184.216.34/pagina'])->assertUnprocessable();
+        $assetId = $this->postJson("/api/channels/{$channel->id}/templates/media", ['url' => 'https://93.184.216.34/promo.png'])
+            ->assertCreated()
+            ->assertJsonPath('header_handle', '4::handle')
+            ->json('media_asset_id');
+
+        $asset = MediaAsset::findOrFail($assetId);
+        $this->assertSame(['promo.png', 'image/png', MediaAsset::PURPOSE_TEMPLATE_HEADER], [$asset->name, $asset->mime_type, $asset->purpose]);
+        $this->assertSame('png-bytes', Storage::disk('public')->get($asset->path));
+    }
+
     public function test_meta_creation_error_includes_the_specific_user_message(): void
     {
         [$user, $channel] = $this->context();
