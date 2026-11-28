@@ -3170,6 +3170,8 @@
       "description": "Meta vuelve a revisar la plantilla y queda en revisión hasta que la apruebe. El nombre y el idioma no se pueden cambiar.",
       "approvedHint": "Una plantilla aprobada se puede editar una vez cada 24 h y hasta 10 veces en 30 días, sin cambiar la categoría.",
       "mediaHint": "Meta pide el archivo de ejemplo de nuevo: volvé a elegirlo.",
+      "currentMediaHint": "Se mantiene el archivo actual. Elegí otro solo si querés cambiarlo.",
+      "currentFile": "Archivo actual",
       "submit": "Guardar y enviar a revisión",
       "saved": "Cambios enviados a revisión de Meta."
     },

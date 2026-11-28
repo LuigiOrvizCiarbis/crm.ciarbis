@@ -6,7 +6,7 @@ import { FileText, Image as ImageIcon, Video } from "lucide-react"
 import type { WhatsAppTemplate } from "@/data/types"
 import { useImagePreviewUrl } from "@/hooks/useImagePreviewUrl"
 import { useTranslation } from "@/hooks/useTranslation"
-import { getHeaderMediaFormat } from "@/lib/whatsapp-templates"
+import { getHeaderMediaFormat, templateHeaderExampleUrl } from "@/lib/whatsapp-templates"
 
 interface TemplateHeaderPreviewProps {
   template: WhatsAppTemplate
@@ -31,7 +31,7 @@ export function TemplateHeaderPreview({ template, file, url }: TemplateHeaderPre
   if (!format) return null
 
   if (format === "IMAGE") {
-    const src = file ? fileUrl : url ?? assetUrl ?? (assetId ? null : metaExampleUrl(template))
+    const src = file ? fileUrl : url ?? assetUrl ?? (assetId ? null : templateHeaderExampleUrl(template.components))
     return src ? (
       // eslint-disable-next-line @next/next/no-img-element
       <img src={src} alt="" className="aspect-[1.91/1] w-full rounded-md object-cover" />
@@ -52,13 +52,6 @@ export function TemplateHeaderPreview({ template, file, url }: TemplateHeaderPre
       <span className="truncate">{label}</span>
     </div>
   )
-}
-
-/** Ejemplo del encabezado que devuelve Meta al sincronizar (una URL de su CDN). */
-function metaExampleUrl(template: WhatsAppTemplate): string | null {
-  const header = template.components.find((component) => component.type.toUpperCase() === "HEADER")
-  const example = header?.example?.header_handle?.[0]
-  return example?.startsWith("https://") ? example : null
 }
 
 /** Data URL de un archivo elegido en el navegador, leída sin bloquear el render. */

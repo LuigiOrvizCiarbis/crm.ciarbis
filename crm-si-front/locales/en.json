@@ -3170,6 +3170,8 @@
       "description": "Meta reviews the template again and it stays in review until approved. The name and language can't be changed.",
       "approvedHint": "An approved template can be edited once every 24 hours and up to 10 times in 30 days, without changing its category.",
       "mediaHint": "Meta needs the sample file again: choose it again.",
+      "currentMediaHint": "The current file is kept. Choose another only to change it.",
+      "currentFile": "Current file",
       "submit": "Save and submit for review",
       "saved": "Changes submitted to Meta for review."
     },
