@@ -59,6 +59,12 @@ export function getHeaderMediaFormat(components: TemplateComponent[]): "IMAGE" |
   return null
 }
 
+/** Ejemplo del encabezado de media que devuelve Meta al sincronizar: una URL de su CDN que vence. */
+export function templateHeaderExampleUrl(components: TemplateComponent[]): string | null {
+  const example = findComponent(components, "HEADER")?.example?.header_handle?.[0]
+  return example?.startsWith("https://") ? example : null
+}
+
 /**
  * Nombres de las variables {{...}} del body de la plantilla, en orden y sin
  * repetir. Debe contar lo mismo que WhatsAppTemplate::expectedBodyParameters()

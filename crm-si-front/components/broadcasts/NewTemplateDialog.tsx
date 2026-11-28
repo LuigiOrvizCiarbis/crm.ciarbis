@@ -11,7 +11,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/Toast"
 import { useTranslation } from "@/hooks/useTranslation"
 import { createTemplate, updateTemplate, uploadTemplateHeader, uploadTemplateHeaderExample, type CreateTemplatePayload } from "@/lib/api/templates"
-import { normalizeMediaUrl } from "@/lib/whatsapp-templates"
+import { normalizeMediaUrl, templateHeaderExampleUrl } from "@/lib/whatsapp-templates"
+import { useImagePreviewUrl } from "@/hooks/useImagePreviewUrl"
 import { getFlows } from "@/lib/api/whatsapp-flows"
 import type { WhatsAppFlow, WhatsAppFlowTextCompletion, WhatsAppTemplate } from "@/data/types"
 import { DEFAULT_CLOSING_BODY } from "@/lib/flow-builder/completion"
@@ -170,7 +171,13 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
   const normalizedHeaderUrl = normalizeMediaUrl(headerUrl)
   const headerUrlValue = !headerFile && normalizedHeaderUrl?.startsWith("https://") ? normalizedHeaderUrl : null
   const headerUrlInvalid = !headerFile && headerUrl.trim() !== "" && headerUrlValue === null
-  const headerPreviewSrc = headerPreviewUrl ?? headerUrlValue
+  // Al editar sin cambiar el formato ni elegir otro archivo, sigue el encabezado vigente: el archivo
+  // guardado con la plantilla o, si no hay, el ejemplo que devuelve Meta (solo para mostrarlo).
+  const keepsCurrentHeader = Boolean(template) && headerFormat === edited?.headerFormat && !headerFile && !headerUrlValue
+  const currentAssetId = keepsCurrentHeader ? template?.default_header_asset_id ?? null : null
+  const currentAssetUrl = useImagePreviewUrl(currentAssetId && headerFormat !== "DOCUMENT" ? { source: "media_asset", media_asset_id: currentAssetId } : null)
+  const currentExampleUrl = keepsCurrentHeader && !currentAssetId && template ? templateHeaderExampleUrl(template.components) : null
+  const headerPreviewSrc = headerPreviewUrl ?? headerUrlValue ?? currentAssetUrl ?? currentExampleUrl
   const [body, setBody] = useState(edited?.body ?? draft?.body ?? "")
   const [footer, setFooter] = useState(edited?.footer ?? draft?.footer ?? "")
   const [examples, setExamples] = useState<Record<string, string>>(edited?.examples ?? {})
@@ -281,13 +288,15 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
     if (!name.match(/^[a-z0-9_]+$/)) return addToast({ type: "error", title: t("templateDialog.errors.name") })
     if (!body.trim()) { setEditingTexts(true); return addToast({ type: "error", title: t("templateDialog.errors.body") }) }
     if (variables.some((variable) => !examples[variable]?.trim())) { setEditingTexts(true); return addToast({ type: "error", title: t("templateDialog.errors.examples") }) }
-    if (headerFormat !== "NONE" && headerFormat !== "TEXT" && !headerFile && !headerUrlValue) { setEditingTexts(true); return addToast({ type: "error", title: t(headerUrlInvalid ? "templateDialog.headerUrlInvalid" : "templateDialog.errors.headerFile") }) }
+    if (headerFormat !== "NONE" && headerFormat !== "TEXT" && !headerFile && !headerUrlValue && !currentAssetId) { setEditingTexts(true); return addToast({ type: "error", title: t(headerUrlInvalid ? "templateDialog.headerUrlInvalid" : "templateDialog.errors.headerFile") }) }
     if (buttons.some((button) => button.type === "FLOW" && !button.flow_id)) { setEditingTexts(true); return addToast({ type: "error", title: t("templateDialog.errors.flowButton") }) }
     setSubmitting(true)
     try {
+      // Meta pide el ejemplo en cada edición: sin archivo nuevo, se vuelve a subir el guardado.
       const headerUpload = headerFile
         ? await uploadTemplateHeader(channelId, headerFile)
-        : headerUrlValue ? await uploadTemplateHeaderExample(channelId, { url: headerUrlValue }) : null
+        : headerUrlValue ? await uploadTemplateHeaderExample(channelId, { url: headerUrlValue })
+          : currentAssetId ? await uploadTemplateHeaderExample(channelId, { media_asset_id: currentAssetId }) : null
       const components: CreateTemplatePayload["components"] = []
       if (headerFormat === "TEXT") components.push({ type: "HEADER", format: "TEXT", text: headerText.trim() })
       if (headerUpload) components.push({ type: "HEADER", format: headerFormat, example: { header_handle: [headerUpload.header_handle] } })
@@ -420,7 +429,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                           <FileImage className="size-4 shrink-0" aria-hidden />
                         )}
                         <span className="min-w-0 truncate">
-                          {headerFile?.name || (headerFormat === "IMAGE" ? t("templateDialog.chooseImage") : t("templateDialog.chooseFile"))}
+                          {headerFile?.name || (currentAssetId ? t("templateDialog.edit.currentFile") : headerFormat === "IMAGE" ? t("templateDialog.chooseImage") : t("templateDialog.chooseFile"))}
                         </span>
                         <input
                           key={headerFormat}
@@ -443,7 +452,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                       <p className="text-xs text-muted-foreground">
                         {t("templateDialog.mediaHint", { limits: t(`templateDialog.mediaLimits.${HEADER_MEDIA[headerFormat].key}`) })}
                       </p>
-                      {template && <p className="text-xs text-muted-foreground">{t("templateDialog.edit.mediaHint")}</p>}
+                      {template && <p className="text-xs text-muted-foreground">{t(currentAssetId ? "templateDialog.edit.currentMediaHint" : "templateDialog.edit.mediaHint")}</p>}
                     </div>
                   )}
                 </div>
@@ -575,7 +584,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                   ))}
                   {headerFormat === "DOCUMENT" && (
                     <div className="flex items-center gap-2 bg-muted px-3 py-2 text-xs text-muted-foreground">
-                      <FileText className="size-4 shrink-0" aria-hidden /><span className="truncate">{headerFile?.name || (headerUrlValue && new URL(headerUrlValue).pathname.split("/").pop()) || "PDF"}</span>
+                      <FileText className="size-4 shrink-0" aria-hidden /><span className="truncate">{headerFile?.name || (headerUrlValue && new URL(headerUrlValue).pathname.split("/").pop()) || (currentAssetId && t("templateDialog.edit.currentFile")) || "PDF"}</span>
                     </div>
                   )}
                   <div className="p-3">
