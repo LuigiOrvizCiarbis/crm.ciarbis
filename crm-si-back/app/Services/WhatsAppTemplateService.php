@@ -479,6 +479,25 @@ class WhatsAppTemplateService
     }
 
     /**
+     * Meta rechaza el envío entero si un parámetro de texto tiene saltos de
+     * línea, tabs o más de 4 espacios seguidos. Pasa con nombres de contacto
+     * cargados con la dirección en otra línea: se juntan en una sola.
+     */
+    private function flattenTextParameters(array $components): array
+    {
+        foreach ($components as &$component) {
+            foreach ($component['parameters'] ?? [] as $i => $param) {
+                if (($param['type'] ?? null) === 'text' && is_string($param['text'] ?? null)) {
+                    $component['parameters'][$i]['text'] = trim(preg_replace('/\s+/u', ' ', $param['text']));
+                }
+            }
+        }
+        unset($component);
+
+        return $components;
+    }
+
+    /**
      * Enviar un mensaje de template de WhatsApp.
      */
     public function sendTemplateMessage(
@@ -488,6 +507,7 @@ class WhatsAppTemplateService
         ?User $sender,
     ): Message {
         $components = $this->resolvePersonalizationTokens($components, $conversation);
+        $components = $this->flattenTextParameters($components);
         $components = $this->withDefaultHeaderMedia($components, $template);
         $components = $this->ensureDocumentFilename($components, $template);
         [$components, $flowSession] = app(WhatsAppFlowSessionService::class)->attachToTemplate($conversation, $template, $components);
