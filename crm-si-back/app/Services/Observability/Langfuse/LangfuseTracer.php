@@ -100,7 +100,7 @@ final class LangfuseTracer
             self::MAX_RETRIES,
         );
 
-        return new SpanExporter($transport);
+        return new SpanExporter(new DiscardResponseBodyTransport($transport));
     }
 
     private static function isHttpUrl(string $url): bool
