@@ -3120,6 +3120,8 @@
     "headerTextPlaceholder": "Your order update",
     "chooseImage": "Choose image",
     "chooseFile": "Choose sample file",
+    "headerUrlPlaceholder": "or paste a public file URL (https://...)",
+    "headerUrlInvalid": "Paste the full file address, starting with https://",
     "mediaLimits": {
       "image": "JPG or PNG, up to 5 MB",
       "video": "MP4, up to 16 MB",

@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/Toast"
 import { useTranslation } from "@/hooks/useTranslation"
-import { createTemplate, updateTemplate, uploadTemplateHeader, type CreateTemplatePayload } from "@/lib/api/templates"
+import { createTemplate, updateTemplate, uploadTemplateHeader, uploadTemplateHeaderExample, type CreateTemplatePayload } from "@/lib/api/templates"
+import { normalizeMediaUrl } from "@/lib/whatsapp-templates"
 import { getFlows } from "@/lib/api/whatsapp-flows"
 import type { WhatsAppFlow, WhatsAppFlowTextCompletion, WhatsAppTemplate } from "@/data/types"
 import { DEFAULT_CLOSING_BODY } from "@/lib/flow-builder/completion"
@@ -164,6 +165,12 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
   const [headerText, setHeaderText] = useState(edited?.headerText ?? draft?.headerText ?? "")
   const [headerFile, setHeaderFile] = useState<File | null>(null)
   const [headerPreviewUrl, setHeaderPreviewUrl] = useState<string | null>(null)
+  const [headerUrl, setHeaderUrl] = useState("")
+  // Meta descarga el ejemplo desde la URL: tiene que ser https.
+  const normalizedHeaderUrl = normalizeMediaUrl(headerUrl)
+  const headerUrlValue = !headerFile && normalizedHeaderUrl?.startsWith("https://") ? normalizedHeaderUrl : null
+  const headerUrlInvalid = !headerFile && headerUrl.trim() !== "" && headerUrlValue === null
+  const headerPreviewSrc = headerPreviewUrl ?? headerUrlValue
   const [body, setBody] = useState(edited?.body ?? draft?.body ?? "")
   const [footer, setFooter] = useState(edited?.footer ?? draft?.footer ?? "")
   const [examples, setExamples] = useState<Record<string, string>>(edited?.examples ?? {})
@@ -177,11 +184,11 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const variables = useMemo(() => [...new Set(Array.from(body.matchAll(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g)).map((match) => match[1]))], [body])
   // Al editar, sólo hay algo que descartar si cambió respecto de lo guardado.
-  const snapshot = JSON.stringify({ category, headerFormat, headerText, body, footer, examples, buttons, file: headerFile?.name ?? null })
+  const snapshot = JSON.stringify({ category, headerFormat, headerText, body, footer, examples, buttons, file: headerFile?.name ?? null, url: headerUrl.trim() })
   const [initialSnapshot] = useState(snapshot)
   const hasDraft = template
     ? snapshot !== initialSnapshot
-    : Boolean(name || body.trim() || footer.trim() || headerFile || headerText.trim() || buttons.length > 0)
+    : Boolean(name || body.trim() || footer.trim() || headerFile || headerUrl.trim() || headerText.trim() || buttons.length > 0)
   // Una plantilla que parte de un mensaje ya escrito no vuelve a pedir sus textos: quedan plegados.
   // Si el texto trae variables, se abre para cargar sus ejemplos.
   const [editingTexts, setEditingTexts] = useState(() => Boolean(template) || !draft || /\{\{/.test(draft.body))
@@ -206,6 +213,7 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
   const changeHeaderFormat = (format: HeaderFormat) => {
     setHeaderFormat(format)
     replaceHeaderFile(null, format)
+    setHeaderUrl("")
   }
 
   // Los formularios se cargan recién cuando hay un botón FLOW, y se descartan
@@ -273,11 +281,13 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
     if (!name.match(/^[a-z0-9_]+$/)) return addToast({ type: "error", title: t("templateDialog.errors.name") })
     if (!body.trim()) { setEditingTexts(true); return addToast({ type: "error", title: t("templateDialog.errors.body") }) }
     if (variables.some((variable) => !examples[variable]?.trim())) { setEditingTexts(true); return addToast({ type: "error", title: t("templateDialog.errors.examples") }) }
-    if (headerFormat !== "NONE" && headerFormat !== "TEXT" && !headerFile) { setEditingTexts(true); return addToast({ type: "error", title: t("templateDialog.errors.headerFile") }) }
+    if (headerFormat !== "NONE" && headerFormat !== "TEXT" && !headerFile && !headerUrlValue) { setEditingTexts(true); return addToast({ type: "error", title: t(headerUrlInvalid ? "templateDialog.headerUrlInvalid" : "templateDialog.errors.headerFile") }) }
     if (buttons.some((button) => button.type === "FLOW" && !button.flow_id)) { setEditingTexts(true); return addToast({ type: "error", title: t("templateDialog.errors.flowButton") }) }
     setSubmitting(true)
     try {
-      const headerUpload = headerFile ? await uploadTemplateHeader(channelId, headerFile) : null
+      const headerUpload = headerFile
+        ? await uploadTemplateHeader(channelId, headerFile)
+        : headerUrlValue ? await uploadTemplateHeaderExample(channelId, { url: headerUrlValue }) : null
       const components: CreateTemplatePayload["components"] = []
       if (headerFormat === "TEXT") components.push({ type: "HEADER", format: "TEXT", text: headerText.trim() })
       if (headerUpload) components.push({ type: "HEADER", format: headerFormat, example: { header_handle: [headerUpload.header_handle] } })
@@ -403,9 +413,9 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                   {isMediaFormat(headerFormat) && (
                     <div className="space-y-1.5">
                       <label className="flex cursor-pointer items-center gap-3 rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground hover:bg-muted/40 focus-within:ring-[3px] focus-within:ring-ring/50">
-                        {headerFormat === "IMAGE" && headerPreviewUrl ? (
+                        {headerFormat === "IMAGE" && headerPreviewSrc ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={headerPreviewUrl} alt="" className="size-12 shrink-0 rounded object-cover" />
+                          <img src={headerPreviewSrc} alt="" className="size-12 shrink-0 rounded object-cover" />
                         ) : (
                           <FileImage className="size-4 shrink-0" aria-hidden />
                         )}
@@ -420,6 +430,16 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
                           onChange={(event) => chooseHeaderFile(event.target.files?.[0] || null)}
                         />
                       </label>
+                      {!headerFile && (
+                        <Input
+                          value={headerUrl}
+                          onChange={(event) => setHeaderUrl(event.target.value)}
+                          aria-label={t("templateDialog.headerUrlPlaceholder")}
+                          aria-invalid={headerUrlInvalid}
+                          placeholder={t("templateDialog.headerUrlPlaceholder")}
+                        />
+                      )}
+                      {headerUrlInvalid && <p className="text-xs text-destructive">{t("templateDialog.headerUrlInvalid")}</p>}
                       <p className="text-xs text-muted-foreground">
                         {t("templateDialog.mediaHint", { limits: t(`templateDialog.mediaLimits.${HEADER_MEDIA[headerFormat].key}`) })}
                       </p>
@@ -542,20 +562,20 @@ export function NewTemplateDialog({ open, onOpenChange, channelId, onCreated, dr
               <div className="rounded-lg border border-border bg-muted/30 p-4">
                 <p className="mb-3 text-sm font-semibold">{t("templateDialog.preview")}</p>
                 <div className="overflow-hidden rounded-lg rounded-tl-sm border border-border bg-card text-sm text-card-foreground shadow-xs">
-                  {headerFormat === "IMAGE" && (headerPreviewUrl ? (
+                  {headerFormat === "IMAGE" && (headerPreviewSrc ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={headerPreviewUrl} alt={t("templateDialog.headerImageAlt")} className="aspect-[1.91/1] w-full object-cover" />
+                    <img src={headerPreviewSrc} alt={t("templateDialog.headerImageAlt")} className="aspect-[1.91/1] w-full object-cover" />
                   ) : (
                     <div className="flex aspect-[1.91/1] w-full items-center justify-center bg-muted text-muted-foreground"><ImageIcon className="size-6" aria-hidden /></div>
                   ))}
-                  {headerFormat === "VIDEO" && (headerPreviewUrl ? (
-                    <video src={headerPreviewUrl} muted playsInline className="aspect-video w-full bg-black object-cover" />
+                  {headerFormat === "VIDEO" && (headerPreviewSrc ? (
+                    <video src={headerPreviewSrc} muted playsInline className="aspect-video w-full bg-black object-cover" />
                   ) : (
                     <div className="flex aspect-video w-full items-center justify-center bg-muted text-muted-foreground"><Video className="size-6" aria-hidden /></div>
                   ))}
                   {headerFormat === "DOCUMENT" && (
                     <div className="flex items-center gap-2 bg-muted px-3 py-2 text-xs text-muted-foreground">
-                      <FileText className="size-4 shrink-0" aria-hidden /><span className="truncate">{headerFile?.name || "PDF"}</span>
+                      <FileText className="size-4 shrink-0" aria-hidden /><span className="truncate">{headerFile?.name || (headerUrlValue && new URL(headerUrlValue).pathname.split("/").pop()) || "PDF"}</span>
                     </div>
                   )}
                   <div className="p-3">

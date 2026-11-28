@@ -3120,6 +3120,8 @@
     "headerTextPlaceholder": "Actualización de tu pedido",
     "chooseImage": "Elegir imagen",
     "chooseFile": "Elegir archivo de ejemplo",
+    "headerUrlPlaceholder": "o pegá una URL pública del archivo (https://...)",
+    "headerUrlInvalid": "Pegá la dirección completa del archivo, empezando con https://",
     "mediaLimits": {
       "image": "JPG o PNG, hasta 5 MB",
       "video": "MP4, hasta 16 MB",

@@ -50,9 +50,10 @@ export function OpeningTemplateRequest({ flow, channelId, message, incomplete = 
     setError(null)
     try {
       // Meta pide un ejemplo de la imagen para revisar la plantilla; cada envío lleva la imagen de la apertura.
+      // La copia queda en la plantilla para la vista previa y para enviarla fuera del formulario.
       const image = message.image
-      const headerHandle = image
-        ? (await uploadTemplateHeaderExample(channelId, image.source === "media_asset" ? { media_asset_id: image.media_asset_id } : { url: image.value })).header_handle
+      const headerUpload = image
+        ? await uploadTemplateHeaderExample(channelId, image.source === "media_asset" ? { media_asset_id: image.media_asset_id } : { url: image.value })
         : null
       const created = await createTemplate(channelId, {
         name,
@@ -60,7 +61,8 @@ export function OpeningTemplateRequest({ flow, channelId, message, incomplete = 
         // Meta define la categoría final al revisarla.
         category: "UTILITY",
         parameter_format: "named",
-        components: openingTemplateComponents(flow, message, headerHandle),
+        components: openingTemplateComponents(flow, message, headerUpload?.header_handle ?? null),
+        header_media_asset_id: headerUpload?.media_asset_id ?? null,
       })
       await onRequested(created)
     } catch (requestError) {

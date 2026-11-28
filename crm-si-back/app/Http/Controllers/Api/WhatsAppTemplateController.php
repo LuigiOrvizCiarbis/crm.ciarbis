@@ -19,6 +19,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class WhatsAppTemplateController extends Controller
 {
@@ -26,6 +27,14 @@ class WhatsAppTemplateController extends Controller
         public WhatsAppTemplateService $templateService,
         private PublicUrlGuard $urlGuard,
     ) {}
+
+    /** Tipos que Meta acepta en el encabezado de una plantilla, con su extensión. */
+    private const HEADER_EXTENSIONS = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'video/mp4' => 'mp4',
+        'application/pdf' => 'pdf',
+    ];
 
     /**
      * Listar templates aprobados de un canal.
@@ -137,40 +146,33 @@ class WhatsAppTemplateController extends Controller
         try {
             [$contents, $mimeType, $fileName] = $this->headerExample($request, $channel);
             $headerHandle = $this->templateService->uploadTemplateHeaderContents($waConfig, $contents, $mimeType, $fileName);
+            $assetId = $request->filled('media_asset_id')
+                ? $request->integer('media_asset_id')
+                : $this->storeHeaderCopy($request, $channel, $contents, $mimeType, $fileName);
 
-            return response()->json([
-                'header_handle' => $headerHandle,
-                'media_asset_id' => $this->headerAssetId($request, $channel),
-            ], 201);
+            return response()->json(['header_handle' => $headerHandle, 'media_asset_id' => $assetId], 201);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
     }
 
     /**
-     * Archivo del espacio que la plantilla manda por defecto en el encabezado:
-     * Meta guarda el ejemplo solo para revisarla y pide el archivo en cada
-     * envío. Una URL externa no se copia: la apertura de un formulario, que la
-     * usa, manda su propia imagen en cada envío.
+     * Copia en el espacio del archivo subido o descargado de la URL: la
+     * plantilla lo manda por defecto en el encabezado, porque Meta guarda el
+     * ejemplo solo para revisarla y pide el archivo en cada envío.
      */
-    private function headerAssetId(Request $request, Channel $channel): ?int
+    private function storeHeaderCopy(Request $request, Channel $channel, string $contents, string $mimeType, string $fileName): int
     {
-        if ($request->filled('media_asset_id')) {
-            return $request->integer('media_asset_id');
-        }
-        if (! $request->hasFile('file')) {
-            return null;
-        }
-
-        $file = $request->file('file');
+        $path = 'media-assets/'.$channel->tenant_id.'/'.Str::random(40).'.'.self::HEADER_EXTENSIONS[$mimeType];
+        Storage::disk('public')->put($path, $contents);
 
         return MediaAsset::create([
             'tenant_id' => $channel->tenant_id,
             'uploaded_by' => $request->user()->id,
-            'name' => $file->getClientOriginalName(),
-            'path' => $file->store('media-assets/'.$channel->tenant_id, 'public'),
-            'mime_type' => (string) $file->getMimeType(),
-            'size' => $file->getSize(),
+            'name' => $fileName,
+            'path' => $path,
+            'mime_type' => $mimeType,
+            'size' => strlen($contents),
             'purpose' => MediaAsset::PURPOSE_TEMPLATE_HEADER,
         ])->id;
     }
@@ -209,8 +211,13 @@ class WhatsAppTemplateController extends Controller
         if (strlen($response->body()) > 16 * 1024 * 1024) {
             throw new \RuntimeException('El archivo de la URL supera los 16 MB.');
         }
+        // Los únicos tipos que Meta acepta en un encabezado.
+        $mimeType = strtolower(trim((string) strtok((string) $response->header('Content-Type'), ';')));
+        if (! isset(self::HEADER_EXTENSIONS[$mimeType])) {
+            throw new \RuntimeException('La URL tiene que ser una imagen JPG o PNG, un video MP4 o un PDF.');
+        }
 
-        return [$response->body(), strtok((string) $response->header('Content-Type'), ';') ?: 'application/octet-stream', basename((string) parse_url($url, PHP_URL_PATH)) ?: 'ejemplo'];
+        return [$response->body(), $mimeType, basename((string) parse_url($url, PHP_URL_PATH)) ?: 'ejemplo'];
     }
 
     public function destroy(Request $request, Channel $channel, WhatsAppTemplate $template): Response|JsonResponse
