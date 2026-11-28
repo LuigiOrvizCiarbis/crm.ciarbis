@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Support\TemplateHeaderMediaRules;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -27,6 +28,7 @@ class SendTemplateRequest extends FormRequest
             'components' => 'nullable|array',
             'components.*.type' => 'sometimes|string',
             'components.*.parameters' => 'sometimes|array',
+            ...TemplateHeaderMediaRules::rules(),
         ];
     }
 
@@ -41,6 +43,7 @@ class SendTemplateRequest extends FormRequest
             'template_id.required' => 'El template es requerido',
             'template_id.exists' => 'El template seleccionado no existe',
             'components.array' => 'Los componentes deben ser un array',
+            ...TemplateHeaderMediaRules::messages(),
         ];
     }
 }

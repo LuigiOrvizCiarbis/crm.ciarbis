@@ -43,8 +43,10 @@ class WhatsAppTemplateController extends Controller
         $templates = WhatsAppTemplate::where('whatsapp_config_id', $waConfig->id)
             ->when(request()->query('status', 'approved') !== 'all', fn ($query) => $query->approved())
             ->when(request()->filled('category'), fn ($query) => $query->where('category', request()->string('category')->toString()))
+            ->with('headerMediaAsset')
             ->orderBy('name')
-            ->get();
+            ->get()
+            ->each->append('default_header_asset_id');
 
         return response()->json($templates);
     }
@@ -134,13 +136,43 @@ class WhatsAppTemplateController extends Controller
 
         try {
             [$contents, $mimeType, $fileName] = $this->headerExample($request, $channel);
+            $headerHandle = $this->templateService->uploadTemplateHeaderContents($waConfig, $contents, $mimeType, $fileName);
 
             return response()->json([
-                'header_handle' => $this->templateService->uploadTemplateHeaderContents($waConfig, $contents, $mimeType, $fileName),
+                'header_handle' => $headerHandle,
+                'media_asset_id' => $this->headerAssetId($request, $channel),
             ], 201);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+    }
+
+    /**
+     * Archivo del espacio que la plantilla manda por defecto en el encabezado:
+     * Meta guarda el ejemplo solo para revisarla y pide el archivo en cada
+     * envío. Una URL externa no se copia: la apertura de un formulario, que la
+     * usa, manda su propia imagen en cada envío.
+     */
+    private function headerAssetId(Request $request, Channel $channel): ?int
+    {
+        if ($request->filled('media_asset_id')) {
+            return $request->integer('media_asset_id');
+        }
+        if (! $request->hasFile('file')) {
+            return null;
+        }
+
+        $file = $request->file('file');
+
+        return MediaAsset::create([
+            'tenant_id' => $channel->tenant_id,
+            'uploaded_by' => $request->user()->id,
+            'name' => $file->getClientOriginalName(),
+            'path' => $file->store('media-assets/'.$channel->tenant_id, 'public'),
+            'mime_type' => (string) $file->getMimeType(),
+            'size' => $file->getSize(),
+            'purpose' => MediaAsset::PURPOSE_TEMPLATE_HEADER,
+        ])->id;
     }
 
     /**

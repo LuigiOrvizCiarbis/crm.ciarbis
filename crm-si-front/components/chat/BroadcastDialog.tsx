@@ -6,6 +6,7 @@ import { useTranslation } from "@/hooks/useTranslation"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { TemplateHeaderPreview } from "@/components/broadcasts/TemplateHeaderPreview"
 import {
   Dialog,
   DialogContent,
@@ -26,6 +27,7 @@ import {
   extractBodyParams,
   getHeaderMediaFormat,
   hasUnsupportedParams,
+  normalizeMediaUrl,
   resolveParamValue,
   type ParamSource,
 } from "@/lib/whatsapp-templates"
@@ -142,12 +144,16 @@ export function BroadcastDialog({
   }
 
   const selectedMediaFormat = selected ? getHeaderMediaFormat(selected.components) : null
+  const normalizedMediaUrl = normalizeMediaUrl(mediaUrl)
+  const mediaUrlInvalid = !mediaFile && mediaUrl.trim() !== "" && normalizedMediaUrl === null
+  const hasDefaultHeader = Boolean(selected?.default_header_asset_id)
 
   const canApply =
     !submitting &&
     count > 0 &&
     selected !== null &&
-    (selectedMediaFormat === null || mediaFile !== null || mediaUrl.trim().length > 0) &&
+    (selectedMediaFormat === null || mediaFile !== null || normalizedMediaUrl !== null || hasDefaultHeader) &&
+    !mediaUrlInvalid &&
     paramValues.every((v, i) => paramSources[i] !== "custom" || v.trim())
 
   const handleApply = async () => {
@@ -161,8 +167,8 @@ export function BroadcastDialog({
           // difusión reutilizan el mismo media id.
           const { media_id } = await uploadTemplateMedia(channelId, mediaFile)
           headerMedia = { id: media_id, filename: mediaFilename.trim() || mediaFile.name }
-        } else {
-          headerMedia = { link: mediaUrl.trim(), filename: mediaFilename.trim() || undefined }
+        } else if (normalizedMediaUrl) {
+          headerMedia = { link: normalizedMediaUrl, filename: mediaFilename.trim() || undefined }
         }
       }
 
@@ -319,6 +325,7 @@ export function BroadcastDialog({
             <ScrollArea className="max-h-[40vh] flex-1">
               <div className="space-y-3 pr-3">
                 <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-4">
+                  <TemplateHeaderPreview template={selected} file={mediaFile} url={normalizedMediaUrl} />
                   <p className="whitespace-pre-wrap text-sm">
                     {buildTemplatePreview(
                       selected.components,
@@ -338,6 +345,9 @@ export function BroadcastDialog({
                     <p className="text-sm font-medium">
                       {t(`chats.broadcast.dialog.media.${selectedMediaFormat.toLowerCase()}`)}
                     </p>
+                    {hasDefaultHeader && (
+                      <p className="text-xs text-muted-foreground">{t("chats.broadcast.dialog.media.defaultHint")}</p>
+                    )}
                     <Input
                       type="file"
                       accept={
@@ -354,7 +364,11 @@ export function BroadcastDialog({
                         placeholder={t("chats.broadcast.dialog.media.urlPlaceholder")}
                         value={mediaUrl}
                         onChange={(e) => setMediaUrl(e.target.value)}
+                        aria-invalid={mediaUrlInvalid}
                       />
+                    )}
+                    {mediaUrlInvalid && (
+                      <p className="text-xs text-destructive">{t("chats.broadcast.dialog.media.urlInvalid")}</p>
                     )}
                     {selectedMediaFormat === "DOCUMENT" && (
                       <Input

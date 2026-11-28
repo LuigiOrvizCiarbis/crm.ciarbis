@@ -47,6 +47,12 @@ class CreateWhatsAppTemplateRequest extends FormRequest
             'language' => ['required', 'string', 'max:20', 'regex:/^[a-z]{2,3}(?:_[A-Z]{2})?$/'],
             'category' => ['required', 'string', Rule::in([TemplateCategory::Marketing->value, TemplateCategory::Utility->value])],
             'parameter_format' => ['nullable', Rule::in(['named'])],
+            // El archivo del ejemplo, guardado en el espacio para mandarlo por defecto al enviar.
+            'header_media_asset_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('media_assets', 'id')->where('tenant_id', $this->route('channel')?->tenant_id)->whereNull('deleted_at'),
+            ],
             'components' => ['required', 'array', 'min:1'],
             'components.*.type' => ['required', 'string', Rule::in(['HEADER', 'BODY', 'FOOTER', 'BUTTONS'])],
             'components.*.format' => ['nullable', 'string', Rule::in(['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT'])],

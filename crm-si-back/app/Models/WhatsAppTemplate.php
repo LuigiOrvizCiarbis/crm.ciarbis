@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\TemplateCategory;
 use App\Enums\TemplateStatus;
 use App\Models\Concerns\BelongsToTenant;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +17,9 @@ class WhatsAppTemplate extends Model
 
     protected $table = 'whatsapp_templates';
 
+    /** Tipo de archivo que admite cada formato de encabezado de media. */
+    private const HEADER_MIME_PREFIXES = ['IMAGE' => 'image/', 'VIDEO' => 'video/', 'DOCUMENT' => 'application/pdf'];
+
     protected $fillable = [
         'tenant_id',
         'whatsapp_config_id',
@@ -26,7 +30,14 @@ class WhatsAppTemplate extends Model
         'status',
         'rejected_reason',
         'components',
+        'header_media_asset_id',
         'synced_at',
+    ];
+
+    /** El front usa `default_header_asset_id`, que ya descarta un archivo que no sirve. */
+    protected $hidden = [
+        'header_media_asset_id',
+        'headerMediaAsset',
     ];
 
     protected $casts = [
@@ -44,6 +55,29 @@ class WhatsAppTemplate extends Model
     public function whatsappConfig(): BelongsTo
     {
         return $this->belongsTo(WhatsAppConfig::class);
+    }
+
+    public function headerMediaAsset(): BelongsTo
+    {
+        return $this->belongsTo(MediaAsset::class, 'header_media_asset_id');
+    }
+
+    /**
+     * Archivo que va en el encabezado cuando el envío no trae otro: el que se
+     * subió al crear la plantilla, si sigue en el espacio y coincide con el
+     * formato actual (en WhatsApp Manager se puede cambiar el encabezado).
+     */
+    public function defaultHeaderAsset(): ?MediaAsset
+    {
+        $format = $this->headerMediaFormat();
+        $asset = $format !== null ? $this->headerMediaAsset : null;
+
+        return $asset && str_starts_with((string) $asset->mime_type, self::HEADER_MIME_PREFIXES[$format]) ? $asset : null;
+    }
+
+    protected function defaultHeaderAssetId(): Attribute
+    {
+        return Attribute::get(fn (): ?int => $this->defaultHeaderAsset()?->id);
     }
 
     /**

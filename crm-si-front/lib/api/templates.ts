@@ -32,6 +32,8 @@ export interface CreateTemplatePayload {
   category: "MARKETING" | "UTILITY";
   parameter_format: "named";
   components: unknown[];
+  /** Archivo guardado al subir el ejemplo del encabezado; se manda por defecto al enviar. */
+  header_media_asset_id?: number | null;
 }
 
 export async function createTemplate(channelId: number, payload: CreateTemplatePayload): Promise<WhatsAppTemplate> {
@@ -49,6 +51,7 @@ export async function createTemplate(channelId: number, payload: CreateTemplateP
 export interface UpdateTemplatePayload {
   category?: CreateTemplatePayload["category"];
   components: unknown[];
+  header_media_asset_id?: number | null;
 }
 
 export async function updateTemplate(channelId: number, templateId: number, payload: UpdateTemplatePayload): Promise<WhatsAppTemplate> {
@@ -62,7 +65,13 @@ export async function updateTemplate(channelId: number, templateId: number, payl
   return data.data ?? data;
 }
 
-export async function uploadTemplateHeader(channelId: number, file: File): Promise<{ header_handle: string }> {
+/** `media_asset_id`: copia del archivo en el espacio (null si vino de una URL). */
+export interface TemplateHeaderUpload {
+  header_handle: string;
+  media_asset_id: number | null;
+}
+
+export async function uploadTemplateHeader(channelId: number, file: File): Promise<TemplateHeaderUpload> {
   const body = new FormData();
   body.append("file", file);
   const res = await fetch(`/api/channels/${channelId}/templates/media`, {
@@ -79,7 +88,7 @@ export async function uploadTemplateHeader(channelId: number, file: File): Promi
 export async function uploadTemplateHeaderExample(
   channelId: number,
   source: { media_asset_id: number } | { url: string },
-): Promise<{ header_handle: string }> {
+): Promise<TemplateHeaderUpload> {
   const body = new FormData();
   if ("media_asset_id" in source) body.append("media_asset_id", String(source.media_asset_id));
   else body.append("url", source.url);
