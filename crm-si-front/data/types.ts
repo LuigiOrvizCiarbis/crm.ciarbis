@@ -466,7 +466,14 @@ export interface WhatsAppCheckoutSummary {
   order_admin_url: string | null
 }
 
+/** Calificación del operador sobre una respuesta de la IA: 👍 = 1, 👎 = -1. */
+export type AiFeedbackRating = 1 | -1
+
 export interface Message {
+  /** True si el mensaje lo generó la IA y tiene trace en Langfuse. */
+  ai_traced?: boolean
+  /** Calificación del usuario actual (sólo viene en el listado de mensajes). */
+  ai_feedback?: { rating: AiFeedbackRating }[]
   id: number
   conversation_id: number
   content: string

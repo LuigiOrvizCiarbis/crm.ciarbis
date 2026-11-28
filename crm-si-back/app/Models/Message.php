@@ -43,6 +43,8 @@ class Message extends Model
         'edited_at',
         'original_content',
         'reply_to_message_id',
+        'ai_trace_id',
+        'ai_observation_id',
     ];
 
     /**
@@ -85,7 +87,13 @@ class Message extends Model
         'updated_at' => 'datetime',
     ];
 
-    protected $appends = ['media_full_url', 'reaction_summary'];
+    protected $appends = ['media_full_url', 'reaction_summary', 'ai_traced'];
+
+    /**
+     * Los ids de Langfuse no salen al front ni a los broadcasts: alcanza con
+     * saber si el mensaje se puede calificar (ai_traced).
+     */
+    protected $hidden = ['ai_trace_id', 'ai_observation_id'];
 
     public function getMediaFullUrlAttribute(): ?string
     {
@@ -114,6 +122,18 @@ class Message extends Model
         }
 
         return MessageReaction::summaryFor($this);
+    }
+
+    /** El mensaje lo escribió la IA y tiene trace en Langfuse: se puede calificar. */
+    public function getAiTracedAttribute(): bool
+    {
+        return $this->ai_trace_id !== null;
+    }
+
+    /** Valoraciones de operadores sobre esta respuesta de la IA. */
+    public function aiFeedback(): HasMany
+    {
+        return $this->hasMany(AiMessageFeedback::class);
     }
 
     public function sender(): MorphTo

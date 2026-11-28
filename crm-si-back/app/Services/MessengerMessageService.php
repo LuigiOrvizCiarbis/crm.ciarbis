@@ -17,6 +17,7 @@ use App\Models\Message;
 use App\Models\MessengerConfig;
 use App\Models\PipelineStage;
 use App\Models\User;
+use App\Services\Observability\Langfuse\TraceReference;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -855,7 +856,7 @@ class MessengerMessageService
      * Igual que sendTextMessageFromCRM pero con sender_type SYSTEM, sin usuario
      * y sin handoff (el bot no se apaga a sí mismo).
      */
-    public function sendSystemTextMessageFromCRM(Conversation $conversation, string $content): Message
+    public function sendSystemTextMessageFromCRM(Conversation $conversation, string $content, ?TraceReference $aiTrace = null): Message
     {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -874,6 +875,8 @@ class MessengerMessageService
             'delivered_at' => now(),
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
+            'ai_trace_id' => $aiTrace?->traceId,
+            'ai_observation_id' => $aiTrace?->observationId,
         ]);
 
         $conversation->update([

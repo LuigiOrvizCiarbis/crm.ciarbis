@@ -9,7 +9,7 @@ import {
   hasPendingApproval,
   type ApprovalHandler,
 } from "@/components/assistant/AssistantActionCard"
-import { Button } from "@/components/ui/button"
+import { RatingButton } from "@/components/RatingButton"
 import { useTranslation } from "@/hooks/useTranslation"
 import type { AssistantRating } from "@/lib/api/assistant"
 import { cn } from "@/lib/utils"
@@ -122,38 +122,5 @@ export function AssistantMessageBubble({
         </div>
       ) : null}
     </div>
-  )
-}
-
-function RatingButton({
-  label,
-  active,
-  disabled,
-  onClick,
-  icon: Icon,
-}: {
-  label: string
-  active: boolean
-  disabled: boolean
-  onClick: () => void
-  icon: typeof ThumbsUp
-}) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      aria-label={label}
-      aria-pressed={active}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "size-7 pointer-coarse:size-10",
-        active ? "text-primary" : "text-muted-foreground hover:text-foreground",
-      )}
-    >
-      <Icon className={cn("size-3.5", active && "fill-current/20")} aria-hidden="true" />
-    </Button>
   )
 }

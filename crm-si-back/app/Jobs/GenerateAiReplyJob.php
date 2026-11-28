@@ -11,8 +11,13 @@ use App\Services\AiTypingIndicatorService;
 use App\Services\HumanHandoffService;
 use App\Services\InstagramMessageService;
 use App\Services\MailMessageService;
-use App\Services\MessengerMessageService;
 use App\Services\MessagingWindowService;
+use App\Services\MessengerMessageService;
+use App\Services\Observability\Langfuse\LangfuseNames;
+use App\Services\Observability\Langfuse\LangfuseObservation;
+use App\Services\Observability\Langfuse\LangfuseTracer;
+use App\Services\Observability\Langfuse\ObservationType;
+use App\Services\Observability\Langfuse\TraceContext;
 use App\Services\WhatsAppMessageService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -128,10 +133,70 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $decision = $aiReplyService->decide($conversation, $aiConfig);
+        $tracer = app(LangfuseTracer::class);
+        $root = $tracer->startTrace(LangfuseNames::AUTO_REPLY, ObservationType::Agent, $this->traceContext($conversation, $aiConfig));
+
+        try {
+            $this->replyWithinTrace(
+                $tracer,
+                $root,
+                $conversation,
+                $aiConfig,
+                $aiReplyService,
+                $whatsAppMessageService,
+                $instagramMessageService,
+                $messengerMessageService,
+                $mailMessageService,
+                $humanHandoffService,
+            );
+        } catch (\Throwable $e) {
+            $root->fail($e);
+
+            throw $e;
+        } finally {
+            $root->end();
+        }
+    }
+
+    /**
+     * Contexto del trace de Langfuse. El userId es el id del contacto, nunca
+     * su teléfono.
+     */
+    private function traceContext(Conversation $conversation, AiConfig $aiConfig): TraceContext
+    {
+        $channel = $conversation->channel?->type?->value;
+
+        return new TraceContext(
+            sessionId: 'conversation-'.$conversation->id,
+            userId: 'contact-'.$conversation->contact_id,
+            metadata: [
+                'tenant_id' => $conversation->tenant_id,
+                'conversation_id' => $conversation->id,
+                'channel' => $channel,
+                'provider' => $aiConfig->provider->value,
+                'model' => $aiConfig->model ?: $aiConfig->provider->defaultModel(),
+            ],
+            tags: ['auto-reply', (string) $channel],
+        );
+    }
+
+    private function replyWithinTrace(
+        LangfuseTracer $tracer,
+        LangfuseObservation $root,
+        Conversation $conversation,
+        AiConfig $aiConfig,
+        AiReplyService $aiReplyService,
+        WhatsAppMessageService $whatsAppMessageService,
+        InstagramMessageService $instagramMessageService,
+        MessengerMessageService $messengerMessageService,
+        MailMessageService $mailMessageService,
+        HumanHandoffService $humanHandoffService,
+    ): void {
+        $decision = $tracer->within($root, fn () => $aiReplyService->decide($conversation, $aiConfig));
 
         if ($decision->requestsHandoff()) {
             $this->handleHandoff(
+                $root,
                 $conversation,
                 $decision,
                 $humanHandoffService,
@@ -150,6 +215,7 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
             Log::warning('GenerateAiReplyJob: sin respuesta de IA', [
                 'conversation_id' => $conversation->id,
             ]);
+            $root->output(['outcome' => 'no_reply']);
 
             return;
         }
@@ -157,6 +223,8 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
         // Última verificación antes de enviar, por si el operador respondió
         // mientras la IA generaba.
         if (! $conversation->refresh()->ai_autoreply_enabled) {
+            $root->output(['outcome' => 'autoreply_disabled']);
+
             return;
         }
 
@@ -179,14 +247,17 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
                 'conversation_id' => $conversation->id,
                 'channel_type' => $conversation->channel?->type?->value,
             ]);
+            $root->output(['outcome' => 'no_transport']);
 
             return;
         }
 
-        $service->sendSystemTextMessageFromCRM($conversation, $reply);
+        $service->sendSystemTextMessageFromCRM($conversation, $reply, $root->reference());
+        $root->output(['outcome' => 'reply_sent', 'reply' => $reply]);
     }
 
     private function handleHandoff(
+        LangfuseObservation $root,
         Conversation $conversation,
         AiReplyDecision $decision,
         HumanHandoffService $humanHandoffService,
@@ -204,6 +275,8 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
             (string) ($decision->handoff['customer_locale'] ?? 'es'),
         );
         if (! $handoff || $conversation->refresh()->ai_autoreply_enabled !== false) {
+            $root->output(['outcome' => 'handoff', 'handoff' => $decision->handoff, 'reply' => null]);
+
             return;
         }
 
@@ -220,7 +293,8 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
         $ack = $decision->reply ?? (($decision->handoff['customer_locale'] ?? 'es') === 'en'
             ? 'I’m passing your message to a team member, who will reply here shortly.'
             : 'Le paso tu consulta a una persona del equipo. En breve te responden por acá.');
-        $service?->sendSystemTextMessageFromCRM($conversation, $ack);
+        $service?->sendSystemTextMessageFromCRM($conversation, $ack, $root->reference());
+        $root->output(['outcome' => 'handoff', 'handoff' => $decision->handoff, 'reply' => $service ? $ack : null]);
     }
 
     /**

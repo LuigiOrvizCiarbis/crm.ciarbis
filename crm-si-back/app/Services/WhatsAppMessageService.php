@@ -32,6 +32,7 @@ use App\Services\Commerce\WhatsAppCatalogOrderService;
 use App\Services\Concerns\ResolvesWhatsAppChannel;
 use App\Services\Concerns\ResolvesWhatsAppCredentials;
 use App\Services\Flows\FlowResponseService;
+use App\Services\Observability\Langfuse\TraceReference;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Client\Response;
@@ -2111,7 +2112,7 @@ class WhatsAppMessageService
      * Igual que sendTextMessageFromCRM pero con sender_type SYSTEM y sin usuario,
      * y sin handoff (el bot no se apaga a sí mismo).
      */
-    public function sendSystemTextMessageFromCRM(Conversation $conversation, string $content): Message
+    public function sendSystemTextMessageFromCRM(Conversation $conversation, string $content, ?TraceReference $aiTrace = null): Message
     {
         ['to' => $to, 'recipient_type' => $recipientType, 'business_phone_id' => $businessPhoneId, 'business_token' => $businessToken] =
             $this->resolveOutboundWhatsAppContext($conversation);
@@ -2147,6 +2148,8 @@ class WhatsAppMessageService
             'direction' => MessageDirection::OUTBOUND,
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
+            'ai_trace_id' => $aiTrace?->traceId,
+            'ai_observation_id' => $aiTrace?->observationId,
         ]);
 
         $conversation->update([

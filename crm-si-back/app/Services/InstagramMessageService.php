@@ -17,6 +17,7 @@ use App\Models\InstagramConfig;
 use App\Models\Message;
 use App\Models\PipelineStage;
 use App\Models\User;
+use App\Services\Observability\Langfuse\TraceReference;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -747,7 +748,7 @@ class InstagramMessageService
      * GenerateAiReplyJob (worker de colas): el timeout de postMessage evita
      * bloquear el worker si Graph se cuelga.
      */
-    public function sendSystemTextMessageFromCRM(Conversation $conversation, string $content): Message
+    public function sendSystemTextMessageFromCRM(Conversation $conversation, string $content, ?TraceReference $aiTrace = null): Message
     {
         ['page_id' => $pageId, 'recipient_id' => $recipientId, 'token' => $token] =
             $this->resolveOutboundContext($conversation);
@@ -766,6 +767,8 @@ class InstagramMessageService
             'delivered_at' => now(),
             'message_type' => MessageType::Text,
             'external_id' => $externalId,
+            'ai_trace_id' => $aiTrace?->traceId,
+            'ai_observation_id' => $aiTrace?->observationId,
         ]);
 
         $conversation->update([

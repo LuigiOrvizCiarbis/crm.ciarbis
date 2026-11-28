@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AssistantFeedbackRequest;
+use App\Jobs\SendLangfuseScoreJob;
 use App\Models\AssistantMessageFeedback;
+use App\Models\AssistantMessageTrace;
 use App\Services\Ai\Assistant\AssistantConversations;
 use App\Support\CurrentWorkspace;
 use Illuminate\Http\Response;
@@ -22,11 +24,24 @@ class AssistantFeedbackController extends Controller
     ): Response {
         abort_unless($conversations->ownsAssistantMessage($workspace->membership(), $message), 404);
 
-        AssistantMessageFeedback::query()->updateOrCreate(
+        $feedback = AssistantMessageFeedback::query()->updateOrCreate(
             ['user_id' => $request->user()->id, 'message_id' => $message],
             ['tenant_id' => $request->user()->tenant_id, 'rating' => (int) $request->validated('rating')],
         );
 
+        $this->sendScore($message, $feedback);
+
         return response()->noContent();
+    }
+
+    /** Envía la valoración como score a Langfuse si la respuesta quedó trazada. */
+    private function sendScore(string $message, AssistantMessageFeedback $feedback): void
+    {
+        $trace = AssistantMessageTrace::query()->find($message);
+        if (! $trace) {
+            return;
+        }
+
+        SendLangfuseScoreJob::dispatch($feedback, 'assistant-'.$message, $trace->trace_id, $trace->observation_id);
     }
 }

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\AiProvider;
 use App\Enums\ChannelType;
+use App\Enums\MessageDirection;
 use App\Enums\TemplateCategory;
 use App\Enums\TemplateStatus;
 use App\Enums\UserRole;
@@ -24,6 +25,8 @@ use App\Services\InstagramMessageService;
 use App\Services\MailMessageService;
 use App\Services\MessengerMessageService;
 use App\Services\MessagingWindowService;
+use App\Services\Observability\Langfuse\LangfuseNames;
+use App\Services\Observability\Langfuse\LangfuseTracer;
 use App\Services\SystemMessageSender;
 use App\Services\WhatsAppMessageService;
 use App\Services\WhatsAppTemplateService;
@@ -37,6 +40,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Concerns\ReceivesInboundMessages;
@@ -490,6 +494,49 @@ class AiAutoreplyTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.id', $conversation->id)
             ->assertJsonPath('data.0.ai_autoreply_enabled', true);
+    }
+
+    public function test_job_traces_reply_and_links_message(): void
+    {
+        $exporter = new InMemoryExporter;
+        $this->app->instance(LangfuseTracer::class, LangfuseTracer::withExporter($exporter, [
+            'enabled' => true, 'environment' => 'testing', 'timeout' => 3, 'max_string_chars' => 50000,
+        ] + config('langfuse')));
+        [, $conversation] = $this->createConversationSetup(aiEnabled: true);
+
+        Http::fake([
+            'api.anthropic.com/*' => Http::response([
+                'id' => 'msg_1', 'type' => 'message', 'role' => 'assistant',
+                'content' => [['type' => 'text', 'text' => 'Hola, sí tenemos stock.']], 'stop_reason' => 'end_turn',
+                'model' => 'claude-opus-4-8', 'usage' => ['input_tokens' => 1, 'output_tokens' => 1],
+            ]),
+            'graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.OUT1']]]),
+        ]);
+
+        $this->runJob($conversation);
+        app(LangfuseTracer::class)->flush();
+
+        $spans = collect($exporter->getSpans())->keyBy(fn ($span) => $span->getName());
+        $root = $spans[LangfuseNames::AUTO_REPLY];
+        $rootAttributes = $root->getAttributes()->toArray();
+        $decideAttributes = $spans[LangfuseNames::DECIDE]->getAttributes()->toArray();
+
+        $this->assertSame('agent', $rootAttributes['langfuse.observation.type']);
+        $this->assertStringContainsString('"outcome":"reply_sent"', $rootAttributes['langfuse.observation.output']);
+        $this->assertSame('generation', $decideAttributes['langfuse.observation.type']);
+        $this->assertSame('claude-opus-4-8', $decideAttributes['langfuse.observation.model.name']);
+        $this->assertSame('{"input":1,"output":1}', $decideAttributes['langfuse.observation.usage_details']);
+        foreach ($spans as $span) {
+            $attributes = $span->getAttributes()->toArray();
+            $this->assertSame('conversation-'.$conversation->id, $attributes['langfuse.session.id']);
+            $this->assertArrayHasKey('langfuse.trace.metadata.tenant_id', $attributes);
+        }
+
+        $message = $conversation->messages()->where('direction', MessageDirection::OUTBOUND)->latest('id')->firstOrFail();
+        $this->assertSame($root->getContext()->getTraceId(), $message->ai_trace_id);
+        $this->assertSame($root->getContext()->getSpanId(), $message->ai_observation_id);
+        $this->assertTrue($message->toArray()['ai_traced']);
+        $this->assertArrayNotHasKey('ai_trace_id', $message->toArray());
     }
 
     /**
