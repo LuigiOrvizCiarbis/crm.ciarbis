@@ -10,6 +10,9 @@ use App\Ai\Tools\Assistant\SearchContacts;
 use App\Ai\Tools\Assistant\WorkspaceSummary;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\Observability\Langfuse\LangfuseNames;
+use App\Services\Observability\Langfuse\TraceContext;
+use App\Services\Observability\Langfuse\TracedAgent;
 use App\Services\Tasks\TaskCreator;
 use Laravel\Ai\Ai;
 use Laravel\Ai\Attributes\CacheInstructions;
@@ -42,7 +45,7 @@ use Laravel\Ai\Providers\Provider;
 #[RepairToolCalls]
 #[CacheToolDefinitions]
 #[CacheInstructions]
-class WorkspaceAssistant implements Agent, Conversational, HasMiddleware, HasTools
+class WorkspaceAssistant implements Agent, Conversational, HasMiddleware, HasTools, TracedAgent
 {
     use Promptable, RemembersConversations;
 
@@ -132,5 +135,27 @@ class WorkspaceAssistant implements Agent, Conversational, HasMiddleware, HasToo
     private function canCreateTasks(): bool
     {
         return $this->user->can('create', Task::class);
+    }
+
+    public function traceName(): string
+    {
+        return LangfuseNames::WORKSPACE_ASSISTANT;
+    }
+
+    public function generationName(): string
+    {
+        return LangfuseNames::ASSISTANT_STEP;
+    }
+
+    public function traceContext(): TraceContext
+    {
+        $conversationId = $this->currentConversation();
+
+        return new TraceContext(
+            sessionId: $conversationId ? 'assistant-'.$conversationId : null,
+            userId: 'user-'.$this->user->id,
+            metadata: ['tenant_id' => $this->user->tenant_id],
+            tags: ['workspace-assistant'],
+        );
     }
 }

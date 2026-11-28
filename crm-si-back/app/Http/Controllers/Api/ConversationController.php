@@ -243,7 +243,7 @@ class ConversationController extends Controller
         ]);
     }
 
-    public function show($id): JsonResponse
+    public function show(Request $request, $id): JsonResponse
     {
 
         $conversation = Conversation::with([
@@ -260,7 +260,7 @@ class ConversationController extends Controller
         // Query directa y no eager load con limit: el eager load numera con row_number()
         // todos los mensajes de la conversación; así corta en 20 con el índice (conversation_id, created_at).
         $messages = $conversation->messages()
-            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview', 'replyTo'])
+            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview', 'replyTo', 'aiFeedback' => $this->currentUserFeedback($request)])
             ->whereNull('mail_parent_message_id')
             ->orderBy('created_at', 'desc')
             ->limit(20)
@@ -328,6 +328,12 @@ class ConversationController extends Controller
         });
     }
 
+    /** Restringe el eager load de aiFeedback a la calificación del usuario actual. */
+    private function currentUserFeedback(Request $request): \Closure
+    {
+        return fn ($query) => $query->where('user_id', $request->user()->id);
+    }
+
     // NUEVO MÉTODO: Obtener mensajes paginados (Infinite Scroll)
     public function fetchMessages(Request $request, $id)
     {
@@ -339,7 +345,7 @@ class ConversationController extends Controller
         // Obtenemos mensajes ordenados por fecha descendente (del más nuevo al más viejo)
         // Laravel Paginator se encarga de 'page=1', 'page=2', etc.
         $messages = $conversation->messages()
-            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview', 'replyTo'])
+            ->with(['mailDetails', 'mailAttachments', 'reactions', 'linkPreview', 'replyTo', 'aiFeedback' => $this->currentUserFeedback($request)])
             ->whereNull('mail_parent_message_id')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);

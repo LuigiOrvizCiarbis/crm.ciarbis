@@ -1,11 +1,12 @@
 "use client"
 
-import { Message, TranslationLanguage, SharedContact } from "@/data/types"
+import { AiFeedbackRating, Message, TranslationLanguage, SharedContact } from "@/data/types"
 import { MessageStatus } from "./MessageStatus"
 import { MessageReactions } from "./MessageReactions"
 import { ReactionPicker } from "./ReactionPicker"
 import { EmojiPicker } from "./EmojiPicker"
-import { MoreHorizontal, Pencil, Trash2, Bot, Languages, EyeOff, Phone, Mail, Ban, AlertCircle, Reply, ShoppingCart } from "lucide-react"
+import { MoreHorizontal, Pencil, Trash2, Bot, Languages, EyeOff, Phone, Mail, Ban, AlertCircle, Reply, ShoppingCart, ThumbsDown, ThumbsUp } from "lucide-react"
+import { RatingButton } from "@/components/RatingButton"
 import { useTranslation } from "@/hooks/useTranslation"
 import { useLongPress } from "@/hooks/useLongPress"
 import { useSwipeToReply, SWIPE_REPLY_THRESHOLD } from "@/hooks/useSwipeToReply"
@@ -74,6 +75,12 @@ interface MessageBubbleProps {
   currentUserId?: number
   /** Muestra el nombre de quien escribió sobre las burbujas inbound de un grupo. */
   isGroupConversation?: boolean
+  /** Calificación actual del operador sobre esta respuesta de la IA. */
+  aiRating?: AiFeedbackRating | null
+  /** Califica una respuesta de la IA (👍/👎); se envía como score a Langfuse. */
+  onRateAi?: (message: Message, rating: AiFeedbackRating) => void
+  /** Hay una calificación en vuelo: los botones se deshabilitan hasta que responda. */
+  aiRatingPending?: boolean
 }
 
 /**
@@ -105,6 +112,9 @@ export const MessageBubble = memo(function MessageBubble({
   currentUserId,
   isGroupConversation = false,
   onSaveContact,
+  aiRating = null,
+  onRateAi,
+  aiRatingPending = false,
 }: MessageBubbleProps) {
   const { t, language } = useTranslation()
   const [showOriginal, setShowOriginal] = useState(false)
@@ -629,6 +639,26 @@ export const MessageBubble = memo(function MessageBubble({
               {msg.error_message ? `${t("chats.messageFailed")}: ${msg.error_message}` : t("chats.messageFailed")}
             </span>
           </p>
+        )}
+
+        {/* Siempre visible (no sólo al hover) para que funcione en mobile. */}
+        {isBot && msg.ai_traced && !isDeleted && onRateAi && (
+          <div className="mt-0.5 flex items-center gap-0.5">
+            <RatingButton
+              label={t("chats.aiFeedbackUp")}
+              active={aiRating === 1}
+              disabled={aiRatingPending}
+              onClick={() => onRateAi(msg, 1)}
+              icon={ThumbsUp}
+            />
+            <RatingButton
+              label={t("chats.aiFeedbackDown")}
+              active={aiRating === -1}
+              disabled={aiRatingPending}
+              onClick={() => onRateAi(msg, -1)}
+              icon={ThumbsDown}
+            />
+          </div>
         )}
 
         <MessageReactions

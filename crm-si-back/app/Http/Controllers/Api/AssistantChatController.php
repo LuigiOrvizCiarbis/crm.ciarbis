@@ -6,12 +6,15 @@ use App\Ai\Agents\WorkspaceAssistant;
 use App\Exceptions\AssistantException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AssistantChatRequest;
+use App\Models\AssistantMessageTrace;
 use App\Services\Ai\Assistant\AssistantConversations;
 use App\Services\Ai\Assistant\AssistantProviderResolver;
 use App\Services\Ai\Assistant\AssistantUsageMeter;
+use App\Services\Observability\Langfuse\AgentTracing;
 use App\Support\CurrentWorkspace;
 use Illuminate\Http\JsonResponse;
 use Laravel\Ai\Responses\StreamableAgentResponse;
+use Laravel\Ai\Responses\StreamedAgentResponse;
 use Laravel\Ai\Vercel\Vercel;
 
 /**
@@ -53,6 +56,16 @@ class AssistantChatController extends Controller
         return (new WorkspaceAssistant($user, $provider->config, $provider->model))
             ->continue($conversation->id, as: $membership)
             ->stream($chat)
+            // Corre después de que el SDK guardó el mensaje: vincula su id con el trace.
+            ->then(function (StreamedAgentResponse $response) use ($tenantId): void {
+                $reference = app(AgentTracing::class)->referenceFor($response->invocationId);
+                if ($reference && $response->assistantMessageId) {
+                    AssistantMessageTrace::query()->updateOrCreate(
+                        ['message_id' => $response->assistantMessageId],
+                        ['tenant_id' => $tenantId, 'trace_id' => $reference->traceId, 'observation_id' => $reference->observationId],
+                    );
+                }
+            })
             ->usingProtocol($chat->protocol());
     }
 }

@@ -41,6 +41,7 @@ use App\Http\Controllers\Api\MercadoLibreCatalogController;
 use App\Http\Controllers\Api\MercadoLibreConnectionController;
 use App\Http\Controllers\Api\MercadoPagoConfigController;
 use App\Http\Controllers\Api\MercadoPagoWebhookController;
+use App\Http\Controllers\Api\MessageAiFeedbackController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\MessageHotkeyController;
 use App\Http\Controllers\Api\MessageMediaController;
@@ -677,6 +678,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('messages/{message}', [MessageController::class, 'destroy']);
     Route::post('messages/{message}/translation', [MessageTranslationController::class, 'store']);
     Route::post('messages/{message}/reaction', [MessageReactionController::class, 'store']);
+    Route::put('messages/{message}/ai-feedback', MessageAiFeedbackController::class);
     Route::get('messages/{message}/media', [MessageMediaController::class, 'show']);
     Route::post('messages/{message}/link-preview', [LinkPreviewController::class, 'store'])->middleware('throttle:link-preview');
 

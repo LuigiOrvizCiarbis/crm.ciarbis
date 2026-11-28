@@ -13,6 +13,11 @@ use App\Services\Ai\AiTool;
 use App\Services\Ai\AiToolset;
 use App\Services\Ai\AiVerificationResult;
 use App\Services\Ai\ToolLoopDeadline;
+use App\Services\Observability\Langfuse\LangfuseNames;
+use App\Services\Observability\Langfuse\LangfuseObservation;
+use App\Services\Observability\Langfuse\LangfuseTracer;
+use App\Services\Observability\Langfuse\ObservationType;
+use App\Services\Observability\Langfuse\UsageDetails;
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\ClientInterface;
 use Illuminate\Http\Client\Response;
@@ -72,13 +77,15 @@ class AnthropicProvider implements AiProvider
                 ],
             );
 
-            $response = $client->messages->create(
+            $generation = $this->startGeneration(LangfuseNames::RESPOND, $model, $this->replyParameters($model), $systemPrompt, $messages, []);
+            $response = $this->traced($generation, fn () => $client->messages->create(
                 model: $model,
                 maxTokens: self::REPLY_MAX_TOKENS,
                 system: $system,
                 messages: $messages,
                 outputConfig: $this->replyOutputConfig($model),
-            );
+            ));
+            $this->endGeneration($generation, $response);
 
             foreach ($response->content as $block) {
                 if ($block->type === 'text' && trim($block->text) !== '') {
@@ -137,14 +144,16 @@ class AnthropicProvider implements AiProvider
                 ],
             );
 
-            $response = $client->messages->create(
+            $generation = $this->startGeneration(LangfuseNames::RESPOND, $model, $this->replyParameters($model), $system[0]['text'], $messages, array_column($tools, 'name'));
+            $response = $this->traced($generation, fn () => $client->messages->create(
                 model: $model,
                 maxTokens: self::REPLY_MAX_TOKENS,
                 system: $system,
                 messages: $messages,
                 tools: $tools,
                 outputConfig: $this->replyOutputConfig($model),
-            );
+            ));
+            $this->endGeneration($generation, $response, $round);
 
             $toolUses = array_values(array_filter(
                 $response->content,
@@ -205,7 +214,7 @@ class AnthropicProvider implements AiProvider
                 $results[] = [
                     'type' => 'tool_result',
                     'tool_use_id' => $block->id,
-                    'content' => $toolset->call($block->name, (array) $block->input),
+                    'content' => $this->callTool($toolset, $block->name, (array) $block->input),
                 ];
             }
 
@@ -218,7 +227,9 @@ class AnthropicProvider implements AiProvider
     {
         try {
             $outputConfig = $this->replyOutputConfig($model);
-            $response = Http::withHeaders(['x-api-key' => $this->apiKey, 'anthropic-version' => '2023-06-01'])
+            $formattedMessages = array_map([$this, 'formatMessage'], $messages);
+            $generation = $this->startGeneration(LangfuseNames::DECIDE, $model, $this->replyParameters($model), $systemPrompt, $formattedMessages, $offerHandoff ? ['request_human_handoff'] : []);
+            $response = $this->traced($generation, fn () => Http::withHeaders(['x-api-key' => $this->apiKey, 'anthropic-version' => '2023-06-01'])
                 ->timeout((int) config('services.ai.generate_timeout', 60))
                 ->post('https://api.anthropic.com/v1/messages', [
                     'model' => $model,
@@ -231,18 +242,24 @@ class AnthropicProvider implements AiProvider
                         'text' => $systemPrompt,
                         'cache_control' => ['type' => 'ephemeral'],
                     ]],
-                    'messages' => array_map([$this, 'formatMessage'], $messages),
+                    'messages' => $formattedMessages,
                     ...($offerHandoff ? ['tools' => [[
                         'name' => 'request_human_handoff',
                         'description' => self::HANDOFF_TOOL_DESCRIPTION,
                         'input_schema' => self::HANDOFF_TOOL_PARAMETERS,
                     ]]] : []),
-                ]);
+                ]));
             if (! $response->successful()) {
+                $generation->fail('HTTP '.$response->status())->end();
                 Log::warning('AnthropicProvider: decide no exitoso', ['status' => $response->status()]);
 
                 return AiReplyDecision::reply(null);
             }
+
+            $generation->output($this->contentForTrace($response->json('content', [])))
+                ->usage(UsageDetails::fromAnthropicArray($response->json('usage')))
+                ->metadata(['stop_reason' => $response->json('stop_reason')])
+                ->end();
 
             // Claude suele escribir un texto ("Claro, te paso con alguien")
             // ANTES del tool_use. Hay que recorrer todos los bloques: cortar en
@@ -371,6 +388,78 @@ class AnthropicProvider implements AiProvider
             && (int) $matches[1] >= 5;
     }
 
+    /** Parámetros del modelo de las respuestas al cliente, para Langfuse. */
+    private function replyParameters(string $model): array
+    {
+        return array_filter([
+            'max_tokens' => self::REPLY_MAX_TOKENS,
+            'effort' => $this->replyOutputConfig($model)['effort'] ?? null,
+        ], fn ($value) => $value !== null);
+    }
+
+    /** Abre la generación de Langfuse de una llamada al modelo (noop sin trace activo). */
+    private function startGeneration(string $name, string $model, array $parameters, mixed $system, array $messages, array $toolNames): LangfuseObservation
+    {
+        return $this->tracer()->current()->generation($name, $model, $parameters)
+            ->input(['system' => $system, 'messages' => $messages, 'tools' => $toolNames]);
+    }
+
+    /** Ejecuta la llamada al modelo y, si lanza, cierra la generación como fallida y relanza. */
+    private function traced(LangfuseObservation $generation, \Closure $call): mixed
+    {
+        try {
+            return $call();
+        } catch (\Throwable $e) {
+            $generation->fail($e)->end();
+
+            throw $e;
+        }
+    }
+
+    /** Cierra la generación con la respuesta del SDK. */
+    private function endGeneration(LangfuseObservation $generation, object $response, ?int $round = null): void
+    {
+        $generation->output($this->contentForTrace($response->content ?? []))
+            ->usage(UsageDetails::fromAnthropic($response->usage ?? null))
+            ->metadata(array_filter(['stop_reason' => $response->stopReason ?? null, 'round' => $round], fn ($value) => $value !== null))
+            ->end();
+    }
+
+    /**
+     * Bloques de content para el trace. Acepta objetos del SDK o arrays del
+     * JSON crudo; el thinking va sin signature.
+     */
+    private function contentForTrace(iterable $blocks): array
+    {
+        $field = fn ($block, string $key) => is_array($block) ? ($block[$key] ?? null) : ($block->{$key} ?? null);
+        $content = [];
+        foreach ($blocks as $block) {
+            $content[] = match ($field($block, 'type')) {
+                'text' => ['type' => 'text', 'text' => $field($block, 'text')],
+                'tool_use' => ['type' => 'tool_use', 'name' => $field($block, 'name'), 'input' => $field($block, 'input')],
+                'thinking' => ['type' => 'thinking', 'thinking' => $field($block, 'thinking')],
+                default => ['type' => $field($block, 'type')],
+            };
+        }
+
+        return $content;
+    }
+
+    /** Ejecuta una herramienta dentro de su span de Langfuse. AiToolset::call nunca lanza. */
+    private function callTool(AiToolset $toolset, string $name, array $input): string
+    {
+        $span = $this->tracer()->current()->child($name, ObservationType::Tool)->input($input);
+        $result = $toolset->call($name, $input);
+        $span->output($result)->end();
+
+        return $result;
+    }
+
+    private function tracer(): LangfuseTracer
+    {
+        return app(LangfuseTracer::class);
+    }
+
     /**
      * Traduce un mensaje del historial al formato de la API de Anthropic. Si el
      * content es string plano, pasa sin tocar. Si es una lista de bloques
@@ -460,11 +549,15 @@ class AnthropicProvider implements AiProvider
                 ],
             );
 
+            $maxTokens = (int) config('services.ai.extraction.max_tokens', 8000);
+            $generation = $this->tracer()->current()->generation(LangfuseNames::EXTRACT, $model, ['max_tokens' => $maxTokens])
+                ->input(['system' => $systemPrompt, 'document' => $text, 'images' => count($images), 'tools' => [self::EXTRACTION_TOOL]]);
+
             // Se fuerza la tool en vez de dejarla opcional: no queremos una
             // respuesta en prosa, queremos el objeto validado contra el schema.
-            $response = $client->messages->create(
+            $response = $this->traced($generation, fn () => $client->messages->create(
                 model: $model,
-                maxTokens: (int) config('services.ai.extraction.max_tokens', 8000),
+                maxTokens: $maxTokens,
                 system: $systemPrompt,
                 messages: [['role' => 'user', 'content' => $this->documentContent($text, $images)]],
                 tools: [
@@ -476,7 +569,7 @@ class AnthropicProvider implements AiProvider
                     ),
                 ],
                 toolChoice: ToolChoiceTool::with(name: self::EXTRACTION_TOOL),
-            );
+            ));
         } catch (\Throwable $e) {
             $mapped = AiErrorMapper::fromStatus($this->statusFrom($e), $e->getMessage());
 
@@ -488,6 +581,11 @@ class AnthropicProvider implements AiProvider
 
             return AiExtractionResult::failure($mapped['code'], $mapped['message']);
         }
+
+        $generation->output($this->extractionToolInput($response->content ?? []))
+            ->usage(UsageDetails::fromAnthropic($response->usage ?? null))
+            ->metadata(['stop_reason' => $response->stopReason ?? null])
+            ->end();
 
         $inputTokens = $response->usage->inputTokens ?? null;
         $outputTokens = $response->usage->outputTokens ?? null;
@@ -520,6 +618,18 @@ class AnthropicProvider implements AiProvider
             $inputTokens,
             $outputTokens,
         );
+    }
+
+    /** Input del bloque tool_use de extracción, o null si el modelo no lo devolvió. */
+    private function extractionToolInput(iterable $blocks): mixed
+    {
+        foreach ($blocks as $block) {
+            if ($block->type === 'tool_use' && $block->name === self::EXTRACTION_TOOL) {
+                return $block->input;
+            }
+        }
+
+        return null;
     }
 
     /**

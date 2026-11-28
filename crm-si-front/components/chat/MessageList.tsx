@@ -1,4 +1,4 @@
-import { Message, TranslationLanguage } from "@/data/types"
+import { AiFeedbackRating, Message, TranslationLanguage } from "@/data/types"
 import { MessageBubble } from "./MessageBubble"
 import { WhatsAppFormattingContext } from "./MessageText"
 import { getDayLabel, isSameDay, parseTemplateContent } from "./messageThreadUtils"
@@ -53,6 +53,10 @@ interface MessageListProps {
   onEditMessage?: (message: Message) => void
   onDeleteMessage?: (message: Message) => void
   onReactMessage?: (message: Message, emoji: string) => void
+  /** Califica una respuesta de la IA (👍/👎). */
+  onRateAi?: (message: Message, rating: AiFeedbackRating) => void
+  /** Mensajes con una calificación en vuelo: sus botones quedan deshabilitados. */
+  pendingAiRatingIds?: ReadonlySet<number>
   onReplyMessage?: (message: Message) => void
   /** Nombre del contacto, para el autor de las citas entrantes. */
   contactName?: string | null
@@ -182,6 +186,8 @@ export const MessageList = memo(function MessageList({
   onEditMessage,
   onDeleteMessage,
   onReactMessage,
+  onRateAi,
+  pendingAiRatingIds,
   onReplyMessage,
   contactName,
   onSaveContact,
@@ -702,6 +708,9 @@ export const MessageList = memo(function MessageList({
                   onEdit={onEditMessage}
                   onDelete={setDeleteTarget}
                   onReact={onReactMessage}
+                  onRateAi={onRateAi}
+                  aiRating={msg.ai_feedback?.[0]?.rating ?? null}
+                  aiRatingPending={pendingAiRatingIds?.has(msg.id) ?? false}
                   onSaveContact={onSaveContact}
                   canEdit={!!canEdit(msg) && !!onEditMessage}
                   canDelete={!!canDelete(msg) && !!onDeleteMessage}

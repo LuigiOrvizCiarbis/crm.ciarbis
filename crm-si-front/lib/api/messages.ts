@@ -1,4 +1,4 @@
-import { Message, MessageReaction, TranslationLanguage, SharedContact } from "@/data/types";
+import { AiFeedbackRating, Message, MessageReaction, TranslationLanguage, SharedContact } from "@/data/types";
 import { throwApiError } from "./api-error";
 import { audioExtensionForMime } from "@/lib/audio";
 import { AssetForbiddenError, AssetMissingError } from "./media-assets";
@@ -240,6 +240,23 @@ export async function reactToMessage(messageId: number, emoji: string): Promise<
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) throwApiError(res.status, payload, "No se pudo enviar la reacción");
   return payload.data ?? [];
+}
+
+/** Califica una respuesta de la IA; el backend la envía como score a Langfuse. */
+export async function sendAiMessageFeedback(messageId: number, rating: AiFeedbackRating): Promise<void> {
+  const res = await fetch(`/api/messages/${messageId}/ai-feedback`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ rating }),
+  });
+
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}));
+    throwApiError(res.status, payload, "No se pudo guardar la calificación");
+  }
 }
 
 /**
