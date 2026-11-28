@@ -170,13 +170,14 @@ class GenerateAiReplyJob implements ShouldBeUnique, ShouldQueue
             sessionId: 'conversation-'.$conversation->id,
             userId: 'contact-'.$conversation->contact_id,
             metadata: [
-                'tenant_id' => $conversation->tenant_id,
                 'conversation_id' => $conversation->id,
                 'channel' => $channel,
                 'provider' => $aiConfig->provider->value,
                 'model' => $aiConfig->model ?: $aiConfig->provider->defaultModel(),
             ],
             tags: ['auto-reply', (string) $channel],
+            tenantId: $conversation->tenant_id,
+            tenantName: $conversation->tenant?->name,
         );
     }
 

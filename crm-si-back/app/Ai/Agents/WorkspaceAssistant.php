@@ -154,8 +154,9 @@ class WorkspaceAssistant implements Agent, Conversational, HasMiddleware, HasToo
         return new TraceContext(
             sessionId: $conversationId ? 'assistant-'.$conversationId : null,
             userId: 'user-'.$this->user->id,
-            metadata: ['tenant_id' => $this->user->tenant_id],
             tags: ['workspace-assistant'],
+            tenantId: $this->user->tenant_id,
+            tenantName: $this->user->tenant?->name,
         );
     }
 }
