@@ -529,7 +529,8 @@ class AiAutoreplyTest extends TestCase
         foreach ($spans as $span) {
             $attributes = $span->getAttributes()->toArray();
             $this->assertSame('conversation-'.$conversation->id, $attributes['langfuse.session.id']);
-            $this->assertArrayHasKey('langfuse.trace.metadata.tenant_id', $attributes);
+            $this->assertSame((string) $conversation->tenant_id, $attributes['langfuse.trace.metadata.tenant_id']);
+            $this->assertContains('tenant:'.$conversation->tenant->name, $attributes['langfuse.trace.tags']);
         }
 
         $message = $conversation->messages()->where('direction', MessageDirection::OUTBOUND)->latest('id')->firstOrFail();
