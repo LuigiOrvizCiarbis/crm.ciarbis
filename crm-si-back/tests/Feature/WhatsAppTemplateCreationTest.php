@@ -16,6 +16,7 @@ use App\Services\WhatsAppTemplateService;
 use App\Support\PermissionCatalog;
 use App\Support\RoleProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -131,6 +132,44 @@ class WhatsAppTemplateCreationTest extends TestCase
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/app-1/uploads')
             && $request['file_type'] === 'image/png' && $request['file_length'] === 9);
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/upload:1') && $request->body() === 'png-bytes');
+    }
+
+    public function test_uploaded_header_file_becomes_the_template_default_header(): void
+    {
+        [$user, $channel] = $this->context();
+        config(['services.facebook.app_id' => 'app-1']);
+        Storage::fake('public');
+        Http::fake([
+            'https://graph.facebook.com/*/app-1/uploads' => Http::response(['id' => 'upload:1']),
+            'https://graph.facebook.com/*/upload:1' => Http::response(['h' => '4::handle']),
+            'https://graph.facebook.com/*/waba-test/message_templates' => Http::response(['id' => 'meta-promo', 'status' => 'APPROVED', 'category' => 'MARKETING']),
+        ]);
+        $foreign = MediaAsset::create(['tenant_id' => Tenant::create(['name' => 'Otra'])->id, 'name' => 'x.png', 'path' => 'media-assets/x.png', 'mime_type' => 'image/png', 'size' => 9]);
+        Sanctum::actingAs($user);
+
+        $assetId = $this->postJson("/api/channels/{$channel->id}/templates/media", ['file' => UploadedFile::fake()->create('promo.png', 10, 'image/png')])
+            ->assertCreated()
+            ->json('media_asset_id');
+        $asset = MediaAsset::findOrFail($assetId);
+        $this->assertSame(MediaAsset::PURPOSE_TEMPLATE_HEADER, $asset->purpose);
+        Storage::disk('public')->assertExists($asset->path);
+
+        $payload = [
+            'name' => 'promo', 'language' => 'es_AR', 'category' => 'MARKETING',
+            'components' => [
+                ['type' => 'HEADER', 'format' => 'IMAGE', 'example' => ['header_handle' => ['4::handle']]],
+                ['type' => 'BODY', 'text' => 'Llegó la promo.'],
+            ],
+        ];
+        $this->postJson("/api/channels/{$channel->id}/templates", [...$payload, 'header_media_asset_id' => $foreign->id])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['header_media_asset_id']);
+        $this->postJson("/api/channels/{$channel->id}/templates", [...$payload, 'header_media_asset_id' => $assetId])->assertCreated();
+
+        $this->getJson("/api/channels/{$channel->id}/templates")
+            ->assertOk()
+            ->assertJsonPath('0.default_header_asset_id', $assetId)
+            ->assertJsonMissingPath('0.header_media_asset_id');
     }
 
     public function test_meta_creation_error_includes_the_specific_user_message(): void

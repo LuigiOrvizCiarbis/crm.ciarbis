@@ -87,14 +87,16 @@ class TemplateParameterRenderer
             $errors['parameters'][] = 'Faltan parámetros del template: '.implode(', ', $missing).'.';
         }
 
-        // Un header de media necesita exactamente un parámetro con la URL del
-        // archivo; sin él Meta rechaza el envío por header faltante.
+        // Un header de media necesita un parámetro con la URL del archivo; sin
+        // él Meta rechaza el envío por header faltante. Puede faltar si la
+        // plantilla tiene su archivo por defecto: se manda ese.
         if ($template->headerMediaFormat() !== null) {
             $headerParams = array_filter(
                 $parameters,
                 fn ($parameter) => strtolower($parameter['component'] ?? 'body') === 'header',
             );
-            if (count($headerParams) !== 1) {
+            $allowed = $template->defaultHeaderAsset() !== null ? [0, 1] : [1];
+            if (! in_array(count($headerParams), $allowed, true)) {
                 $errors['parameters'][] = "El template «{$template->name}» tiene un encabezado con archivo: definí un parámetro de encabezado con la URL del documento.";
             }
         }

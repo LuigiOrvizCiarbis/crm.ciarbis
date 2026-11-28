@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Support\TemplateHeaderMediaRules;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -32,6 +33,7 @@ class StoreBroadcastRequest extends FormRequest
                 Rule::exists('whatsapp_templates', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId)),
             ],
             'components' => ['nullable', 'array'],
+            ...TemplateHeaderMediaRules::rules(),
             'reply_tags' => ['nullable', 'array', 'max:10'],
             'reply_tags.*.button_index' => ['required', 'integer', 'min:0', 'max:9', 'distinct'],
             'reply_tags.*.tag_id' => [
@@ -74,6 +76,11 @@ class StoreBroadcastRequest extends FormRequest
             'acknowledge_audience_size' => ['nullable', 'boolean'],
             'acknowledge_messaging_limit' => ['nullable', 'boolean'],
         ];
+    }
+
+    public function messages(): array
+    {
+        return TemplateHeaderMediaRules::messages();
     }
 
     public function withValidator(Validator $validator): void

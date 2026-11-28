@@ -252,6 +252,24 @@ class BroadcastCampaignTest extends TestCase
             ->assertJsonValidationErrors(['filters.custom_filters.0.value']);
     }
 
+    public function test_store_rejects_header_image_link_that_meta_would_not_parse_as_uri(): void
+    {
+        [$user, $channel, $template] = $this->createSetup();
+        Sanctum::actingAs($user);
+
+        foreach (['www.tienda.com/promo.jpg', 'https://tienda.com/promo navidad.jpg'] as $link) {
+            $payload = $this->payload($channel, $template);
+            $payload['components'] = [[
+                'type' => 'header',
+                'parameters' => [['type' => 'image', 'image' => ['link' => $link]]],
+            ]];
+
+            $this->postJson('/api/broadcasts', $payload)
+                ->assertStatus(422)
+                ->assertJsonValidationErrors(['components.0.parameters.0.image.link']);
+        }
+    }
+
     public function test_send_now_persists_recipients_and_queues_one_job_per_contact(): void
     {
         // fakeExcept: DispatchBroadcastCampaignJob corre real (encolado sync

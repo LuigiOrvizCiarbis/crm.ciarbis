@@ -219,6 +219,7 @@ class WhatsAppTemplateService
                 'category' => $response->json('category', $payload['category']),
                 'status' => TemplateStatus::tryFrom((string) $response->json('status', 'PENDING')) ?? TemplateStatus::Pending,
                 'components' => $payload['components'],
+                'header_media_asset_id' => $this->headerMediaAssetId($payload, null),
                 'rejected_reason' => null,
                 'synced_at' => now(),
             ],
@@ -269,6 +270,7 @@ class WhatsAppTemplateService
 
         $template->forceFill([
             'components' => $payload['components'],
+            'header_media_asset_id' => $this->headerMediaAssetId($payload, $template->header_media_asset_id),
             'category' => $changesCategory ? $category : $template->category,
             'status' => TemplateStatus::Pending,
             'rejected_reason' => null,
@@ -276,6 +278,23 @@ class WhatsAppTemplateService
         ])->save();
 
         return $template;
+    }
+
+    /**
+     * Archivo por defecto del encabezado tras crear o editar: el nuevo si se
+     * subió uno, el anterior si se editó sin cambiarlo, ninguno si el
+     * encabezado dejó de ser de media.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function headerMediaAssetId(array $payload, ?int $current): ?int
+    {
+        $hasMediaHeader = collect($payload['components'])->contains(
+            fn ($component) => strtoupper($component['type'] ?? '') === 'HEADER'
+                && in_array(strtoupper($component['format'] ?? ''), ['IMAGE', 'VIDEO', 'DOCUMENT'], true),
+        );
+
+        return $hasMediaHeader ? ($payload['header_media_asset_id'] ?? $current) : null;
     }
 
     /**
@@ -354,6 +373,24 @@ class WhatsAppTemplateService
         unset($component);
 
         return $components;
+    }
+
+    /**
+     * Meta guarda el archivo del encabezado solo como ejemplo para revisar la
+     * plantilla y lo exige en cada envío. Si el envío no trae uno, va el que
+     * se subió al crear la plantilla.
+     */
+    private function withDefaultHeaderMedia(array $components, WhatsAppTemplate $template): array
+    {
+        $hasHeader = collect($components)->contains(fn ($component) => strtolower($component['type'] ?? '') === 'header');
+        $asset = $hasHeader ? null : $template->defaultHeaderAsset();
+        if (! $asset) {
+            return $components;
+        }
+
+        $kind = strtolower((string) $template->headerMediaFormat());
+
+        return [['type' => 'header', 'parameters' => [['type' => $kind, $kind => ['link' => $asset->publicUrl()]]]], ...$components];
     }
 
     /**
@@ -451,6 +488,7 @@ class WhatsAppTemplateService
         ?User $sender,
     ): Message {
         $components = $this->resolvePersonalizationTokens($components, $conversation);
+        $components = $this->withDefaultHeaderMedia($components, $template);
         $components = $this->ensureDocumentFilename($components, $template);
         [$components, $flowSession] = app(WhatsAppFlowSessionService::class)->attachToTemplate($conversation, $template, $components);
 

@@ -10,6 +10,7 @@ use App\Jobs\SendBroadcastMessageJob;
 use App\Models\Channel;
 use App\Models\Contact;
 use App\Models\Conversation;
+use App\Models\MediaAsset;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Models\WhatsAppConfig;
@@ -233,6 +234,39 @@ class BulkBroadcastTest extends TestCase
             return ($params[0]['text'] ?? null) === $contactName
                 && ($params[1]['text'] ?? null) === 'valor fijo';
         });
+    }
+
+    public function test_job_sends_the_template_default_header_unless_the_send_brings_one(): void
+    {
+        Http::fake(['graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.HEADER']]])]);
+        config(['services.facebook.public_media_base_url' => 'https://media.example.com']);
+
+        [$user, $config] = $this->createTenantWithWhatsAppChannel();
+        $conversation = $this->createConversations($user->tenant_id, $config, 1)->first();
+        $asset = MediaAsset::create([
+            'tenant_id' => $user->tenant_id, 'name' => 'promo.png', 'path' => 'media-assets/promo.png',
+            'mime_type' => 'image/png', 'size' => 9, 'purpose' => MediaAsset::PURPOSE_TEMPLATE_HEADER,
+        ]);
+        $template = $this->createApprovedTemplate($user->tenant_id, $config);
+        $template->update([
+            'header_media_asset_id' => $asset->id,
+            'components' => [['type' => 'HEADER', 'format' => 'IMAGE'], ...$template->components],
+        ]);
+        $override = [['type' => 'header', 'parameters' => [['type' => 'image', 'image' => ['link' => 'https://cdn.example.com/otra.png']]]]];
+
+        foreach ([[], $override] as $components) {
+            (new SendBroadcastMessageJob($conversation->id, $template->id, $components, $user->id, $user->tenant_id))
+                ->handle(app(WhatsAppTemplateService::class), app(BroadcastConversationResolver::class));
+        }
+
+        $headers = Http::recorded()->map(fn (array $pair) => collect($pair[0]->data()['template']['components'])
+            ->where('type', 'header')
+            ->pluck('parameters.0.image.link')
+            ->all());
+        $this->assertSame([
+            ['https://media.example.com/storage/media-assets/promo.png'],
+            ['https://cdn.example.com/otra.png'],
+        ], $headers->values()->all());
     }
 
     /**

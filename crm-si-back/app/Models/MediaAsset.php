@@ -20,6 +20,9 @@ class MediaAsset extends Model
     /** Documento subido sobre un contacto para extraerle datos. */
     public const PURPOSE_EXTRACTION = 'extraction';
 
+    /** Archivo con que se creó una plantilla de encabezado de media; se manda por defecto al enviarla. */
+    public const PURPOSE_TEMPLATE_HEADER = 'template_header';
+
     protected $fillable = [
         'tenant_id',
         'uploaded_by',

@@ -21,6 +21,7 @@ use App\Services\ConversationStageService;
 use App\Services\HumanHandoffService;
 use App\Services\Notifications\DomainNotifier;
 use App\Services\WhatsAppMessageService;
+use App\Support\TemplateHeaderMediaRules;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -813,7 +814,8 @@ class ConversationController extends Controller
             'ids.*' => ['integer'],
             'template_id' => ['required', 'integer', 'exists:whatsapp_templates,id'],
             'components' => ['nullable', 'array'],
-        ]);
+            ...TemplateHeaderMediaRules::rules(),
+        ], TemplateHeaderMediaRules::messages());
 
         $conversations = Conversation::query()
             ->whereIn('id', $validated['ids'])

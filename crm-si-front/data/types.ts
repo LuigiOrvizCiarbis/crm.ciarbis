@@ -420,6 +420,8 @@ export interface WhatsAppTemplate {
     | "IN_APPEAL" | "PENDING_DELETION" | "DELETED" | "PAUSED" | "LIMIT_EXCEEDED" | "UNKNOWN"
   rejected_reason?: string | null
   components: TemplateComponent[]
+  /** Archivo del espacio que se manda en el encabezado cuando el envío no elige otro. */
+  default_header_asset_id?: number | null
   synced_at: string
   created_at: string
   updated_at: string

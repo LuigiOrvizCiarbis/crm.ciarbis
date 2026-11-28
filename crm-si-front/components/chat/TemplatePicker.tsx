@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { FileText, RefreshCw, ArrowLeft, Send, Search } from "lucide-react"
 import { useToast } from "@/components/Toast"
+import { TemplateHeaderPreview } from "@/components/broadcasts/TemplateHeaderPreview"
 import { WhatsAppTemplate } from "@/data/types"
 import { getTemplates, syncTemplates, sendTemplate, uploadTemplateMedia } from "@/lib/api/templates"
 import {
@@ -17,6 +18,7 @@ import {
   defaultParamSource,
   extractBodyParams,
   getHeaderMediaFormat,
+  normalizeMediaUrl,
   resolveParamValue,
   type ParamSource,
   templateCategoryClass,
@@ -121,6 +123,9 @@ export function TemplatePicker({
   }
 
   const selectedMediaFormat = selected ? getHeaderMediaFormat(selected.components) : null
+  const normalizedMediaUrl = normalizeMediaUrl(mediaUrl)
+  const mediaUrlInvalid = !mediaFile && mediaUrl.trim() !== "" && normalizedMediaUrl === null
+  const hasDefaultHeader = Boolean(selected?.default_header_asset_id)
 
   // Valores para el preview: los orígenes de contacto se muestran como etiqueta
   // (el valor real se resuelve por conversación en el backend).
@@ -143,8 +148,8 @@ export function TemplatePicker({
         if (mediaFile) {
           const { media_id } = await uploadTemplateMedia(channelId, mediaFile)
           headerMedia = { id: media_id, filename: mediaFilename.trim() || mediaFile.name }
-        } else {
-          headerMedia = { link: mediaUrl.trim(), filename: mediaFilename.trim() || undefined }
+        } else if (normalizedMediaUrl) {
+          headerMedia = { link: normalizedMediaUrl, filename: mediaFilename.trim() || undefined }
         }
       }
 
@@ -305,6 +310,7 @@ export function TemplatePicker({
               <div className="space-y-3 pr-3">
                 {/* Template preview */}
                 <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
+                  <TemplateHeaderPreview template={selected} file={mediaFile} url={normalizedMediaUrl} />
                   {header?.text && (
                     <p className="font-semibold text-sm">{header.text}</p>
                   )}
@@ -333,6 +339,9 @@ export function TemplatePicker({
                     <p className="text-sm font-medium">
                       {selectedMediaFormat === "DOCUMENT" ? "Documento (PDF)" : selectedMediaFormat === "IMAGE" ? "Imagen" : "Video"}
                     </p>
+                    {hasDefaultHeader && (
+                      <p className="text-xs text-muted-foreground">Se envía el archivo de la plantilla. Elegí otro solo si querés reemplazarlo.</p>
+                    )}
                     <Input
                       type="file"
                       accept={
@@ -349,7 +358,11 @@ export function TemplatePicker({
                         placeholder="o pegá una URL pública del archivo (https://...)"
                         value={mediaUrl}
                         onChange={(e) => setMediaUrl(e.target.value)}
+                        aria-invalid={mediaUrlInvalid}
                       />
+                    )}
+                    {mediaUrlInvalid && (
+                      <p className="text-xs text-destructive">Pegá la dirección completa del archivo, empezando con https://</p>
                     )}
                     {selectedMediaFormat === "DOCUMENT" && (
                       <Input
@@ -414,7 +427,8 @@ export function TemplatePicker({
               onClick={handleSend}
               disabled={
                 sending ||
-                (selectedMediaFormat !== null && !mediaFile && !mediaUrl.trim()) ||
+                (selectedMediaFormat !== null && !mediaFile && normalizedMediaUrl === null && !hasDefaultHeader) ||
+                mediaUrlInvalid ||
                 paramValues.some((v, i) => paramSources[i] === "custom" && !v.trim())
               }
               className="w-full"

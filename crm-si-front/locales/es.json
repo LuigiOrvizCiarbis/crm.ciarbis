@@ -1330,7 +1330,11 @@
           "image": "Imagen",
           "video": "Video",
           "urlPlaceholder": "o pegá una URL pública del archivo (https://...)",
-          "filenamePlaceholder": "Nombre del archivo (opcional, ej. comprobante.pdf)"
+          "urlInvalid": "Pegá la dirección completa del archivo, empezando con https://",
+          "filenamePlaceholder": "Nombre del archivo (opcional, ej. comprobante.pdf)",
+          "defaultHint": "Se envía el archivo de la plantilla. Elegí otro solo si querés reemplazarlo.",
+          "templateFile": "Archivo de la plantilla",
+          "noFile": "Sin archivo"
         },
         "paramSource": {
           "contactName": "Nombre del contacto",

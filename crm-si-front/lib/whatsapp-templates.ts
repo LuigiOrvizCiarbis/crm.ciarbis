@@ -142,6 +142,20 @@ export interface HeaderMedia {
 }
 
 /**
+ * URL del archivo de encabezado tal como la acepta Meta: absoluta http(s), con
+ * espacios y acentos codificados. Null si no es una URL completa (p. ej.
+ * `www.sitio.com/foto.jpg`), que Meta rechaza con "is not a valid URI".
+ */
+export function normalizeMediaUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw.trim())
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Arma el array `components` del payload de envío de Meta a partir de los
  * valores cargados en el diálogo. Formato compartido entre difusión y envío
  * individual.

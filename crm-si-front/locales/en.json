@@ -1330,7 +1330,11 @@
           "image": "Image",
           "video": "Video",
           "urlPlaceholder": "or paste a public file URL (https://...)",
-          "filenamePlaceholder": "File name (optional, e.g. receipt.pdf)"
+          "urlInvalid": "Paste the full file address, starting with https://",
+          "filenamePlaceholder": "File name (optional, e.g. receipt.pdf)",
+          "defaultHint": "The template's file is sent. Choose another only to replace it.",
+          "templateFile": "Template file",
+          "noFile": "No file"
         },
         "paramSource": {
           "contactName": "Contact's name",
