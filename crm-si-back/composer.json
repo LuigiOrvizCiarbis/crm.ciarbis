@@ -17,6 +17,8 @@
         "laravel/reverb": "^1.10",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
+        "open-telemetry/exporter-otlp": "^1.0",
+        "open-telemetry/sdk": "^1.0",
         "openai-php/client": "^0.20.0",
         "phpseclib/phpseclib": "^3.0",
         "predis/predis": "^3.2",
@@ -92,7 +94,8 @@
         "sort-packages": true,
         "allow-plugins": {
             "pestphp/pest-plugin": true,
-            "php-http/discovery": true
+            "php-http/discovery": true,
+            "tbachert/spi": false
         }
     },
     "minimum-stability": "stable",

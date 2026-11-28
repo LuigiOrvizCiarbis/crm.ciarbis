@@ -4,19 +4,26 @@ namespace Tests\Feature\Api;
 
 use App\Ai\Agents\WorkspaceAssistant;
 use App\Enums\AiProvider;
+use App\Jobs\SendLangfuseScoreJob;
 use App\Models\AiConfig;
+use App\Models\AssistantMessageTrace;
 use App\Models\AssistantUsage;
 use App\Models\Tenant;
 use App\Models\TenantMembership;
 use App\Models\User;
+use App\Services\Observability\Langfuse\LangfuseNames;
+use App\Services\Observability\Langfuse\LangfuseTracer;
+use ArrayObject;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
 use Laravel\Ai\Approvals\PendingApproval;
 use Laravel\Ai\Models\ConversationMessage;
 use Laravel\Ai\Prompts\AgentPrompt;
 use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Sanctum\Sanctum;
+use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
@@ -159,6 +166,40 @@ class AssistantChatTest extends TestCase
 
         Sanctum::actingAs($this->memberOf($this->tenant));
         $this->putJson("/api/assistant/messages/{$assistantMessage}/feedback", ['rating' => -1])->assertNotFound();
+    }
+
+    public function test_chat_is_traced_and_feedback_is_sent_as_score(): void
+    {
+        $exporter = new InMemoryExporter(new ArrayObject);
+        $tracer = LangfuseTracer::withExporter($exporter, [
+            'enabled' => true, 'environment' => 'testing', 'release' => null, 'timeout' => 3, 'max_string_chars' => 50000,
+        ]);
+        $this->app->instance(LangfuseTracer::class, $tracer);
+        $conversationId = $this->createConversation('Resumen');
+
+        $this->chat($conversationId, 'Resumen')->streamedContent();
+        $tracer->flush();
+
+        $span = collect($exporter->getSpans())->first(fn ($s) => $s->getName() === LangfuseNames::WORKSPACE_ASSISTANT);
+        $this->assertNotNull($span);
+        $this->assertSame('assistant-'.$conversationId, $span->getAttributes()->toArray()['langfuse.session.id']);
+
+        $assistantMessage = ConversationMessage::query()
+            ->where('conversation_id', $conversationId)
+            ->where('role', 'assistant')
+            ->value('id');
+        $trace = AssistantMessageTrace::query()->find($assistantMessage);
+        $this->assertNotNull($trace);
+        $this->assertSame($span->getContext()->getTraceId(), $trace->trace_id);
+        $this->assertSame($span->getContext()->getSpanId(), $trace->observation_id);
+
+        Queue::fake();
+        $this->putJson("/api/assistant/messages/{$assistantMessage}/feedback", ['rating' => 1])->assertNoContent();
+
+        Queue::assertPushed(SendLangfuseScoreJob::class, fn (SendLangfuseScoreJob $job) => $job->traceId === $trace->trace_id
+            && $job->observationId === $trace->observation_id
+            && $job->feedback->rating === 1
+            && $job->scoreId() === 'crm-'.config('langfuse.environment').'-assistant-'.$assistantMessage.'-u'.$this->member->id);
     }
 
     public function test_pending_action_waits_for_confirmation_and_resumes_with_the_decision(): void

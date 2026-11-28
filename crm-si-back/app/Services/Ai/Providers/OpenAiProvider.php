@@ -9,6 +9,11 @@ use App\Services\Ai\AiTool;
 use App\Services\Ai\AiToolset;
 use App\Services\Ai\AiVerificationResult;
 use App\Services\Ai\ToolLoopDeadline;
+use App\Services\Observability\Langfuse\LangfuseNames;
+use App\Services\Observability\Langfuse\LangfuseObservation;
+use App\Services\Observability\Langfuse\LangfuseTracer;
+use App\Services\Observability\Langfuse\ObservationType;
+use App\Services\Observability\Langfuse\UsageDetails;
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\ClientInterface;
 use Illuminate\Http\Client\Response;
@@ -42,11 +47,13 @@ class OpenAiProvider implements AiProvider
                 return $this->generateWithTools($model, $messages, $toolset);
             }
 
-            $response = $this->client((float) config('services.ai.generate_timeout', 60))->chat()->create([
+            $generation = $this->startGeneration(LangfuseNames::RESPOND, $model, $messages, []);
+            $response = $this->traced($generation, fn () => $this->client((float) config('services.ai.generate_timeout', 60))->chat()->create([
                 'model' => $model,
                 'max_tokens' => 1024,
                 'messages' => $messages,
-            ]);
+            ]));
+            $this->endGeneration($generation, $response);
 
             $content = $response->choices[0]->message->content ?? null;
 
@@ -95,12 +102,14 @@ class OpenAiProvider implements AiProvider
                 return null;
             }
 
-            $response = $this->client($deadline->requestTimeout($driverTimeout))->chat()->create([
+            $generation = $this->startGeneration(LangfuseNames::RESPOND, $model, $messages, array_map(fn (array $tool) => $tool['function']['name'], $tools));
+            $response = $this->traced($generation, fn () => $this->client($deadline->requestTimeout($driverTimeout))->chat()->create([
                 'model' => $model,
                 'max_tokens' => 1024,
                 'messages' => $messages,
                 'tools' => $tools,
-            ]);
+            ]));
+            $this->endGeneration($generation, $response, $round);
 
             $message = $response->choices[0]->message;
             $toolCalls = $message->toolCalls;
@@ -150,7 +159,7 @@ class OpenAiProvider implements AiProvider
                 $messages[] = [
                     'role' => 'tool',
                     'tool_call_id' => $call->id,
-                    'content' => $toolset->call($call->function->name, is_array($input) ? $input : []),
+                    'content' => $this->callTool($toolset, $call->function->name, is_array($input) ? $input : []),
                 ];
             }
         }
@@ -164,13 +173,65 @@ class OpenAiProvider implements AiProvider
             ->make();
     }
 
+    /** Abre la generación de Langfuse; $messages trae el system primero (noop sin trace activo). */
+    private function startGeneration(string $name, string $model, array $messages, array $toolNames): LangfuseObservation
+    {
+        return $this->tracer()->current()->generation($name, $model, ['max_tokens' => 1024])
+            ->input(['system' => $messages[0]['content'], 'messages' => array_slice($messages, 1), 'tools' => $toolNames]);
+    }
+
+    /** Ejecuta la llamada al modelo y, si lanza, cierra la generación como fallida y relanza. */
+    private function traced(LangfuseObservation $generation, \Closure $call): mixed
+    {
+        try {
+            return $call();
+        } catch (\Throwable $e) {
+            $generation->fail($e)->end();
+
+            throw $e;
+        }
+    }
+
+    /** Cierra la generación con el contenido, las tool calls y el uso de la respuesta. */
+    private function endGeneration(LangfuseObservation $generation, object $response, ?int $round = null): void
+    {
+        $choice = $response->choices[0] ?? null;
+        $generation->output([
+            'content' => $choice?->message?->content,
+            'tool_calls' => array_map(fn ($call) => [
+                'name' => $call->function->name,
+                'arguments' => $call->function->arguments,
+            ], $choice?->message?->toolCalls ?? []),
+        ])
+            ->usage(UsageDetails::fromOpenAi($response->usage ?? null))
+            ->metadata(array_filter(['stop_reason' => $choice?->finishReason, 'round' => $round], fn ($value) => $value !== null))
+            ->end();
+    }
+
+    /** Ejecuta una herramienta dentro de su span de Langfuse. AiToolset::call nunca lanza. */
+    private function callTool(AiToolset $toolset, string $name, array $input): string
+    {
+        $span = $this->tracer()->current()->child($name, ObservationType::Tool)->input($input);
+        $result = $toolset->call($name, $input);
+        $span->output($result)->end();
+
+        return $result;
+    }
+
+    private function tracer(): LangfuseTracer
+    {
+        return app(LangfuseTracer::class);
+    }
+
     public function decide(array $messages, string $systemPrompt, string $model, bool $offerHandoff = true): AiReplyDecision
     {
         try {
             $client = OpenAI::factory()->withApiKey($this->apiKey)->withHttpClient(new GuzzleClient(['timeout' => (int) config('services.ai.generate_timeout', 60)]))->make();
-            $response = $client->chat()->create([
+            $messages = [['role' => 'system', 'content' => $systemPrompt], ...array_map([$this, 'formatMessage'], $messages)];
+            $generation = $this->startGeneration(LangfuseNames::DECIDE, $model, $messages, $offerHandoff ? ['request_human_handoff'] : []);
+            $response = $this->traced($generation, fn () => $client->chat()->create([
                 'model' => $model, 'max_tokens' => 1024,
-                'messages' => [['role' => 'system', 'content' => $systemPrompt], ...array_map([$this, 'formatMessage'], $messages)],
+                'messages' => $messages,
                 ...($offerHandoff ? ['tools' => [[
                     'type' => 'function', 'function' => [
                         'name' => 'request_human_handoff',
@@ -178,7 +239,8 @@ class OpenAiProvider implements AiProvider
                         'parameters' => self::HANDOFF_TOOL_PARAMETERS,
                     ],
                 ]], 'tool_choice' => 'auto'] : []),
-            ]);
+            ]));
+            $this->endGeneration($generation, $response);
             $choice = $response->choices[0] ?? null;
             $toolCalls = $choice?->message?->toolCalls ?? [];
             foreach ($toolCalls as $call) {

@@ -52,6 +52,8 @@ use App\Policies\WhatsAppFlowPolicy;
 use App\Policies\WhatsAppGroupPolicy;
 use App\Policies\WhatsAppTemplatePolicy;
 use App\Services\Ai\Assistant\AssistantUsageMeter;
+use App\Services\Observability\Langfuse\AgentTracing;
+use App\Services\Observability\Langfuse\LangfuseTracer;
 use App\Support\CurrentWorkspace;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -59,6 +61,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Ai\Events\StepCompleted;
@@ -74,6 +77,8 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->scoped(CurrentWorkspace::class, fn () => new CurrentWorkspace);
+        $this->app->singleton(LangfuseTracer::class, fn () => LangfuseTracer::fromConfig(config('langfuse')));
+        $this->app->singleton(AgentTracing::class);
         $this->app->singleton(AutomationRegistry::class, fn ($app) => new AutomationRegistry(
             triggers: [
                 new EventTriggerHandler('contact.created', 'Contacto creado', 'contact'),
@@ -139,6 +144,16 @@ class AppServiceProvider extends ServiceProvider
                 app(AssistantUsageMeter::class)->record((int) $event->agent->user->tenant_id, $event->response->usage);
             }
         });
+
+        // Traces de IA a Langfuse: los agentes de laravel/ai se trazan por
+        // eventos, y lo acumulado se envía recién al terminar cada job o
+        // request, después de responderle al cliente.
+        Event::subscribe(AgentTracing::class);
+        Queue::after(fn () => app(LangfuseTracer::class)->flush());
+        // Un intento que lanza y se reintenta no pasa por after ni failing.
+        Queue::exceptionOccurred(fn () => app(LangfuseTracer::class)->flush());
+        Queue::failing(fn () => app(LangfuseTracer::class)->flush());
+        $this->app->terminating(fn () => app(LangfuseTracer::class)->flush());
 
         Gate::policy(Branch::class, BranchPolicy::class);
         Gate::policy(Channel::class, ChannelPolicy::class);

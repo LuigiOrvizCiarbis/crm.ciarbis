@@ -16,6 +16,11 @@ use App\Services\Ai\Providers\AnthropicProvider;
 use App\Services\Ai\Providers\OpenAiProvider;
 use App\Services\Ai\ToolLoopDeadline;
 use App\Services\AiReplyService;
+use App\Services\Observability\Langfuse\LangfuseNames;
+use App\Services\Observability\Langfuse\LangfuseTracer;
+use App\Services\Observability\Langfuse\ObservationType;
+use App\Services\Observability\Langfuse\TraceContext;
+use ArrayObject;
 use GuzzleHttp\Client as GuzzleClient;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
@@ -23,6 +28,8 @@ use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use OpenTelemetry\SDK\Trace\SpanDataInterface;
+use OpenTelemetry\SDK\Trace\SpanExporter\InMemoryExporter;
 use Psr\Http\Message\RequestInterface;
 use Tests\Feature\Concerns\AiSchedulingFixtures;
 use Tests\TestCase;
@@ -236,6 +243,86 @@ class AiToolLoopTest extends TestCase
         $system = json_decode((string) $this->history[0]['request']->getBody(), true)['system'][0]['text'];
         $this->assertStringContainsString('## Agenda de turnos', $system);
         $this->assertStringEndsWith(AiReplyService::HISTORY_OVERRIDE_RULE, $system);
+    }
+
+    public function test_anthropic_tool_loop_traces_each_round_and_tool(): void
+    {
+        $exporter = $this->useInMemoryTracer();
+        $this->mockAi(AnthropicProvider::class, [
+            $this->anthropicMessage([['type' => 'tool_use', 'id' => 'toolu_1', 'name' => 'consultar', 'input' => ['desde' => '2026-07-21']]], 'tool_use'),
+            $this->anthropicMessage([['type' => 'text', 'text' => 'Tengo lunes 11:00.']]),
+        ]);
+
+        $this->withinTrace(fn () => (new AnthropicProvider('sk-test'))->generate([['role' => 'user', 'content' => 'Quiero un turno']], 'system', 'claude-test', $this->fakeToolset()));
+
+        $this->assertToolLoopSpans($exporter);
+    }
+
+    public function test_openai_tool_loop_traces_each_round_and_tool(): void
+    {
+        $exporter = $this->useInMemoryTracer();
+        $this->mockAi(OpenAiProvider::class, [
+            $this->openAiCompletion(null, [['id' => 'call_1', 'type' => 'function', 'function' => ['name' => 'consultar', 'arguments' => '{"desde":"2026-07-21"}']]]),
+            $this->openAiCompletion('Tengo martes 9:00.'),
+        ]);
+
+        $this->withinTrace(fn () => (new OpenAiProvider('sk-test'))->generate([['role' => 'user', 'content' => 'Quiero un turno']], 'system', 'gpt-test', $this->fakeToolset()));
+
+        $this->assertToolLoopSpans($exporter);
+    }
+
+    public function test_failed_model_call_marks_generation_as_error(): void
+    {
+        $exporter = $this->useInMemoryTracer();
+        $this->mockAi(AnthropicProvider::class, [
+            new Response(500, ['Content-Type' => 'application/json'], json_encode(['type' => 'error', 'error' => ['type' => 'api_error', 'message' => 'Internal error']])),
+        ]);
+
+        $reply = $this->withinTrace(fn () => (new AnthropicProvider('sk-test'))->generate([['role' => 'user', 'content' => 'Hola']], 'system', 'claude-test', $this->fakeToolset()));
+
+        $this->assertNull($reply);
+        $generation = collect($exporter->getSpans())->first(fn (SpanDataInterface $span) => $span->getName() === LangfuseNames::RESPOND);
+        $this->assertNotNull($generation);
+        $this->assertSame('ERROR', $generation->getAttributes()->get('langfuse.observation.level'));
+    }
+
+    private function useInMemoryTracer(): InMemoryExporter
+    {
+        $exporter = new InMemoryExporter(new ArrayObject);
+        $this->app->instance(LangfuseTracer::class, LangfuseTracer::withExporter($exporter, [
+            'environment' => 'testing', 'release' => null, 'timeout' => 3, 'max_string_chars' => 50000,
+        ]));
+
+        return $exporter;
+    }
+
+    /** Corre $call dentro de un trace raíz y exporta lo grabado. */
+    private function withinTrace(\Closure $call): mixed
+    {
+        $tracer = app(LangfuseTracer::class);
+        $root = $tracer->startTrace('test-root', ObservationType::Agent, new TraceContext);
+        $result = $tracer->within($root, $call);
+        $root->end();
+        $tracer->flush();
+
+        return $result;
+    }
+
+    /** Dos rondas `respond` y la herramienta, todas colgadas del raíz. */
+    private function assertToolLoopSpans(InMemoryExporter $exporter): void
+    {
+        $spans = collect($exporter->getSpans());
+        $rootId = $spans->first(fn (SpanDataInterface $span) => $span->getName() === 'test-root')->getContext()->getSpanId();
+        $generations = $spans->filter(fn (SpanDataInterface $span) => $span->getName() === LangfuseNames::RESPOND);
+        $tool = $spans->first(fn (SpanDataInterface $span) => $span->getName() === 'consultar');
+
+        $this->assertSame(['0', '1'], $generations->map(fn (SpanDataInterface $span) => $span->getAttributes()->get('langfuse.observation.metadata.round'))->sort()->values()->all());
+        $this->assertNotNull($tool);
+        $this->assertSame('tool', $tool->getAttributes()->get('langfuse.observation.type'));
+        $this->assertSame('{"desde":"2026-07-21"}', $tool->getAttributes()->get('langfuse.observation.input'));
+        $this->assertSame('"resultado de consultar"', $tool->getAttributes()->get('langfuse.observation.output'));
+        $spans->reject(fn (SpanDataInterface $span) => $span->getName() === 'test-root')
+            ->each(fn (SpanDataInterface $span) => $this->assertSame($rootId, $span->getParentSpanId()));
     }
 
     /**

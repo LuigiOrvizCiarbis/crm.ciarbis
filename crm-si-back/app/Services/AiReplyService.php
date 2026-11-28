@@ -16,6 +16,9 @@ use App\Services\Ai\AiToolset;
 use App\Services\Ai\AiToolsetGroup;
 use App\Services\Ai\CatalogProductSearch;
 use App\Services\Commerce\CommerceToolsetFactory;
+use App\Services\Observability\Langfuse\LangfuseNames;
+use App\Services\Observability\Langfuse\LangfuseTracer;
+use App\Services\Observability\Langfuse\ObservationType;
 use App\Services\Scheduling\AppointmentToolsetFactory;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Facades\Log;
@@ -116,9 +119,13 @@ class AiReplyService
 
         $toolset = $this->toolsetFor($conversation);
 
+        $systemPrompt = $this->systemPrompt($config, $conversation->tenant_id, $messages, $toolset);
+        // Pisa el input de decide: el raíz queda con el contexto del texto enviado.
+        $this->tracer()->current()->input(['system' => $systemPrompt, 'messages' => $messages]);
+
         $reply = $provider->generate(
             $messages,
-            $this->systemPrompt($config, $conversation->tenant_id, $messages, $toolset),
+            $systemPrompt,
             $model,
             $toolset,
         );
@@ -155,9 +162,11 @@ class AiReplyService
             $toolset = $this->toolsetFor($conversation);
             // Con la derivación apagada para el tenant, la tool no se ofrece:
             // el modelo sólo puede contestar.
+            $systemPrompt = $this->systemPrompt($config, $conversation->tenant_id, $messages, $toolset, offersHandoff: $config->human_handoff_enabled !== false);
+            $this->tracer()->current()->input(['system' => $systemPrompt, 'messages' => $messages]);
             $decision = $provider->decide(
                 $messages,
-                $this->systemPrompt($config, $conversation->tenant_id, $messages, $toolset, offersHandoff: $config->human_handoff_enabled !== false),
+                $systemPrompt,
                 $model,
                 offerHandoff: $config->human_handoff_enabled !== false,
             );
@@ -431,7 +440,16 @@ class AiReplyService
         $maxProducts = max(1, (int) config('services.ai.catalog_max_products', 12));
         $maxDescription = (int) config('services.ai.catalog_max_description_chars', 300);
         $maxChars = (int) config('services.ai.catalog_max_chars', 12000);
+        $span = $this->tracer()->current()->child(LangfuseNames::CATALOG_SEARCH, ObservationType::Retriever)
+            ->input(['query' => $this->lastCustomerText($messages)]);
         $result = $this->catalogSearch->search($tenantId, $messages, $maxProducts);
+        $span->output([
+            'active' => $result['active'],
+            'matches' => $result['matches'],
+            'broad' => $result['broad'],
+            'catalog_question' => $result['catalog_question'],
+            'products' => array_map(fn (Product $product) => ['id' => $product->id, 'name' => $product->name, 'price' => $product->price], $result['products']),
+        ])->end();
 
         if ($result['active'] === 0) {
             return '';
@@ -466,6 +484,20 @@ class AiReplyService
         }
 
         return implode("\n\n", $sections);
+    }
+
+    /** Texto del último mensaje del cliente para el trace; '[imagen]' si es multimodal. */
+    private function lastCustomerText(array $messages): string
+    {
+        $customer = array_values(array_filter($messages, fn (array $message) => $message['role'] === 'user'));
+        $content = end($customer)['content'] ?? '';
+
+        return is_string($content) ? $content : '[imagen]';
+    }
+
+    private function tracer(): LangfuseTracer
+    {
+        return app(LangfuseTracer::class);
     }
 
     /** Aviso cuando la consulta es sobre el catálogo pero no nombra ni encuentra productos. */

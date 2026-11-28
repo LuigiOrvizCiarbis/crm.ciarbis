@@ -16,6 +16,7 @@ use App\Models\MailConfig;
 use App\Models\Message;
 use App\Models\PipelineStage;
 use App\Models\User;
+use App\Services\Observability\Langfuse\TraceReference;
 use DirectoryTree\ImapEngine\FolderInterface;
 use DirectoryTree\ImapEngine\MessageInterface;
 use Illuminate\Database\QueryException;
@@ -1070,7 +1071,7 @@ class MailMessageService
      * Auto-respuesta de IA: igual que el envío manual pero con sender SYSTEM y
      * sin handoff (el bot no se apaga a sí mismo).
      */
-    public function sendSystemTextMessageFromCRM(Conversation $conversation, string $content): Message
+    public function sendSystemTextMessageFromCRM(Conversation $conversation, string $content, ?TraceReference $aiTrace = null): Message
     {
         ['config' => $config, 'to' => $to] = $this->resolveOutboundContext($conversation);
 
@@ -1086,6 +1087,8 @@ class MailMessageService
             'message_type' => MessageType::Text,
             'external_id' => $externalId ?: null,
             'mail_message_id' => $externalId ?: null,
+            'ai_trace_id' => $aiTrace?->traceId,
+            'ai_observation_id' => $aiTrace?->observationId,
         ]);
 
         $conversation->update([

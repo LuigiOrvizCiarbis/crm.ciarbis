@@ -4,6 +4,10 @@ namespace App\Jobs;
 
 use App\Models\DocumentExtraction;
 use App\Services\DocumentExtractionService;
+use App\Services\Observability\Langfuse\LangfuseNames;
+use App\Services\Observability\Langfuse\LangfuseTracer;
+use App\Services\Observability\Langfuse\ObservationType;
+use App\Services\Observability\Langfuse\TraceContext;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -59,7 +63,7 @@ class ExtractDocumentDataJob implements ShouldQueue
             return;
         }
 
-        $result = $service->run($extraction);
+        $result = $this->runWithinTrace($service, $extraction);
 
         if (! $result['ok']) {
             $extraction->forceFill([
@@ -86,6 +90,35 @@ class ExtractDocumentDataJob implements ShouldQueue
             $result['inputTokens'] ?? null,
             $result['outputTokens'] ?? null,
         );
+    }
+
+    /** Corre la extracción dentro del trace raíz de Langfuse. */
+    private function runWithinTrace(DocumentExtractionService $service, DocumentExtraction $extraction): array
+    {
+        $tracer = app(LangfuseTracer::class);
+        $root = $tracer->startTrace(LangfuseNames::DOCUMENT_EXTRACTION, ObservationType::Chain, new TraceContext(
+            userId: $extraction->requested_by ? 'user-'.$extraction->requested_by : null,
+            metadata: ['tenant_id' => $this->tenantId, 'extraction_id' => $extraction->id, 'contact_id' => $extraction->contact_id],
+            tags: ['document-extraction'],
+        ));
+
+        try {
+            $result = $tracer->within($root, fn () => $service->run($extraction));
+            $root->output([
+                'ok' => $result['ok'],
+                'error_code' => $result['errorCode'] ?? null,
+                'coverage' => $result['coverage'] ?? null,
+                'pages_without_text' => $result['pagesWithoutText'] ?? null,
+            ]);
+
+            return $result;
+        } catch (\Throwable $e) {
+            $root->fail($e);
+
+            throw $e;
+        } finally {
+            $root->end();
+        }
     }
 
     /**

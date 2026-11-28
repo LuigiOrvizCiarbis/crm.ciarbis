@@ -30,7 +30,7 @@ const NewGroupDialog = dynamic(
 import { useChatState } from "@/hooks/useChatState"
 import { useToast } from "@/components/Toast"
 import { ChannelError, ChannelErrorDetail } from "@/lib/channel-error"
-import { FilterType, Channel, Conversation, ConversationView, Message, TranslationLanguage } from "@/data/types"
+import { AiFeedbackRating, FilterType, Channel, Conversation, ConversationView, Message, TranslationLanguage } from "@/data/types"
 import { ChannelType, filterTypeToChannelType } from "@/data/enums"
 import { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
@@ -80,7 +80,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
-import { sendMessage, sendContactsMessage, saveSharedContact, sendMailMessage, editMessage, deleteMessage, translateMessage, reactToMessage, type SendMailMessageInput } from "@/lib/api/messages"
+import { sendMessage, sendContactsMessage, saveSharedContact, sendMailMessage, editMessage, deleteMessage, translateMessage, reactToMessage, sendAiMessageFeedback, type SendMailMessageInput } from "@/lib/api/messages"
 import { sendFlowMessage, type SendFlowInput } from "@/lib/api/whatsapp-flows"
 import { ConversationHeader } from "@/components/chat/ConversationHeader"
 import { PendingAiBookingsBanner } from "@/components/chat/PendingAiBookingsBanner"
@@ -1729,6 +1729,57 @@ export default function ChatsPage() {
     }
   }, [currentUserId, addToast, t]);
 
+  // Un PUT de calificación por mensaje a la vez: dos en vuelo llegan sin orden
+  // y la pantalla puede quedar distinta del servidor. El ref corta los clics
+  // dentro del mismo render; el estado deshabilita los botones.
+  const aiRatingsInFlightRef = useRef(new Set<number>());
+  const [pendingAiRatingIds, setPendingAiRatingIds] = useState<ReadonlySet<number>>(() => new Set());
+
+  const setAiRatingPending = useCallback((messageId: number, pending: boolean) => {
+    if (pending) aiRatingsInFlightRef.current.add(messageId);
+    else aiRatingsInFlightRef.current.delete(messageId);
+    setPendingAiRatingIds(new Set(aiRatingsInFlightRef.current));
+  }, []);
+
+  const handleRateAiMessage = useCallback(async (msg: Message, rating: AiFeedbackRating) => {
+    if (aiRatingsInFlightRef.current.has(msg.id)) return;
+    setAiRatingPending(msg.id, true);
+    const previous = msg.ai_feedback;
+    const optimistic = [{ rating }];
+
+    setCurrentConversation((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        messages: (prev.messages || []).map((m: Message) =>
+          m.id === msg.id ? { ...m, ai_feedback: optimistic } : m
+        ),
+      };
+    });
+
+    try {
+      await sendAiMessageFeedback(msg.id, rating);
+    } catch (error) {
+      // Rollback sólo si nadie pisó la proyección optimista mientras el PUT estaba en vuelo.
+      setCurrentConversation((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          messages: (prev.messages || []).map((m: Message) =>
+            m.id === msg.id && m.ai_feedback === optimistic ? { ...m, ai_feedback: previous } : m
+          ),
+        };
+      });
+      addToast({
+        type: "error",
+        title: t("chats.aiFeedbackError"),
+        description: error instanceof Error ? error.message : t("chats.unknownError"),
+      });
+    } finally {
+      setAiRatingPending(msg.id, false);
+    }
+  }, [addToast, t, setAiRatingPending]);
+
   const handleDeleteMessage = useCallback(async (msg: Message) => {
     try {
       await deleteMessage(msg.id);
@@ -2799,6 +2850,8 @@ export default function ChatsPage() {
                   onEditMessage={handleEditMessage}
                   onDeleteMessage={handleDeleteMessage}
                   onReactMessage={handleReactToMessage}
+                  onRateAi={handleRateAiMessage}
+                  pendingAiRatingIds={pendingAiRatingIds}
                   onReplyMessage={handleReplyMessage}
                   contactName={activeConversation.contact?.name}
                   onSaveContact={handleSaveSharedContact}
