@@ -190,15 +190,33 @@ final class LangfuseTracer
             'langfuse.release' => $this->config['release'] ?? null,
             'langfuse.session.id' => $context->sessionId,
             'langfuse.user.id' => $context->userId,
-            'langfuse.trace.tags' => array_values(array_filter($context->tags, fn (string $tag) => $tag !== '')),
+            'langfuse.trace.tags' => $this->tags($context),
         ], fn ($value) => $value !== null && $value !== '' && $value !== []);
 
-        foreach ($context->metadata as $key => $value) {
+        $metadata = ['tenant_id' => $context->tenantId, 'tenant_name' => $context->tenantName] + $context->metadata;
+        foreach ($metadata as $key => $value) {
             if ($value !== null) {
                 $attributes['langfuse.trace.metadata.'.$key] = is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
             }
         }
 
         return $attributes;
+    }
+
+    /**
+     * Tags del contexto más el del tenant. El tag usa el nombre (legible en
+     * filtros y dashboards); si el tenant se renombra, los traces viejos
+     * conservan el nombre anterior y tenant_id en la metadata los sigue uniendo.
+     *
+     * @return list<string>
+     */
+    private function tags(TraceContext $context): array
+    {
+        $tags = $context->tags;
+        if (filled($context->tenantName) || $context->tenantId !== null) {
+            $tags[] = 'tenant:'.(filled($context->tenantName) ? $context->tenantName : '#'.$context->tenantId);
+        }
+
+        return array_values(array_filter($tags, fn (string $tag) => $tag !== ''));
     }
 }

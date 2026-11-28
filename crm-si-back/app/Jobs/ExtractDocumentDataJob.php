@@ -98,8 +98,10 @@ class ExtractDocumentDataJob implements ShouldQueue
         $tracer = app(LangfuseTracer::class);
         $root = $tracer->startTrace(LangfuseNames::DOCUMENT_EXTRACTION, ObservationType::Chain, new TraceContext(
             userId: $extraction->requested_by ? 'user-'.$extraction->requested_by : null,
-            metadata: ['tenant_id' => $this->tenantId, 'extraction_id' => $extraction->id, 'contact_id' => $extraction->contact_id],
+            metadata: ['extraction_id' => $extraction->id, 'contact_id' => $extraction->contact_id],
             tags: ['document-extraction'],
+            tenantId: $this->tenantId,
+            tenantName: $extraction->tenant?->name,
         ));
 
         try {
